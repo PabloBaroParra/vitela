@@ -7,7 +7,8 @@
 //! positioned against a page. This adds a real `gtk::Entry` as a third child
 //! of the page's `Overlay`, positioned from `pdf_render::place_rect` — the
 //! same "coordinates are pre-scaled in Rust" posture the rest of the shell
-//! uses.
+//! uses. A paragraph block gets a multi-line `TextView` in the entry's place
+//! (`super::paragraph_editor`); everything else here is shared by both.
 //!
 //! The one exception to "no transform" is the page's own turn. A `/Rotate`
 //! makes the run this box is editing run down the screen rather than across
@@ -36,12 +37,14 @@ use pdf_edit::EditError;
 use pdf_render::{place_point, point_to_pdf, PagePlacement, PageRotation};
 
 use crate::app::i18n::tr;
-use crate::app::state::{ContentEditor, DocumentSession, Viewer};
+use crate::app::state::{ContentEditor, DocumentSession, EditorField, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
+use super::camouflage::{self, Camouflage, EditorLook};
 use super::command::{self, pending_move_index, pending_text_command, PendingText};
 use super::model;
+use super::paragraph_editor;
 use super::CLICK_EPSILON_PX;
 
 /// Fixed default box for a newly inserted text run (T-163), in PDF points —
@@ -156,7 +159,17 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         session.selected_image = None;
     }
 
-    let entry = {
+    // A paragraph — a block of several lines — is retyped in a multi-line
+    // field whose line breaks the retype keeps (`super::paragraph_editor`);
+    // a run and a one-line block keep the one-line entry.
+    let field = if model::is_paragraph(&block) {
+        paragraph_editor::new_field(&run.text)
+    } else {
+        let entry = Entry::new();
+        entry.set_text(&run.text);
+        EditorField::Line(entry)
+    };
+    {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return;
@@ -164,30 +177,63 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         let Some(page) = session.pages.get(page_index) else {
             return;
         };
+        let placement = page.placement();
 
-        let entry = Entry::new();
-        entry.set_text(&run.text);
+        // Drawn as the page draws the text it retypes (`super::camouflage`):
+        // the run's font, size and colour over the page's own colour.
+        let outer = field.outer_widget();
+        let look = camouflage::look_for(
+            session,
+            page_index,
+            &run,
+            &block,
+            &outer
+                .pango_context()
+                .font_map()
+                .expect("a widget's font map"),
+        );
+        if let EditorField::Paragraph { view, .. } = &field {
+            view.set_justification(look.justification());
+        }
+        let camouflage = Camouflage::apply(look, &outer, placement.scale);
+
         let frame = Fixed::new();
-        frame.put(&entry, 0.0, 0.0);
-        place_entry(&frame, &entry, run.bbox, page.placement());
+        frame.put(&outer, 0.0, 0.0);
+        place_field(&frame, &field, run.bbox, placement, Some(&camouflage.look));
+        let Some(page) = session.pages.get(page_index) else {
+            return;
+        };
         page.overlay.add_overlay(&frame);
 
         session.content_editor = Some(ContentEditor {
             page_index,
             run: run.clone(),
-            entry: entry.clone(),
+            field: field.clone(),
             frame,
             is_insertion: false,
             amends,
             block,
+            camouflage: Some(camouflage),
         });
+    }
 
-        entry
-    };
-
-    wire_entry(viewer, &entry, false);
-    focus_without_scrolling(&viewer.scroll, &entry);
-    entry.select_region(0, -1);
+    match &field {
+        EditorField::Line(entry) => {
+            wire_entry(viewer, entry, false);
+            // A camouflaged line widens as it is typed past the run (`refit`).
+            entry.connect_changed({
+                let viewer = viewer.clone();
+                move |_| refit(&viewer)
+            });
+            focus_without_scrolling(&viewer.scroll, entry);
+            entry.select_region(0, -1);
+        }
+        // The view opens with its text selected (`new_field`).
+        EditorField::Paragraph { view, .. } => {
+            paragraph_editor::wire(viewer, view);
+            focus_without_scrolling(&viewer.scroll, view);
+        }
+    }
     // The Edit page's "Delete text" is gated on exactly this editor being
     // open over an existing run, so the page learns about it here — the
     // image card's controls are refreshed the same way from every
@@ -287,7 +333,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
         session.content_editor = Some(ContentEditor {
             page_index,
             run,
-            entry: entry.clone(),
+            field: EditorField::Line(entry.clone()),
             frame,
             is_insertion: true,
             block: Vec::new(),
@@ -295,6 +341,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             // one this commit records is what a *later* click on the same
             // text will amend, via the synthetic id the overlay mints for it.
             amends: None,
+            camouflage: None,
         });
 
         entry
@@ -338,24 +385,24 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
 /// of `gtk_widget_get_parent` criticals until the process died. The refusal
 /// is already on the status line; the user fixes the text or presses Escape.
 pub(crate) fn keep_refused_editor(viewer: &Viewer) -> bool {
-    let entry = viewer
+    let field = viewer
         .state
         .borrow()
         .session
         .as_ref()
         .and_then(|session| session.content_editor.as_ref())
-        .map(|editor| editor.entry.clone());
-    let Some(entry) = entry else {
+        .map(|editor| editor.field.focus_widget());
+    let Some(field) = field else {
         return false;
     };
-    focus_without_scrolling(&viewer.scroll, &entry);
+    focus_without_scrolling(&viewer.scroll, &field);
     true
 }
 
-fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
+fn focus_without_scrolling(scroll: &ScrolledWindow, field: &impl IsA<gtk::Widget>) {
     let (horizontal, vertical) = (scroll.hadjustment(), scroll.vadjustment());
     let (left, top) = (horizontal.value(), vertical.value());
-    entry.grab_focus();
+    field.grab_focus();
     horizontal.set_value(left);
     vertical.set_value(top);
 }
@@ -369,8 +416,86 @@ fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
 /// run's box sits, or a rejected move would leave the box somewhere the run
 /// is not.
 fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
-    let (width, height) = entry_size(entry, bbox, page);
+    let size = entry_size(entry, bbox, page);
+    place_sized(frame, entry, size, bbox, page);
+}
 
+/// [`place_entry`] for either kind of field, drawn in `look` when the
+/// editor retypes text already on the page: then the box is the one
+/// `super::camouflage::box_geometry` puts the first baseline on the page's
+/// with, rather than `bbox` itself. A paragraph's view is sized by
+/// `super::paragraph_editor`; both are placed — and turned — the same way.
+fn place_field(
+    frame: &Fixed,
+    field: &EditorField,
+    bbox: Rect,
+    page: PagePlacement,
+    look: Option<&EditorLook>,
+) {
+    match (field, look) {
+        (EditorField::Line(entry), None) => place_entry(frame, entry, bbox, page),
+        (EditorField::Line(entry), Some(look)) => {
+            let (placed, size) = camouflaged_entry_size(entry, look, page);
+            place_sized(frame, entry, size, placed, page);
+        }
+        (EditorField::Paragraph { view, scroller }, _) => {
+            let (placed, size) = paragraph_editor::field_size(view, scroller, bbox, page, look);
+            place_sized(frame, scroller, size, placed, page);
+        }
+    }
+}
+
+/// [`entry_size`] for an entry drawn in `look`: one line of its font tall,
+/// its top where the font's ascent puts the baseline on the run's, and as
+/// wide as the run — or as the typed text, when that is wider, so the line
+/// grows to the right as the page will show it instead of scrolling inside
+/// a box the run's width ([`refit`] re-places it as it changes). Read back
+/// like [`entry_size`] in case GTK still will not go that small; growing
+/// rightwards and downwards keeps the baseline put.
+fn camouflaged_entry_size(
+    entry: &Entry,
+    look: &EditorLook,
+    page: PagePlacement,
+) -> (Rect, (f64, f64)) {
+    let metrics = camouflage::LineMetrics::of(&entry.pango_context(), look, page.scale);
+    let layout = entry.create_pango_layout(Some(&entry.text()));
+    layout.set_font_description(Some(&look.font_description(page.scale)));
+    layout.set_attributes(Some(&look.attributes(page.scale)));
+    let (text_width, _) = layout.pixel_size();
+    let geometry = camouflage::box_geometry(
+        look,
+        page.scale,
+        metrics,
+        metrics.ascent_px + metrics.descent_px,
+    )
+    .grown_to(
+        camouflage::line_width_px(f64::from(text_width)),
+        0.0,
+        page.scale,
+    );
+    entry.set_width_request(geometry.width_px as i32);
+    entry.set_height_request(geometry.height_px as i32);
+    entry.set_max_width_chars(1);
+    let (minimum, _) = entry.preferred_size();
+    let geometry = geometry.grown_to(
+        f64::from(minimum.width()),
+        f64::from(minimum.height()),
+        page.scale,
+    );
+    entry.set_width_request(geometry.width_px as i32);
+    entry.set_height_request(geometry.height_px as i32);
+    (geometry.placed, (geometry.width_px, geometry.height_px))
+}
+
+/// Positions `child`, already `(width, height)` in its own upright frame,
+/// over `bbox` — the arithmetic [`place_entry`] and [`place_field`] share.
+fn place_sized(
+    frame: &Fixed,
+    child: &impl IsA<gtk::Widget>,
+    (width, height): (f64, f64),
+    bbox: Rect,
+    page: PagePlacement,
+) {
     // Where the run's PDF-space top-left corner lands on screen. The entry's
     // own top-left starts there whichever way the page is turned; the turn
     // decides which way the rest of the box then runs.
@@ -395,7 +520,7 @@ fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
     frame.set_margin_top((anchor.1 - local_y).round().max(0.0) as i32);
 
     frame.set_child_transform(
-        entry,
+        child,
         Some(
             &gsk::Transform::new()
                 .translate(&graphene::Point::new(local_x as f32, local_y as f32))
@@ -580,12 +705,38 @@ fn reposition(viewer: &Viewer, bbox: Rect) {
         let state = viewer.state.borrow();
         state.session.as_ref().and_then(|session| {
             let editor = session.content_editor.as_ref()?;
-            let page = session.pages.get(editor.page_index)?;
-            Some((editor.frame.clone(), editor.entry.clone(), page.placement()))
+            let page = session.pages.get(editor.page_index)?.placement();
+            let camouflage = editor.camouflage.as_ref();
+            Some((
+                editor.frame.clone(),
+                editor.field.clone(),
+                page,
+                camouflage.map(|camouflage| camouflage.look.clone()),
+                camouflage.and_then(|camouflage| camouflage.restyle_at(page.scale)),
+            ))
         })
     };
-    if let Some((frame, entry, page)) = editor {
-        place_entry(&frame, &entry, bbox, page);
+    if let Some((frame, field, page, look, restyle)) = editor {
+        if let Some((provider, css)) = restyle {
+            provider.load_from_data(&css);
+        }
+        place_field(&frame, &field, bbox, page, look.as_ref());
+    }
+}
+
+/// Re-fits the open editor's box to what it now holds — a paragraph grows
+/// downwards as lines are typed into it, a camouflaged line rightwards — so
+/// the box keeps covering the text rather than scrolling it out of sight.
+pub(super) fn refit(viewer: &Viewer) {
+    let bbox = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .map(|editor| editor.run.bbox);
+    if let Some(bbox) = bbox {
+        reposition(viewer, bbox);
     }
 }
 
@@ -638,7 +789,9 @@ fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
     let focus = EventControllerFocus::new();
     focus.connect_leave({
         let viewer = viewer.clone();
-        move |_| commit(&viewer)
+        // Weak: the controller lives on this very widget.
+        let entry = entry.upcast_ref::<gtk::Widget>().downgrade();
+        move |_| commit_on_focus_leave(&viewer, entry.clone())
     });
     entry.add_controller(focus);
 
@@ -693,7 +846,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     let Some(editor) = session.content_editor.as_ref() else {
         return;
     };
-    let after = editor.entry.text().to_string();
+    let after = editor.field.text();
 
     if after == editor.run.text {
         let editor = session.content_editor.take().expect("checked above");
@@ -709,10 +862,11 @@ pub(crate) fn commit(viewer: &Viewer) {
     // Recorded through the core's queue policy (`pdf_save::record`), which
     // decides where the retype goes: a run the overlay shows because of a
     // pending insertion or retype is folded into that entry, keeping the
-    // snapshot the file holds, and a block is one batch (B25 T-207).
+    // snapshot the file holds, and a block is one batch (B25 T-207) — a
+    // paragraph's wrapped to its width, line breaks kept.
     let (recorded, message) = if !block.is_empty() {
         (
-            command::record_batch(session, pdf_edit::retype_block(&block, &after, false)),
+            command::record_block_retype(session, &block, &after),
             tr("edit-text-updated"),
         )
     } else if is_insertion {
@@ -835,6 +989,42 @@ pub(crate) fn cancel(viewer: &Viewer) {
     }
 }
 
+/// Commits the editor whose `field` just lost the keyboard focus, once GTK
+/// has finished moving the focus away from it.
+///
+/// Focus-out is emitted from inside `synthesize_focus_change_events`, while
+/// GTK is still walking the old focus widget's ancestors. A commit closes the
+/// editor, and closing it takes the frame off the page overlay: the chain
+/// from the old focus up to the window is cut mid-walk, so GTK's
+/// `for (w = old_focus; w != ancestor; w = gtk_widget_get_parent (w))` never
+/// meets the ancestor and spins on `gtk_widget_get_parent (NULL)` forever —
+/// the frozen window and the endless `GTK_IS_WIDGET` criticals a click on any
+/// focus-taking button (a panel toggle, say) caused while the box was open.
+///
+/// So the commit runs from a high-priority idle — after the focus change,
+/// still ahead of the release half of the click that moved the focus. By
+/// then the editor may already be gone (committed by a canvas click, which
+/// then dropped the cursor here) or replaced by another one, so it only
+/// commits while `field` is still the open editor's.
+pub(super) fn commit_on_focus_leave(viewer: &Viewer, field: glib::WeakRef<gtk::Widget>) {
+    let viewer = viewer.clone();
+    glib::idle_add_local_full(glib::Priority::HIGH, move || {
+        let open = field.upgrade().is_some_and(|field| {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .is_some_and(|editor| editor.field.focus_widget() == field)
+        });
+        if open {
+            commit(&viewer);
+        }
+        glib::ControlFlow::Break
+    });
+}
+
 /// Takes the editor box off the page.
 ///
 /// The single door every editor teardown goes through — commit, cancel, and
@@ -848,6 +1038,10 @@ pub(crate) fn cancel(viewer: &Viewer) {
 /// before detaching), which is what lets both this function and
 /// `update_content_edit_controls` take their own.
 fn detach(viewer: &Viewer, editor: &ContentEditor) {
+    // Before the borrow: dropping the cursor fires the box's focus-out,
+    // which routes to `commit` and borrows the state itself. The editor is
+    // already off the session by now, so that commit finds nothing to do.
+    release_focus(&editor.frame);
     {
         let state = viewer.state.borrow();
         if let Some(page) = state
@@ -859,6 +1053,28 @@ fn detach(viewer: &Viewer, editor: &ContentEditor) {
         }
     }
     update_content_edit_controls(viewer);
+}
+
+/// Takes the cursor out of `frame` when it is in there, leaving the window
+/// with no focus widget at all.
+///
+/// Removing the widget that has the cursor makes GTK move it on by itself, to
+/// the next focusable widget it finds — the tools panel's tab strip, here —
+/// and the canvas's viewport answers that focus change with an eased scroll
+/// of its own (its `scroll-to-focus`; turning that off stops it). That is
+/// what slid a zoomed-in page sideways on every commit, click-away or
+/// Escape. With the focus cleared first there is nothing for GTK to move and
+/// nothing for the viewport to chase; the next click or Tab starts afresh.
+fn release_focus(frame: &Fixed) {
+    let Some(root) = frame.root() else {
+        return;
+    };
+    if root
+        .focus()
+        .is_some_and(|focused| focused.is_ancestor(frame))
+    {
+        root.set_focus(None::<&gtk::Widget>);
+    }
 }
 
 #[cfg(test)]
@@ -1131,6 +1347,143 @@ mod tests {
         built.window.close();
     }
 
+    /// Where the canvas sits once an editor opened on a parked canvas has
+    /// been committed and the loop has run dry — over a lone run when
+    /// `paragraph` is false, over a two-line paragraph block when it is true.
+    ///
+    /// The shell's own `viewer.scroll` and a real `open_editor`/`commit`, so
+    /// the box that loses the cursor is the one the user typed in. No pdfium:
+    /// the commit's preview refresh is held back by marking one in flight.
+    fn canvas_after_a_commit(paragraph: bool) -> ((f64, f64), (f64, f64)) {
+        const PARKED: (f64, f64) = (60.0, 40.0);
+
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        // The window the bug was seen in. Narrower, and the tools panel
+        // folds away — and with it the only widget GTK could move the cursor
+        // on to, which is the move that scrolls the canvas.
+        built.window.set_default_size(1_000, 720);
+        built.window.present();
+        struct Teardown<'a>(&'a crate::app::BuiltUi);
+        impl Drop for Teardown<'_> {
+            fn drop(&mut self) {
+                self.0.viewer.state.borrow_mut().session = None;
+                self.0.window.close();
+            }
+        }
+        let _teardown = Teardown(&built);
+
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the fixture page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+        // Wider and taller than the viewport, so there is a position to lose.
+        let page = Picture::new();
+        page.set_width_request(2_000);
+        page.set_height_request(1_500);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&page));
+        overlay.set_halign(gtk::Align::Center);
+        built.viewer.pages.append(&overlay);
+        session
+            .pages
+            .push(crate::app::test_fixtures::page_slot(overlay));
+        session.page_heights.push(1_500);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            state.session = Some(session);
+            state.content_edit_mode = true;
+            state.preview_refresh_in_flight = true;
+        }
+        settle(&built.viewer.pages);
+
+        let (horizontal, vertical) = (
+            built.viewer.scroll.hadjustment(),
+            built.viewer.scroll.vadjustment(),
+        );
+        horizontal.set_value(PARKED.0);
+        vertical.set_value(PARKED.1);
+        pump();
+        assert_eq!(
+            (horizontal.value(), vertical.value()),
+            PARKED,
+            "the canvas has to start away from the origin, \
+             or a jump cannot be told from a no-op"
+        );
+
+        if paragraph {
+            let stand_in = model::block_stand_in(runs[0].clone(), &runs);
+            open_editor(&built.viewer, 0, stand_in, runs.clone());
+        } else {
+            open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());
+        }
+        pump();
+
+        let field = built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .map(|editor| editor.field.clone())
+            .expect("the editor opened");
+        // The cursor has to be in the box, or there is nothing for its
+        // removal to hand on and the assertion below passes for free.
+        let focused =
+            gtk::prelude::RootExt::focus(&built.window).expect("something took the cursor");
+        assert!(
+            focused.is_ancestor(&field.focus_widget()) || focused == field.focus_widget(),
+            "the cursor has to land inside the box"
+        );
+        match &field {
+            EditorField::Line(entry) => entry.set_text("Edited line"),
+            EditorField::Paragraph { view, .. } => view.buffer().set_text("Edited\nparagraph"),
+        }
+
+        commit(&built.viewer);
+        // Long enough for an animated scroll to run its course: a jump is
+        // eased in over several frames, not set at once.
+        for _ in 0..3 {
+            pump();
+        }
+
+        assert!(
+            built
+                .viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .is_some_and(|session| session.content_editor.is_none()),
+            "the commit has to land and close the box: {:?}",
+            built.viewer.status.text()
+        );
+        (PARKED, (horizontal.value(), vertical.value()))
+    }
+
+    /// Closing the box handed the cursor to GTK, which moved it on by
+    /// itself — and the canvas viewport scrolls to reveal whatever gains
+    /// focus inside it, so the page slid away from where the user was
+    /// reading. Reported zoomed in: "the page goes to the middle".
+    #[gtk::test]
+    fn gtk_ui_committing_a_line_leaves_the_canvas_where_it_was() {
+        let (parked, after) = canvas_after_a_commit(false);
+        assert_eq!(after, parked, "committing a run must not scroll the canvas");
+    }
+
+    /// The same for the multi-line paragraph field, whose view sits in a
+    /// scroller of its own.
+    #[gtk::test]
+    fn gtk_ui_committing_a_paragraph_leaves_the_canvas_where_it_was() {
+        let (parked, after) = canvas_after_a_commit(true);
+        assert_eq!(
+            after, parked,
+            "committing a paragraph must not scroll the canvas"
+        );
+    }
+
     /// Pumps the main loop until `widget` has been allocated.
     fn settle(widget: &impl IsA<gtk::Widget>) {
         let context = glib::MainContext::default();
@@ -1141,6 +1494,114 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+
+    /// A click inside an open one-line box lands on the entry drawn in the
+    /// run's own font, not on the page under it (which reads as a click away
+    /// and commits the box shut); and text typed past the run widens the box
+    /// instead of scrolling inside it.
+    #[gtk::test]
+    fn gtk_ui_a_camouflaged_line_takes_its_clicks_and_widens_as_typed() {
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        built.window.set_default_size(1_000, 720);
+        built.window.present();
+        struct Teardown<'a>(&'a crate::app::BuiltUi);
+        impl Drop for Teardown<'_> {
+            fn drop(&mut self) {
+                self.0.viewer.state.borrow_mut().session = None;
+                self.0.window.close();
+            }
+        }
+        let _teardown = Teardown(&built);
+
+        let base = gen_fixtures::build_spaced_line_page_document(&["Cantidad"], 100);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the fixture page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+        let scale = 6.0;
+        let picture = Picture::new();
+        picture.set_width_request((595.0 * scale) as i32);
+        picture.set_height_request((842.0 * scale) as i32);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&picture));
+        overlay.set_halign(gtk::Align::Center);
+        built.viewer.pages.append(&overlay);
+        let mut slot = crate::app::test_fixtures::page_slot(overlay.clone());
+        slot.budget.factor = scale;
+        session.pages.push(slot);
+        session.page_heights.push((842.0 * scale) as i32);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            state.session = Some(session);
+            state.content_edit_mode = true;
+            state.preview_refresh_in_flight = true;
+        }
+        settle(&built.viewer.pages);
+
+        open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());
+        pump();
+
+        let entry = match built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .map(|editor| editor.field.clone())
+            .expect("the editor opened")
+        {
+            EditorField::Line(entry) => entry,
+            EditorField::Paragraph { .. } => panic!("one run opens an entry"),
+        };
+        let bbox = runs[0].bbox;
+        // As the layout left it: the window's fit may have rescaled the page.
+        let page = built.viewer.state.borrow().session.as_ref().unwrap().pages[0].placement();
+        let centre = place_point(
+            (bbox.x + bbox.width / 2.0, bbox.y + bbox.height / 2.0),
+            page,
+        );
+        let picked = overlay
+            .pick(centre.0, centre.1, gtk::PickFlags::DEFAULT)
+            .expect("something is under the click");
+        assert!(
+            picked == entry.clone().upcast::<gtk::Widget>() || picked.is_ancestor(&entry),
+            "picked {} at {centre:?}; entry at {:?} {}x{} req {:?} frame {:?}",
+            picked.type_().name(),
+            entry.compute_point(&overlay, &graphene::Point::new(0.0, 0.0)),
+            entry.width(),
+            entry.height(),
+            entry.size_request(),
+            entry.parent().map(|frame| (
+                frame.margin_start(),
+                frame.margin_top(),
+                frame.width(),
+                frame.height()
+            )),
+        );
+
+        // Typed past the run, the line widens rather than scrolling.
+        let (opened, _) = entry.size_request();
+        entry.set_text("Cantidad y mucho texto mas");
+        let (typed, _) = entry.size_request();
+        assert!(typed > opened, "{opened} -> {typed}");
+
+        // Zoomed out with the box open, the next keystroke re-measures the
+        // box at the new zoom — and the text it holds is drawn at it too.
+        let font_size = || {
+            pump();
+            let description = entry.pango_context().font_description().unwrap();
+            f64::from(description.size())
+        };
+        let before = font_size();
+        if let Some(session) = built.viewer.state.borrow_mut().session.as_mut() {
+            session.pages[0].budget.factor = page.scale / 2.0;
+        }
+        entry.set_text("Cantidad y mucho texto");
+        let after = font_size();
+        assert!((after / before - 0.5).abs() < 0.05, "{before} -> {after}");
     }
 
     /// Runs the loop dry, for the settling that is not about one widget's size.
@@ -1274,7 +1735,10 @@ mod tests {
                 .session
                 .as_ref()
                 .and_then(|session| session.content_editor.as_ref())
-                .map(|editor| (editor.run.text.clone(), editor.entry.clone()))
+                .map(|editor| match &editor.field {
+                    EditorField::Line(entry) => (editor.run.text.clone(), entry.clone()),
+                    EditorField::Paragraph { .. } => panic!("a single run opens an entry"),
+                })
         };
 
         open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());

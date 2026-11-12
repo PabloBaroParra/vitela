@@ -139,8 +139,8 @@ pub use types::{
     FfiContentTextRun, FfiDocumentInfo, FfiEditCommand, FfiFontKind, FfiFreeTextLayout,
     FfiFreeTextLine, FfiImageWatermark, FfiOrientation, FfiPageContent, FfiPageDimensions,
     FfiPageSize, FfiPathPaint, FfiPdfDate, FfiPdfDateOffset, FfiPoint, FfiRect, FfiRenderOptions,
-    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextBlock,
-    FfiTextRect, FfiTextRun, FfiWatermark, FfiWatermarkLayer,
+    FfiRenderTile, FfiSaveIntent, FfiSearchResult, FfiSignatureAcknowledgement, FfiTextAlignment,
+    FfiTextBlock, FfiTextLine, FfiTextRect, FfiTextRun, FfiWatermark, FfiWatermarkLayer,
 };
 pub use watermark::{default_image_watermark, default_watermark};
 

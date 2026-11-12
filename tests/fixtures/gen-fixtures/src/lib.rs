@@ -194,7 +194,19 @@ pub fn build_multi_page_document(num_pages: u32, label_prefix: &str) -> Document
 /// text lines at descending vertical positions — used to prove how pdfium's
 /// text extraction separates visual lines (Batch 3 text-run work). Each label
 /// in `lines` is drawn in its own text object at a distinct baseline.
+///
+/// The lines are 24pt Helvetica 40pt apart — a paragraph's leading, so
+/// `pdf_edit::group_text_runs` reads two or more of them as one paragraph
+/// block. [`build_spaced_line_page_document`] spaces them far enough apart to
+/// stay separate blocks.
 pub fn build_multi_line_page_document(lines: &[&str]) -> Document {
+    build_spaced_line_page_document(lines, 40)
+}
+
+/// [`build_multi_line_page_document`] with the baselines `leading` points
+/// apart. A leading well past twice the 24pt font size (say 100) is a
+/// paragraph break, so every line is a block of its own.
+pub fn build_spaced_line_page_document(lines: &[&str], leading: i64) -> Document {
     let mut doc = Document::with_version("1.5");
     doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
 
@@ -216,7 +228,7 @@ pub fn build_multi_line_page_document(lines: &[&str]) -> Document {
         operations.push(Operation::new("Td", vec![100.into(), baseline.into()]));
         operations.push(Operation::new("Tj", vec![Object::string_literal(*line)]));
         operations.push(Operation::new("ET", vec![]));
-        baseline -= 40;
+        baseline -= leading;
     }
 
     let content_id = doc.add_object(Stream::new(

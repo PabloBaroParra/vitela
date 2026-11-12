@@ -143,7 +143,9 @@ pub fn inserted_text_run_bbox(
     let font_dict = font_resource(document, page_object, &run.resource_font_name)
         .unwrap_or_else(inserted_font_dictionary);
     let font = resolve_font(document, &font_dict, &run.resource_font_name)?;
-    let width = font.width_of(&font.encode(&run.text)?) * run.bbox.height;
+    // Measured as `crate::insert_text_run_like` writes it: a character the
+    // page's font lacks goes out in its fallback face.
+    let width = font.width_with_fallback(&run.text)? * run.bbox.height;
     Ok(pdf_document::Rect { width, ..run.bbox })
 }
 
@@ -367,15 +369,15 @@ pub(crate) fn standard_font_resource_name_in(
         .unwrap_or_default();
 
     for (name, object) in fonts.iter() {
+        // A fallback font is reserved for the stretches of a line it was
+        // written for: text inserted in it would join that line.
+        if crate::encoding::fallback::is_fallback_resource(&String::from_utf8_lossy(name)) {
+            continue;
+        }
         let Some(font) = dereferenced_dict(document, object) else {
             continue;
         };
-        if crate::encoding::resolved_name(document, &font, b"Subtype").as_deref() == Some("Type1")
-            && crate::encoding::resolved_name(document, &font, b"BaseFont").as_deref()
-                == Some(base_font)
-            && crate::encoding::resolved_name(document, &font, b"Encoding").as_deref()
-                == Some("WinAnsiEncoding")
-        {
+        if is_standard_font(document, &font, base_font) {
             return String::from_utf8_lossy(name).into_owned();
         }
     }
@@ -388,6 +390,59 @@ pub(crate) fn standard_font_resource_name_in(
     }
 
     unreachable!("the finite font dictionary cannot occupy every u32 suffix")
+}
+
+/// The resource a character the run's own font lacks is written in: a
+/// [`standard_font_dictionary`] of its fallback face registered under a reserved
+/// [`crate::encoding::fallback::FALLBACK_RESOURCE_PREFIX`] name for `font`,
+/// reusing one already there, or the first free `VFb{n}.{owner}`.
+///
+/// Only a reserved name is reused — never an `FVitela` font of the same face
+/// — because the name is what tells the grouping pass that a run in it
+/// continues the line around it.
+pub(crate) fn fallback_font_resource_name_in(
+    document: &Document,
+    resources: &Dictionary,
+    font: &crate::encoding::FontInfo,
+) -> String {
+    let (base_font, owner) = (font.fallback_base_font(), font.resource_name.as_str());
+    let fonts = resources
+        .get(b"Font")
+        .ok()
+        .and_then(|object| dereferenced_dict(document, object))
+        .unwrap_or_default();
+
+    for (name, object) in fonts.iter() {
+        let name = String::from_utf8_lossy(name);
+        if crate::encoding::fallback::owner_of(&name) != Some(owner) {
+            continue;
+        }
+        if dereferenced_dict(document, object)
+            .is_some_and(|font| is_standard_font(document, &font, base_font))
+        {
+            return name.into_owned();
+        }
+    }
+
+    for suffix in 1_u32.. {
+        let candidate = format!(
+            "{}{suffix}.{owner}",
+            crate::encoding::fallback::FALLBACK_RESOURCE_PREFIX
+        );
+        if fonts.get(candidate.as_bytes()).is_err() {
+            return candidate;
+        }
+    }
+
+    unreachable!("the finite font dictionary cannot occupy every u32 suffix")
+}
+
+/// Whether `font` is [`standard_font_dictionary`]`(base_font)` in effect.
+fn is_standard_font(document: &Document, font: &Dictionary, base_font: &str) -> bool {
+    crate::encoding::resolved_name(document, font, b"Subtype").as_deref() == Some("Type1")
+        && crate::encoding::resolved_name(document, font, b"BaseFont").as_deref() == Some(base_font)
+        && crate::encoding::resolved_name(document, font, b"Encoding").as_deref()
+            == Some("WinAnsiEncoding")
 }
 
 /// Adds a standard font under `name` unless `owner` already has a font
@@ -421,7 +476,11 @@ pub(crate) fn ensure_standard_font_resource(
     add_resource(document, owner, b"Font", name, Object::Reference(font_id))
 }
 
-fn font_resource(document: &Document, owner: ObjectId, name: &str) -> Option<Dictionary> {
+pub(crate) fn font_resource(
+    document: &Document,
+    owner: ObjectId,
+    name: &str,
+) -> Option<Dictionary> {
     let resources = owned_resources_snapshot(document, owner);
     let fonts = dereferenced_dict(document, resources.get(b"Font").ok()?)?;
     dereferenced_dict(document, fonts.get(name.as_bytes()).ok()?)

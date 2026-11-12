@@ -10,10 +10,11 @@ use pdf_document::{Command, TextRun};
 
 use crate::document::{content_editing_is_allowed, DocumentHandle, DocumentState};
 use crate::error::FfiError;
-use crate::types::{FfiContentTextRun, FfiTextBlock};
+use crate::types::{FfiContentTextRun, FfiTextBlock, FfiTextLine};
 
-/// The text blocks on `page`, as the reader sees them: pending edits are
-/// layered on first, exactly as `read_page_content` does, so a block's runs
+/// The text blocks on `page`, one line each (`pdf_edit::group_text_lines`:
+/// these shells edit a block as a single line), as the reader sees them:
+/// pending edits are layered on first, exactly as `read_page_content` does, so a block's runs
 /// can be sent straight back into the block edits.
 #[uniffi::export]
 pub fn read_page_text_blocks(
@@ -22,16 +23,29 @@ pub fn read_page_text_blocks(
 ) -> Result<Vec<FfiTextBlock>, FfiError> {
     let runs = handle.read_page_content(page)?.text_runs;
     let core: Vec<TextRun> = runs.iter().cloned().map(TextRun::from).collect();
-    Ok(pdf_edit::group_text_runs(&core)
+    let members = |ids: &[pdf_document::ContentItemId]| -> Vec<FfiContentTextRun> {
+        ids.iter()
+            .filter_map(|id| runs.iter().find(|run| run.id == id.0).cloned())
+            .collect()
+    };
+    Ok(pdf_edit::group_text_lines(&core)
         .into_iter()
         .map(|block| FfiTextBlock {
-            runs: block
-                .runs
-                .iter()
-                .filter_map(|id| runs.iter().find(|run| run.id == id.0).cloned())
-                .collect(),
+            runs: members(&block.runs),
             bbox: block.bbox.into(),
             text: block.text,
+            lines: block
+                .lines
+                .into_iter()
+                .map(|line| FfiTextLine {
+                    runs: members(&line.runs),
+                    bbox: line.bbox.into(),
+                    baseline: line.baseline,
+                    text: line.text,
+                })
+                .collect(),
+            leading: block.leading,
+            alignment: block.alignment.into(),
         })
         .collect())
 }
@@ -60,10 +74,17 @@ pub fn remove_text_block(
     apply_block_edit(handle, runs, pdf_edit::remove_block)
 }
 
-/// Puts all of `text` in the block's first run and removes the others, as
-/// one undo step. `with_inserted_font` paints the first run in a standard
+/// Retypes a block as one undo step.
+///
+/// A one-line block puts all of `text` in its first run and removes the
+/// others. A paragraph wraps `text` to its width — every `'\n'` a line break
+/// the reader typed — one line per run, `leading` apart, lines it grows
+/// painted in the paragraph's own colour, spacing and font
+/// (`pdf_edit::retype_paragraph`).
+///
+/// `with_inserted_font` paints a one-line block's first run in a standard
 /// font instead of its own, as `ReplaceTextRunWithInsertedFont` does for a
-/// single composite-font run.
+/// single composite-font run; a paragraph refuses it.
 #[uniffi::export]
 pub fn retype_text_block(
     handle: &DocumentHandle,
@@ -71,8 +92,23 @@ pub fn retype_text_block(
     text: String,
     with_inserted_font: bool,
 ) -> Result<(), FfiError> {
-    apply_block_edit(handle, runs, |runs| {
-        pdf_edit::retype_block(runs, &text, with_inserted_font)
+    apply_batch_edit(handle, |state| {
+        let runs = runs
+            .into_iter()
+            .map(|run| state.text_run(run))
+            .collect::<Result<Vec<_>, _>>()?;
+        state
+            .with_imported_sources(|sources| {
+                pdf_save::retype_text_block_of(
+                    state.document(),
+                    state.base(),
+                    sources,
+                    &runs,
+                    &text,
+                    with_inserted_font,
+                )
+            })?
+            .ok_or_else(|| unsupported("a text block has at least one run"))
     })
 }
 

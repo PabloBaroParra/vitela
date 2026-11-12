@@ -10,14 +10,23 @@
 //! Editability is therefore a property of *this replacement text in this
 //! font*, never a static flag on the run — the same run accepts `café` and
 //! rejects `日本語`.
+//!
+//! A font's `/ToUnicode` CMap, when it has one, outranks its `/Encoding` in
+//! both directions: it is what the producer wrote to say which character
+//! each code paints, and a subset font routinely gives accented letters codes
+//! nothing else explains (see [`to_unicode`]).
 
+mod afm_widths;
+pub mod fallback;
 pub mod tables;
+pub mod to_unicode;
 pub mod winansi;
 pub mod wrap;
 
 use crate::error::EditError;
 use lopdf::{Dictionary, Document, Object};
 use pdf_document::FontKind;
+use to_unicode::ToUnicodeMap;
 
 /// The advance width assumed for a code the font gives no width for.
 ///
@@ -26,18 +35,32 @@ use pdf_document::FontKind;
 /// an unusual font costs hit-testing accuracy in the shell, not integrity.
 const FALLBACK_WIDTH: f64 = 500.0;
 
+/// The most decoded bytes a `/ToUnicode` stream may take. Real CMaps are a
+/// few kilobytes even for large CID fonts; the cap only bounds a hostile one.
+const MAX_TO_UNICODE_BYTES: usize = 4 * 1024 * 1024;
+
 /// Everything this crate needs to know about one font resource: how its
 /// codes map to characters, and how wide each code is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FontInfo {
     pub resource_name: String,
     pub kind: FontKind,
-    /// Code to character. `None` marks a code this build cannot map — the
-    /// entry that makes an edit fail loudly instead of silently wrong.
+    /// Code to character by `/Encoding` and `/Differences`. `None` marks a
+    /// code this build cannot map that way.
     to_unicode: Vec<Option<char>>,
+    /// The font's `/ToUnicode` CMap, when it has a readable one. It wins
+    /// over `to_unicode` for every code it maps.
+    cmap: Option<ToUnicodeMap>,
+    /// Code to the one character writing it paints: what [`Self::encode`]
+    /// searches. `None` marks a code an edit must never write — the entry
+    /// that makes an edit fail loudly instead of silently wrong.
+    encodable: Vec<Option<char>>,
     /// Advance widths in glyph space (thousandths of an em), by code.
     widths: Vec<Option<f64>>,
     missing_width: f64,
+    /// The standard-14 face a character this font lacks is written in —
+    /// see [`fallback`].
+    fallback_base_font: &'static str,
 }
 
 impl FontInfo {
@@ -45,9 +68,30 @@ impl FontInfo {
     /// cannot map. Never fails: a run that cannot be fully decoded must
     /// still be visible to the user, it just cannot be edited.
     pub fn decode(&self, codes: &[u8]) -> String {
-        codes
-            .iter()
-            .map(|&code| self.to_unicode[code as usize].unwrap_or('\u{FFFD}'))
+        if self.kind == FontKind::EmbeddedComposite {
+            return self.decode_composite(codes);
+        }
+        let mut text = String::new();
+        for &code in codes {
+            match self.cmap.as_ref().and_then(|cmap| cmap.simple(code)) {
+                Some(mapped) => text.push_str(mapped),
+                None => text.push(self.to_unicode[code as usize].unwrap_or('\u{FFFD}')),
+            }
+        }
+        text
+    }
+
+    /// A composite font's codes are multi-byte; only its `/ToUnicode` says
+    /// how wide each is and what it means. Without one every byte stays a
+    /// placeholder, as before. Either way the run still refuses every
+    /// in-place edit — this only makes its text readable.
+    fn decode_composite(&self, codes: &[u8]) -> String {
+        let Some(cmap) = &self.cmap else {
+            return codes.iter().map(|_| '\u{FFFD}').collect();
+        };
+        cmap.split(codes, 2)
+            .into_iter()
+            .map(|(code, length)| cmap.lookup(code, length).unwrap_or("\u{FFFD}"))
             .collect()
     }
 
@@ -83,9 +127,13 @@ impl FontInfo {
 
     /// The lowest code painting `character`. Lowest, not any: `/Differences`
     /// can map two codes to one glyph, and picking deterministically keeps
-    /// save output reproducible.
+    /// save output reproducible. A space prefers code 32 when that paints
+    /// one, since `Tw` word spacing only applies to that byte.
     fn code_for(&self, character: char) -> Option<u8> {
-        self.to_unicode
+        if character == ' ' && self.encodable.get(32) == Some(&Some(' ')) {
+            return Some(32);
+        }
+        self.encodable
             .iter()
             .position(|mapped| *mapped == Some(character))
             .map(|code| code as u8)
@@ -109,47 +157,131 @@ pub fn resolve_font(
     };
 
     let (widths, missing_width) = simple_widths(document, font_dict);
+    let base_font = resolved_name(document, font_dict, b"BaseFont").unwrap_or_default();
     let widths = if kind == FontKind::Standard14 {
-        let base_font = resolved_name(document, font_dict, b"BaseFont").unwrap_or_default();
         apply_standard_14_widths(widths, &base_font, &to_unicode)
     } else {
         widths
+    };
+
+    let cmap = to_unicode_map(document, font_dict);
+    let subset = base_font.contains('+');
+    let encodable = match &cmap {
+        // A full font that declares its `/Encoding` paints by that encoding:
+        // a disagreeing CMap still decodes, but writing its code would paint
+        // the encoding's glyph instead of the typed one.
+        Some(_) if !subset && font_dict.has(b"Encoding") => to_unicode.clone(),
+        Some(cmap) if kind != FontKind::EmbeddedComposite => encodable_codes(
+            &to_unicode,
+            cmap,
+            &widths,
+            last_char(document, font_dict),
+            subset,
+        ),
+        _ => to_unicode.clone(),
     };
 
     Ok(FontInfo {
         resource_name: resource_name.to_string(),
         kind,
         to_unicode,
+        cmap,
+        encodable,
         widths,
         missing_width,
+        fallback_base_font: fallback::closest_standard_font(document, font_dict),
     })
+}
+
+/// Reads and parses the font's `/ToUnicode` stream, or `None` when it has
+/// none this build can read. Best-effort like all decoding: a CMap that is
+/// missing, undecodable or empty leaves the font exactly as `/Encoding`
+/// describes it.
+fn to_unicode_map(document: &Document, font_dict: &Dictionary) -> Option<ToUnicodeMap> {
+    let Ok(Object::Reference(object_id)) = font_dict.get(b"ToUnicode") else {
+        // A stream is always indirect, so anything else (commonly the name
+        // `/Identity-H`, which some producers write here) is not a CMap.
+        return None;
+    };
+    let stream = document.get_object(*object_id).ok()?.as_stream().ok()?;
+    let decoded =
+        crate::parse::decode_stream(document, stream, *object_id, MAX_TO_UNICODE_BYTES).ok()?;
+    let map = ToUnicodeMap::parse(&decoded.bytes);
+    (!map.is_empty()).then_some(map)
+}
+
+/// The codes a simple font with a `/ToUnicode` CMap may write, and the one
+/// character each paints.
+///
+/// - A code the CMap maps to exactly one character paints that character,
+///   whatever `/Encoding` claims: the two disagreeing means the encoding is
+///   the one that is wrong. A ligature code (`fi`) is never written, since
+///   one typed character cannot select it.
+/// - A code the CMap leaves unmapped keeps its `/Encoding` character, except
+///   in a **subset** font: there the CMap is the only record of which glyphs
+///   the subset kept, and an encoding-only code may name a glyph that is not
+///   in the file.
+/// - A code only the CMap vouches for (a subset font's, or one where the CMap
+///   overrides the encoding) also needs a `/Widths` entry inside
+///   `FirstChar..=LastChar`: without one the producer declared no glyph
+///   there, and its advance would be a guess. Where the two agree on a full
+///   font, the encoding's own rules stand — a standard-14 font may omit
+///   `/Widths` altogether.
+fn encodable_codes(
+    encoding: &[Option<char>],
+    cmap: &ToUnicodeMap,
+    widths: &[Option<f64>],
+    last_char: Option<usize>,
+    subset: bool,
+) -> Vec<Option<char>> {
+    (0..encoding.len())
+        .map(|code| {
+            let has_width = widths[code].is_some() && last_char.is_none_or(|last| code <= last);
+            match cmap.simple(code as u8) {
+                Some(mapped) => {
+                    let mut characters = mapped.chars();
+                    let character = match (characters.next(), characters.next()) {
+                        (Some(character), None) => character,
+                        _ => return None,
+                    };
+                    let agrees = encoding[code] == Some(character);
+                    (has_width || (agrees && !subset)).then_some(character)
+                }
+                None if subset => None,
+                None => encoding[code],
+            }
+        })
+        .collect()
+}
+
+fn last_char(document: &Document, font_dict: &Dictionary) -> Option<usize> {
+    font_dict
+        .get(b"LastChar")
+        .ok()
+        .and_then(|value| resolve(document, value).as_i64().ok())
+        .map(|value| value.max(0) as usize)
 }
 
 /// Fills the gaps `simple_widths` left (there being no `/Widths` array is the
 /// common case for a Standard-14 font, which is allowed to omit one) from the
-/// real AFM metrics in [`tables::standard_14_ascii_widths`], for whichever
-/// codes decode to plain ASCII.
+/// real AFM metrics in [`winansi::standard_14_char_width`], for every code
+/// that decodes to a character WinAnsi can show.
 ///
 /// Never overrides a width the font's own `/Widths` array actually supplied
 /// — that is the document's own authoritative data and wins over a table
-/// this crate ships. Only ASCII gets filled; see the table's own doc for why.
+/// this crate ships. The lookup is keyed by the *decoded character*, so a
+/// StandardEncoding `quoteright` at 0x27 gets `quoteright`'s width.
 fn apply_standard_14_widths(
     mut widths: Vec<Option<f64>>,
     base_font: &str,
     to_unicode: &[Option<char>],
 ) -> Vec<Option<f64>> {
-    let Some(table) = tables::standard_14_ascii_widths(base_font) else {
-        return widths;
-    };
-    for code in 0..widths.len() {
-        if widths[code].is_some() {
-            continue;
-        }
-        let Some(character) = to_unicode[code] else {
-            continue;
-        };
-        if ('\u{20}'..='\u{7E}').contains(&character) {
-            widths[code] = Some(f64::from(table[character as usize - 0x20]));
+    for (width, character) in widths.iter_mut().zip(to_unicode) {
+        if width.is_none() {
+            *width = character
+                .and_then(|character| winansi::standard_14_char_width(base_font, character))
+                .filter(|&thousandths| thousandths > 0)
+                .map(f64::from);
         }
     }
     widths
@@ -630,13 +762,14 @@ mod tests {
         };
         assert!((resolve_in(with_descriptor).width_of(b"AB") - 0.5).abs() < 1e-9);
 
-        // Standard-14 ASCII now comes from the real AFM table (see
-        // `standard14_widths_come_from_the_real_afm_metrics_not_a_flat_fallback`),
-        // but the half-em fallback still applies outside that table's ASCII
-        // scope — an accented character, here.
+        // A Standard-14 face measures every WinAnsi character from its AFM
+        // table (Helvetica's `é` is 556); the half-em fallback is left for a
+        // font with no `/Widths`, no descriptor and no such table.
         let helvetica = resolve_in(helvetica());
         let accented = helvetica.encode("é").expect("winansi covers this");
-        assert!((helvetica.width_of(&accented) - 0.5).abs() < 1e-9);
+        assert!((helvetica.width_of(&accented) - 0.556).abs() < 1e-9);
+        let unknown = resolve_in(dictionary! { "Subtype" => "Type1", "BaseFont" => "Unknown" });
+        assert!((unknown.width_of(b"a") - 0.5).abs() < 1e-9);
     }
 
     fn mac_roman() -> FontInfo {
@@ -741,5 +874,161 @@ mod tests {
         };
 
         assert_eq!(resolve_in(font).decode(&[200, 201]), "úù");
+    }
+
+    /// Resolves `font` with `cmap` attached as its `/ToUnicode` stream.
+    fn resolve_with_cmap(mut font: Dictionary, cmap: &str) -> FontInfo {
+        let mut document = empty_doc();
+        let stream =
+            document.add_object(lopdf::Stream::new(dictionary! {}, cmap.as_bytes().to_vec()));
+        font.set("ToUnicode", stream);
+        resolve_font(&document, &font, "F1").expect("resolvable font")
+    }
+
+    /// A reportlab-style subset: no `/Encoding`, the accented letters on
+    /// low codes only the CMap explains, and `/Widths` for codes 0..=0x7F.
+    fn subset_with_cmap(cmap: &str) -> FontInfo {
+        let widths: Vec<Object> = (0..=0x7F).map(|_| 600.into()).collect();
+        resolve_with_cmap(
+            dictionary! {
+                "Subtype" => "TrueType",
+                "BaseFont" => "AAAAAA+Vera",
+                "FirstChar" => 0,
+                "LastChar" => 0x7F,
+                "Widths" => widths,
+            },
+            cmap,
+        )
+    }
+
+    const SUBSET_CMAP: &str = "1 begincodespacerange <00> <7F> endcodespacerange\n\
+        3 beginbfchar <00> <0000> <01> <00D3> <02> <00660069> endbfchar\n\
+        1 beginbfrange <20> <7E> <0020> endbfrange";
+
+    #[test]
+    fn to_unicode_decodes_codes_the_encoding_cannot() {
+        let font = subset_with_cmap(SUBSET_CMAP);
+
+        assert_eq!(font.decode(b"COMPOSICI\x01N"), "COMPOSICIÓN");
+        assert_eq!(
+            font.decode(&[0x02]),
+            "fi",
+            "a ligature decodes to both letters"
+        );
+    }
+
+    #[test]
+    fn to_unicode_outranks_differences_and_falls_back_per_code() {
+        let font = resolve_with_cmap(
+            dictionary! {
+                "Subtype" => "Type1",
+                "BaseFont" => "Helvetica",
+                "Encoding" => dictionary! {
+                    "BaseEncoding" => "WinAnsiEncoding",
+                    "Differences" => vec![65.into(), "B".into()],
+                },
+            },
+            "1 beginbfchar <41> <0058> endbfchar",
+        );
+
+        assert_eq!(font.decode(b"AC"), "XC", "A by the CMap, C by the encoding");
+        assert_eq!(
+            font.encode("X").expect("WinAnsi"),
+            vec![b'X'],
+            "a full font with an /Encoding writes by its encoding"
+        );
+    }
+
+    #[test]
+    fn a_subset_encodes_through_the_reverse_to_unicode_map() {
+        let font = subset_with_cmap(SUBSET_CMAP);
+
+        assert_eq!(font.encode("NÓ").expect("in the subset"), vec![0x4E, 0x01]);
+        assert!(font.width_of(&[0x01]) > 0.0);
+    }
+
+    #[test]
+    fn a_space_encodes_as_code_32_so_word_spacing_applies() {
+        let font = subset_with_cmap(
+            "2 beginbfchar <03> <0020> <20> <0020> endbfchar\n\
+             1 beginbfrange <21> <7E> <0021> endbfrange",
+        );
+
+        assert_eq!(font.encode("a b").expect("in the subset"), b"a b".to_vec());
+    }
+
+    #[test]
+    fn a_character_the_subset_lacks_is_an_encoding_gap_naming_it() {
+        let font = subset_with_cmap(SUBSET_CMAP);
+
+        assert_eq!(
+            font.encode("Ñ").expect_err("not in the subset"),
+            EditError::EncodingGap {
+                character: 'Ñ',
+                resource_font_name: "F1".to_string(),
+            }
+        );
+        // A ligature code cannot be selected by typing one of its letters,
+        // and an unmapped StandardEncoding code is not trusted in a subset.
+        assert!(font.encode("\u{FB01}").is_err());
+        assert!(
+            font.encode("¡").is_err(),
+            "StandardEncoding's 0xA1 is past LastChar"
+        );
+    }
+
+    #[test]
+    fn a_reverse_mapped_code_needs_a_declared_width() {
+        let font = resolve_with_cmap(
+            dictionary! {
+                "Subtype" => "TrueType",
+                "BaseFont" => "AAAAAA+Vera",
+                "FirstChar" => 0x41,
+                "LastChar" => 0x41,
+                "Widths" => vec![600.into()],
+            },
+            "2 beginbfchar <41> <0041> <05> <00E9> endbfchar",
+        );
+
+        assert_eq!(font.encode("A").expect("declared"), vec![0x41]);
+        assert!(font.encode("é").is_err(), "code 5 has no width");
+        assert_eq!(font.decode(&[0x05]), "é", "decoding is still best-effort");
+    }
+
+    #[test]
+    fn a_non_subset_font_keeps_its_encoding_for_codes_the_cmap_omits() {
+        let font = resolve_with_cmap(helvetica(), "1 beginbfchar <41> <0041> endbfchar");
+
+        assert_eq!(font.encode("Bé").expect("WinAnsi"), vec![b'B', 0xE9]);
+    }
+
+    #[test]
+    fn a_composite_font_decodes_two_byte_codes_through_to_unicode_but_stays_uneditable() {
+        let font = resolve_with_cmap(
+            dictionary! { "Subtype" => "Type0", "BaseFont" => "AAAAAA+Noto" },
+            "1 begincodespacerange <0000> <FFFF> endcodespacerange\n\
+             2 beginbfchar <0003> <00C1> <0004> <0062> endbfchar",
+        );
+
+        assert_eq!(
+            font.decode(&[0x00, 0x03, 0x00, 0x04, 0x00, 0x09]),
+            "Áb\u{FFFD}"
+        );
+        assert!(matches!(
+            font.encode("b"),
+            Err(EditError::CompositeFontNotEditable { .. })
+        ));
+    }
+
+    #[test]
+    fn an_unreadable_to_unicode_leaves_the_encoding_in_charge() {
+        let mut font = helvetica();
+        font.set("ToUnicode", "Identity-H");
+
+        assert_eq!(resolve_in(font.clone()).decode(b"A"), "A");
+        assert_eq!(
+            resolve_with_cmap(font, "garbage").encode("é").unwrap(),
+            vec![0xE9]
+        );
     }
 }

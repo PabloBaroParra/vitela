@@ -556,12 +556,24 @@ fn apply_tile_result(
         picture.set_margin_top(top);
         picture.set_width_request(width);
         picture.set_height_request(height);
-        page.overlay.add_overlay(&picture);
+        put_tile(&page.overlay, &page.highlights, &picture);
         page.tiles.insert(tile, picture);
     }
-    // The tiles just went on top of the highlight layer; put it back above
-    // them or this page's selection and matches vanish under the sharp bitmaps.
-    super::selection::raise_highlights(&page.overlay, &page.highlights);
+}
+
+/// Adds `tile` to the page `overlay` just under its highlight layer.
+///
+/// `Overlay` paints, and picks, its children in order, and tiles arrive after
+/// the page is up as the user zooms in. Appended, a tile covered the
+/// highlights and anything laid over the page after them — an open text
+/// editor among them, which it hid and whose clicks it took. Inserted under
+/// the highlights, it covers only the page render and older tiles.
+fn put_tile(overlay: &gtk::Overlay, highlights: &gtk::DrawingArea, tile: &gtk::Picture) {
+    if highlights.parent().as_ref() == Some(overlay.upcast_ref()) {
+        tile.insert_before(overlay, Some(highlights));
+    } else {
+        overlay.add_overlay(tile);
+    }
 }
 
 #[cfg(test)]
@@ -571,5 +583,33 @@ mod tests {
     #[test]
     fn raster_dimensions_rejects_an_oversized_page() {
         assert_eq!(raster_dimensions(72.0, 72_000.0, 72), None);
+    }
+}
+
+#[cfg(test)]
+mod gtk_tests {
+    use gtk::prelude::*;
+
+    /// A sharp tile lands after the page is up — often after a text editor
+    /// was opened over it. It has to go under the highlight layer and under
+    /// that editor: on top, it hid the editor and took the clicks meant for
+    /// it, so a click to place the caret closed the box instead.
+    #[gtk::test]
+    fn gtk_ui_a_tile_goes_under_the_highlights_and_an_open_editor() {
+        let overlay = gtk::Overlay::new();
+        overlay.set_child(Some(&gtk::Picture::new()));
+        let highlights = gtk::DrawingArea::new();
+        overlay.add_overlay(&highlights);
+        let editor = gtk::Fixed::new();
+        overlay.add_overlay(&editor);
+
+        let tile = gtk::Picture::new();
+        super::put_tile(&overlay, &highlights, &tile);
+
+        let order: Vec<gtk::Widget> =
+            std::iter::successors(overlay.first_child(), |child| child.next_sibling()).collect();
+        let at = |widget: &gtk::Widget| order.iter().position(|child| child == widget).unwrap();
+        assert!(at(tile.upcast_ref()) < at(highlights.upcast_ref()));
+        assert!(at(highlights.upcast_ref()) < at(editor.upcast_ref()));
     }
 }

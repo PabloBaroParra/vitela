@@ -614,7 +614,13 @@ mod tests {
     fn assert_bar_beside_first_block(fixture: &Fixture) {
         let root = &fixture.viewer().content_quick_actions.root;
         assert!(root.get_visible());
-        let bbox = fixture.runs[0].bbox;
+        // The block's box, not its first run's: the block may be a whole
+        // paragraph, whose corner is not its first line's on a turned page.
+        let bbox = pdf_edit::group_text_runs(&fixture.runs)
+            .into_iter()
+            .find(|block| block.runs.contains(&fixture.runs[0].id))
+            .expect("the first run is in a block")
+            .bbox;
         let placed = {
             let state = fixture.viewer().state.borrow();
             let page = &state.session.as_ref().expect("a session").pages[0];

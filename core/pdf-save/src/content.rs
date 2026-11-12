@@ -46,6 +46,7 @@ fn is_content_edit(command: &Command) -> bool {
         Command::ReplaceTextRunContent { .. }
             | Command::ReplaceTextRunWithInsertedFont { .. }
             | Command::InsertTextRun(_)
+            | Command::InsertTextRunLike { .. }
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
             | Command::InsertImage { .. }
@@ -337,7 +338,9 @@ fn content_page(command: &Command) -> Option<PageId> {
         Command::ReplaceTextRunContent { item, .. } => Some(item.page),
         Command::ReplaceTextRunWithInsertedFont { item, .. } => Some(item.page),
         Command::InsertTextRun(run) | Command::RemoveTextRun(run) => Some(run.page),
-        Command::MoveTextRun { item, .. } => Some(item.page),
+        Command::MoveTextRun { item, .. } | Command::InsertTextRunLike { item, .. } => {
+            Some(item.page)
+        }
         Command::InsertImage { item, .. }
         | Command::RemoveImage { item, .. }
         | Command::MoveImage { item, .. }
@@ -367,6 +370,9 @@ fn apply(
             pdf_edit::replace_text_run_with_inserted_font(working, page_object, item, after)?
         }
         Command::InsertTextRun(run) => pdf_edit::insert_text_run(working, page_object, run)?,
+        Command::InsertTextRunLike { item, template } => {
+            pdf_edit::insert_text_run_like(working, page_object, item, template)?
+        }
         Command::RemoveTextRun(run) => pdf_edit::remove_text_run(working, page_object, run)?,
         Command::MoveTextRun { item, to } => {
             pdf_edit::move_text_run(working, page_object, item, *to)?

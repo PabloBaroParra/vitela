@@ -136,6 +136,8 @@ pub(crate) const NO_TEXT_SELECTED: &str = "edit-no-text-selected";
 /// Also what the status line says when a click selects text.
 pub(crate) const TEXT_SELECTED: &str = "edit-text-selected";
 pub(crate) const TEXT_EDITING: &str = "edit-text-editing";
+/// A paragraph being retyped: Enter is a line break there, so the keys differ.
+pub(crate) const PARAGRAPH_EDITING: &str = "edit-paragraph-editing";
 
 /// This page's own styling, installed alongside `shell::SHELL_CSS` and
 /// `home::HOME_CSS` by `shell::install_shell_css`.

@@ -70,6 +70,7 @@ mod command;
 // buttons to `image`'s handlers. Everything else here is reached through this
 // module.
 pub(crate) mod block;
+pub(crate) mod camouflage;
 pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;
@@ -80,6 +81,7 @@ mod model;
 pub(crate) mod multi;
 pub(crate) mod outline;
 pub(crate) mod panel;
+mod paragraph_editor;
 pub(crate) mod path;
 pub(crate) mod quick_actions;
 #[cfg(test)]

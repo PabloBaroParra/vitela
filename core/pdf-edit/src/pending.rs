@@ -87,12 +87,13 @@ pub fn overlay_pending_content(
         let synthetic_id = ContentItemId(PENDING_ITEM_ID_BASE + index as u64);
         match command {
             // One undo step, but each child is an ordinary edit of its own
-            // item (B25 T-207). A batch never inserts — `pdf-ffi` refuses
-            // one that would — so the shared synthetic id is never handed
-            // to two items.
+            // item (B25 T-207). A retyped paragraph's batch inserts lines,
+            // so each child gets an id part of its own, as a paste's items
+            // do; every part still leads back to this entry.
             Command::Batch(children) => {
-                for child in children {
-                    overlay_command(content, child, synthetic_id, page, document, page_object);
+                for (part, child) in children.iter().enumerate() {
+                    let id = synthetic_part(index, part);
+                    overlay_command(content, child, id, page, document, page_object);
                 }
             }
             // Every item the clip paints, where the paste puts it, each
@@ -134,6 +135,14 @@ fn overlay_command(
 ) {
     let measured = |run: &TextRun, text: &str| pending_text_bbox(document, page_object, run, text);
     match command {
+        // Its box was measured in the template's font when the command was
+        // built (`crate::retype_paragraph`), so it is kept as it is.
+        Command::InsertTextRunLike { item, .. } if item.page == page => {
+            content.text_runs.push(TextRun {
+                id: synthetic_id,
+                ..item.clone()
+            });
+        }
         Command::InsertTextRun(run) if run.page == page => {
             let mut run = run.clone();
             // Measured outright: an insertion has no parsed box to scale.
@@ -282,6 +291,43 @@ mod tests {
         );
         assert_eq!(pending_log_index(synthetic_part(3, 5)), Some(3));
         assert_ne!(synthetic_part(3, 1), synthetic_part(4, 0));
+    }
+
+    /// A grown paragraph (one batch) adds several lines; each is clickable
+    /// on its own and leads back to the batch, at the box it was given.
+    #[test]
+    fn every_line_a_paragraph_retype_inserts_is_an_item_of_its_own() {
+        let (document, page) = crate::fixture::document_with_content(
+            b"BT /F1 10 Tf 14 TL 100 700 Td (one) Tj T* (two) Tj ET",
+            crate::fixture::helvetica_resources(),
+        );
+        let mut content = crate::read_page_object_content(&document, page, PageId(0)).unwrap();
+        let runs = content.text_runs.clone();
+        let retype = crate::retype_paragraph(&document, page, &runs, "a\nb\nc\nd", false)
+            .unwrap()
+            .unwrap();
+        let mut model = pdf_document::Document::blank();
+        let mut log = EditLog::new();
+        // Something queued first, so the batch's own index is not zero.
+        let elsewhere = TextRun {
+            page: PageId(9),
+            ..runs[0].clone()
+        };
+        assert!(log.apply(&mut model, Command::RemoveTextRun(elsewhere)));
+        assert!(log.apply(&mut model, retype));
+
+        overlay_pending_content(&mut content, &log, PageId(0), &document, page);
+
+        let texts: Vec<&str> = content
+            .text_runs
+            .iter()
+            .map(|run| run.text.as_str())
+            .collect();
+        assert_eq!(texts, ["a", "b", "c", "d"]);
+        let added = &content.text_runs[2..];
+        assert_ne!(added[0].id, added[1].id);
+        assert!(added.iter().all(|run| pending_log_index(run.id) == Some(1)));
+        assert!((added[1].bbox.y - (runs[0].bbox.y - 42.0)).abs() < 1e-9);
     }
 
     #[test]

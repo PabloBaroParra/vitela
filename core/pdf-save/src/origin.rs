@@ -156,6 +156,35 @@ pub fn read_pending_page_content_of(
     }
 }
 
+/// The batch that retypes the text block `runs` make up to `text`: a one-line
+/// block as [`pdf_edit::retype_block`] builds it, a paragraph wrapped to its
+/// width by [`pdf_edit::retype_paragraph`], measured in the fonts of the
+/// page's origin.
+///
+/// `runs` are the block's runs as the reader sees them
+/// ([`read_pending_page_content_of`]), all on one page; `None` when there are
+/// none.
+pub fn retype_text_block_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    runs: &[pdf_document::TextRun],
+    text: &str,
+    with_inserted_font: bool,
+) -> Result<Option<pdf_document::Command>, SaveError> {
+    let Some(first) = runs.first() else {
+        return Ok(None);
+    };
+    match page_backing(document, first.page, base, sources)? {
+        PageBacking::Empty => Ok(pdf_edit::retype_block(runs, text, with_inserted_font)),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::retype_paragraph(backing.as_lopdf(), object, runs, text, with_inserted_font)
+            .map_err(Into::into),
+    }
+}
+
 /// The `/BaseFont` name of every font a page's resources declare, resolved
 /// through the page's origin — the [`crate::page_font_families`] an overlay
 /// should use once a session can hold imported pages.
@@ -171,5 +200,43 @@ pub fn page_font_families_of(
             document: backing,
             object,
         } => pdf_edit::page_object_font_families(backing.as_lopdf(), object).map_err(Into::into),
+    }
+}
+
+/// How `run` looks on its page, read through the page's origin — what a
+/// shell's editor needs to draw typed text in the run's own font, size and
+/// colour ([`pdf_edit::text_run_style`]). `None` for a page with no content.
+pub fn text_run_style_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    run: &pdf_document::TextRun,
+) -> Result<Option<pdf_edit::TextRunStyle>, SaveError> {
+    match page_backing(document, run.page, base, sources)? {
+        PageBacking::Empty => Ok(None),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::text_run_style(backing.as_lopdf(), object, run)
+            .map(Some)
+            .map_err(Into::into),
+    }
+}
+
+/// The font program embedded for `run`'s font, read through the page's
+/// origin ([`pdf_edit::text_run_font_program`]). `None` for a font that
+/// embeds none, and for a page with no content.
+pub fn text_run_font_program_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    run: &pdf_document::TextRun,
+) -> Result<Option<pdf_edit::FontProgram>, SaveError> {
+    match page_backing(document, run.page, base, sources)? {
+        PageBacking::Empty => Ok(None),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::text_run_font_program(backing.as_lopdf(), object, run).map_err(Into::into),
     }
 }

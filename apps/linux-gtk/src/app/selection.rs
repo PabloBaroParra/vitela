@@ -1572,17 +1572,6 @@ pub(crate) fn redraw(viewer: &Viewer) {
     }
 }
 
-/// Puts a page's highlight layer back on top of its overlay stack.
-///
-/// `Overlay` paints its children in the order they were added, and the tile
-/// pipeline adds opaque bitmaps as the user zooms in. Without this, every
-/// highlight on a tiled page would be painted and then covered by the tiles
-/// that arrived after it.
-pub(crate) fn raise_highlights(overlay: &gtk::Overlay, highlights: &DrawingArea) {
-    overlay.remove_overlay(highlights);
-    overlay.add_overlay(highlights);
-}
-
 /// Wires Ctrl+C to the selection copy, as a window action with an
 /// application accelerator.
 ///

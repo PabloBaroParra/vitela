@@ -99,6 +99,8 @@ pub fn run() -> glib::ExitCode {
             ensure_built(&built_ui, application).window.present();
         }
     });
+    // The PDF fonts the text editor loaded live in a per-process temp dir.
+    application.connect_shutdown(|_| content_edit::camouflage::remove_font_files());
     application.connect_open({
         let built_ui = built_ui.clone();
         move |application, files, _hint| {
@@ -742,6 +744,14 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
             .as_ref()
             .is_some_and(|editor| !editor.is_insertion)
     });
+    let paragraph_editing = editable.is_some_and(|session| {
+        session.content_editor.as_ref().is_some_and(|editor| {
+            matches!(
+                editor.field,
+                crate::app::state::EditorField::Paragraph { .. }
+            )
+        })
+    });
     let text_selected = editable.is_some_and(|session| session.selected_text_block.is_some());
     let text_enabled = text_editing || text_selected;
     let paths_enabled = state.session.as_ref().is_some_and(|session| {
@@ -771,13 +781,18 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     // The floating bar offers the same doors, so it follows the same
     // refresh — an inline editor opening or closing reaches only this.
     content_edit::quick_actions::sync(viewer);
-    viewer.edit_panel.text_hint.set_text(&tr(if text_editing {
-        content_edit::panel::TEXT_EDITING
-    } else if text_selected {
-        content_edit::panel::TEXT_SELECTED
-    } else {
-        content_edit::panel::NO_TEXT_SELECTED
-    }));
+    viewer
+        .edit_panel
+        .text_hint
+        .set_text(&tr(if paragraph_editing {
+            content_edit::panel::PARAGRAPH_EDITING
+        } else if text_editing {
+            content_edit::panel::TEXT_EDITING
+        } else if text_selected {
+            content_edit::panel::TEXT_SELECTED
+        } else {
+            content_edit::panel::NO_TEXT_SELECTED
+        }));
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {

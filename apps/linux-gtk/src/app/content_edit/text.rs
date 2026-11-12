@@ -38,8 +38,10 @@ use super::{editor, model, CLICK_EPSILON_PX};
 /// finds no run under it has nothing to move.
 pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f64)) -> bool {
     let at = (point.0 as f32, point.1 as f32);
+    // `text_hit_at`, not `text_run_at`: a press between a paragraph's lines
+    // still lands on the paragraph.
     claim(viewer, page_index, point, |content| {
-        model::text_run_at(content, at).cloned()
+        model::text_hit_at(content, at).cloned()
     })
 }
 

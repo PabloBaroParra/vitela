@@ -1,14 +1,16 @@
-//! WinAnsi (Windows-1252) encoding and Helvetica/Times-Roman/Courier widths
-//! for the whole 0x20..=0xFF range.
+//! WinAnsi (Windows-1252) encoding and the Latin Standard-14 widths for the
+//! whole 0x20..=0xFF range.
 //!
 //! `tables::HELVETICA_ASCII_WIDTHS` stops at 0x7E on purpose (it exists for
 //! T-161's content-edit sizing). Free-text annotations and form fields paint
 //! Spanish text, so they need the accented Latin-1 block and the typographic
 //! punctuation too.
 
+use crate::encoding::afm_widths;
 use crate::encoding::tables::{
-    AsciiWidths, COURIER_ASCII_WIDTH, HELVETICA_ASCII_WIDTHS, TIMES_ROMAN_ASCII_WIDTHS,
-    WIN_ANSI_HIGH,
+    AsciiWidths, COURIER_ASCII_WIDTH, HELVETICA_ASCII_WIDTHS, HELVETICA_BOLD_ASCII_WIDTHS,
+    TIMES_BOLDITALIC_ASCII_WIDTHS, TIMES_BOLD_ASCII_WIDTHS, TIMES_ITALIC_ASCII_WIDTHS,
+    TIMES_ROMAN_ASCII_WIDTHS, WIN_ANSI_HIGH,
 };
 
 /// Encodes `text` as WinAnsi bytes: one byte per character.
@@ -39,64 +41,49 @@ pub fn char_width_thousandths(character: char) -> Option<u16> {
     Some(HELVETICA_WINANSI_WIDTHS[code as usize])
 }
 
-/// `base_font`'s advance width of `character`, in 1/1000 em, for the
-/// Standard-14 faces a form field can be styled with. `None` when WinAnsi
-/// cannot show the character, or for any other font.
+/// `base_font`'s advance width of `character`, in 1/1000 em, for the twelve
+/// Latin Standard-14 faces. `None` when WinAnsi cannot show the character,
+/// or for any other font (Symbol, ZapfDingbats, a non-standard name).
 pub fn standard_14_char_width(base_font: &str, character: char) -> Option<u16> {
     let code = winansi_code(character).ok()?;
-    match base_font {
-        "Helvetica" => Some(HELVETICA_WINANSI_WIDTHS[code as usize]),
-        "Times-Roman" => Some(TIMES_ROMAN_WINANSI_WIDTHS[code as usize]),
+    let table = match base_font {
+        "Helvetica" | "Helvetica-Oblique" => &HELVETICA_WINANSI_WIDTHS,
+        "Helvetica-Bold" | "Helvetica-BoldOblique" => &HELVETICA_BOLD_WINANSI_WIDTHS,
+        "Times-Roman" => &TIMES_ROMAN_WINANSI_WIDTHS,
+        "Times-Bold" => &TIMES_BOLD_WINANSI_WIDTHS,
+        "Times-Italic" => &TIMES_ITALIC_WINANSI_WIDTHS,
+        "Times-BoldItalic" => &TIMES_BOLDITALIC_WINANSI_WIDTHS,
         // Monospaced: every code WinAnsi defines is one cell wide.
-        "Courier" => Some(COURIER_ASCII_WIDTH),
-        _ => None,
-    }
+        "Courier" | "Courier-Bold" | "Courier-Oblique" | "Courier-BoldOblique" => {
+            return Some(COURIER_ASCII_WIDTH)
+        }
+        _ => return None,
+    };
+    Some(table[code as usize])
 }
 
 /// Helvetica widths (Adobe Core14 `Helvetica.afm`) indexed by WinAnsi code.
-/// Codes that WinAnsi leaves undefined, and the C0 controls, are 0.
-pub const HELVETICA_WINANSI_WIDTHS: [u16; 256] = build_widths(&HELVETICA_ASCII_WIDTHS, &HIGH);
+/// Codes that WinAnsi leaves undefined, and the C0 controls, are 0. The high
+/// halves of every table here are generated into [`afm_widths`].
+pub const HELVETICA_WINANSI_WIDTHS: [u16; 256] =
+    build_widths(&HELVETICA_ASCII_WIDTHS, &afm_widths::HELVETICA_HIGH);
+const HELVETICA_BOLD_WINANSI_WIDTHS: [u16; 256] = build_widths(
+    &HELVETICA_BOLD_ASCII_WIDTHS,
+    &afm_widths::HELVETICA_BOLD_HIGH,
+);
 
 /// Times-Roman widths (Adobe Core14 `Times-Roman.afm`), same layout as
 /// [`HELVETICA_WINANSI_WIDTHS`].
 pub const TIMES_ROMAN_WINANSI_WIDTHS: [u16; 256] =
-    build_widths(&TIMES_ROMAN_ASCII_WIDTHS, &TIMES_ROMAN_HIGH);
-
-/// Times-Roman 0x80..=0xFF, in code order.
-const TIMES_ROMAN_HIGH: [u16; 128] = [
-    // 0x80
-    500, 0, 333, 500, 444, 1000, 500, 500, 333, 1000, 556, 333, 889, 0, 611, 0, // 0x90
-    0, 333, 333, 444, 444, 350, 500, 1000, 333, 980, 389, 333, 722, 0, 444, 722, // 0xA0
-    250, 333, 500, 500, 500, 500, 200, 500, 333, 760, 276, 500, 564, 333, 760, 333,
-    // 0xB0
-    400, 564, 300, 300, 333, 500, 453, 250, 333, 300, 310, 500, 750, 750, 750, 444,
-    // 0xC0
-    722, 722, 722, 722, 722, 722, 889, 667, 611, 611, 611, 611, 333, 333, 333, 333,
-    // 0xD0
-    722, 722, 722, 722, 722, 722, 722, 564, 722, 722, 722, 722, 722, 722, 556, 500,
-    // 0xE0
-    444, 444, 444, 444, 444, 444, 667, 444, 444, 444, 444, 444, 278, 278, 278, 278,
-    // 0xF0
-    500, 500, 500, 500, 500, 500, 500, 564, 500, 500, 500, 500, 500, 500, 500, 500,
-];
-
-/// Helvetica 0x80..=0xFF, in code order.
-const HIGH: [u16; 128] = [
-    // 0x80
-    556, 0, 222, 556, 333, 1000, 556, 556, 333, 1000, 667, 333, 1000, 0, 611, 0, // 0x90
-    0, 222, 222, 333, 333, 350, 556, 1000, 333, 1000, 500, 333, 944, 0, 500, 667, // 0xA0
-    278, 333, 556, 556, 556, 556, 260, 556, 333, 737, 370, 556, 584, 333, 737, 333,
-    // 0xB0
-    400, 584, 333, 333, 333, 556, 537, 278, 333, 333, 365, 556, 834, 834, 834, 611,
-    // 0xC0
-    667, 667, 667, 667, 667, 667, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278,
-    // 0xD0
-    722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611,
-    // 0xE0
-    556, 556, 556, 556, 556, 556, 889, 500, 556, 556, 556, 556, 278, 278, 278, 278,
-    // 0xF0
-    556, 556, 556, 556, 556, 556, 556, 584, 611, 556, 556, 556, 556, 500, 556, 500,
-];
+    build_widths(&TIMES_ROMAN_ASCII_WIDTHS, &afm_widths::TIMES_ROMAN_HIGH);
+const TIMES_BOLD_WINANSI_WIDTHS: [u16; 256] =
+    build_widths(&TIMES_BOLD_ASCII_WIDTHS, &afm_widths::TIMES_BOLD_HIGH);
+const TIMES_ITALIC_WINANSI_WIDTHS: [u16; 256] =
+    build_widths(&TIMES_ITALIC_ASCII_WIDTHS, &afm_widths::TIMES_ITALIC_HIGH);
+const TIMES_BOLDITALIC_WINANSI_WIDTHS: [u16; 256] = build_widths(
+    &TIMES_BOLDITALIC_ASCII_WIDTHS,
+    &afm_widths::TIMES_BOLDITALIC_HIGH,
+);
 
 const fn build_widths(ascii: &AsciiWidths, high: &[u16; 128]) -> [u16; 256] {
     let mut widths = [0u16; 256];
@@ -192,6 +179,23 @@ mod tests {
         assert_eq!(w("Times-Roman", '€'), Some(500));
         assert_eq!(w("Courier", 'ñ'), Some(600));
         assert_eq!(w("Courier", '€'), Some(600));
+    }
+
+    /// Every Latin face a fallback can be written in measures non-ASCII
+    /// text at its own AFM width (bold and italic differ from regular).
+    #[test]
+    fn standard_14_widths_cover_every_latin_face() {
+        let w = standard_14_char_width;
+        assert_eq!(w("Helvetica-Bold", 'Ñ'), Some(722));
+        assert_eq!(w("Helvetica-Bold", '¿'), Some(611));
+        assert_eq!(w("Helvetica-Oblique", 'ñ'), Some(556));
+        assert_eq!(w("Helvetica-BoldOblique", '€'), Some(556));
+        assert_eq!(w("Times-Bold", 'é'), Some(444));
+        assert_eq!(w("Times-Bold", '—'), Some(1000));
+        assert_eq!(w("Times-Italic", 'ñ'), Some(500));
+        assert_eq!(w("Times-Italic", '¿'), Some(500));
+        assert_eq!(w("Times-BoldItalic", 'Ñ'), Some(722));
+        assert_eq!(w("Courier-BoldOblique", 'é'), Some(600));
     }
 
     #[test]

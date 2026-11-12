@@ -211,6 +211,21 @@ pub enum Command {
     /// Adds a run as real page content — appended to the content stream with
     /// its font registered in `/Resources`, not stamped as an annotation.
     InsertTextRun(TextRun),
+    /// Adds a run painted the way `template` — a run already on the page —
+    /// is painted: its font resource, size, colour, character spacing,
+    /// horizontal scale and transform, shifted so the run lands at
+    /// `item.bbox`'s origin. `item.text` is what it shows; `item`'s font
+    /// fields repeat the template's.
+    ///
+    /// This is how a retyped paragraph grows a line that looks like the
+    /// lines around it, where [`Command::InsertTextRun`] would paint plain
+    /// black text. The template is resolved when the command is written, so
+    /// a [`Command::Batch`] has to place this before any child that changes
+    /// the template run. Undone by removing `item`, like any insertion.
+    InsertTextRunLike {
+        item: TextRun,
+        template: TextRun,
+    },
     /// Carries the removed run itself, so undo never has to re-parse a
     /// stream that no longer contains it (mirrors `RemoveAnnotation`).
     RemoveTextRun(TextRun),
@@ -553,6 +568,7 @@ impl Command {
             Command::ReplaceTextRunContent { .. }
                 | Command::ReplaceTextRunWithInsertedFont { .. }
                 | Command::InsertTextRun(_)
+                | Command::InsertTextRunLike { .. }
                 | Command::RemoveTextRun(_)
                 | Command::MoveTextRun { .. }
                 | Command::InsertImage { .. }
@@ -865,6 +881,7 @@ impl Command {
             Command::ReplaceTextRunContent { .. }
             | Command::ReplaceTextRunWithInsertedFont { .. }
             | Command::InsertTextRun(_)
+            | Command::InsertTextRunLike { .. }
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
             | Command::InsertImage { .. }
@@ -1038,6 +1055,7 @@ impl Command {
                 }
             }
             Command::InsertTextRun(run) => Command::RemoveTextRun(run.clone()),
+            Command::InsertTextRunLike { item, .. } => Command::RemoveTextRun(item.clone()),
             Command::RemoveTextRun(run) => Command::InsertTextRun(run.clone()),
             // The same swap `MoveImage` makes, and for the same reason: the
             // item snapshot carries the box it came from, so undoing is
@@ -2609,6 +2627,10 @@ mod tests {
                 after: "after".to_string(),
             },
             Command::InsertTextRun(sample_text_run()),
+            Command::InsertTextRunLike {
+                item: sample_text_run(),
+                template: sample_text_run(),
+            },
             Command::RemoveTextRun(sample_text_run()),
             Command::MoveTextRun {
                 item: sample_text_run(),
@@ -2700,9 +2722,18 @@ mod tests {
 
     /// The bar B20 set for forms and B5 missed for annotations: a complete
     /// inverse from day one for every variant, not a subset.
+    ///
+    /// One exception: a styled insertion's inverse is a plain removal, and a
+    /// removal's inverse is a plain insertion — the template is how the run
+    /// looks, which a removal has no field to carry back. `EditLog::redo`
+    /// replays the stored command, never a double inverse, so nothing loses
+    /// the style.
     #[test]
     fn every_content_command_is_its_own_inverses_inverse() {
-        for command in all_content_commands() {
+        for command in all_content_commands()
+            .into_iter()
+            .filter(|command| !matches!(command, Command::InsertTextRunLike { .. }))
+        {
             assert_eq!(
                 command.inverse().inverse(),
                 command,
@@ -2867,6 +2898,23 @@ mod tests {
                 before: vec![0xff, 0xd8],
                 after: vec![0x89, b'P'],
             }
+        );
+    }
+
+    /// An insertion styled after another run is undone like any insertion:
+    /// the template is only how it looks, never something it changed.
+    #[test]
+    fn a_styled_insertion_is_undone_by_removing_the_run_it_added() {
+        let mut template = sample_text_run();
+        template.id = ContentItemId(4);
+        let run = sample_text_run();
+        assert_eq!(
+            Command::InsertTextRunLike {
+                item: run.clone(),
+                template,
+            }
+            .inverse(),
+            Command::RemoveTextRun(run)
         );
     }
 

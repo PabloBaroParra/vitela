@@ -24,6 +24,8 @@
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
+//! - [`style`]: how a run looks — font, size, fill colour, spacing, and its
+//!   embedded font program — for a shell drawing an editor over it.
 //! - [`error`]: `EditError`, the shared error type across this crate.
 //!
 //! This crate is deliberately isolated from the rest of the core (the same
@@ -54,10 +56,12 @@ pub mod encoding;
 pub mod error;
 pub mod group;
 pub mod insert;
+pub mod insert_like;
 pub mod parse;
 pub mod path;
 pub mod pending;
 pub mod selection;
+pub mod style;
 pub mod watermark;
 
 #[cfg(test)]
@@ -70,8 +74,12 @@ pub use edit::{
     resize_image, text_run_bbox,
 };
 pub use error::EditError;
-pub use group::{group_text_runs, move_block, remove_block, retype_block, TextBlock};
+pub use group::{
+    group_text_lines, group_text_runs, move_block, remove_block, retype_block, retype_paragraph,
+    Alignment, TextBlock, TextLine,
+};
 pub use insert::{insert_image, insert_text_run, inserted_text_run_bbox};
+pub use insert_like::insert_text_run_like;
 pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,
@@ -81,4 +89,7 @@ pub use pending::{
     overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };
 pub use selection::{move_selection, remove_selection, Selection};
+pub use style::{
+    text_run_font_program, text_run_style, FontProgram, FontProgramFormat, TextRunStyle,
+};
 pub use watermark::{check_watermark, stamp_watermark};

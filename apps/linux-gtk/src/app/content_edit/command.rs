@@ -301,6 +301,43 @@ pub(super) fn record_batch(
     })
 }
 
+/// Retypes the text block `block` makes up to `text` as one undo step: a
+/// one-line block as before, a paragraph wrapped to its width with every
+/// `'\n'` a line break (`pdf_save::retype_text_block_of`), measured in the
+/// fonts of the page's origin.
+///
+/// Retyping it again before a save, from the runs shown now, records too;
+/// a refusal comes back for the status line like any other.
+pub(super) fn record_block_retype(
+    session: &mut DocumentSession,
+    block: &[TextRun],
+    text: &str,
+) -> Result<(), String> {
+    let batch = {
+        let (Some(document), Some(backing)) = (
+            session.document_model.as_ref(),
+            session.save_backing.as_ref(),
+        ) else {
+            return Err(tr("edit-open-to-edit"));
+        };
+        let sources: Vec<_> = session
+            .imported_sources
+            .iter()
+            .map(|source| (source.id, &source.document))
+            .collect();
+        pdf_save::retype_text_block_of(
+            document,
+            &backing.base,
+            pdf_save::ImportedSources::new(&sources),
+            block,
+            text,
+            false,
+        )
+        .map_err(|error| error.to_string())?
+    };
+    record_batch(session, batch)
+}
+
 /// Moves every member of `selection` by `(dx, dy)` as one undo step (B25
 /// T-208). A selection that is exactly what a pending paste added moves the
 /// paste itself (T-209), so pasting and then dragging into place stays one
@@ -899,6 +936,83 @@ mod tests {
 
         assert_eq!(document.pending_edits.entries().len(), 1);
         assert!(document.pending_edits.can_undo());
+    }
+
+    /// A one-line block retypes exactly as before paragraphs: its other
+    /// runs removed, its first run showing all of the text.
+    #[test]
+    fn a_one_line_block_retype_is_the_block_retype_it_always_was() {
+        let base = gen_fixtures::build_spaced_line_page_document(&["Hello", "world"], 100);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+
+        record_block_retype(&mut session, &runs, "Hello there").expect("the retype records");
+
+        let entries = session
+            .document_model
+            .as_ref()
+            .expect("a model")
+            .pending_edits
+            .entries();
+        assert_eq!(
+            entries,
+            [pdf_edit::retype_block(&runs, "Hello there", false).expect("a batch")]
+        );
+    }
+
+    /// The texts of page 0's blocks once `session` is saved and reopened.
+    fn saved_blocks(session: &DocumentSession) -> Result<Vec<String>, String> {
+        let backing = session.save_backing.as_ref().expect("a backing");
+        let bytes = pdf_save::save_document(pdf_save::SaveInput {
+            document: session.document_model.as_ref().expect("a model"),
+            base: &backing.base,
+            original_bytes: None,
+            intent: pdf_save::SaveIntent::Default,
+            signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+            imported_sources: pdf_save::ImportedSources::none(),
+        })
+        .map_err(|error| error.to_string())?;
+        let saved = lopdf::Document::load_mem(&bytes).expect("the output reloads");
+        let runs = pdf_edit::read_page_content(&saved, pdf_document::PageId(0))
+            .expect("the saved page parses")
+            .text_runs;
+        Ok(pdf_edit::group_text_runs(&runs)
+            .into_iter()
+            .map(|block| block.text)
+            .collect())
+    }
+
+    /// Retypes the two-line paragraph to `first`, then — before any save —
+    /// the paragraph as the page now shows it to `second`.
+    fn retyped_twice(first: &str, second: &str) -> (DocumentSession, Result<(), String>) {
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let mut session = crate::app::test_fixtures::backed_session(base);
+        let runs = crate::app::test_fixtures::shown_runs(&session);
+        record_block_retype(&mut session, &runs, first).expect("the first retype records");
+        let shown = crate::app::test_fixtures::shown_runs(&session);
+        let second = record_block_retype(&mut session, &shown, second);
+        (session, second)
+    }
+
+    /// A paragraph retyped to a new line count can be retyped again before
+    /// a save — fewer lines, more lines, or as many — and the save shows the
+    /// last text, still one paragraph. The second retype names the line the
+    /// first one inserted, which exists only in the queue.
+    #[test]
+    fn a_regrown_paragraph_retyped_again_before_a_save_saves_the_last_text() {
+        let grown = "First line\nSecond line\nThird line";
+        for second in [
+            "One line",
+            "First line\nSecond line\nThird line\nFourth line",
+            "A\nB\nC",
+        ] {
+            let (session, recorded) = retyped_twice(grown, second);
+
+            assert_eq!(recorded, Ok(()), "{second:?}");
+            assert_eq!(saved_blocks(&session), Ok(vec![second.to_string()]));
+        }
     }
 
     /// The trap that moved every text edit onto the core's policy (B25

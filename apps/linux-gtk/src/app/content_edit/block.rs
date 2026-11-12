@@ -75,7 +75,7 @@ pub(super) fn text_block_at(viewer: &Viewer, page_index: usize, point: (f64, f64
         return TextHit::Unavailable;
     };
     match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
-        Ok(content) => match model::text_run_at(content, (point.0 as f32, point.1 as f32)) {
+        Ok(content) => match model::text_hit_at(content, (point.0 as f32, point.1 as f32)) {
             Some(run) => {
                 let block = model::block_runs(content, run);
                 TextHit::Block(model::block_stand_in(run.clone(), &block), block)
@@ -330,12 +330,27 @@ mod tests {
     }
 
     impl Fixture {
+        /// Two lines a paragraph break apart: two blocks of one run each.
         fn new() -> Self {
+            Self::over(gen_fixtures::build_spaced_line_page_document(
+                &["First line", "Second line"],
+                100,
+            ))
+        }
+
+        /// The same two lines a leading apart: one paragraph block.
+        fn paragraph() -> Self {
+            Self::over(gen_fixtures::build_multi_line_page_document(&[
+                "First line",
+                "Second line",
+            ]))
+        }
+
+        fn over(base: lopdf::Document) -> Self {
             let built = built_ui();
             built.viewer.view_stack.set_visible_child_name("editor");
             built.window.present();
 
-            let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
             let runs = pdf_edit::read_page_content(&base, PageId(0))
                 .expect("the fixture page parses")
                 .text_runs;
@@ -607,6 +622,93 @@ mod tests {
             fixture.viewer().edit_panel.text_hint.text(),
             tr(panel::TEXT_EDITING)
         );
+    }
+
+    /// A click on either line of a paragraph selects the whole paragraph:
+    /// its box, its text with the line break, every run.
+    #[gtk::test]
+    fn gtk_ui_a_click_on_a_paragraph_line_selects_the_paragraph() {
+        let fixture = Fixture::paragraph();
+
+        fixture.click(&fixture.runs[1]);
+
+        let selected = fixture.selected().expect("the paragraph is selected");
+        assert_eq!(selected.id, fixture.runs[0].id, "the first run stands in");
+        assert_eq!(selected.text, "First line\nSecond line");
+        let bottom = fixture.runs[1].bbox.y;
+        let top = fixture.runs[0].bbox.y + fixture.runs[0].bbox.height;
+        assert!(selected.bbox.y <= bottom && selected.bbox.y + selected.bbox.height >= top);
+        let state = fixture.viewer().state.borrow();
+        let block = &state
+            .session
+            .as_ref()
+            .and_then(|session| session.selected_text_block.as_ref())
+            .expect("the selection")
+            .block;
+        assert_eq!(block, &fixture.runs);
+    }
+
+    /// The gap between a paragraph's lines is inside the box the page
+    /// outlines, so a click there selects the paragraph, not nothing.
+    #[gtk::test]
+    fn gtk_ui_a_click_between_a_paragraphs_lines_selects_it() {
+        let fixture = Fixture::paragraph();
+        let (first, second) = (&fixture.runs[0], &fixture.runs[1]);
+        let between = (
+            first.bbox.x + 10.0,
+            (first.bbox.y + second.bbox.y + second.bbox.height) / 2.0,
+        );
+
+        super::super::resolve_click(fixture.viewer(), 0, between);
+
+        assert_eq!(
+            fixture.selected().map(|run| run.text),
+            Some("First line\nSecond line".to_string())
+        );
+    }
+
+    /// F2 over a selected paragraph opens the multi-line editor holding the
+    /// paragraph's lines; a single run keeps the one-line entry.
+    #[gtk::test]
+    fn gtk_ui_f2_on_a_paragraph_opens_a_multi_line_editor() {
+        use crate::app::state::EditorField;
+
+        let fixture = Fixture::paragraph();
+        fixture.click(&fixture.runs[0]);
+        fixture.action(RETYPE_ACTION).activate(None);
+
+        let state = fixture.viewer().state.borrow();
+        let editor = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .expect("the editor opened");
+        assert!(matches!(editor.field, EditorField::Paragraph { .. }));
+        assert_eq!(editor.field.text(), "First line\nSecond line");
+        drop(state);
+        assert_eq!(
+            fixture.viewer().edit_panel.text_hint.text(),
+            tr(panel::PARAGRAPH_EDITING),
+            "the hint names the paragraph's own keys"
+        );
+    }
+
+    #[gtk::test]
+    fn gtk_ui_f2_on_a_single_run_opens_a_one_line_editor() {
+        use crate::app::state::EditorField;
+
+        let fixture = Fixture::new();
+        fixture.click(&fixture.runs[0]);
+        fixture.action(RETYPE_ACTION).activate(None);
+
+        let state = fixture.viewer().state.borrow();
+        let editor = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .expect("the editor opened");
+        assert!(matches!(editor.field, EditorField::Line(_)));
+        assert_eq!(editor.field.text(), "First line");
     }
 
     /// A click on empty page lets go of the selected block.
