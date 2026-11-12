@@ -237,8 +237,9 @@ fn security_from_probe(
 ///
 /// The credential is `User` because that is what an open with no password
 /// supplied *is* — the same access level pdfium grants such a document. An
-/// owner-password holder who wants the owner's bypass has to present it, in
-/// which case the document reaches [`security_from_encrypt_dict`] instead.
+/// owner-password holder who wants the owner's bypass has to present it;
+/// [`unlocked_security`] then checks it against a rebuilt `/Encrypt` and
+/// swaps in the role it authenticates, keeping this handler and `/P`.
 fn security_from_unlocked_state(
     state: &lopdf::EncryptionState,
 ) -> Result<SecurityContext, ManipError> {
@@ -293,15 +294,7 @@ fn unlocked_security(
             // `security_from_encrypt_dict` would re-derive it from `/CF/StdCF`
             // alone and refuse a filter with any other name before the
             // password is even looked at.
-            let relocked = relocked(probe, state)?;
-            let (credential, credentials) =
-                if relocked.authenticate_owner_password(password).is_ok() {
-                    (Credential::Owner, EncryptionCredentials::owner(password))
-                } else if relocked.authenticate_user_password(password).is_ok() {
-                    (Credential::User, EncryptionCredentials::user(password))
-                } else {
-                    return Err(ManipError::WrongPassword);
-                };
+            let (credential, credentials) = resolve_credential(&relocked(probe, state)?, password)?;
             Ok(Some(SecurityContext {
                 credential,
                 credentials,
@@ -362,32 +355,41 @@ fn relocked(
 /// Reads an already-loaded, still-encrypted probe's `/Encrypt` dictionary and
 /// resolves which credential role `password` authenticates.
 ///
-/// Every open path and [`read_security_context`] share this, so the mapping
-/// from a raw `/Encrypt` dictionary to a `SecurityContext` exists exactly
-/// once. The caller must have established that `probe` is encrypted.
+/// The single-password open paths and [`read_security_context`] share this
+/// for a probe that still carries `/Encrypt`. A probe lopdf already unlocked
+/// goes through [`unlocked_security`] instead; both resolve the password with
+/// [`resolve_credential`]. The caller must have established that `probe` is
+/// encrypted.
 fn security_from_encrypt_dict(
     probe: &LopdfRawDocument,
     password: &str,
 ) -> Result<SecurityContext, ManipError> {
     let (handler, permissions) = encryption_settings(probe)?;
-
-    let credential = if probe.authenticate_owner_password(password).is_ok() {
-        Credential::Owner
-    } else if probe.authenticate_user_password(password).is_ok() {
-        Credential::User
-    } else {
-        return Err(ManipError::WrongPassword);
-    };
+    let (credential, credentials) = resolve_credential(probe, password)?;
 
     Ok(SecurityContext {
         handler,
         credential,
-        credentials: match credential {
-            Credential::User => EncryptionCredentials::user(password),
-            Credential::Owner => EncryptionCredentials::owner(password),
-        },
+        credentials,
         permissions,
     })
+}
+
+/// Which role `password` authenticates against `doc`'s `/Encrypt`: the owner
+/// first, so a password that is both wins the owner's bypass, then the user;
+/// anything else is [`ManipError::WrongPassword`]. The one place a single
+/// password is mapped to a role and its credentials.
+fn resolve_credential(
+    doc: &LopdfRawDocument,
+    password: &str,
+) -> Result<(Credential, EncryptionCredentials), ManipError> {
+    if doc.authenticate_owner_password(password).is_ok() {
+        Ok((Credential::Owner, EncryptionCredentials::owner(password)))
+    } else if doc.authenticate_user_password(password).is_ok() {
+        Ok((Credential::User, EncryptionCredentials::user(password)))
+    } else {
+        Err(ManipError::WrongPassword)
+    }
 }
 
 /// Reads the handler and raw permission bitmask out of an encrypted probe's
