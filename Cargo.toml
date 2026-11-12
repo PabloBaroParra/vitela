@@ -10,6 +10,7 @@ members = [
     "core/pdf-compress",
     "core/pdf-save",
     "core/pdf-ffi",
+    "core/pdf-wasm",
     "core/pdf-sign",
     "core/pdf-sign-pkcs11",
     "core/pdf-sign-pfx",
@@ -22,9 +23,8 @@ members = [
 # spikes/uniffi-cs is a standalone crate/workspace (Batch 1 spike) — deliberately
 # excluded so its experimental uniffi-bindgen-cs dependency pin can never break
 # the main workspace build/lockfile. spikes/web-wasm (Batch 26 phase-0 web
-# spike) is excluded for the same reason, as is apps/web/render-wasm (the
-# web worker's temporary render crate until core/pdf-wasm lands, B26 T-220).
-exclude = ["spikes/uniffi-cs", "spikes/web-wasm", "apps/web/render-wasm"]
+# spike) is excluded for the same reason.
+exclude = ["spikes/uniffi-cs", "spikes/web-wasm"]
 
 [workspace.package]
 version = "0.1.0"
@@ -36,6 +36,15 @@ opt-level = 0
 
 [profile.release]
 opt-level = 3
+
+# The web engine (core/pdf-wasm) as apps/web ships it: LTO + one codegen unit
+# cut the phase-0 spike's module from 2.3 MB to 1.5 MB raw. A profile of its
+# own because `lto` cannot be set per package, and the native release builds
+# keep their link times.
+[profile.wasm-release]
+inherits = "release"
+lto = true
+codegen-units = 1
 
 [patch.crates-io]
 p12-keystore = { path = "vendor/p12-keystore" }

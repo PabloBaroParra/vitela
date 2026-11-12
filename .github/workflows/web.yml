@@ -8,19 +8,29 @@ on:
     branches: [main]
     paths:
       - "apps/web/**"
+      # The worker's engine is core/pdf-wasm, built from the workspace.
+      - "core/**"
+      - "vendor/**"
+      - Cargo.toml
+      - Cargo.lock
       - "tests/fixtures/**"
       - ".github/workflows/web.yml"
   pull_request:
     paths:
       - "apps/web/**"
+      # The worker's engine is core/pdf-wasm, built from the workspace.
+      - "core/**"
+      - "vendor/**"
+      - Cargo.toml
+      - Cargo.lock
       - "tests/fixtures/**"
       - ".github/workflows/web.yml"
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  # Bump together with apps/web/render-wasm/Cargo.toml's wasm-bindgen pin and
-  # apps/web/scripts/build-wasm.sh.
+  # Bump together with core/pdf-wasm/Cargo.toml's wasm-bindgen pin,
+  # apps/web/scripts/build-wasm.sh and core.yml's wasm32 job.
   WASM_BINDGEN_VERSION: "0.2.130"
 
 permissions:
@@ -43,7 +53,7 @@ jobs:
           toolchain: stable
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy
-      - name: Cache cargo registry, render-wasm build and wasm-bindgen-cli
+      - name: Cache cargo registry, the wasm build and wasm-bindgen-cli
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           # `.crates.toml` / `.crates2.json` travel with the binary, or
@@ -56,20 +66,17 @@ jobs:
             ~/.cargo/bin/wasm2es6js
             ~/.cargo/.crates.toml
             ~/.cargo/.crates2.json
-            apps/web/render-wasm/target
-          key: ${{ runner.os }}-web-wasm-${{ env.WASM_BINDGEN_VERSION }}-${{ hashFiles('apps/web/render-wasm/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-web-wasm-${{ env.WASM_BINDGEN_VERSION }}-${{ hashFiles('Cargo.lock') }}
       - name: Install wasm-bindgen-cli
         run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
-      - name: render-wasm fmt + clippy
-        run: |
-          cargo fmt --manifest-path render-wasm/Cargo.toml -- --check
-          cargo clippy --locked --manifest-path render-wasm/Cargo.toml --target wasm32-unknown-unknown
+      # pdf-wasm's own fmt/clippy/browser tests run in core.yml's wasm32 job.
 
       - name: Cache pdfium WASM (sha256-checked by build-wasm.sh either way)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/web/generated/pdfium
-          key: pdfium-wasm-${{ hashFiles('apps/web/scripts/build-wasm.sh') }}
+          key: pdfium-wasm-${{ hashFiles('core/pdf-wasm/scripts/fetch-pdfium.sh') }}
       - name: Build the WASM modules
         run: npm run build:wasm
 

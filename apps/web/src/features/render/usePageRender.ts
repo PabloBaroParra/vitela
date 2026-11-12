@@ -1,4 +1,4 @@
-// Asks the engine for one page whenever the document (or the page/width)
+// Asks the engine for one page whenever the document (or the page/dpi)
 // changes. Container logic only; PageCanvas does the painting.
 
 import { useEffect, useState } from 'react';
@@ -15,7 +15,7 @@ export function usePageRender(
   engine: Engine,
   generation: number | null,
   pageIndex: number,
-  targetWidth: number,
+  dpi: number,
 ): PageRenderState {
   const [state, setState] = useState<PageRenderState>({ status: 'idle' });
 
@@ -26,7 +26,7 @@ export function usePageRender(
     }
     let stale = false;
     setState({ status: 'rendering' });
-    engine.renderPage(pageIndex, targetWidth).then(
+    engine.renderPage(pageIndex, dpi).then(
       (page) => {
         if (!stale) setState({ status: 'rendered', page });
       },
@@ -37,7 +37,7 @@ export function usePageRender(
     return () => {
       stale = true;
     };
-  }, [engine, generation, pageIndex, targetWidth]);
+  }, [engine, generation, pageIndex, dpi]);
 
   return generation === null ? { status: 'idle' } : state;
 }

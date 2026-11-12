@@ -6,7 +6,7 @@ import type { DocumentInfo, RenderedPage } from './types';
 
 export type EngineRequest =
   | { readonly kind: 'open'; readonly bytes: Uint8Array }
-  | { readonly kind: 'renderPage'; readonly pageIndex: number; readonly targetWidth: number };
+  | { readonly kind: 'renderPage'; readonly pageIndex: number; readonly dpi: number };
 
 export interface EngineResults {
   open: DocumentInfo;

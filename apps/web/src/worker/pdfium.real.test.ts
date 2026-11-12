@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// The init alias against the REAL pinned pdfium and the real render module,
+// The init alias against the REAL pinned pdfium and the real core module,
 // run under Node (Emscripten's glue supports it). Needs `npm run build:wasm`
 // first; CI runs it before Vitest.
 
@@ -10,15 +10,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { instantiatePdfium, type PdfiumModule } from './pdfium';
-import * as render from '../../generated/render/vitela_web_render.js';
+import * as core from '../../generated/engine/pdf_wasm.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const generated = resolve(here, '../../generated');
 const fixture = resolve(here, '../../../../tests/fixtures/forms/reportlab_acroform.pdf');
 
-describe('real pdfium chromium/7763 + render module', () => {
+describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
   let pdfium: PdfiumModule;
-  let renderExports: unknown;
+  let coreExports: unknown;
   const glueSource = readFileSync(resolve(generated, 'pdfium/pdfium.js'), 'utf8');
 
   beforeAll(async () => {
@@ -27,7 +27,7 @@ describe('real pdfium chromium/7763 + render module', () => {
     scope.require = createRequire(import.meta.url);
     scope.__dirname = resolve(generated, 'pdfium');
     pdfium = await instantiatePdfium(glueSource, resolve(generated, 'pdfium/pdfium.wasm'));
-    renderExports = render.initSync({ module: readFileSync(resolve(generated, 'render/vitela_web_render_bg.wasm')) });
+    coreExports = core.initSync({ module: readFileSync(resolve(generated, 'engine/pdf_wasm_bg.wasm')) });
   });
 
   it('exports only _FPDF_InitLibrary, none of the names pdfium-render looks up', () => {
@@ -43,17 +43,22 @@ describe('real pdfium chromium/7763 + render module', () => {
   });
 
   it('opens a repo fixture and renders non-blank pixels through the alias', () => {
-    expect(render.initialize_pdfium_render(pdfium, renderExports, false)).toBe(true);
-    expect(render.open_document(readFileSync(fixture))).toBe(1);
-    const page = render.render_page(0, 300);
-    const rgba = page.take_rgba();
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = new core.Engine();
+    const doc = engine.open(readFileSync(fixture));
+    expect(engine.pageCount(doc)).toBe(1);
+    // US Letter at 72 dpi: one pixel per point.
+    const page = engine.renderPage(doc, 0, 72, false);
+    const rgba = page.takeRgba();
     expect(rgba.length).toBe(page.width * page.height * 4);
-    expect(page.width).toBe(300);
+    expect([page.width, page.height]).toEqual([612, 792]);
     let inked = 0;
     for (let i = 0; i < rgba.length; i += 4) {
       if (rgba[i]! < 128 && rgba[i + 1]! < 128 && rgba[i + 2]! < 128) inked++;
     }
     expect(inked).toBeGreaterThan(100);
     page.free();
+    expect(engine.close(doc)).toBe(true);
+    engine.free();
   });
 });

@@ -24,16 +24,16 @@ describe('handleRequest', () => {
   it('answers renderPage and transfers the pixel buffer instead of copying it', async () => {
     const calls: [number, number][] = [];
     const engine = fakeEngine({
-      renderPage: async (index, width) => {
-        calls.push([index, width]);
+      renderPage: async (index, dpi) => {
+        calls.push([index, dpi]);
         return page;
       },
     });
     const reply = await handleRequest(engine, {
       id: 8,
-      request: { kind: 'renderPage', pageIndex: 2, targetWidth: 640 },
+      request: { kind: 'renderPage', pageIndex: 2, dpi: 96 },
     });
-    expect(calls).toEqual([[2, 640]]);
+    expect(calls).toEqual([[2, 96]]);
     expect(reply.message).toEqual({ type: 'result', id: 8, value: page });
     expect(reply.transfer).toEqual([page.rgba.buffer]);
   });

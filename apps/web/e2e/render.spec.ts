@@ -10,9 +10,9 @@ test('opens a repo fixture and paints its first page', async ({ page }) => {
 
   await expect(page.getByText('reportlab_acroform.pdf — 1 page')).toBeVisible();
   const canvas = await inkedPixelCount(page);
-  expect(canvas.width).toBe(1200);
-  // US Letter at 1200 px wide: 1200 * 11 / 8.5.
-  expect(canvas.height).toBe(1553);
+  // US Letter (8.5 x 11 in) at the viewer's 144 dpi.
+  expect(canvas.width).toBe(1224);
+  expect(canvas.height).toBe(1584);
   // Blank-but-painted would pass a size check; demand real ink.
   expect(canvas.inked).toBeGreaterThan(5_000);
   expect(errors).toEqual([]);
