@@ -114,7 +114,9 @@ pub(super) fn wire(viewer: &Viewer, view: &TextView) {
     let focus = EventControllerFocus::new();
     focus.connect_leave({
         let viewer = viewer.clone();
-        move |_| super::editor::commit(&viewer)
+        // Weak: the controller lives on this very widget.
+        let view = view.upcast_ref::<gtk::Widget>().downgrade();
+        move |_| super::editor::commit_on_focus_leave(&viewer, view.clone())
     });
     view.add_controller(focus);
 
@@ -174,7 +176,7 @@ mod tests {
 #[cfg(test)]
 mod gtk_tests {
     use gtk::prelude::*;
-    use gtk::{Overlay, Picture};
+    use gtk::{glib, Overlay, Picture};
     use pdf_document::{Command, PageId, TextRun};
 
     use crate::app::i18n::tr;
@@ -452,6 +454,47 @@ GARANTÍA: Instalación incluida",
             height >= f64::from(4 * line - 4),
             "{height} px for four lines of {line} px"
         );
+    }
+
+    /// Clicking a button that takes the focus — the toolbar's panel toggles,
+    /// say — while the box is open moves the focus out of it, and that
+    /// commits the paragraph. The commit must not take the box off the page
+    /// while GTK is still walking the old focus's ancestors: the walk then
+    /// never meets the common ancestor and spins on
+    /// `gtk_widget_get_parent (NULL)` for ever. Criticals are made fatal so
+    /// that regression aborts the run instead of hanging it.
+    #[gtk::test]
+    fn gtk_ui_focusing_a_toolbar_button_commits_the_paragraph_without_hanging() {
+        // Restored on the way out, pass or fail: every gtk_ui_ test shares
+        // this one thread, and the next one's criticals are not ours.
+        struct RestoreFatal(glib::LogLevels);
+        impl Drop for RestoreFatal {
+            fn drop(&mut self) {
+                glib::log_set_always_fatal(self.0);
+            }
+        }
+        let _restore = RestoreFatal(glib::log_set_always_fatal(glib::LogLevels::LEVEL_CRITICAL));
+        let fixture = Fixture::open();
+        fixture.view().buffer().set_text(
+            "First line
+Second line changed",
+        );
+        let button = fixture.viewer().print_button.clone();
+        button.set_sensitive(true);
+
+        button.grab_focus();
+        let context = glib::MainContext::default();
+        for _ in 0..200 {
+            if fixture.field().is_none() {
+                break;
+            }
+            while context.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        assert!(fixture.field().is_none(), "the focus-out closed the box");
+        assert_eq!(fixture.entries().len(), 1, "and recorded the paragraph");
+        assert!(button.has_focus(), "the focus landed on the button");
     }
 
     /// The paragraph unchanged is not an edit.

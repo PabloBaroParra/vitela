@@ -678,7 +678,9 @@ fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
     let focus = EventControllerFocus::new();
     focus.connect_leave({
         let viewer = viewer.clone();
-        move |_| commit(&viewer)
+        // Weak: the controller lives on this very widget.
+        let entry = entry.upcast_ref::<gtk::Widget>().downgrade();
+        move |_| commit_on_focus_leave(&viewer, entry.clone())
     });
     entry.add_controller(focus);
 
@@ -874,6 +876,42 @@ pub(crate) fn cancel(viewer: &Viewer) {
         detach(viewer, &editor);
         viewer.status.set_text(&tr("edit-cancelled"));
     }
+}
+
+/// Commits the editor whose `field` just lost the keyboard focus, once GTK
+/// has finished moving the focus away from it.
+///
+/// Focus-out is emitted from inside `synthesize_focus_change_events`, while
+/// GTK is still walking the old focus widget's ancestors. A commit closes the
+/// editor, and closing it takes the frame off the page overlay: the chain
+/// from the old focus up to the window is cut mid-walk, so GTK's
+/// `for (w = old_focus; w != ancestor; w = gtk_widget_get_parent (w))` never
+/// meets the ancestor and spins on `gtk_widget_get_parent (NULL)` forever —
+/// the frozen window and the endless `GTK_IS_WIDGET` criticals a click on any
+/// focus-taking button (a panel toggle, say) caused while the box was open.
+///
+/// So the commit runs from a high-priority idle — after the focus change,
+/// still ahead of the release half of the click that moved the focus. By
+/// then the editor may already be gone (committed by a canvas click, which
+/// then dropped the cursor here) or replaced by another one, so it only
+/// commits while `field` is still the open editor's.
+pub(super) fn commit_on_focus_leave(viewer: &Viewer, field: glib::WeakRef<gtk::Widget>) {
+    let viewer = viewer.clone();
+    glib::idle_add_local_full(glib::Priority::HIGH, move || {
+        let open = field.upgrade().is_some_and(|field| {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .is_some_and(|editor| editor.field.focus_widget() == field)
+        });
+        if open {
+            commit(&viewer);
+        }
+        glib::ControlFlow::Break
+    });
 }
 
 /// Takes the editor box off the page.
