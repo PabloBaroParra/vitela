@@ -1,7 +1,8 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 en curso: T-217 ✓ (#560), T-218 ✓ (#561), T-219 ✓ (#569), T-220 hecha, T-221 hecha.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso desde
+> T-223.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -347,6 +348,42 @@ Lo que condiciona lo que sigue:
   local:** los `wasm-bindgen-test` en Chrome headless (no hay chromedriver en esta
   máquina); hay uno nuevo (texto en página girada) y otra aserción en el de búsqueda,
   que verifica el job `wasm32` de `core.yml`.
+- **Nota posterior:** el hueco de la contraseña de usuario vacía se cerró en el core
+  (0874a94, "keep the permissions of PDFs with an empty user password on open").
+
+### Fase 2 — tareas
+
+Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
+
+- `pdf-save` ya compila a wasm32 (solo `export_page_as_image` queda fuera). `pdf-wasm`
+  ya tiene por documento el `pdf_document::Document` (con su `EditLog`), el lopdf base
+  y las rotaciones de apertura, pero **no** aplica ediciones, no deshace, no guarda y
+  no conserva los bytes originales (`SaveInput.original_bytes` los necesita).
+- La lógica de las ediciones de página ya está en el core (`Command::MovePages`,
+  `RotatePages`, `remove_pages`, `EditLog`, `pdf_save::checkpoint`, `derive_blocks`),
+  pero varias reglas viven **solo en `pdf-ffi`**: los gates de `apply_edit` (permiso de
+  ensamblado, de anotación y `full_rewrite_blocker` para ediciones de estructura, con
+  copias propias de `is_document_assembly_command` / `is_page_structure_command`), los
+  límites de página de `MovePages`/`RotatePages`, la orquestación de `import_prepared`
+  (ids de documento importado, cursor de `PageId`, "elegido dos veces"/"ya importado",
+  fuentes importadas en una lista propia en vez de `pdf_save::ImportedSourceRegistry`)
+  y los pasos de `refresh_preview` (clonar, quitar anotaciones de sesión, guardar,
+  reabrir en pdfium).
+- Miniaturas: ningún shell tiene una función aparte; todos llaman a `render_page` a un
+  DPI bajo calculado en el shell. En la web el documento de pdfium sale de los bytes
+  originales, así que sin un `refreshPreview` las miniaturas quedarían obsoletas tras
+  mover, borrar o importar.
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-223** | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
+| **T-224** | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
+| **T-225** | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
+| **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
+| **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
+
+T-223 bloquea T-224 y T-227. T-225 depende de `saveToBytes` (T-224). T-226 depende de
+T-224 y T-225.
 
 ## Verificación
 
