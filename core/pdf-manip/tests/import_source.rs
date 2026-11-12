@@ -121,7 +121,9 @@ fn a_wrong_password_is_reported_rather_than_refused_as_a_permission() {
 
 #[test]
 fn a_missing_password_is_reported_rather_than_refused_as_a_permission() {
-    let bytes = copyable_pdf(USER_PASSWORD);
+    // No-copy, so a gate that ran before the password check would answer
+    // `SourceForbidsCopying` here instead.
+    let bytes = no_copy_pdf(USER_PASSWORD);
 
     let error = open_import_source_from_bytes(&bytes, None)
         .expect_err("an encrypted source must not open without its password");
@@ -141,7 +143,13 @@ fn the_owner_of_a_promptless_no_copy_source_may_import_it() {
     let (document, security) = open_import_source_from_bytes(&bytes, Some(OWNER_PASSWORD))
         .expect("the owner credential has to open its own document");
 
-    assert_eq!(document.as_lopdf().get_pages().len(), 1);
+    // Decrypted, not merely loaded: the page content has to read back.
+    let page = *document
+        .as_lopdf()
+        .get_pages()
+        .get(&1)
+        .expect("the source's page");
+    assert_eq!(support::page_label(document.as_lopdf(), page), "restricted");
     assert_eq!(
         security
             .expect("a promptless source reports its context")
