@@ -6,7 +6,8 @@ import initEngine, * as core from '../../generated/engine/pdf_wasm.js';
 import engineWasmUrl from '../../generated/engine/pdf_wasm_bg.wasm?url';
 import pdfiumGlueUrl from '../../generated/pdfium/pdfium.js?url';
 import pdfiumWasmUrl from '../../generated/pdfium/pdfium.wasm?url';
-import type { DocumentInfo, Engine, RenderedPage } from '../core/types';
+import type { Engine } from '../core/types';
+import { documentEngine } from './documentEngine';
 import { instantiatePdfium } from './pdfium';
 
 /** Loads both WASM modules, binds pdfium-render to pdfium, starts the core. */
@@ -18,37 +19,7 @@ export async function createEngine(): Promise<Engine> {
   if (!core.initialize_pdfium_render(pdfium, engineExports, false)) {
     throw new Error('initialize_pdfium_render refused the pdfium module');
   }
-  return singleDocumentEngine(new core.Engine());
-}
-
-/**
- * The UI holds one document at a time: opening another closes the previous
- * one, so pdfium never keeps a document nobody can reach.
- */
-function singleDocumentEngine(engine: core.Engine): Engine {
-  let current: number | null = null;
-  return {
-    async open(bytes: Uint8Array): Promise<DocumentInfo> {
-      const doc = engine.open(bytes);
-      if (current !== null) engine.close(current);
-      current = doc;
-      return { pageCount: engine.pageCount(doc) };
-    },
-    async renderPage(pageIndex: number, dpi: number): Promise<RenderedPage> {
-      if (current === null) throw new Error('render: no document is open');
-      const page = engine.renderPage(current, pageIndex, dpi, false);
-      try {
-        const rgba = page.takeRgba();
-        return {
-          width: page.width,
-          height: page.height,
-          rgba: new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, rgba.byteLength),
-        };
-      } finally {
-        page.free();
-      }
-    },
-  };
+  return documentEngine(new core.Engine());
 }
 
 async function fetchText(url: string): Promise<string> {

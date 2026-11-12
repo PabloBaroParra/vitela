@@ -3,7 +3,8 @@
 
 import type { MessagePortLike, RequestEnvelope, WorkerMessage } from '../core/protocol';
 import { createEngine } from './engine';
-import { errorMessage, handleRequest } from './handler';
+import { errorMessage } from '../core/errors';
+import { handleRequest } from './handler';
 
 const port = self as unknown as MessagePortLike<RequestEnvelope, WorkerMessage>;
 const engine = createEngine();

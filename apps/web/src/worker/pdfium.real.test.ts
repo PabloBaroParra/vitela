@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
+import { documentEngine } from './documentEngine';
 import { instantiatePdfium, type PdfiumModule } from './pdfium';
 import * as core from '../../generated/engine/pdf_wasm.js';
 
@@ -60,5 +61,16 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     page.free();
     expect(engine.close(doc)).toBe(true);
     engine.free();
+  });
+
+  it('renders by handle and refuses a closed document, as documentEngine relies on', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine());
+    const a = await engine.open(readFileSync(fixture));
+    const b = await engine.open(readFileSync(fixture));
+    expect(a.handle).not.toBe(b.handle);
+    await engine.close(b.handle);
+    expect((await engine.renderPage(a.handle, 0, 72)).width).toBe(612);
+    await expect(engine.renderPage(b.handle, 0, 72)).rejects.toMatchObject({ name: 'DocumentNotFound' });
   });
 });

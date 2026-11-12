@@ -24,7 +24,8 @@
   "include": [
     "src/worker",
     "src/core/protocol.ts",
-    "src/core/types.ts"
+    "src/core/types.ts",
+    "src/core/errors.ts"
   ],
   "exclude": [
     "src/worker/**/*.real.test.ts"

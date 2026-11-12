@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 en curso: T-217 ✓ (#560), T-218 ✓ (#561), T-220 hecha.**
+> fase 1 en curso: T-217 ✓ (#560), T-218 ✓ (#561), T-219 ✓ (#569), T-220 hecha, T-221 hecha.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -152,7 +152,7 @@ Hechos que las fundamentan (mapeados 2026-11-11):
 | **T-218** ✓ #561 | Bajar al core la lógica que hoy vive en `pdf-ffi`: dimensiones de página con rotación, apertura con contraseñas y el gate de extracción de texto. `pdf-ffi` pasa a delegar. | Tests movidos junto a la lógica; los shells no notan nada. |
 | **T-219** ✓ | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
 | **T-220** ✓ | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium, Firefox y WebKit (decidida 2026-11-11). | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
-| **T-221** | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
+| **T-221** ✓ | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
 | **T-222** | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
 
 T-217 y T-218 son independientes entre sí y bloquean T-219; T-220 puede ir en paralelo
@@ -240,6 +240,52 @@ borró. Lo que condiciona lo que sigue:
 - **Verificado en local (Windows):** `cargo check --target wasm32-unknown-unknown -p
   pdf-wasm`, los 8 tests de navegador (Chrome 157 + chromedriver de Chrome for Testing),
   Vitest 30/30 y Playwright 9/9 (Chromium, Firefox, WebKit, incluido zero-network).
+
+### T-221 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("The viewer"). Lo que condiciona
+lo que sigue:
+
+- **El protocolo del worker reenvía el `name` del error.** La respuesta `error` lleva
+  `name` además de `message`, y el cliente rechaza con un `EngineError` (`core/errors.ts`)
+  cuyo `name` es el tipo del core. El diálogo de contraseña ramifica en
+  `PasswordRequired`/`WrongPassword`; T-222 debe hacer lo mismo con
+  `TextExtractionDenied`, sin tocar el protocolo.
+- **`open` devuelve un handle y los tamaños de página** (`{ handle, info }`; `pages`:
+  ancho/alto en puntos ya girados + giro, además de `pageCount`), y acepta contraseña.
+  **Todo `renderPage` lleva el handle** del documento, y hay un `close(handle)`. El
+  handle es el id del core, que nunca se reutiliza y rechaza (`DocumentNotFound`) un id
+  cerrado: el worker ya no tiene un documento "actual", así que no puede pintar uno que
+  la UI no muestra. Quien cierra es la UI (`useDocument`): el documento que reemplaza en
+  cuanto el nuevo abrió, y cualquier open que llega tarde (superado por otro o con el
+  diálogo de contraseña cancelado mientras se comprobaba). Un open fallido o cancelado
+  deja el documento mostrado intacto. Antes el worker cambiaba de documento al abrir y
+  la UI podía seguir mostrando el anterior con páginas del nuevo.
+- **Escala:** 100 % = tamaño físico (96 px CSS por pulgada). El render es
+  `round(96 × zoom × devicePixelRatio)` dpi, con tope de 12 Mpx por página. Cambia la
+  cifra de T-219: a 100 % el E2E ve 816×1056 (1632×2112 en WebKit, cuyo perfil de
+  escritorio tiene `devicePixelRatio` 2). **Para T-222:** los rects del core vienen en
+  puntos con origen abajo-izquierda; a CSS se pasa con `CSS_PX_PER_PT × zoom` y la
+  caja de cada página (`layout.ts`, `slots`).
+- **Virtualización:** solo se montan las páginas a menos de un viewport del área
+  visible (`visiblePages`); el resto no tiene canvas. Una capa de texto o de resaltados
+  de T-222 debe vivir dentro de `PageSlot`, para montarse y desmontarse con la página.
+- **Sin renders obsoletos:** el visor entero se reinicia por `generation` al abrir otro
+  documento y cada página pide su render por handle; un render que termina después de que cambió el dpi se descarta, y el
+  bitmap anterior se muestra escalado hasta que llega el nuevo. El dpi solo cambia
+  150 ms después de que el zoom se quedó quieto. Lo que **no** hay: cancelación dentro
+  del worker — un render ya encolado se ejecuta aunque su resultado se descarte.
+- **Zoom con rueda anclado al puntero:** la matemática es pura (`zoomAround`, con
+  tests) y se verificó que el E2E falla en los tres navegadores si se ancla al centro.
+  Límite conocido: cerca del borde de la página el punto no puede quedarse quieto si
+  el scroll tendría que pasar del borde del contenido.
+- **Fixtures:** el cifrado es `encrypted/aes_128_user_and_owner.pdf` (contraseñas en
+  `tests/fixtures/README.md`). El corpus no tiene ningún PDF de más de 3 páginas ni con
+  `/Rotate 90`, así que el E2E los construye en memoria (`e2e/pdf.ts`): no se commitea
+  ningún binario.
+- **Verificado en local (Windows, Playwright 1.65):** `tsc -b`, Vitest 79/79, build y Playwright 33/33
+  (Chromium, Firefox, WebKit, incluido zero-network), además de 99/99 con
+  `--repeat-each=3`.
 
 ## Verificación
 
