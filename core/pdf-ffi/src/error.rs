@@ -145,6 +145,16 @@ impl From<pdf_manip::ManipError> for FfiError {
     }
 }
 
+impl From<pdf_document::PagePositionOutOfRange> for FfiError {
+    fn from(err: pdf_document::PagePositionOutOfRange) -> Self {
+        // Every position this boundary hands the core arrived as a `u32`, so
+        // the one the core names back fits in one.
+        FfiError::PageIndexOutOfBounds {
+            index: u32::try_from(err.position).unwrap_or(u32::MAX),
+        }
+    }
+}
+
 impl From<pdf_render::RenderError> for FfiError {
     fn from(err: pdf_render::RenderError) -> Self {
         use pdf_render::RenderError as E;

@@ -245,23 +245,10 @@ impl DocumentState {
                 Command::remove_page(&self.document, index as usize)
                     .ok_or(FfiError::PageIndexOutOfBounds { index })?
             }
+            // The core names which position was out of range; see
+            // `pdf_document::page_range`.
             FfiEditCommand::MovePages { from, count, to } => {
-                // The core refuses a bad range too, but only as `false`;
-                // checked here so the shell learns *which* position was out
-                // of range. A zero count or a move onto itself is left to
-                // the core's own refusal — neither names a bad position.
-                let len = self.document.pages.len() as u64;
-                if u64::from(from) + u64::from(count) > len {
-                    return Err(FfiError::PageIndexOutOfBounds { index: from });
-                }
-                if u64::from(to) + u64::from(count) > len {
-                    return Err(FfiError::PageIndexOutOfBounds { index: to });
-                }
-                Command::MovePages {
-                    from: from as usize,
-                    count: count as usize,
-                    to: to as usize,
-                }
+                Command::move_pages(&self.document, from as usize, count as usize, to as usize)?
             }
             FfiEditCommand::RemovePages { index, count } => {
                 // `remove_pages` for the reason `RemovePage` uses
@@ -276,17 +263,7 @@ impl DocumentState {
                 count,
                 delta_degrees,
             } => {
-                let len = self.document.pages.len() as u64;
-                if count == 0 || u64::from(from) + u64::from(count) > len {
-                    return Err(FfiError::PageIndexOutOfBounds { index: from });
-                }
-                let pages = (from..from + count)
-                    .map(|position| self.page_id(position))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Command::RotatePages {
-                    pages,
-                    delta_degrees,
-                }
+                Command::rotate_pages(&self.document, from as usize, count as usize, delta_degrees)?
             }
             FfiEditCommand::AddHighlight { page, rect, color } => {
                 let page = self.page_id(page)?;

@@ -17,6 +17,7 @@ pub mod document;
 pub mod edit_log;
 pub mod form;
 pub mod metadata;
+pub mod page_range;
 pub mod prune;
 pub mod security;
 pub mod watermark;
@@ -37,6 +38,7 @@ pub use form::{
     RadioOption, TextStyle,
 };
 pub use metadata::{DocumentInfo, PdfDate, PdfDateOffset, PdfDateParseError};
+pub use page_range::PagePositionOutOfRange;
 pub use prune::{prune_to, removal_runs};
 pub use security::{
     Credential, EncryptionCredentials, Permissions, SecurityContext, SecurityHandler,
