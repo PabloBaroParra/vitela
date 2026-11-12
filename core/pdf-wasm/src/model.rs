@@ -93,13 +93,17 @@ fn degrees(rotation: Rotation) -> u32 {
     }
 }
 
+// Declared at file level, not inside `mod tests`: there the path would be
+// resolved through `src/model/tests/`, a directory that does not exist, which
+// Linux and macOS refuse even when a later `..` leaves it again.
+#[cfg(test)]
+#[path = "../tests/support/pdfs.rs"]
+mod pdfs;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::error::ErrorKind;
-
-    #[path = "../../../tests/support/pdfs.rs"]
-    mod pdfs;
 
     fn open(bytes: &[u8], credentials: OpenCredentials) -> Result<DocumentModel, EngineError> {
         DocumentModel::open(bytes, &credentials)
