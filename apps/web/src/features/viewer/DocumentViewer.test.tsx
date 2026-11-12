@@ -14,6 +14,8 @@ const doc: OpenDocument = {
   handle: 1,
   generation: 1,
 };
+/** One Letter page in CSS px at 100%, plus the gap after it. */
+const PAGE_STEP = 792 * (96 / 72) + 16;
 
 const engine: Engine = fakeEngine({ renderPage: async () => page });
 
@@ -61,7 +63,7 @@ describe('DocumentViewer', () => {
 
     // Scroll to page 30 and let it render.
     act(() => {
-      scroller.scrollTop = 29 * (792 * (96 / 72) + 16);
+      scroller.scrollTop = 29 * PAGE_STEP;
       fireEvent.scroll(scroller);
     });
     const slot = () => container.querySelector<HTMLElement>('[data-page="30"]');
@@ -77,5 +79,47 @@ describe('DocumentViewer', () => {
     expect(scroller.dataset.zoom).not.toBe('1');
     expect(slot()).toBe(before);
     expect(before.querySelector('canvas')).not.toBeNull();
+  });
+
+  it('scrolls a match on a page that is not mounted into view and highlights it', async () => {
+    // "beta" on page 31, 400 pt down it (drawn points from the top).
+    const search = vi.fn(async () => [{ pageIndex: 30, rects: new Float32Array([72, 400, 30, 12]) }]);
+    const { container, getByLabelText } = render(<DocumentViewer engine={{ ...engine, search }} document={doc} />);
+    const scroller = container.querySelector<HTMLElement>('.viewer__scroller')!;
+    expect(container.querySelector('[data-page="31"]')).toBeNull();
+
+    fireEvent.change(getByLabelText('Find in document'), { target: { value: 'beta' } });
+    fireEvent.submit(getByLabelText('Find in document').closest('form')!);
+
+    await waitFor(() => expect(getByLabelText('Search results').textContent).toBe('1 of 1'));
+    expect(search).toHaveBeenCalledWith(1, 'beta');
+    // The match (16 px padding + 30 pages + 400 pt) sits mid-viewport.
+    const matchTop = 16 + 30 * PAGE_STEP + 400 * (96 / 72);
+    expect(scroller.scrollTop).toBeCloseTo(matchTop + 8 - VIEWPORT.height / 2, 0);
+    act(() => {
+      fireEvent.scroll(scroller);
+    });
+    await waitFor(() => expect(container.querySelector('[data-page="31"] .search-hit--current')).not.toBeNull());
+  });
+
+  it('turns search and selection off for a document that withholds its text', () => {
+    const restricted = { ...doc, info: { ...doc.info, textExtractionAllowed: false } };
+    const { container, getByLabelText, getByRole } = render(<DocumentViewer engine={engine} document={restricted} />);
+    expect(getByLabelText('Find in document')).toHaveProperty('disabled', true);
+    expect(getByRole('note').textContent).toMatch(/does not allow copying its text/);
+    expect(getByRole('button', { name: 'Copy' })).toHaveProperty('disabled', true);
+    const layer = container.querySelector('[data-page="1"] .text-layer')!;
+    expect(layer.getAttribute('data-selectable')).toBe('false');
+  });
+
+  it('turns text off when the engine refuses a read the open said was allowed', async () => {
+    const search = vi.fn(async () => {
+      throw Object.assign(new Error('text extraction is not permitted'), { name: 'TextExtractionDenied' });
+    });
+    const { getByLabelText, getByRole } = render(<DocumentViewer engine={{ ...engine, search }} document={doc} />);
+    fireEvent.change(getByLabelText('Find in document'), { target: { value: 'beta' } });
+    fireEvent.submit(getByLabelText('Find in document').closest('form')!);
+    await waitFor(() => expect(getByLabelText('Find in document')).toHaveProperty('disabled', true));
+    expect(getByRole('note')).toBeTruthy();
   });
 });

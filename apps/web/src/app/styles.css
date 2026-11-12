@@ -9,6 +9,10 @@
   --viewer-bg: #e3e1db;
   --control-bg: #ffffff;
   --border: #c9c6bd;
+  /* Highlights sit on the white page in both themes. */
+  --search-hit: rgb(255 205 40 / 45%);
+  --search-hit-current: rgb(255 130 0 / 60%);
+  --text-selection: rgb(40 110 230 / 35%);
   font: 15px/1.5 system-ui, sans-serif;
 }
 
@@ -137,6 +141,17 @@ button:focus-visible,
   min-height: 0;
 }
 
+.viewer__toolbars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 24px;
+}
+
+.viewer__toolbars > .viewer-toolbar:first-child {
+  flex: 1 1 auto;
+}
+
 .viewer-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -174,9 +189,81 @@ button:focus-visible,
   box-shadow: var(--page-shadow);
 }
 
+/* The text layer covers the page: highlights, selection, pointer input. */
+.text-layer {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text-layer[data-selectable='true'] {
+  cursor: text;
+  /* Pointer drags select text instead of panning on touch screens. */
+  touch-action: pan-y;
+}
+
+.search-hit,
+.text-selection {
+  position: absolute;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.search-hit {
+  background: var(--search-hit);
+}
+
+.search-hit--current {
+  background: var(--search-hit-current);
+  outline: 2px solid var(--search-hit-current);
+}
+
+.text-selection {
+  background: var(--text-selection);
+}
+
 .page-slot__error {
   margin: 16px;
   color: #a32020;
+}
+
+/* Text toolbar: find and copy. */
+.text-toolbar__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.text-toolbar__search input {
+  font: inherit;
+  color: inherit;
+  width: 16em;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+}
+
+.text-toolbar__search input:disabled {
+  opacity: 0.5;
+}
+
+.text-toolbar__search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.text-toolbar__result,
+.text-toolbar__copied {
+  min-width: 7ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-toolbar__blocked {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--error);
 }
 
 /* Password prompt */
