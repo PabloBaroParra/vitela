@@ -8,6 +8,7 @@ import type {
   RequestEnvelope,
   WorkerMessage,
 } from './protocol';
+import { EngineError } from './errors';
 import type { DocumentInfo, Engine, RenderedPage } from './types';
 
 interface Pending {
@@ -33,9 +34,9 @@ export class EngineClient implements Engine {
     port.addEventListener('message', (event) => this.receive(event.data));
   }
 
-  open(bytes: Uint8Array): Promise<DocumentInfo> {
+  open(bytes: Uint8Array, password?: string): Promise<DocumentInfo> {
     // The bytes are transferred, not copied: the caller's buffer is detached.
-    return this.send({ kind: 'open', bytes }, [bytes.buffer as ArrayBuffer]);
+    return this.send({ kind: 'open', bytes, password }, [bytes.buffer as ArrayBuffer]);
   }
 
   renderPage(pageIndex: number, dpi: number): Promise<RenderedPage> {
@@ -77,7 +78,7 @@ export class EngineClient implements Engine {
         if (!pending) return;
         this.pending.delete(message.id);
         if (message.type === 'result') pending.resolve(message.value);
-        else pending.reject(new Error(message.message));
+        else pending.reject(new EngineError(message.name, message.message));
       }
     }
   }

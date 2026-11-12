@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EngineClient } from './client';
+import { EngineError } from './errors';
 import type { MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol';
 
 /** A port whose sent messages are recorded and whose replies the test drives. */
@@ -40,11 +41,12 @@ describe('EngineClient', () => {
 
     expect(sent).toHaveLength(1);
     const [{ message, transfer }] = sent as [(typeof sent)[number]];
-    expect(message.request).toEqual({ kind: 'open', bytes });
+    expect(message.request).toEqual({ kind: 'open', bytes, password: undefined });
     expect(transfer).toEqual([bytes.buffer]);
 
-    reply({ type: 'result', id: message.id, value: { pageCount: 3 } });
-    await expect(opened).resolves.toEqual({ pageCount: 3 });
+    const info = { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }] };
+    reply({ type: 'result', id: message.id, value: info });
+    await expect(opened).resolves.toEqual(info);
   });
 
   it('correlates out-of-order replies by request id', async () => {
@@ -56,7 +58,7 @@ describe('EngineClient', () => {
     expect(a).not.toBe(b);
 
     const page = { width: 2, height: 1, rgba: new Uint8ClampedArray(8) };
-    reply({ type: 'error', id: b, message: 'page 1: out of range' });
+    reply({ type: 'error', id: b, name: 'PageIndexOutOfBounds', message: 'page 1: out of range' });
     reply({ type: 'result', id: a, value: page });
 
     await expect(first).resolves.toBe(page);
@@ -77,6 +79,25 @@ describe('EngineClient', () => {
   it('ignores replies for ids it never sent', () => {
     const { port, reply } = fakePort();
     new EngineClient(port);
-    expect(() => reply({ type: 'result', id: 999, value: { pageCount: 1 } })).not.toThrow();
+    expect(() => reply({ type: 'result', id: 999, value: { pageCount: 0, pages: [] } })).not.toThrow();
+  });
+
+  it('sends the password with an open request', () => {
+    const { port, sent } = fakePort();
+    const client = new EngineClient(port);
+    const bytes = new Uint8Array([1]);
+    void client.open(bytes, 'user-aes-pass');
+    expect(sent[0]!.message.request).toEqual({ kind: 'open', bytes, password: 'user-aes-pass' });
+  });
+
+  it('rejects with an EngineError that carries the forwarded name', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const opened = client.open(new Uint8Array([1]));
+    reply({ type: 'error', id: sent[0]!.message.id, name: 'PasswordRequired', message: 'needs a password' });
+
+    const error = await opened.catch((reason: unknown) => reason);
+    expect(error).toBeInstanceOf(EngineError);
+    expect(error).toMatchObject({ name: 'PasswordRequired', message: 'needs a password' });
   });
 });

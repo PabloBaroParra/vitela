@@ -5,7 +5,7 @@
 import type { DocumentInfo, RenderedPage } from './types';
 
 export type EngineRequest =
-  | { readonly kind: 'open'; readonly bytes: Uint8Array }
+  | { readonly kind: 'open'; readonly bytes: Uint8Array; readonly password?: string }
   | { readonly kind: 'renderPage'; readonly pageIndex: number; readonly dpi: number };
 
 export interface EngineResults {
@@ -24,7 +24,13 @@ export type WorkerMessage =
   | { readonly type: 'ready' }
   | { readonly type: 'fatal'; readonly message: string }
   | { readonly type: 'result'; readonly id: number; readonly value: EngineResults[keyof EngineResults] }
-  | { readonly type: 'error'; readonly id: number; readonly message: string };
+  | {
+      readonly type: 'error';
+      readonly id: number;
+      /** The failure's kind — the core's `Error.name`, e.g. `WrongPassword`. */
+      readonly name: string;
+      readonly message: string;
+    };
 
 /** The slice of `Worker` / `DedicatedWorkerGlobalScope` both ends talk through. */
 export interface MessagePortLike<In, Out> {

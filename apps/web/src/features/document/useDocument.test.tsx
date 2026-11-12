@@ -31,7 +31,7 @@ describe('useDocument', () => {
     const seen: number[][] = [];
     const engine = engineWith(async (bytes) => {
       seen.push([...bytes]);
-      return { pageCount: 2 };
+      return { pageCount: 2, pages: [] };
     });
     const { result } = renderHook(() => useDocument(engine));
 
@@ -61,8 +61,8 @@ describe('useDocument', () => {
 
     act(() => result.current.open(file('first.pdf')));
     act(() => result.current.open(file('second.pdf')));
-    await act(async () => second.resolve({ pageCount: 5 }));
-    await act(async () => first.resolve({ pageCount: 1 }));
+    await act(async () => second.resolve({ pageCount: 5, pages: [] }));
+    await act(async () => first.resolve({ pageCount: 1, pages: [] }));
 
     expect(result.current.state).toMatchObject({ status: 'open', name: 'second.pdf', pageCount: 5 });
   });
