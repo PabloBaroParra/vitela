@@ -9,7 +9,7 @@ import type {
   WorkerMessage,
 } from './protocol';
 import { EngineError } from './errors';
-import type { DocumentInfo, Engine, RenderedPage } from './types';
+import type { DocumentHandle, Engine, OpenedDocument, RenderedPage } from './types';
 
 interface Pending {
   resolve(value: unknown): void;
@@ -34,13 +34,17 @@ export class EngineClient implements Engine {
     port.addEventListener('message', (event) => this.receive(event.data));
   }
 
-  open(bytes: Uint8Array, password?: string): Promise<DocumentInfo> {
+  open(bytes: Uint8Array, password?: string): Promise<OpenedDocument> {
     // The bytes are transferred, not copied: the caller's buffer is detached.
     return this.send({ kind: 'open', bytes, password }, [bytes.buffer as ArrayBuffer]);
   }
 
-  renderPage(pageIndex: number, dpi: number): Promise<RenderedPage> {
-    return this.send({ kind: 'renderPage', pageIndex, dpi });
+  renderPage(document: DocumentHandle, pageIndex: number, dpi: number): Promise<RenderedPage> {
+    return this.send({ kind: 'renderPage', document, pageIndex, dpi });
+  }
+
+  close(document: DocumentHandle): Promise<void> {
+    return this.send({ kind: 'close', document });
   }
 
   /** Marks the engine dead (e.g. the worker script failed to load). */

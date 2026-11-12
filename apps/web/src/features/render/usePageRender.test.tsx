@@ -6,7 +6,7 @@ import { usePageRender } from './usePageRender';
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 
 function engineWith(renderPage: Engine['renderPage']): Engine {
-  return { open: () => Promise.reject(new Error('unused')), renderPage };
+  return { open: () => Promise.reject(new Error('unused')), renderPage, close: async () => {} };
 }
 
 describe('usePageRender', () => {
@@ -21,29 +21,29 @@ describe('usePageRender', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('renders the requested page of the open document at the requested dpi', async () => {
-    const calls: [number, number][] = [];
-    const engine = engineWith(async (index, dpi) => {
-      calls.push([index, dpi]);
+  it('renders the requested page of the given document at the requested dpi', async () => {
+    const calls: [number, number, number][] = [];
+    const engine = engineWith(async (document, index, dpi) => {
+      calls.push([document, index, dpi]);
       return page;
     });
-    const { result } = renderHook(() => usePageRender(engine, 1, 0, 144));
+    const { result } = renderHook(() => usePageRender(engine, 7, 0, 144));
     expect(result.current).toEqual({ status: 'rendering' });
     await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page }));
-    expect(calls).toEqual([[0, 144]]);
+    expect(calls).toEqual([[7, 0, 144]]);
   });
 
-  it('re-renders when a new document generation opens', async () => {
+  it('re-renders when another document is given', async () => {
     let calls = 0;
     const engine = engineWith(async () => {
       calls++;
       return page;
     });
-    const { result, rerender } = renderHook(({ generation }) => usePageRender(engine, generation, 0, 144), {
-      initialProps: { generation: 1 },
+    const { result, rerender } = renderHook(({ document }) => usePageRender(engine, document, 0, 144), {
+      initialProps: { document: 1 },
     });
     await waitFor(() => expect(result.current.status).toBe('rendered'));
-    rerender({ generation: 2 });
+    rerender({ document: 2 });
     await waitFor(() => expect(calls).toBe(2));
   });
 
@@ -56,7 +56,7 @@ describe('usePageRender', () => {
   it('keeps showing the previous bitmap while a new dpi renders, then swaps it', async () => {
     const sharp: RenderedPage = { width: 2, height: 2, rgba: new Uint8ClampedArray(16) };
     let resolveSharp!: (page: RenderedPage) => void;
-    const engine = engineWith((_index, dpi) =>
+    const engine = engineWith((_document, _index, dpi) =>
       dpi === 72 ? Promise.resolve(page) : new Promise((resolve) => (resolveSharp = resolve)),
     );
     const { result, rerender } = renderHook(({ dpi }) => usePageRender(engine, 1, 0, dpi), {
@@ -88,11 +88,11 @@ describe('usePageRender', () => {
 
   it('never carries a bitmap over to another document', async () => {
     const engine = engineWith(() => Promise.resolve(page));
-    const { result, rerender } = renderHook(({ generation }) => usePageRender(engine, generation, 0, 72), {
-      initialProps: { generation: 1 },
+    const { result, rerender } = renderHook(({ document }) => usePageRender(engine, document, 0, 72), {
+      initialProps: { document: 1 },
     });
     await waitFor(() => expect(result.current.status).toBe('rendered'));
-    rerender({ generation: 2 });
+    rerender({ document: 2 });
     expect(result.current).toEqual({ status: 'rendering' });
   });
 });

@@ -4,37 +4,39 @@ import type { Engine } from '../core/types';
 
 const page = { width: 2, height: 1, rgba: new Uint8ClampedArray(8) };
 const info = { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }] };
+const opened = { handle: 5, info };
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
   return {
-    open: async () => info,
+    open: async () => opened,
     renderPage: async () => page,
+    close: async () => {},
     ...overrides,
   };
 }
 
 describe('handleRequest', () => {
-  it('answers open with the document info and transfers nothing', async () => {
+  it('answers open with the handle and document info and transfers nothing', async () => {
     const reply = await handleRequest(fakeEngine(), {
       id: 7,
       request: { kind: 'open', bytes: new Uint8Array([1]) },
     });
-    expect(reply).toEqual({ message: { type: 'result', id: 7, value: info }, transfer: [] });
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: opened }, transfer: [] });
   });
 
   it('answers renderPage and transfers the pixel buffer instead of copying it', async () => {
-    const calls: [number, number][] = [];
+    const calls: [number, number, number][] = [];
     const engine = fakeEngine({
-      renderPage: async (index, dpi) => {
-        calls.push([index, dpi]);
+      renderPage: async (document, index, dpi) => {
+        calls.push([document, index, dpi]);
         return page;
       },
     });
     const reply = await handleRequest(engine, {
       id: 8,
-      request: { kind: 'renderPage', pageIndex: 2, dpi: 96 },
+      request: { kind: 'renderPage', document: 5, pageIndex: 2, dpi: 96 },
     });
-    expect(calls).toEqual([[2, 96]]);
+    expect(calls).toEqual([[5, 2, 96]]);
     expect(reply.message).toEqual({ type: 'result', id: 8, value: page });
     expect(reply.transfer).toEqual([page.rgba.buffer]);
   });
@@ -60,7 +62,7 @@ describe('handleRequest', () => {
     const engine = fakeEngine({
       open: async (_bytes, password) => {
         seen.push(password);
-        return info;
+        return opened;
       },
     });
     await handleRequest(engine, { id: 1, request: { kind: 'open', bytes: new Uint8Array(), password: 'secret' } });
@@ -91,7 +93,19 @@ describe('handleRequest', () => {
         throw 'pdfium aborted';
       },
     });
-    const reply = await handleRequest(engine, { id: 4, request: { kind: 'renderPage', pageIndex: 0, dpi: 72 } });
+    const reply = await handleRequest(engine, { id: 4, request: { kind: 'renderPage', document: 5, pageIndex: 0, dpi: 72 } });
     expect(reply.message).toEqual({ type: 'error', id: 4, name: 'Error', message: 'pdfium aborted' });
+  });
+
+  it('closes the document a close request names', async () => {
+    const closed: number[] = [];
+    const engine = fakeEngine({
+      close: async (document) => {
+        closed.push(document);
+      },
+    });
+    const reply = await handleRequest(engine, { id: 6, request: { kind: 'close', document: 5 } });
+    expect(closed).toEqual([5]);
+    expect(reply).toEqual({ message: { type: 'result', id: 6, value: undefined }, transfer: [] });
   });
 });

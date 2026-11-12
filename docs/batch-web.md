@@ -251,10 +251,16 @@ lo que sigue:
   cuyo `name` es el tipo del core. El diálogo de contraseña ramifica en
   `PasswordRequired`/`WrongPassword`; T-222 debe hacer lo mismo con
   `TextExtractionDenied`, sin tocar el protocolo.
-- **`open` devuelve los tamaños de página** (`pages`: ancho/alto en puntos ya girados +
-  giro) además de `pageCount`, y acepta contraseña. El motor del worker sigue siendo de
-  un solo documento: abre el nuevo y solo entonces cierra el anterior, así que un open
-  fallido o cancelado deja el documento abierto intacto.
+- **`open` devuelve un handle y los tamaños de página** (`{ handle, info }`; `pages`:
+  ancho/alto en puntos ya girados + giro, además de `pageCount`), y acepta contraseña.
+  **Todo `renderPage` lleva el handle** del documento, y hay un `close(handle)`. El
+  handle es el id del core, que nunca se reutiliza y rechaza (`DocumentNotFound`) un id
+  cerrado: el worker ya no tiene un documento "actual", así que no puede pintar uno que
+  la UI no muestra. Quien cierra es la UI (`useDocument`): el documento que reemplaza en
+  cuanto el nuevo abrió, y cualquier open que llega tarde (superado por otro o con el
+  diálogo de contraseña cancelado mientras se comprobaba). Un open fallido o cancelado
+  deja el documento mostrado intacto. Antes el worker cambiaba de documento al abrir y
+  la UI podía seguir mostrando el anterior con páginas del nuevo.
 - **Escala:** 100 % = tamaño físico (96 px CSS por pulgada). El render es
   `round(96 × zoom × devicePixelRatio)` dpi, con tope de 12 Mpx por página. Cambia la
   cifra de T-219: a 100 % el E2E ve 816×1056 (1632×2112 en WebKit, cuyo perfil de
@@ -265,7 +271,7 @@ lo que sigue:
   visible (`visiblePages`); el resto no tiene canvas. Una capa de texto o de resaltados
   de T-222 debe vivir dentro de `PageSlot`, para montarse y desmontarse con la página.
 - **Sin renders obsoletos:** el visor entero se reinicia por `generation` al abrir otro
-  documento; un render que termina después de que cambió el dpi se descarta, y el
+  documento y cada página pide su render por handle; un render que termina después de que cambió el dpi se descarta, y el
   bitmap anterior se muestra escalado hasta que llega el nuevo. El dpi solo cambia
   150 ms después de que el zoom se quedó quieto. Lo que **no** hay: cancelación dentro
   del worker — un render ya encolado se ejecuta aunque su resultado se descarte.

@@ -19,6 +19,18 @@ export interface DocumentInfo {
   readonly pages: readonly PageSize[];
 }
 
+/**
+ * Names one open document in the engine. Every render says which document
+ * it is for, so the engine can never paint a document the UI is not showing.
+ */
+export type DocumentHandle = number;
+
+/** A freshly opened document: its handle and what the engine reports about it. */
+export interface OpenedDocument {
+  readonly handle: DocumentHandle;
+  readonly info: DocumentInfo;
+}
+
 /** One rendered page: tightly packed RGBA, `width * height * 4` bytes. */
 export interface RenderedPage {
   readonly width: number;
@@ -29,11 +41,15 @@ export interface RenderedPage {
 /** What the UI may ask the engine to do. */
 export interface Engine {
   /**
-   * Opens `bytes` (with `password` for an encrypted document) and closes the
-   * previously open one — but only once the new one opened, so a failed or
-   * refused open leaves the previous document in place.
+   * Opens `bytes` (with `password` for an encrypted document). Documents
+   * already open stay open: the caller closes each one it no longer shows.
    */
-  open(bytes: Uint8Array, password?: string): Promise<DocumentInfo>;
-  /** Renders a whole page at `dpi` (72 = one pixel per PDF point). */
-  renderPage(pageIndex: number, dpi: number): Promise<RenderedPage>;
+  open(bytes: Uint8Array, password?: string): Promise<OpenedDocument>;
+  /**
+   * Renders a whole page of `document` at `dpi` (72 = one pixel per PDF
+   * point). Rejects (`DocumentNotFound`) once that document was closed.
+   */
+  renderPage(document: DocumentHandle, pageIndex: number, dpi: number): Promise<RenderedPage>;
+  /** Closes `document`; closing one that is not open does nothing. */
+  close(document: DocumentHandle): Promise<void>;
 }

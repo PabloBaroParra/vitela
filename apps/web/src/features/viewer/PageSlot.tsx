@@ -3,22 +3,22 @@
 // near the viewport, so far-away pages hold no canvas at all.
 
 import { memo } from 'react';
-import type { Engine } from '../../core/types';
+import type { DocumentHandle, Engine } from '../../core/types';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import type { Rect } from './layout';
 
 interface PageSlotProps {
   readonly engine: Engine;
-  readonly generation: number;
+  readonly document: DocumentHandle;
   readonly index: number;
   readonly slot: Rect;
   readonly dpi: number;
   readonly label: string;
 }
 
-export const PageSlot = memo(function PageSlot({ engine, generation, index, slot, dpi, label }: PageSlotProps) {
-  const render = usePageRender(engine, generation, index, dpi);
+export const PageSlot = memo(function PageSlot({ engine, document, index, slot, dpi, label }: PageSlotProps) {
+  const render = usePageRender(engine, document, index, dpi);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
   return (
     <div

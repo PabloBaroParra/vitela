@@ -2,15 +2,22 @@
 // worker (worker/). Both sides import only these types, so neither depends on
 // how the other is implemented.
 
-import type { DocumentInfo, RenderedPage } from './types';
+import type { DocumentHandle, OpenedDocument, RenderedPage } from './types';
 
 export type EngineRequest =
   | { readonly kind: 'open'; readonly bytes: Uint8Array; readonly password?: string }
-  | { readonly kind: 'renderPage'; readonly pageIndex: number; readonly dpi: number };
+  | {
+      readonly kind: 'renderPage';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly dpi: number;
+    }
+  | { readonly kind: 'close'; readonly document: DocumentHandle };
 
 export interface EngineResults {
-  open: DocumentInfo;
+  open: OpenedDocument;
   renderPage: RenderedPage;
+  close: void;
 }
 
 /** UI -> worker. `id` correlates the reply. */

@@ -44,16 +44,16 @@ describe('EngineClient', () => {
     expect(message.request).toEqual({ kind: 'open', bytes, password: undefined });
     expect(transfer).toEqual([bytes.buffer]);
 
-    const info = { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }] };
-    reply({ type: 'result', id: message.id, value: info });
-    await expect(opened).resolves.toEqual(info);
+    const value = { handle: 3, info: { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }] } };
+    reply({ type: 'result', id: message.id, value });
+    await expect(opened).resolves.toEqual(value);
   });
 
   it('correlates out-of-order replies by request id', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);
-    const first = client.renderPage(0, 100);
-    const second = client.renderPage(1, 200);
+    const first = client.renderPage(0, 0, 100);
+    const second = client.renderPage(0, 1, 200);
     const [a, b] = sent.map((s) => s.message.id) as [number, number];
     expect(a).not.toBe(b);
 
@@ -68,18 +68,18 @@ describe('EngineClient', () => {
   it('fails pending and future requests when the worker dies', async () => {
     const { port, sent } = fakePort();
     const client = new EngineClient(port);
-    const pending = client.renderPage(0, 100);
+    const pending = client.renderPage(0, 0, 100);
     client.fail('worker script did not load');
     await expect(pending).rejects.toThrow('worker script did not load');
     await expect(client.ready).rejects.toThrow('worker script did not load');
-    await expect(client.renderPage(0, 100)).rejects.toThrow('worker script did not load');
+    await expect(client.renderPage(0, 0, 100)).rejects.toThrow('worker script did not load');
     expect(sent).toHaveLength(1);
   });
 
   it('ignores replies for ids it never sent', () => {
     const { port, reply } = fakePort();
     new EngineClient(port);
-    expect(() => reply({ type: 'result', id: 999, value: { pageCount: 0, pages: [] } })).not.toThrow();
+    expect(() => reply({ type: 'result', id: 999, value: undefined })).not.toThrow();
   });
 
   it('sends the password with an open request', () => {
@@ -88,6 +88,19 @@ describe('EngineClient', () => {
     const bytes = new Uint8Array([1]);
     void client.open(bytes, 'user-aes-pass');
     expect(sent[0]!.message.request).toEqual({ kind: 'open', bytes, password: 'user-aes-pass' });
+  });
+
+  it('names the document in every render and close request', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    void client.renderPage(4, 2, 96);
+    const closed = client.close(4);
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'renderPage', document: 4, pageIndex: 2, dpi: 96 },
+      { kind: 'close', document: 4 },
+    ]);
+    reply({ type: 'result', id: sent[1]!.message.id, value: undefined });
+    await expect(closed).resolves.toBeUndefined();
   });
 
   it('rejects with an EngineError that carries the forwarded name', async () => {

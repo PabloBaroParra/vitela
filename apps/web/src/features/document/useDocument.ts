@@ -4,11 +4,13 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '../../core/errors';
-import type { DocumentInfo, Engine } from '../../core/types';
+import type { DocumentHandle, DocumentInfo, Engine } from '../../core/types';
 
 export interface OpenDocument {
   readonly name: string;
   readonly info: DocumentInfo;
+  /** The engine's handle: every render of this document names it. */
+  readonly handle: DocumentHandle;
   /** Bumps on every successful open, so views reset for a same-named file. */
   readonly generation: number;
 }
@@ -29,8 +31,8 @@ export type Activity =
 
 export interface DocumentState {
   /**
-   * The document the engine has open. A failed or cancelled open leaves it
-   * in place: the engine only closes it once a new one has opened.
+   * The document on screen. A failed or cancelled open leaves it in place;
+   * it is closed in the engine only once a new one has opened.
    */
   readonly document: OpenDocument | null;
   readonly activity: Activity;
@@ -43,6 +45,13 @@ export function useDocument(engine: Engine) {
   const latest = useRef(0);
   /** The file waiting for a password; `null` when no prompt is open. */
   const locked = useRef<{ file: File; attempt: number } | null>(null);
+  /** The handle of the document on screen, the one engine document kept. */
+  const shown = useRef<DocumentHandle | null>(null);
+  const release = useCallback(
+    // Nothing to recover if a close fails: the handle is never used again.
+    (handle: DocumentHandle) => void engine.close(handle).catch(() => {}),
+    [engine],
+  );
 
   const attempt = useCallback(
     (file: File, attemptId: number, password: string | undefined) => {
@@ -52,10 +61,15 @@ export function useDocument(engine: Engine) {
         .arrayBuffer()
         .then((buffer) => engine.open(new Uint8Array(buffer), password))
         .then(
-          (info) => {
-            if (!current()) return;
+          ({ handle, info }) => {
+            // Superseded or cancelled while the engine was opening it: the
+            // engine still holds it, so hand it back rather than drop it.
+            if (!current()) return release(handle);
             locked.current = null;
-            setState({ document: { name: file.name, info, generation: attemptId }, activity: IDLE });
+            const previous = shown.current;
+            shown.current = handle;
+            setState({ document: { name: file.name, info, handle, generation: attemptId }, activity: IDLE });
+            if (previous !== null) release(previous);
           },
           (error: unknown) => {
             if (!current()) return;
@@ -71,7 +85,7 @@ export function useDocument(engine: Engine) {
           },
         );
     },
-    [engine],
+    [engine, release],
   );
 
   const open = useCallback(

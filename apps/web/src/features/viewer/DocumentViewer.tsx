@@ -42,7 +42,7 @@ export function DocumentViewer({ engine, document }: DocumentViewerProps) {
         <PageSlot
           key={index}
           engine={engine}
-          generation={document.generation}
+          document={document.handle}
           index={index}
           slot={layout.slots[index]!}
           dpi={renderDpi(pages[index]!, renderZoom, pixelRatio)}
