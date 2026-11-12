@@ -288,11 +288,23 @@ fn unlocked_security(
     match credential {
         None | Some("") => Ok(Some(unlocked)),
         Some(password) => {
+            // Only the password is checked against the stand-in. The handler
+            // already came from `state`; going through
+            // `security_from_encrypt_dict` would re-derive it from `/CF/StdCF`
+            // alone and refuse a filter with any other name before the
+            // password is even looked at.
             let relocked = relocked(probe, state)?;
-            let resolved = security_from_encrypt_dict(&relocked, password)?;
+            let (credential, credentials) =
+                if relocked.authenticate_owner_password(password).is_ok() {
+                    (Credential::Owner, EncryptionCredentials::owner(password))
+                } else if relocked.authenticate_user_password(password).is_ok() {
+                    (Credential::User, EncryptionCredentials::user(password))
+                } else {
+                    return Err(ManipError::WrongPassword);
+                };
             Ok(Some(SecurityContext {
-                credential: resolved.credential,
-                credentials: resolved.credentials,
+                credential,
+                credentials,
                 ..unlocked
             }))
         }

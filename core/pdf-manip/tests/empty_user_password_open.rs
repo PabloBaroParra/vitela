@@ -262,6 +262,16 @@ fn the_probe_resolves_the_owner_password_the_same_way_the_open_does() {
 /// document opened with a real user password reads `/CF/StdCF/CFM` and
 /// opens fine, and an empty user password must not make it unopenable.
 fn promptless_aes_identity_strings() -> Vec<u8> {
+    promptless_aes_with_filters(b"StdCF", b"StdCF", b"Identity")
+}
+
+/// A promptless AES-128 document whose single `/CF` entry is `cf_name`, with
+/// the given stream and string filters.
+fn promptless_aes_with_filters(
+    cf_name: &[u8],
+    stream_filter: &[u8],
+    string_filter: &[u8],
+) -> Vec<u8> {
     let mut doc = support::build_pdf_with_pages(&["restricted"]);
     doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
     let file_id = Object::string_literal("promptless-identity-fixture-id");
@@ -272,9 +282,9 @@ fn promptless_aes_identity_strings() -> Vec<u8> {
     let version = EncryptionVersion::V4 {
         document: &doc,
         encrypt_metadata: true,
-        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
-        stream_filter: b"StdCF".to_vec(),
-        string_filter: b"Identity".to_vec(),
+        crypt_filters: BTreeMap::from([(cf_name.to_vec(), crypt_filter)]),
+        stream_filter: stream_filter.to_vec(),
+        string_filter: string_filter.to_vec(),
         owner_password: OWNER_PASSWORD,
         user_password: "",
         permissions: Permissions::PRINTABLE,
@@ -299,4 +309,30 @@ fn an_identity_string_filter_still_resolves_the_handler() {
     let (_, as_owner) =
         open_document_from_bytes(&bytes, Some(OWNER_PASSWORD)).expect("the owner opens");
     assert_eq!(as_owner.unwrap().credential, Credential::Owner);
+}
+
+/// A `/CF` entry that is not called `StdCF` is legal, and the no-password
+/// open resolves it. The owner password must lift the restrictions on the
+/// same file instead of failing on a handler lookup that only reads `StdCF`.
+#[test]
+fn the_owner_password_opens_a_crypt_filter_not_named_stdcf() {
+    let bytes = promptless_aes_with_filters(b"MyCF", b"MyCF", b"MyCF");
+
+    let (_, as_user) = open_document_from_bytes(&bytes, None).expect("opens without a prompt");
+    assert_eq!(as_user.expect("encrypted").handler, SecurityHandler::Aes128);
+
+    let (_, as_owner) =
+        open_document_from_bytes(&bytes, Some(OWNER_PASSWORD)).expect("the owner opens");
+    let as_owner = as_owner.expect("encrypted");
+    assert_eq!(as_owner.credential, Credential::Owner);
+    assert_eq!(as_owner.handler, SecurityHandler::Aes128);
+    assert!(text_extraction_is_allowed(Some(&as_owner)));
+
+    let probed = read_security_context_from_bytes(&bytes, Some(OWNER_PASSWORD)).unwrap();
+    assert_eq!(probed, Some(as_owner));
+
+    assert!(matches!(
+        open_document_from_bytes(&bytes, Some("not-the-owner")),
+        Err(ManipError::WrongPassword)
+    ));
 }
