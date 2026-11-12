@@ -121,6 +121,21 @@ pub(crate) fn member_bbox(member: &Member) -> Option<Rect> {
     }
 }
 
+/// Whether `member` belongs to the several-item selection held on
+/// `page_index`.
+fn in_held_group(session: &DocumentSession, page_index: usize, member: &Member) -> bool {
+    let Some(held) = multi::held_on(session, page_index) else {
+        return false;
+    };
+    match member {
+        Member::Runs(runs) => runs
+            .iter()
+            .any(|run| held.runs.iter().any(|item| item.id == run.id)),
+        Member::Image(image) => held.images.iter().any(|item| item.id == image.id),
+        Member::Path(path) => held.paths.iter().any(|item| item.id == path.id),
+    }
+}
+
 /// `rect` grown by `by` on every side.
 pub(crate) fn inflate(rect: Rect, by: f64) -> Rect {
     Rect {
@@ -654,6 +669,9 @@ pub(crate) fn draw(
         .content_hover
         .as_ref()
         .filter(|hover| hover.page_index == page_index)
+        // A member of the held group draws no box of its own: the group
+        // frame is the only thing drawn round its items.
+        .filter(|hover| !in_held_group(session, page_index, &hover.member))
         .and_then(|hover| member_bbox(&hover.member))
     else {
         return;

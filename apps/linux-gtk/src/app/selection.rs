@@ -376,6 +376,7 @@ fn draw_content_run_outlines(
         .as_ref()
         .filter(|selected| selected.page_index == page_index)
         .map(|selected| selected.run.id);
+    let grouped = content_edit::multi::held_on(session, page_index);
     let resting_width = context.line_width();
 
     // The carried pixels go down before any outline, so no box is buried
@@ -390,6 +391,14 @@ fn draw_content_run_outlines(
         let Some(first) = block.runs.first().and_then(|id| content.text_run(*id)) else {
             continue;
         };
+        if grouped.is_some_and(|held| {
+            block
+                .runs
+                .iter()
+                .any(|id| held.runs.iter().any(|run| run.id == *id))
+        }) {
+            continue;
+        }
         let composite = block.runs.iter().any(|id| {
             content
                 .text_run(*id)
@@ -521,8 +530,12 @@ fn draw_content_image_outlines(
         .as_ref()
         .filter(|drag| drag.page_index == page_index)
         .and_then(|drag| content_edit::geometry::dragged_rect(drag.item.bbox, drag));
+    let grouped = content_edit::multi::held_on(session, page_index);
 
     for image in &content.images {
+        if grouped.is_some_and(|held| held.images.iter().any(|item| item.id == image.id)) {
+            continue;
+        }
         let selected = selected_id == Some(image.id);
         let rect = if selected {
             live_rect.unwrap_or(image.bbox)
@@ -574,8 +587,12 @@ fn draw_content_path_outlines(
         .as_ref()
         .filter(|drag| drag.page_index == page_index)
         .map(content_edit::path::dragged_rect);
+    let grouped = content_edit::multi::held_on(session, page_index);
 
     for path in &content.paths {
+        if grouped.is_some_and(|held| held.paths.iter().any(|item| item.id == path.id)) {
+            continue;
+        }
         let selected = selected_id == Some(path.id);
         let rect = if selected {
             live_rect.unwrap_or(path.bbox)
@@ -604,9 +621,13 @@ fn draw_content_path_outlines(
     }
 }
 
-/// Paints several selected items (B25 T-208): each member's box, the dashed
-/// box around all of them a drag grabs, and the marquee being drawn. A group
-/// drag in flight paints the members where the pointer has them.
+/// Paints several selected items (B25 T-208): the dashed box around all of
+/// them a drag grabs, and the marquee being drawn. A group drag in flight
+/// paints the box where the pointer has it.
+///
+/// The group reads as one object, so nothing is drawn inside the box: no
+/// member box here, and no resting outline of a member either (see
+/// [`content_edit::multi::held_on`]).
 fn draw_content_selection(
     context: &cairo::Context,
     page: &PageSlot,
@@ -663,18 +684,6 @@ fn draw_content_selection(
         ),
         _ => held.members.clone(),
     };
-    context.set_dash(&[], 0.0);
-    for bbox in members
-        .runs
-        .iter()
-        .map(|run| run.bbox)
-        .chain(members.images.iter().map(|image| image.bbox))
-        .chain(members.paths.iter().map(|path| path.bbox))
-    {
-        let rect = placed(bbox);
-        context.rectangle(rect.left, rect.top, rect.width, rect.height);
-        let _ = context.stroke();
-    }
     if let Some(union) = content_edit::multi::union(&members) {
         let rect = placed(Rect {
             x: union.x - SELECTION_MARGIN_PT,
@@ -1618,6 +1627,61 @@ mod tests {
             assert_eq!(tooltip_text(&built.viewer, 0, 10, 10, false), None);
         }
         built.window.close();
+    }
+
+    /// Several selected items read as one object: the dashed group frame is
+    /// the only thing painted around them. No member box, and no resting
+    /// outline of a member, may draw a seam inside it — after a marquee, a
+    /// paste or anything else that selects a group.
+    #[gtk::test]
+    fn gtk_ui_a_group_selection_paints_only_its_outer_frame() {
+        let fixture =
+            crate::app::content_edit::test_support::Fixture::new(pdf_render::PageRotation::None);
+        let members = pdf_edit::Selection {
+            runs: fixture.runs.clone(),
+            ..pdf_edit::Selection::default()
+        };
+        let union = content_edit::multi::union(&members).expect("two runs");
+        {
+            let mut state = fixture.viewer().state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            session.content_selection = Some(crate::app::state::ContentSelection {
+                page_index: 0,
+                members,
+            });
+            // Resting the pointer on one member does not outline it either.
+            session.content_hover = Some(content_edit::hover::Hover {
+                page_index: 0,
+                member: content_edit::multi::Member::Runs(vec![fixture.runs[0].clone()]),
+                zone: content_edit::hover::Zone::Inside,
+            });
+        }
+
+        let mut surface =
+            cairo::ImageSurface::create(cairo::Format::ARgb32, 595, 842).expect("surface");
+        {
+            let context = cairo::Context::new(&surface).expect("context");
+            draw_highlights(fixture.viewer(), 0, &context);
+        }
+
+        let (left, top) = fixture.on_screen((union.x, union.y + union.height));
+        let (right, bottom) = fixture.on_screen((union.x + union.width, union.y));
+        let stride = surface.stride() as usize;
+        let data = surface.data().expect("surface data");
+        // ARGB32 is a native-endian u32 per pixel: alpha is byte 3 here.
+        let alpha = |x: usize, y: usize| data[y * stride + x * 4 + 3];
+        // Strictly inside the members' union, clear of the frame's own line.
+        let inside = (left.ceil() as usize + 2..right.floor() as usize - 1).flat_map(|x| {
+            (top.ceil() as usize + 2..bottom.floor() as usize - 1).map(move |y| (x, y))
+        });
+        let seams = inside.filter(|&(x, y)| alpha(x, y) > 0).count();
+        assert_eq!(seams, 0, "pixels inked inside the group frame");
+        // The frame itself is there, just outside the union.
+        let frame_row = (top - SELECTION_MARGIN_PT).round() as usize;
+        assert!(
+            (left as usize..right as usize).any(|x| alpha(x, frame_row) > 0),
+            "the group frame is painted"
+        );
     }
 
     fn a_field(name: &str, value: &str) -> FormField {

@@ -399,6 +399,42 @@ mod tests {
         }
     }
 
+    /// Undoing a paste takes away the items the paste selected. Their boxes
+    /// must go with them: a selection left behind would keep painting the
+    /// pasted runs' outlines, and the quick actions, over nothing.
+    #[gtk::test]
+    fn gtk_ui_undoing_a_paste_drops_the_selection_it_made() {
+        let fixture = super::super::test_support::Fixture::new(pdf_render::PageRotation::None);
+        let viewer = fixture.viewer();
+        {
+            let mut state = viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            let members = Selection {
+                runs: fixture.runs.clone(),
+                ..Selection::default()
+            };
+            let clip = command::copy(session, &members).expect("the lines copy");
+            session.content_pointer = Some((0, (100.0, 300.0)));
+            state.content_clip = Some(clip);
+        }
+        assert!(try_paste(viewer));
+        let selected = |viewer: &Viewer| {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .is_some_and(|session| session.content_selection.is_some())
+        };
+        assert!(selected(viewer), "the paste selects what it pasted");
+        assert!(viewer.undo_action.is_enabled());
+
+        viewer.undo_action.activate(None);
+
+        assert!(entries(viewer.state.borrow().session.as_ref().expect("a session")).is_empty());
+        assert!(!selected(viewer), "the undone paste is still selected");
+    }
+
     #[test]
     fn a_pending_paste_cannot_be_deleted() {
         let (mut session, members) = line_session();
