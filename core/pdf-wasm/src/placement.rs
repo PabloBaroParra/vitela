@@ -52,13 +52,15 @@ fn rotation(degrees: u32) -> PageRotation {
 /// points, top-left origin. A trailing partial rect is ignored.
 pub fn place_flat_rects(flat: &[f32], page: DrawnPage) -> Vec<f32> {
     let placement = page.placement();
-    flat.chunks_exact(RECT_STRIDE)
-        .flat_map(|chunk| {
+    let (rects, _partial) = flat.as_chunks::<RECT_STRIDE>();
+    rects
+        .iter()
+        .flat_map(|&[x_pt, y_pt, width_pt, height_pt]| {
             let rect = TextRect {
-                x_pt: chunk[0],
-                y_pt: chunk[1],
-                width_pt: chunk[2],
-                height_pt: chunk[3],
+                x_pt,
+                y_pt,
+                width_pt,
+                height_pt,
             };
             let placed = place_rect(rect, placement);
             [placed.left, placed.top, placed.width, placed.height].map(|value| value as f32)
