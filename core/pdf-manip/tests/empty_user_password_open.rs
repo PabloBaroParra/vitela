@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use lopdf::encryption::crypt_filters::{CryptFilter, Rc4CryptFilter};
+use lopdf::encryption::crypt_filters::{Aes256CryptFilter, CryptFilter, Rc4CryptFilter};
 use lopdf::xref::XrefType;
 use lopdf::{EncryptionState, EncryptionVersion, Object, Permissions};
 use pdf_document::{Credential, EncryptionCredentials, SecurityHandler};
@@ -335,4 +335,120 @@ fn the_owner_password_opens_a_crypt_filter_not_named_stdcf() {
         open_document_from_bytes(&bytes, Some("not-the-owner")),
         Err(ManipError::WrongPassword)
     ));
+}
+
+/// Encrypts a one-page fixture with `version_for` and saves it, keeping the
+/// classic xref table and trailer `/ID` every other builder here sets up.
+fn promptless_with(
+    file_id: &str,
+    version_for: impl FnOnce(&lopdf::Document) -> EncryptionVersion<'_>,
+) -> Vec<u8> {
+    let mut doc = support::build_pdf_with_pages(&["restricted"]);
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let file_id = Object::string_literal(file_id);
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+
+    let state = EncryptionState::try_from(version_for(&doc)).expect("build encryption state");
+    doc.encrypt(&state).expect("encrypt fixture");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).expect("save fixture");
+    bytes
+}
+
+/// RC4 with a 40-bit key (`/V 1`, `/R 2`): the oldest standard handler, and
+/// still what many "no copy" PDFs from old producers carry.
+fn promptless_rc4_40() -> Vec<u8> {
+    promptless_with("promptless-rc4-40-fixture-id", |doc| {
+        EncryptionVersion::V1 {
+            document: doc,
+            owner_password: OWNER_PASSWORD,
+            user_password: "",
+            permissions: Permissions::PRINTABLE,
+        }
+    })
+}
+
+/// AES-256 (`/V 5`, `/R 6`, `/CFM /AESV3`) — the PDF 2.0 handler.
+fn promptless_aes_256() -> Vec<u8> {
+    // Fixed key: the fixture is deterministic, and the per-object IV keeps
+    // the ciphertexts distinct anyway. Static so it outlives the borrow the
+    // version takes alongside the document's.
+    static FILE_ENCRYPTION_KEY: [u8; 32] = [7; 32];
+    promptless_with("promptless-aes-256-fixture-id", |_| {
+        let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes256CryptFilter);
+        EncryptionVersion::V5 {
+            encrypt_metadata: true,
+            crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+            file_encryption_key: &FILE_ENCRYPTION_KEY,
+            stream_filter: b"StdCF".to_vec(),
+            string_filter: b"StdCF".to_vec(),
+            owner_password: OWNER_PASSWORD,
+            user_password: "",
+            permissions: Permissions::PRINTABLE,
+        }
+    })
+}
+
+/// Every role an open can resolve, for a promptless fixture of one handler:
+/// no password is the restricted user, the owner password lifts the
+/// restrictions, a wrong one is refused, and the dual open carries both.
+fn assert_promptless_roles(label: &str, bytes: &[u8], handler: SecurityHandler) {
+    let (doc, as_user) =
+        open_document_from_bytes(bytes, None).unwrap_or_else(|e| panic!("{label}: {e}"));
+    let as_user = as_user.unwrap_or_else(|| panic!("{label}: must report its context"));
+    assert_eq!(as_user.credential, Credential::User, "{label}");
+    assert_eq!(
+        as_user.credentials,
+        EncryptionCredentials::user(""),
+        "{label}"
+    );
+    assert_eq!(as_user.handler, handler, "{label}");
+    assert!(!text_extraction_is_allowed(Some(&as_user)), "{label}");
+    assert!(!annotation_editing_is_allowed(Some(&as_user)), "{label}");
+    assert!(!document_assembly_is_allowed(Some(&as_user)), "{label}");
+    assert_eq!(doc.as_lopdf().get_pages().len(), 1, "{label}");
+
+    let (_, as_owner) = open_document_from_bytes(bytes, Some(OWNER_PASSWORD))
+        .unwrap_or_else(|e| panic!("{label}: the owner opens: {e}"));
+    let as_owner = as_owner.unwrap_or_else(|| panic!("{label}: encrypted"));
+    assert_eq!(as_owner.credential, Credential::Owner, "{label}");
+    assert_eq!(
+        as_owner.credentials,
+        EncryptionCredentials::owner(OWNER_PASSWORD),
+        "{label}"
+    );
+    assert_eq!(as_owner.handler, handler, "{label}");
+    assert!(text_extraction_is_allowed(Some(&as_owner)), "{label}");
+
+    assert!(
+        matches!(
+            open_document_from_bytes(bytes, Some("not-the-owner")),
+            Err(ManipError::WrongPassword)
+        ),
+        "{label}"
+    );
+
+    let (_, both) = open_document_with_passwords_from_bytes(bytes, "", OWNER_PASSWORD)
+        .unwrap_or_else(|e| panic!("{label}: both passwords open: {e}"));
+    let both = both.unwrap_or_else(|| panic!("{label}: encrypted"));
+    assert_eq!(both.credential, Credential::Owner, "{label}");
+    assert_eq!(
+        both.credentials,
+        EncryptionCredentials::both("", OWNER_PASSWORD),
+        "{label}"
+    );
+    assert_eq!(both.handler, handler, "{label}");
+    assert_eq!(both.permissions, as_user.permissions, "{label}");
+}
+
+/// `/V 1` maps to the RC4 handler, like `/V 2`.
+#[test]
+fn a_promptless_rc4_40_document_resolves_every_role() {
+    assert_promptless_roles("rc4-40", &promptless_rc4_40(), SecurityHandler::Rc4_128);
+}
+
+#[test]
+fn a_promptless_aes_256_document_resolves_every_role() {
+    assert_promptless_roles("aes-256", &promptless_aes_256(), SecurityHandler::Aes256);
 }

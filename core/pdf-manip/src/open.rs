@@ -49,25 +49,23 @@ pub fn open_document(
     path: &Path,
     credential: Option<&str>,
 ) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
-    let probe = LopdfRawDocument::load(path)?;
-
-    if !probe.is_encrypted() {
-        let security = unlocked_security(&probe, credential)?;
-        return Ok((LopdfDocument(probe), security));
-    }
-
-    let password = credential.ok_or(ManipError::PasswordRequired)?;
-    let security = security_from_encrypt_dict(&probe, password)?;
-    let doc = load_decrypted(path, password)?;
-
-    Ok((LopdfDocument(doc), Some(security)))
+    open_probed(
+        LopdfRawDocument::load(path)?,
+        credential,
+        admit_any,
+        |password| load_decrypted(path, password),
+    )
 }
 
 /// Opens an encrypted PDF after independently verifying both its user and
 /// owner passwords. The resulting context can safely take either writer path,
 /// including a full rewrite that recreates the encryption dictionary.
 ///
-/// An unencrypted document is opened normally and returns no security context.
+/// A truly unencrypted document is opened normally and returns no security
+/// context. One whose user password is empty opens without a prompt but is
+/// still encrypted: both passwords are verified against it all the same, and
+/// it returns the same owner context carrying both credentials.
+///
 /// Both passwords are checked before loading so a typo cannot become a silent
 /// security-policy change at save time.
 pub fn open_document_with_passwords(
@@ -75,21 +73,64 @@ pub fn open_document_with_passwords(
     user_password: &str,
     owner_password: &str,
 ) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
-    let probe = LopdfRawDocument::load(path)?;
+    open_probed_with_passwords(
+        LopdfRawDocument::load(path)?,
+        user_password,
+        owner_password,
+        |password| load_decrypted(path, password),
+    )
+}
 
+/// The shared body of [`open_document`] and [`open_document_from_bytes`],
+/// given the unauthenticated probe each loaded and the fully decrypting load
+/// each performs for a document that is still encrypted.
+///
+/// `admit` sees the resolved security context before the decrypting load
+/// runs and may refuse the open with its own error — the import-source gate
+/// uses it; the plain opens pass [`admit_any`].
+fn open_probed(
+    probe: LopdfRawDocument,
+    credential: Option<&str>,
+    admit: impl FnOnce(Option<&SecurityContext>) -> Result<(), ManipError>,
+    load_decrypted: impl FnOnce(&str) -> Result<LopdfRawDocument, ManipError>,
+) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
+    if !probe.is_encrypted() {
+        let security = unlocked_security(&probe, credential)?;
+        admit(security.as_ref())?;
+        return Ok((LopdfDocument(probe), security));
+    }
+
+    let password = credential.ok_or(ManipError::PasswordRequired)?;
+    let security = security_from_encrypt_dict(&probe, password)?;
+    admit(Some(&security))?;
+    let doc = load_decrypted(password)?;
+
+    Ok((LopdfDocument(doc), Some(security)))
+}
+
+/// The `admit` of an open that applies no gate of its own.
+fn admit_any(_: Option<&SecurityContext>) -> Result<(), ManipError> {
+    Ok(())
+}
+
+/// The shared body of [`open_document_with_passwords`] and
+/// [`open_document_with_passwords_from_bytes`], given the probe each loaded
+/// and the fully decrypting load each performs.
+fn open_probed_with_passwords(
+    probe: LopdfRawDocument,
+    user_password: &str,
+    owner_password: &str,
+    load_decrypted: impl FnOnce(&str) -> Result<LopdfRawDocument, ManipError>,
+) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
     if !probe.is_encrypted() {
         let security = unlocked_security_with_passwords(&probe, user_password, owner_password)?;
         return Ok((LopdfDocument(probe), security));
     }
 
-    if probe.authenticate_user_password(user_password).is_err()
-        || probe.authenticate_owner_password(owner_password).is_err()
-    {
-        return Err(ManipError::WrongPassword);
-    }
+    verify_both_passwords(&probe, user_password, owner_password)?;
 
     let (handler, permissions) = encryption_settings(&probe)?;
-    let doc = load_decrypted(path, owner_password)?;
+    let doc = load_decrypted(owner_password)?;
 
     Ok((
         LopdfDocument(doc),
@@ -100,6 +141,23 @@ pub fn open_document_with_passwords(
             permissions,
         }),
     ))
+}
+
+/// Checks each password against its own role in `doc`'s `/Encrypt`; either
+/// one failing is [`ManipError::WrongPassword`]. The one place a dual-password
+/// open is verified, whether `doc` is the probe itself or a [`relocked`]
+/// stand-in for one lopdf already unlocked.
+fn verify_both_passwords(
+    doc: &LopdfRawDocument,
+    user_password: &str,
+    owner_password: &str,
+) -> Result<(), ManipError> {
+    if doc.authenticate_user_password(user_password).is_err()
+        || doc.authenticate_owner_password(owner_password).is_err()
+    {
+        return Err(ManipError::WrongPassword);
+    }
+    Ok(())
 }
 
 /// What a caller hands over to open a PDF from bytes: nothing, one password
@@ -315,14 +373,7 @@ fn unlocked_security_with_passwords(
     let Some(state) = probe.encryption_state.as_ref() else {
         return Ok(None);
     };
-    let relocked = relocked(probe, state)?;
-    if relocked.authenticate_user_password(user_password).is_err()
-        || relocked
-            .authenticate_owner_password(owner_password)
-            .is_err()
-    {
-        return Err(ManipError::WrongPassword);
-    }
+    verify_both_passwords(&relocked(probe, state)?, user_password, owner_password)?;
 
     Ok(Some(SecurityContext {
         credential: Credential::Owner,
@@ -433,18 +484,37 @@ pub fn open_document_from_bytes(
     bytes: &[u8],
     credential: Option<&str>,
 ) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
-    let probe = LopdfRawDocument::load_mem(bytes)?;
+    open_probed(
+        LopdfRawDocument::load_mem(bytes)?,
+        credential,
+        admit_any,
+        |password| load_decrypted_from_bytes(bytes, password),
+    )
+}
 
-    if !probe.is_encrypted() {
-        let security = unlocked_security(&probe, credential)?;
-        return Ok((LopdfDocument(probe), security));
-    }
-
-    let password = credential.ok_or(ManipError::PasswordRequired)?;
-    let security = security_from_encrypt_dict(&probe, password)?;
-    let doc = load_decrypted_from_bytes(bytes, password)?;
-
-    Ok((LopdfDocument(doc), Some(security)))
+/// [`open_document_from_bytes`] behind a gate: `admit` sees the security
+/// context before the decrypting load runs, and an `Err` from it is returned
+/// as is — the import-source permission check (see
+/// [`crate::open_import_source_from_bytes`]).
+///
+/// Errors are exactly those of [`read_security_context_from_bytes`] followed
+/// by [`open_document_from_bytes`], with the bytes parsed one time fewer: a
+/// `None` credential is resolved as the empty password, the way the probe
+/// does, so a document that needs a password reports
+/// [`ManipError::WrongPassword`] rather than [`ManipError::PasswordRequired`].
+/// (lopdf's unauthenticated load already unlocks any document the empty
+/// password opens, so on a probe that is still encrypted it never matches.)
+pub(crate) fn open_document_from_bytes_admitted(
+    bytes: &[u8],
+    credential: Option<&str>,
+    admit: impl FnOnce(Option<&SecurityContext>) -> Result<(), ManipError>,
+) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
+    open_probed(
+        LopdfRawDocument::load_mem(bytes)?,
+        Some(credential.unwrap_or("")),
+        admit,
+        |password| load_decrypted_from_bytes(bytes, password),
+    )
 }
 
 /// Bytes-based equivalent of [`open_document_with_passwords`] — see that
@@ -456,31 +526,12 @@ pub fn open_document_with_passwords_from_bytes(
     user_password: &str,
     owner_password: &str,
 ) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
-    let probe = LopdfRawDocument::load_mem(bytes)?;
-
-    if !probe.is_encrypted() {
-        let security = unlocked_security_with_passwords(&probe, user_password, owner_password)?;
-        return Ok((LopdfDocument(probe), security));
-    }
-
-    if probe.authenticate_user_password(user_password).is_err()
-        || probe.authenticate_owner_password(owner_password).is_err()
-    {
-        return Err(ManipError::WrongPassword);
-    }
-
-    let (handler, permissions) = encryption_settings(&probe)?;
-    let doc = load_decrypted_from_bytes(bytes, owner_password)?;
-
-    Ok((
-        LopdfDocument(doc),
-        Some(SecurityContext {
-            handler,
-            credential: Credential::Owner,
-            credentials: EncryptionCredentials::both(user_password, owner_password),
-            permissions,
-        }),
-    ))
+    open_probed_with_passwords(
+        LopdfRawDocument::load_mem(bytes)?,
+        user_password,
+        owner_password,
+        |password| load_decrypted_from_bytes(bytes, password),
+    )
 }
 
 fn load_decrypted_from_bytes(bytes: &[u8], password: &str) -> Result<LopdfRawDocument, ManipError> {
