@@ -14,6 +14,7 @@
 mod support;
 
 use lopdf::Permissions;
+use pdf_document::Credential;
 use pdf_manip::{open_import_source_from_bytes, ManipError};
 
 const USER_PASSWORD: &str = "user-no-copy";
@@ -125,8 +126,38 @@ fn a_missing_password_is_reported_rather_than_refused_as_a_permission() {
     let error = open_import_source_from_bytes(&bytes, None)
         .expect_err("an encrypted source must not open without its password");
 
-    assert!(matches!(
-        error,
-        ManipError::WrongPassword | ManipError::PasswordRequired
-    ));
+    // A missing password is probed as the empty one, which only a document
+    // lopdf already unlocked would match — so this is always `WrongPassword`.
+    assert!(matches!(error, ManipError::WrongPassword));
+}
+
+/// A promptless source (empty user password) still has an owner: presenting
+/// that password lifts the copy restriction, exactly as it does for a source
+/// behind a real user password.
+#[test]
+fn the_owner_of_a_promptless_no_copy_source_may_import_it() {
+    let bytes = no_copy_pdf("");
+
+    let (document, security) = open_import_source_from_bytes(&bytes, Some(OWNER_PASSWORD))
+        .expect("the owner credential has to open its own document");
+
+    assert_eq!(document.as_lopdf().get_pages().len(), 1);
+    assert_eq!(
+        security
+            .expect("a promptless source reports its context")
+            .credential,
+        Credential::Owner
+    );
+}
+
+/// A wrong password on a promptless source is a wrong password, not a
+/// permission refusal: the shell must be able to tell the two apart.
+#[test]
+fn a_wrong_password_on_a_promptless_source_is_not_a_permission_refusal() {
+    let bytes = no_copy_pdf("");
+
+    let error = open_import_source_from_bytes(&bytes, Some("not-the-owner"))
+        .expect_err("a wrong password must not open the source");
+
+    assert!(matches!(error, ManipError::WrongPassword));
 }
