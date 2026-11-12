@@ -99,6 +99,8 @@ pub fn run() -> glib::ExitCode {
             ensure_built(&built_ui, application).window.present();
         }
     });
+    // The PDF fonts the text editor loaded live in a per-process temp dir.
+    application.connect_shutdown(|_| content_edit::camouflage::remove_font_files());
     application.connect_open({
         let built_ui = built_ui.clone();
         move |application, files, _hint| {

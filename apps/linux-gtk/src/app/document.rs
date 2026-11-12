@@ -667,7 +667,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
         let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
         let overlay = page_overlay(&picture);
         // Added after the child, so it sits above the rendered page. The tile
-        // pipeline keeps it there with `selection::raise_highlights`.
+        // pipeline slips its tiles in under it (`render::put_tile`).
         let highlights = super::selection::build_highlight_layer(viewer, page_index);
         overlay.add_overlay(&highlights);
         viewer.pages.append(&overlay);

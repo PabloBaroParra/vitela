@@ -24,6 +24,8 @@
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
+//! - [`style`]: how a run looks — font, size, fill colour, spacing, and its
+//!   embedded font program — for a shell drawing an editor over it.
 //! - [`error`]: `EditError`, the shared error type across this crate.
 //!
 //! This crate is deliberately isolated from the rest of the core (the same
@@ -59,6 +61,7 @@ pub mod parse;
 pub mod path;
 pub mod pending;
 pub mod selection;
+pub mod style;
 pub mod watermark;
 
 #[cfg(test)]
@@ -86,4 +89,7 @@ pub use pending::{
     overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };
 pub use selection::{move_selection, remove_selection, Selection};
+pub use style::{
+    text_run_font_program, text_run_style, FontProgram, FontProgramFormat, TextRunStyle,
+};
 pub use watermark::{check_watermark, stamp_watermark};

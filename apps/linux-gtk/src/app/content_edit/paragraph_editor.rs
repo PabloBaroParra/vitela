@@ -24,6 +24,7 @@ use gtk::{
 use pdf_document::Rect;
 use pdf_render::PagePlacement;
 
+use super::camouflage::{box_geometry, EditorLook, LineMetrics};
 use crate::app::state::{EditorField, Viewer};
 
 /// The smallest box the view is given, in pixels, so a paragraph at a tiny
@@ -70,20 +71,25 @@ pub(super) fn new_field(text: &str) -> EditorField {
     buffer.select_range(&start, &end);
 
     let scroller = ScrolledWindow::new();
-    scroller.set_policy(PolicyType::Never, PolicyType::Automatic);
+    // No scrollbar to draw over the page: the box grows to fit its text
+    // (`super::editor::refit`), and scrolls without one if it ever must.
+    scroller.set_policy(PolicyType::Never, PolicyType::External);
     scroller.set_propagate_natural_width(false);
     scroller.set_propagate_natural_height(false);
     scroller.set_child(Some(&view));
     EditorField::Paragraph { view, scroller }
 }
 
-/// The size the paragraph's box asks for at `page`'s zoom, in the box's own
-/// upright frame, pinned on `scroller` as its exact size.
+/// Where the paragraph's box goes and the size it asks for at `page`'s
+/// zoom, in the box's own upright frame, pinned on `scroller` as its exact
+/// size.
 ///
-/// The width is the paragraph's, so the view wraps where the page roughly
-/// will. The height is the paragraph's too, grown to fit the text as it
-/// opens in the theme's font: the view does not draw the PDF's font, and a
-/// box that clipped the paragraph's last lines would hide what is retyped.
+/// Drawn in `look` — the paragraph's own font, as the editor opens over
+/// text already on the page — the box is `super::camouflage::box_geometry`'s:
+/// the block's width, so the view wraps where the page will, and its first
+/// baseline on the block's. Without a look it is `bbox` at the zoom, in the
+/// theme's font. Either way it is grown to fit the text, so no line is ever
+/// clipped out of sight.
 ///
 /// The text is laid out with Pango rather than asked of the view: a
 /// `TextView` validates its layout lazily, so before it is on screen its
@@ -93,24 +99,43 @@ pub(super) fn field_size(
     scroller: &ScrolledWindow,
     bbox: Rect,
     page: PagePlacement,
-) -> (f64, f64) {
-    let width = ((bbox.width * page.scale).round() as i32).max(MIN_WIDTH_PX);
+    look: Option<&EditorLook>,
+) -> (Rect, (f64, f64)) {
     let buffer = view.buffer();
     let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
     let layout = view.create_pango_layout(Some(&text));
-    layout.set_width(width * pango::SCALE);
     layout.set_wrap(pango::WrapMode::WordChar);
+    let Some(look) = look else {
+        let width = ((bbox.width * page.scale).round() as i32).max(MIN_WIDTH_PX);
+        layout.set_width(width * pango::SCALE);
+        let (_, text_height) = layout.pixel_size();
+        let natural = text_height + view.top_margin() + view.bottom_margin();
+        let height = ((bbox.height * page.scale).round() as i32)
+            .max(natural)
+            .max(1);
+        scroller.set_size_request(width, height);
+        return (bbox, (f64::from(width), f64::from(height)));
+    };
+
+    let metrics = LineMetrics::of(&view.pango_context(), look, page.scale);
+    let width = box_geometry(look, page.scale, metrics, 0.0).width_px;
+    layout.set_font_description(Some(&look.font_description(page.scale)));
+    layout.set_attributes(Some(&look.attributes(page.scale)));
+    layout.set_width((width * f64::from(pango::SCALE)) as i32);
     let (_, text_height) = layout.pixel_size();
-    let natural = text_height + view.top_margin() + view.bottom_margin();
-    let height = ((bbox.height * page.scale).round() as i32)
-        .max(natural)
-        .max(1);
-    scroller.set_size_request(width, height);
-    (f64::from(width), f64::from(height))
+    let geometry = box_geometry(look, page.scale, metrics, f64::from(text_height));
+    scroller.set_size_request(geometry.width_px as i32, geometry.height_px as i32);
+    (geometry.placed, (geometry.width_px, geometry.height_px))
 }
 
 /// Wires the view's keys and focus to the editor's commit and cancel.
 pub(super) fn wire(viewer: &Viewer, view: &TextView) {
+    // A line typed or wrapped onto the paragraph grows the box under it.
+    view.buffer().connect_changed({
+        let viewer = viewer.clone();
+        move |_| super::editor::refit(&viewer)
+    });
+
     let focus = EventControllerFocus::new();
     focus.connect_leave({
         let viewer = viewer.clone();
@@ -267,6 +292,36 @@ mod gtk_tests {
                 .map(|editor| editor.field.clone())
         }
 
+        fn look(&self) -> super::super::camouflage::EditorLook {
+            self.viewer()
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .and_then(|editor| editor.camouflage.as_ref())
+                .map(|camouflage| camouflage.look.clone())
+                .expect("a retype editor is camouflaged")
+        }
+
+        fn frame(&self) -> gtk::Fixed {
+            self.viewer()
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .map(|editor| editor.frame.clone())
+                .expect("the editor is open")
+        }
+
+        fn scroller(&self) -> gtk::ScrolledWindow {
+            match self.field().expect("the editor is open") {
+                EditorField::Paragraph { scroller, .. } => scroller,
+                EditorField::Line(_) => panic!("a paragraph opens the multi-line field"),
+            }
+        }
+
         fn entries(&self) -> Vec<Command> {
             self.viewer()
                 .state
@@ -294,6 +349,114 @@ mod gtk_tests {
             self.built.viewer.state.borrow_mut().session = None;
             self.built.window.close();
         }
+    }
+
+    /// Runs the loop until GTK has styled and laid out what is on screen.
+    fn pump() {
+        let context = glib::MainContext::default();
+        for _ in 0..100 {
+            while context.iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
+    fn close(left: f64, right: f64, tolerance: f64) -> bool {
+        (left - right).abs() <= tolerance
+    }
+
+    /// The quote's spec paragraph is Vera 9 on an 11 pt leading, dark blue,
+    /// 0.3 pt apart, from a subset TrueType program the file embeds. The
+    /// editor asks for that program's own family when this Pango can load
+    /// it (1.56+), and for a family matched from its name when it cannot.
+    #[gtk::test]
+    fn gtk_ui_the_paragraph_is_drawn_in_the_pdfs_font_size_colour_and_leading() {
+        let fixture = Fixture::open_accented_quote();
+        let look = fixture.look();
+
+        if super::super::camouflage::can_register() {
+            let [family] = look.font.families.as_slice() else {
+                panic!("the embedded program's family alone: {:?}", look.font);
+            };
+            let font_map = fixture.view().pango_context().font_map().unwrap();
+            assert!(
+                font_map
+                    .list_families()
+                    .iter()
+                    .any(|known| known.name() == family.as_str()),
+                "{family} is registered"
+            );
+        } else {
+            assert_eq!(look.font.families, ["Vera", "sans-serif"]);
+        }
+        assert!(close(look.size_pt, 9.0, 1e-6), "{}", look.size_pt);
+        assert!(close(look.leading_pt.unwrap(), 11.0, 1e-3));
+        assert!(close(look.letter_spacing_pt, 0.3, 1e-6));
+        let [r, g, b] = look.colour;
+        assert!(close(r, 0.1, 1e-6) && close(g, 0.2, 1e-6) && close(b, 0.55, 1e-6));
+        assert_eq!(fixture.view().justification(), gtk::Justification::Left);
+
+        // And GTK draws it so: the view's own font is the look's.
+        pump();
+        let drawn = fixture.view().pango_context().font_description().unwrap();
+        assert_eq!(
+            drawn.family().map(|family| family.to_string()),
+            Some(look.font.families.join(",")),
+        );
+        // The fixture's page is at 100%, so 9 pt is 9 px.
+        let size = f64::from(drawn.size()) / f64::from(gtk::pango::SCALE);
+        assert!(close(size, 9.0, 0.5), "{size}");
+    }
+
+    /// A standard-14 font embeds no program: the family comes from its name.
+    #[gtk::test]
+    fn gtk_ui_a_standard_font_falls_back_to_a_family_matched_by_name() {
+        let fixture = Fixture::open();
+        let look = fixture.look();
+
+        assert_eq!(look.font.families, ["Helvetica", "sans-serif"]);
+        assert!(close(look.size_pt, 24.0, 1e-6));
+        assert_eq!(look.colour, [0.0; 3]);
+        assert_eq!(look.background, [1.0; 3], "no render: white paper");
+    }
+
+    /// The box's top sits one first-baseline offset — the font's ascent,
+    /// moved by half the leading's difference from the font's height —
+    /// above the paragraph's first baseline, so typed text sits on it.
+    #[gtk::test]
+    fn gtk_ui_the_first_line_lands_on_the_paragraphs_baseline() {
+        use super::super::camouflage::{first_baseline_offset, LineMetrics};
+        let fixture = Fixture::open_accented_quote();
+        let look = fixture.look();
+        let scale = 1.0;
+        let metrics = LineMetrics::of(&fixture.view().pango_context(), &look, scale);
+
+        let top_pt = look.first_baseline
+            + first_baseline_offset(metrics, look.line_height_px(scale)) / scale;
+
+        // The test page is 842 pt tall at 100%: the frame's margin is the
+        // box top's distance from the page's top.
+        let expected = (842.0 - top_pt) * scale;
+        let margin = f64::from(fixture.frame().margin_top());
+        assert!(close(margin, expected, 1.0), "{margin} vs {expected}");
+        assert_eq!(
+            f64::from(fixture.frame().margin_start()),
+            (look.block.x * scale).round()
+        );
+    }
+
+    /// Lines typed onto the paragraph grow the box down to hold them.
+    #[gtk::test]
+    fn gtk_ui_the_box_grows_as_lines_are_typed() {
+        let fixture = Fixture::open();
+        let (_, before) = fixture.scroller().size_request();
+
+        fixture
+            .view()
+            .buffer()
+            .set_text("First line\nSecond line\nThird\nFourth\nFifth\nSixth");
+
+        let (_, after) = fixture.scroller().size_request();
+        assert!(after > before, "{before} -> {after}");
     }
 
     /// The view is the paragraph's: its text, a line break per line, and
@@ -445,7 +608,7 @@ GARANTÍA: Instalación incluida",
             scale: 1.0,
         };
 
-        let (_, height) = super::field_size(view, scroller, bbox, page);
+        let (_, (_, height)) = super::field_size(view, scroller, bbox, page, None);
 
         // A line of a laid-out paragraph rounds a pixel short of a lone
         // line, so four of them may come out a few pixels under 4 x `line`.

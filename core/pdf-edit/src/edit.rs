@@ -1161,6 +1161,30 @@ pub(crate) fn resolve_text_run<'a>(
     )
 }
 
+/// The located run `run` names, for reading how it looks rather than for
+/// editing it: [`resolve_text_run`] first, and failing that the run with the
+/// same id painted in the same font — the case of a run whose retype is still
+/// pending, which shows text the file does not hold yet. Looks are read, not
+/// written, so the looser match can at worst style an editor like a sibling.
+pub(crate) fn locate_run_for_style(
+    document: &Document,
+    page_object: ObjectId,
+    run: &TextRun,
+) -> Result<LocatedTextRun, EditError> {
+    let located = read_located_content(document, page_object)?;
+    let refusal = match resolve_text_run(&located, run) {
+        Ok(found) => return Ok(found.clone()),
+        Err(refusal) => refusal,
+    };
+    located
+        .text_runs
+        .into_iter()
+        .find(|candidate| {
+            candidate.run.id == run.id && candidate.run.resource_font_name == run.resource_font_name
+        })
+        .ok_or(refusal)
+}
+
 /// The same lookup for images, whose identity is the resource they paint and
 /// where they paint it.
 pub(crate) fn resolve_image<'a>(
@@ -1363,7 +1387,7 @@ pub(crate) fn scope_stream(
 ///
 /// A form's own `/Resources` replaces its caller's outright rather than
 /// merging with it, which is the rule the interpreter walks in with.
-fn scope_resources(
+pub(crate) fn scope_resources(
     document: &Document,
     page_object: ObjectId,
     form_path: &[FormStep],

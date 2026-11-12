@@ -202,3 +202,41 @@ pub fn page_font_families_of(
         } => pdf_edit::page_object_font_families(backing.as_lopdf(), object).map_err(Into::into),
     }
 }
+
+/// How `run` looks on its page, read through the page's origin — what a
+/// shell's editor needs to draw typed text in the run's own font, size and
+/// colour ([`pdf_edit::text_run_style`]). `None` for a page with no content.
+pub fn text_run_style_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    run: &pdf_document::TextRun,
+) -> Result<Option<pdf_edit::TextRunStyle>, SaveError> {
+    match page_backing(document, run.page, base, sources)? {
+        PageBacking::Empty => Ok(None),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::text_run_style(backing.as_lopdf(), object, run)
+            .map(Some)
+            .map_err(Into::into),
+    }
+}
+
+/// The font program embedded for `run`'s font, read through the page's
+/// origin ([`pdf_edit::text_run_font_program`]). `None` for a font that
+/// embeds none, and for a page with no content.
+pub fn text_run_font_program_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    run: &pdf_document::TextRun,
+) -> Result<Option<pdf_edit::FontProgram>, SaveError> {
+    match page_backing(document, run.page, base, sources)? {
+        PageBacking::Empty => Ok(None),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::text_run_font_program(backing.as_lopdf(), object, run).map_err(Into::into),
+    }
+}

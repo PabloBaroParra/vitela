@@ -65,6 +65,7 @@ mod command;
 // buttons to `image`'s handlers. Everything else here is reached through this
 // module.
 pub(crate) mod block;
+pub(crate) mod camouflage;
 pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;

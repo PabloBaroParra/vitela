@@ -41,6 +41,7 @@ use crate::app::state::{ContentEditor, DocumentSession, EditorField, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
+use super::camouflage::{self, Camouflage, EditorLook};
 use super::command::{self, pending_move_index, pending_text_command, PendingText};
 use super::model;
 use super::paragraph_editor;
@@ -176,10 +177,32 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         let Some(page) = session.pages.get(page_index) else {
             return;
         };
+        let placement = page.placement();
+
+        // Drawn as the page draws the text it retypes (`super::camouflage`):
+        // the run's font, size and colour over the page's own colour.
+        let outer = field.outer_widget();
+        let look = camouflage::look_for(
+            session,
+            page_index,
+            &run,
+            &block,
+            &outer
+                .pango_context()
+                .font_map()
+                .expect("a widget's font map"),
+        );
+        if let EditorField::Paragraph { view, .. } = &field {
+            view.set_justification(look.justification());
+        }
+        let camouflage = Camouflage::apply(look, &outer, placement.scale);
 
         let frame = Fixed::new();
-        frame.put(&field.outer_widget(), 0.0, 0.0);
-        place_field(&frame, &field, run.bbox, page.placement());
+        frame.put(&outer, 0.0, 0.0);
+        place_field(&frame, &field, run.bbox, placement, Some(&camouflage.look));
+        let Some(page) = session.pages.get(page_index) else {
+            return;
+        };
         page.overlay.add_overlay(&frame);
 
         session.content_editor = Some(ContentEditor {
@@ -190,12 +213,18 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
             is_insertion: false,
             amends,
             block,
+            camouflage: Some(camouflage),
         });
     }
 
     match &field {
         EditorField::Line(entry) => {
             wire_entry(viewer, entry, false);
+            // A camouflaged line widens as it is typed past the run (`refit`).
+            entry.connect_changed({
+                let viewer = viewer.clone();
+                move |_| refit(&viewer)
+            });
             focus_without_scrolling(&viewer.scroll, entry);
             entry.select_region(0, -1);
         }
@@ -312,6 +341,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
             // one this commit records is what a *later* click on the same
             // text will amend, via the synthetic id the overlay mints for it.
             amends: None,
+            camouflage: None,
         });
 
         entry
@@ -390,16 +420,71 @@ fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
     place_sized(frame, entry, size, bbox, page);
 }
 
-/// [`place_entry`] for either kind of field: a paragraph's view is sized by
-/// `super::paragraph_editor` and placed — and turned — exactly as an entry.
-fn place_field(frame: &Fixed, field: &EditorField, bbox: Rect, page: PagePlacement) {
-    match field {
-        EditorField::Line(entry) => place_entry(frame, entry, bbox, page),
-        EditorField::Paragraph { view, scroller } => {
-            let size = paragraph_editor::field_size(view, scroller, bbox, page);
-            place_sized(frame, scroller, size, bbox, page);
+/// [`place_entry`] for either kind of field, drawn in `look` when the
+/// editor retypes text already on the page: then the box is the one
+/// `super::camouflage::box_geometry` puts the first baseline on the page's
+/// with, rather than `bbox` itself. A paragraph's view is sized by
+/// `super::paragraph_editor`; both are placed — and turned — the same way.
+fn place_field(
+    frame: &Fixed,
+    field: &EditorField,
+    bbox: Rect,
+    page: PagePlacement,
+    look: Option<&EditorLook>,
+) {
+    match (field, look) {
+        (EditorField::Line(entry), None) => place_entry(frame, entry, bbox, page),
+        (EditorField::Line(entry), Some(look)) => {
+            let (placed, size) = camouflaged_entry_size(entry, look, page);
+            place_sized(frame, entry, size, placed, page);
+        }
+        (EditorField::Paragraph { view, scroller }, _) => {
+            let (placed, size) = paragraph_editor::field_size(view, scroller, bbox, page, look);
+            place_sized(frame, scroller, size, placed, page);
         }
     }
+}
+
+/// [`entry_size`] for an entry drawn in `look`: one line of its font tall,
+/// its top where the font's ascent puts the baseline on the run's, and as
+/// wide as the run — or as the typed text, when that is wider, so the line
+/// grows to the right as the page will show it instead of scrolling inside
+/// a box the run's width ([`refit`] re-places it as it changes). Read back
+/// like [`entry_size`] in case GTK still will not go that small; growing
+/// rightwards and downwards keeps the baseline put.
+fn camouflaged_entry_size(
+    entry: &Entry,
+    look: &EditorLook,
+    page: PagePlacement,
+) -> (Rect, (f64, f64)) {
+    let metrics = camouflage::LineMetrics::of(&entry.pango_context(), look, page.scale);
+    let layout = entry.create_pango_layout(Some(&entry.text()));
+    layout.set_font_description(Some(&look.font_description(page.scale)));
+    layout.set_attributes(Some(&look.attributes(page.scale)));
+    let (text_width, _) = layout.pixel_size();
+    let geometry = camouflage::box_geometry(
+        look,
+        page.scale,
+        metrics,
+        metrics.ascent_px + metrics.descent_px,
+    )
+    .grown_to(
+        camouflage::line_width_px(f64::from(text_width)),
+        0.0,
+        page.scale,
+    );
+    entry.set_width_request(geometry.width_px as i32);
+    entry.set_height_request(geometry.height_px as i32);
+    entry.set_max_width_chars(1);
+    let (minimum, _) = entry.preferred_size();
+    let geometry = geometry.grown_to(
+        f64::from(minimum.width()),
+        f64::from(minimum.height()),
+        page.scale,
+    );
+    entry.set_width_request(geometry.width_px as i32);
+    entry.set_height_request(geometry.height_px as i32);
+    (geometry.placed, (geometry.width_px, geometry.height_px))
 }
 
 /// Positions `child`, already `(width, height)` in its own upright frame,
@@ -620,12 +705,38 @@ fn reposition(viewer: &Viewer, bbox: Rect) {
         let state = viewer.state.borrow();
         state.session.as_ref().and_then(|session| {
             let editor = session.content_editor.as_ref()?;
-            let page = session.pages.get(editor.page_index)?;
-            Some((editor.frame.clone(), editor.field.clone(), page.placement()))
+            let page = session.pages.get(editor.page_index)?.placement();
+            let camouflage = editor.camouflage.as_ref();
+            Some((
+                editor.frame.clone(),
+                editor.field.clone(),
+                page,
+                camouflage.map(|camouflage| camouflage.look.clone()),
+                camouflage.and_then(|camouflage| camouflage.restyle_at(page.scale)),
+            ))
         })
     };
-    if let Some((frame, field, page)) = editor {
-        place_field(&frame, &field, bbox, page);
+    if let Some((frame, field, page, look, restyle)) = editor {
+        if let Some((provider, css)) = restyle {
+            provider.load_from_data(&css);
+        }
+        place_field(&frame, &field, bbox, page, look.as_ref());
+    }
+}
+
+/// Re-fits the open editor's box to what it now holds — a paragraph grows
+/// downwards as lines are typed into it, a camouflaged line rightwards — so
+/// the box keeps covering the text rather than scrolling it out of sight.
+pub(super) fn refit(viewer: &Viewer) {
+    let bbox = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .map(|editor| editor.run.bbox);
+    if let Some(bbox) = bbox {
+        reposition(viewer, bbox);
     }
 }
 
@@ -1383,6 +1494,114 @@ mod tests {
             }
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+
+    /// A click inside an open one-line box lands on the entry drawn in the
+    /// run's own font, not on the page under it (which reads as a click away
+    /// and commits the box shut); and text typed past the run widens the box
+    /// instead of scrolling inside it.
+    #[gtk::test]
+    fn gtk_ui_a_camouflaged_line_takes_its_clicks_and_widens_as_typed() {
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        built.window.set_default_size(1_000, 720);
+        built.window.present();
+        struct Teardown<'a>(&'a crate::app::BuiltUi);
+        impl Drop for Teardown<'_> {
+            fn drop(&mut self) {
+                self.0.viewer.state.borrow_mut().session = None;
+                self.0.window.close();
+            }
+        }
+        let _teardown = Teardown(&built);
+
+        let base = gen_fixtures::build_spaced_line_page_document(&["Cantidad"], 100);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the fixture page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+        let scale = 6.0;
+        let picture = Picture::new();
+        picture.set_width_request((595.0 * scale) as i32);
+        picture.set_height_request((842.0 * scale) as i32);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&picture));
+        overlay.set_halign(gtk::Align::Center);
+        built.viewer.pages.append(&overlay);
+        let mut slot = crate::app::test_fixtures::page_slot(overlay.clone());
+        slot.budget.factor = scale;
+        session.pages.push(slot);
+        session.page_heights.push((842.0 * scale) as i32);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            state.session = Some(session);
+            state.content_edit_mode = true;
+            state.preview_refresh_in_flight = true;
+        }
+        settle(&built.viewer.pages);
+
+        open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());
+        pump();
+
+        let entry = match built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .map(|editor| editor.field.clone())
+            .expect("the editor opened")
+        {
+            EditorField::Line(entry) => entry,
+            EditorField::Paragraph { .. } => panic!("one run opens an entry"),
+        };
+        let bbox = runs[0].bbox;
+        // As the layout left it: the window's fit may have rescaled the page.
+        let page = built.viewer.state.borrow().session.as_ref().unwrap().pages[0].placement();
+        let centre = place_point(
+            (bbox.x + bbox.width / 2.0, bbox.y + bbox.height / 2.0),
+            page,
+        );
+        let picked = overlay
+            .pick(centre.0, centre.1, gtk::PickFlags::DEFAULT)
+            .expect("something is under the click");
+        assert!(
+            picked == entry.clone().upcast::<gtk::Widget>() || picked.is_ancestor(&entry),
+            "picked {} at {centre:?}; entry at {:?} {}x{} req {:?} frame {:?}",
+            picked.type_().name(),
+            entry.compute_point(&overlay, &graphene::Point::new(0.0, 0.0)),
+            entry.width(),
+            entry.height(),
+            entry.size_request(),
+            entry.parent().map(|frame| (
+                frame.margin_start(),
+                frame.margin_top(),
+                frame.width(),
+                frame.height()
+            )),
+        );
+
+        // Typed past the run, the line widens rather than scrolling.
+        let (opened, _) = entry.size_request();
+        entry.set_text("Cantidad y mucho texto mas");
+        let (typed, _) = entry.size_request();
+        assert!(typed > opened, "{opened} -> {typed}");
+
+        // Zoomed out with the box open, the next keystroke re-measures the
+        // box at the new zoom — and the text it holds is drawn at it too.
+        let font_size = || {
+            pump();
+            let description = entry.pango_context().font_description().unwrap();
+            f64::from(description.size())
+        };
+        let before = font_size();
+        if let Some(session) = built.viewer.state.borrow_mut().session.as_mut() {
+            session.pages[0].budget.factor = page.scale / 2.0;
+        }
+        entry.set_text("Cantidad y mucho texto");
+        let after = font_size();
+        assert!((after / before - 0.5).abs() < 0.05, "{before} -> {after}");
     }
 
     /// Runs the loop dry, for the settling that is not about one widget's size.

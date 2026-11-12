@@ -1017,6 +1017,10 @@ pub(crate) struct ContentEditor {
     /// block, `run` stands in for the whole of it — its box and text are the
     /// block's — and a commit records one batch over these.
     pub(crate) block: Vec<TextRun>,
+    /// How the field is drawn to look like the text it retypes, and the CSS
+    /// that draws it so — removed from the display when the editor drops.
+    /// `None` for an insertion, which has no text on the page to look like.
+    pub(crate) camouflage: Option<super::content_edit::camouflage::Camouflage>,
 }
 
 /// The text field of an open [`ContentEditor`].
