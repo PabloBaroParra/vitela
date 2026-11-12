@@ -56,6 +56,23 @@ pub fn restricted_document() -> Vec<u8> {
     save(doc)
 }
 
+/// "Hello Vitela" encrypted with RC4 under an **empty** user password and
+/// [`OWNER_PASSWORD`], printable but **not** copyable: it opens with no
+/// prompt, and that open must still refuse every text read.
+pub fn promptless_restricted_document() -> Vec<u8> {
+    let mut doc = build(&["Hello Vitela"], 0);
+    let version = EncryptionVersion::V2 {
+        document: &doc,
+        owner_password: OWNER_PASSWORD,
+        user_password: "",
+        key_length: 128,
+        permissions: Permissions::PRINTABLE,
+    };
+    let state = EncryptionState::try_from(version).expect("encryption state");
+    doc.encrypt(&state).expect("encrypt");
+    save(doc)
+}
+
 fn build(pages: &[&str], rotation: i64) -> Document {
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();

@@ -26,6 +26,11 @@ use crate::error::ManipError;
 /// clean `Err`, never a panic and never a partial/garbled document (spec
 /// "Open Password-Protected PDF" — wrong-password scenario).
 ///
+/// A document with an **empty user password** opens with `credential: None`
+/// and still reports its `SecurityContext` (user role, empty user password),
+/// so its `/P` restrictions reach every gate — the same context
+/// [`read_security_context`] reports.
+///
 /// Implementation note (lopdf 0.44 gotcha): `Document::load(path)` on an
 /// *encrypted* file does NOT populate `objects` beyond the `/Encrypt`
 /// dictionary itself — `load_encrypted_document` early-returns as soon as it
@@ -46,7 +51,8 @@ pub fn open_document(
     let probe = LopdfRawDocument::load(path)?;
 
     if !probe.is_encrypted() {
-        return Ok((LopdfDocument(probe), None));
+        let security = unlocked_security(&probe, credential)?;
+        return Ok((LopdfDocument(probe), security));
     }
 
     let password = credential.ok_or(ManipError::PasswordRequired)?;
@@ -71,7 +77,8 @@ pub fn open_document_with_passwords(
     let probe = LopdfRawDocument::load(path)?;
 
     if !probe.is_encrypted() {
-        return Ok((LopdfDocument(probe), None));
+        let security = unlocked_security_with_passwords(&probe, user_password, owner_password)?;
+        return Ok((LopdfDocument(probe), security));
     }
 
     if probe.authenticate_user_password(user_password).is_err()
@@ -219,11 +226,7 @@ fn security_from_probe(
         return security_from_encrypt_dict(probe, credential.unwrap_or("")).map(Some);
     }
 
-    probe
-        .encryption_state
-        .as_ref()
-        .map(security_from_unlocked_state)
-        .transpose()
+    unlocked_security(probe, credential)
 }
 
 /// Builds the context for a document lopdf already unlocked with the empty
@@ -248,6 +251,90 @@ fn security_from_unlocked_state(
         credentials: EncryptionCredentials::user(""),
         permissions: Permissions(state.permissions().bits() as u32),
     })
+}
+
+/// The security context of a probe that `is_encrypted()` calls plain, for an
+/// open that was given at most one password.
+///
+/// `None` only when the document really is unencrypted. A document lopdf
+/// already unlocked with the empty user password (see [`security_from_probe`])
+/// is still restricted by its `/P`, so an open must report it exactly as
+/// [`read_security_context`] does — otherwise every permission gate
+/// downstream would treat the most common shape of restricted PDF as
+/// unrestricted.
+///
+/// A non-empty password is checked against the recovered `/O` and `/U`, the
+/// same as for any other encrypted document: the owner password lifts the
+/// restrictions, anything else is [`ManipError::WrongPassword`].
+fn unlocked_security(
+    probe: &LopdfRawDocument,
+    credential: Option<&str>,
+) -> Result<Option<SecurityContext>, ManipError> {
+    let Some(state) = probe.encryption_state.as_ref() else {
+        return Ok(None);
+    };
+    let unlocked = security_from_unlocked_state(state)?;
+
+    match credential {
+        None | Some("") => Ok(Some(unlocked)),
+        Some(password) => {
+            let relocked = relocked(probe, state)?;
+            let resolved = security_from_encrypt_dict(&relocked, password)?;
+            Ok(Some(SecurityContext {
+                credential: resolved.credential,
+                credentials: resolved.credentials,
+                ..unlocked
+            }))
+        }
+    }
+}
+
+/// [`unlocked_security`] for an open that was given both passwords: each is
+/// verified against its own role, then the context carries both — what an
+/// encrypted full rewrite needs to re-apply the same protection.
+fn unlocked_security_with_passwords(
+    probe: &LopdfRawDocument,
+    user_password: &str,
+    owner_password: &str,
+) -> Result<Option<SecurityContext>, ManipError> {
+    let Some(state) = probe.encryption_state.as_ref() else {
+        return Ok(None);
+    };
+    let relocked = relocked(probe, state)?;
+    if relocked.authenticate_user_password(user_password).is_err()
+        || relocked
+            .authenticate_owner_password(owner_password)
+            .is_err()
+    {
+        return Err(ManipError::WrongPassword);
+    }
+
+    Ok(Some(SecurityContext {
+        credential: Credential::Owner,
+        credentials: EncryptionCredentials::both(user_password, owner_password),
+        ..security_from_unlocked_state(state)?
+    }))
+}
+
+/// A stand-in that carries only what lopdf's password checks read — the
+/// `/Encrypt` dictionary re-encoded from `state` and the trailer's `/ID` —
+/// so a password can be verified against a document lopdf already unlocked
+/// and stripped of `/Encrypt`, without cloning its objects.
+fn relocked(
+    probe: &LopdfRawDocument,
+    state: &lopdf::EncryptionState,
+) -> Result<LopdfRawDocument, ManipError> {
+    let encrypt = state
+        .encode()
+        .map_err(|_| ManipError::UnsupportedSecurityHandler)?;
+
+    let mut relocked = LopdfRawDocument::new();
+    let encrypt_id = relocked.add_object(encrypt);
+    relocked.trailer.set("Encrypt", encrypt_id);
+    if let Ok(file_id) = probe.trailer.get(b"ID") {
+        relocked.trailer.set("ID", file_id.clone());
+    }
+    Ok(relocked)
 }
 
 /// Reads an already-loaded, still-encrypted probe's `/Encrypt` dictionary and
@@ -325,7 +412,8 @@ pub fn open_document_from_bytes(
     let probe = LopdfRawDocument::load_mem(bytes)?;
 
     if !probe.is_encrypted() {
-        return Ok((LopdfDocument(probe), None));
+        let security = unlocked_security(&probe, credential)?;
+        return Ok((LopdfDocument(probe), security));
     }
 
     let password = credential.ok_or(ManipError::PasswordRequired)?;
@@ -347,7 +435,8 @@ pub fn open_document_with_passwords_from_bytes(
     let probe = LopdfRawDocument::load_mem(bytes)?;
 
     if !probe.is_encrypted() {
-        return Ok((LopdfDocument(probe), None));
+        let security = unlocked_security_with_passwords(&probe, user_password, owner_password)?;
+        return Ok((LopdfDocument(probe), security));
     }
 
     if probe.authenticate_user_password(user_password).is_err()

@@ -199,6 +199,38 @@ mod tests {
     }
 
     #[test]
+    fn a_promptless_open_still_honours_the_text_permission() {
+        let model = open(
+            &pdfs::promptless_restricted_document(),
+            OpenCredentials::NoPassword,
+        )
+        .expect("an empty user password opens without a prompt");
+        assert!(!model.text_extraction_allowed());
+        assert_eq!(
+            model.ensure_text_extraction_allowed().unwrap_err().kind,
+            ErrorKind::TextExtractionDenied
+        );
+    }
+
+    #[test]
+    fn the_owner_password_lifts_a_promptless_restriction() {
+        let model = open(
+            &pdfs::promptless_restricted_document(),
+            OpenCredentials::Password(pdfs::OWNER_PASSWORD.into()),
+        )
+        .unwrap();
+        assert!(model.text_extraction_allowed());
+
+        let err = open(
+            &pdfs::promptless_restricted_document(),
+            OpenCredentials::Password("nope".into()),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(err.kind, ErrorKind::WrongPassword);
+    }
+
+    #[test]
     fn ensure_page_refuses_past_the_last_page() {
         let model = open(&pdfs::text_document(&["one"]), OpenCredentials::NoPassword).unwrap();
         assert!(model.ensure_page(0).is_ok());

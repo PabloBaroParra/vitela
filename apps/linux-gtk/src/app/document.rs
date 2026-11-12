@@ -449,17 +449,15 @@ fn source_name(source: &DocumentSource) -> String {
 /// decrypting load — so it costs one unauthenticated parse on the open worker
 /// thread.
 ///
-/// **This must stay the only source of permissions in this shell.** The
-/// obvious-looking alternative, reading the context that `open_document`
-/// returns alongside the model, is wrong: a document whose *user password is
-/// empty* is decrypted in place by lopdf's unauthenticated load, which drops
-/// `/Encrypt` from the trailer, so `open_document` sees an unencrypted file
-/// and reports **no** context at all — and no context means "unrestricted" to
-/// every gate. "Opens with no prompt, yet still restricts" is the single most
-/// common shape of restricted PDF in the wild. `read_security_context`
-/// recovers the real permissions from lopdf's decoded encryption state
-/// instead; `core/pdf-manip/tests/annotation_permission.rs` pins the
-/// difference.
+/// **This is the only source of permissions in this shell.** It is the cheap
+/// half of an open — no decrypting load — and it still answers when lopdf can
+/// read the security policy but not build a model. A document whose *user
+/// password is empty* ("opens with no prompt, yet still restricts", the most
+/// common shape of restricted PDF) is unlocked in place by lopdf, which drops
+/// `/Encrypt` from the trailer; the probe recovers its permissions from the
+/// decoded encryption state, and `pdf_manip::open_document` now reports the
+/// same context. `core/pdf-manip/tests/empty_user_password_open.rs` pins that
+/// the two agree.
 fn read_security_context(
     source: &DocumentSource,
     password: Option<&str>,
@@ -546,8 +544,8 @@ fn page_assembly_access_from(
 ///
 /// Unlike the permission probe this performs the full decrypting load, because
 /// the model needs the actual objects. The `SecurityContext` stored on the
-/// model comes from the probe, not from the loader, for the reason spelled out
-/// on [`read_security_context`].
+/// model comes from the probe, not from the loader, so this shell keeps one
+/// source of permissions (see [`read_security_context`]).
 fn read_editable_model(
     source: &DocumentSource,
     password: Option<&str>,
