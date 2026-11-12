@@ -956,11 +956,12 @@ fn the_reportlab_fixture_parses_as_an_embedded_simple_font() {
 }
 
 /// Decision 3's own example, reproduced against a real embedded font instead
-/// of a synthetic dictionary: the same run accepts an ASCII replacement and
-/// refuses one it cannot encode, both reaching (or failing at) the same
+/// of a synthetic dictionary: the same run accepts an ASCII replacement,
+/// writes a character its encoding cannot map in the closest standard font,
+/// and refuses one no standard font has — all through the same
 /// `save_document` call the Standard-14 fixtures above go through.
 #[test]
-fn the_reportlab_fixture_accepts_ascii_and_rejects_what_its_encoding_cannot_map() {
+fn the_reportlab_fixture_accepts_ascii_falls_back_for_latin_and_rejects_the_rest() {
     let bytes = reportlab_embedded_subset_bytes();
     let (base, security) = pdf_manip::open_document_from_bytes(&bytes, None).unwrap();
     let mut document = pdf_save::document_from_lopdf(&base, security).unwrap();
@@ -987,16 +988,35 @@ fn the_reportlab_fixture_accepts_ascii_and_rejects_what_its_encoding_cannot_map(
     .expect("plain ASCII should encode against this font's fallback table");
     assert_eq!(page_texts(&saved), vec!["New Words".to_string()]);
 
-    // A second, independent document: the fixture's font has no /Encoding
-    // entry, so pdf-edit's fallback table covers ASCII only (Batch 21
-    // "Cobertura de encoding en v1") — a non-ASCII character is a gap, not a
-    // guess.
+    // The fixture's font has no /Encoding entry, so pdf-edit's table covers
+    // ASCII only (Batch 21 "Cobertura de encoding en v1"): the é is not
+    // guessed into the subset, it is written in the closest standard font.
+    let mut accented = pdf_save::document_from_lopdf(&base, None).unwrap();
+    apply_command(
+        &mut accented,
+        Command::ReplaceTextRunContent {
+            item: run.clone(),
+            after: "café".to_string(),
+        },
+    );
+    let saved = save_document(SaveInput {
+        document: &accented,
+        base: &base,
+        original_bytes: Some(&bytes),
+        intent: SaveIntent::Default,
+        signatures: SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::none(),
+    })
+    .expect("the é falls back to a standard font");
+    assert_eq!(page_texts(&saved), vec!["caf".to_string(), "é".to_string()]);
+
+    // A character no standard font has is a gap, not a guess.
     let mut rejected_document = pdf_save::document_from_lopdf(&base, None).unwrap();
     apply_command(
         &mut rejected_document,
         Command::ReplaceTextRunContent {
             item: run,
-            after: "café".to_string(),
+            after: "caf漢".to_string(),
         },
     );
     let result = save_document(SaveInput {

@@ -25,9 +25,10 @@ use pdf_document::TextRun;
 /// box origin to `run.bbox`'s.
 ///
 /// Only `run.text` and `run.bbox`'s origin are read from `run`. The text is
-/// encoded against the template's font before anything is written, so this
-/// fails with an [`EditError::EncodingGap`] instead of painting the wrong
-/// glyphs.
+/// encoded against the template's font before anything is written; the
+/// characters that font lacks are written in its standard-14 fallback face
+/// (see [`crate::encoding::fallback`]), and one neither has fails with an
+/// [`EditError::EncodingGap`] instead of painting the wrong glyphs.
 ///
 /// A template inside a Form XObject is refused with
 /// [`EditError::ContentNotCopyable`]: its font and `gs` names belong to the
@@ -52,7 +53,16 @@ pub fn insert_text_run_like(
             resource_font_name: font_name.clone(),
         }
     })?;
-    let codes = resolve_font(document, &font_dict, font_name)?.encode(&run.text)?;
+    let font = resolve_font(document, &font_dict, font_name)?;
+    let segments = font.encode_with_fallback(&run.text)?;
+    let fallback_base = font.fallback_base_font();
+    let fallback_name = segments.iter().any(|segment| segment.fallback).then(|| {
+        crate::insert::fallback_font_resource_name_in(
+            document,
+            &crate::insert::owned_resources_snapshot(document, page_object),
+            &font,
+        )
+    });
 
     let placement = target.placement;
     let inverse_ctm = placement
@@ -93,9 +103,35 @@ pub fn insert_text_run_like(
         )
         .as_bytes(),
     );
-    operators.extend_from_slice(&literal_string(&codes));
-    operators.extend_from_slice(b" Tj ET Q\n");
+    let size = format_number(placement.font_size);
+    let mut current = font_name.as_str();
+    for segment in &segments {
+        let wanted = match (&fallback_name, segment.fallback) {
+            (Some(fallback), true) => fallback.as_str(),
+            _ => font_name.as_str(),
+        };
+        if wanted != current {
+            operators.extend_from_slice(format!("/{wanted} {size} Tf ").as_bytes());
+            current = wanted;
+        }
+        operators.extend_from_slice(&literal_string(&segment.codes));
+        operators.extend_from_slice(b" Tj ");
+    }
+    // Back to the template's font, as every fallback write ends: a later
+    // retype of a fallback stretch finds the font it belongs to there.
+    if current != font_name {
+        operators.extend_from_slice(format!("/{font_name} {size} Tf ").as_bytes());
+    }
+    operators.extend_from_slice(b"ET Q\n");
 
+    if let Some(fallback) = &fallback_name {
+        crate::insert::ensure_standard_font_resource(
+            document,
+            page_object,
+            fallback,
+            fallback_base,
+        )?;
+    }
     append_to_content(document, page_object, &operators)
 }
 

@@ -16,6 +16,7 @@
 //! each code paints, and a subset font routinely gives accented letters codes
 //! nothing else explains (see [`to_unicode`]).
 
+pub mod fallback;
 pub mod tables;
 pub mod to_unicode;
 pub mod winansi;
@@ -56,6 +57,9 @@ pub struct FontInfo {
     /// Advance widths in glyph space (thousandths of an em), by code.
     widths: Vec<Option<f64>>,
     missing_width: f64,
+    /// The standard-14 face a character this font lacks is written in —
+    /// see [`fallback`].
+    fallback_base_font: &'static str,
 }
 
 impl FontInfo {
@@ -184,6 +188,7 @@ pub fn resolve_font(
         encodable,
         widths,
         missing_width,
+        fallback_base_font: fallback::closest_standard_font(document, font_dict),
     })
 }
 

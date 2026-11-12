@@ -70,10 +70,18 @@ pub fn retype_paragraph(
                 .collect()
         })
         .collect();
-    let template = *lines
+    let anchor = *lines
         .first()
         .and_then(|line| line.first())
         .ok_or(EditError::ItemNotFound(block.runs[0]))?;
+    // The look new lines copy, and the font text is measured in: the
+    // paragraph's own font, never a fallback stretch that leads a line.
+    let template = lines
+        .iter()
+        .flatten()
+        .copied()
+        .find(|run| !crate::encoding::fallback::is_fallback_resource(&run.resource_font_name))
+        .unwrap_or(anchor);
     if with_inserted_font {
         return Err(EditError::CompositeFontNotEditable {
             resource_font_name: template.resource_font_name.clone(),
@@ -91,7 +99,7 @@ pub fn retype_paragraph(
 
     let layout = Layout {
         block,
-        template,
+        anchor,
         leading,
     };
     let mut new_lines = Vec::with_capacity(wrapped.len());
@@ -117,7 +125,8 @@ fn run_by_id(runs: &[TextRun], id: ContentItemId) -> Option<&TextRun> {
 /// Where the lines of a retyped paragraph go.
 struct Layout<'a> {
     block: &'a TextBlock,
-    template: &'a TextRun,
+    /// The paragraph's first run: where its first line starts.
+    anchor: &'a TextRun,
     leading: f64,
 }
 
@@ -127,15 +136,15 @@ impl Layout<'_> {
     fn place(&self, index: usize, width: f64) -> Rect {
         let bbox = self.block.bbox;
         let x = match self.block.alignment {
-            Alignment::Left => self.template.bbox.x,
+            Alignment::Left => self.anchor.bbox.x,
             Alignment::Center => bbox.x + bbox.width / 2.0 - width / 2.0,
             Alignment::Right => bbox.x + bbox.width - width,
         };
         Rect {
             x,
-            y: self.template.bbox.y - index as f64 * self.leading,
+            y: self.anchor.bbox.y - index as f64 * self.leading,
             width,
-            height: self.template.bbox.height,
+            height: self.anchor.bbox.height,
         }
     }
 }

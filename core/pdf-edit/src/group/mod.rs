@@ -137,6 +137,7 @@ pub fn group_text_lines(runs: &[TextRun]) -> Vec<TextBlock> {
 struct Line {
     line: TextLine,
     page: pdf_document::PageId,
+    /// The line's font, every member's [`effective_font`].
     font: String,
     /// The tallest member run's height — the line's em.
     height: f64,
@@ -149,24 +150,27 @@ fn line_members(runs: &[TextRun]) -> Vec<Vec<usize>> {
     let mut order: Vec<usize> = (0..runs.len()).collect();
     order.sort_by(|&a, &b| runs[a].bbox.x.total_cmp(&runs[b].bbox.x));
 
-    // Each open line is the runs (by index) it holds so far, left to right.
-    let mut lines: Vec<Vec<usize>> = Vec::new();
+    // Each open line is the runs (by index) it holds so far, left to right,
+    // and its own font so far.
+    let mut lines: Vec<(Vec<usize>, &str)> = Vec::new();
     for index in order {
         let run = &runs[index];
+        let font = effective_font(&run.resource_font_name);
         let best = lines
             .iter()
             .enumerate()
-            .filter_map(|(at, members)| {
+            .filter(|(_, (_, line_font))| *line_font == font)
+            .filter_map(|(at, (members, _))| {
                 let last = &runs[*members.last().expect("a line is never empty")];
                 word_gap(last, run).map(|gap| (at, gap))
             })
             .min_by(|(_, a), (_, b)| a.total_cmp(b));
         match best {
-            Some((at, _)) => lines[at].push(index),
-            None => lines.push(vec![index]),
+            Some((at, _)) => lines[at].0.push(index),
+            None => lines.push((vec![index], font)),
         }
     }
-    lines
+    lines.into_iter().map(|(members, _)| members).collect()
 }
 
 /// The gap from `left`'s end to `right`'s start, when `right` continues the
@@ -175,7 +179,6 @@ fn word_gap(left: &TextRun, right: &TextRun) -> Option<f64> {
     let height = left.bbox.height.max(right.bbox.height);
     if height <= 0.0
         || left.page != right.page
-        || left.resource_font_name != right.resource_font_name
         || (left.bbox.y - right.bbox.y).abs() > LINE_TOLERANCE * height
         || (left.bbox.height - right.bbox.height).abs() > LINE_TOLERANCE * height
     {
@@ -183,6 +186,12 @@ fn word_gap(left: &TextRun, right: &TextRun) -> Option<f64> {
     }
     let gap = right.bbox.x - (left.bbox.x + left.bbox.width);
     (gap >= -MAX_OVERLAP * height && gap <= MAX_WORD_GAP * height).then_some(gap)
+}
+
+/// The font a run in `resource` groups as: the owner of a fallback font
+/// (see [`crate::encoding::fallback::owner_of`]), else `resource` itself.
+fn effective_font(resource: &str) -> &str {
+    crate::encoding::fallback::owner_of(resource).unwrap_or(resource)
 }
 
 fn line_of(runs: &[TextRun], members: &[usize]) -> Line {
@@ -210,7 +219,7 @@ fn line_of(runs: &[TextRun], members: &[usize]) -> Line {
             text,
         },
         page: first.page,
-        font: first.resource_font_name.clone(),
+        font: effective_font(&first.resource_font_name).to_string(),
         height,
         first_paint: members.iter().copied().min().unwrap_or_default(),
     }
@@ -402,6 +411,100 @@ mod tests {
         let mut bold = run(2, 130.0, 30.0, "negrita");
         bold.resource_font_name = "F2".to_string();
         let runs = [run(1, 100.0, 30.0, "normal"), bold];
+        assert_eq!(group_text_runs(&runs).len(), 2);
+    }
+
+    /// A letter the line's font lacked, written in a fallback font, is part
+    /// of the line — and the paragraph — around it.
+    #[test]
+    fn a_fallback_stretch_continues_the_line_and_the_paragraph() {
+        let mut letter = run(2, 130.0, 6.0, "ñ");
+        letter.resource_font_name = "VFb1.F1".to_string();
+        let mut below = run(4, 100.0, 40.0, "segunda");
+        below.bbox.y = 688.0;
+        let runs = [
+            run(1, 100.0, 30.0, "peque"),
+            letter,
+            run(3, 136.0, 10.0, "as"),
+            below,
+        ];
+
+        let blocks = group_text_runs(&runs);
+
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].text, "pequeñas\nsegunda");
+    }
+
+    /// A line that starts with the fallback stretch still reads in its own
+    /// font, so it stacks under a line in that font.
+    #[test]
+    fn a_line_led_by_a_fallback_stretch_keeps_its_own_font() {
+        let mut letter = run(3, 100.0, 6.0, "Ñ");
+        letter.bbox.y = 688.0;
+        letter.resource_font_name = "VFb1.F1".to_string();
+        let mut rest = run(4, 106.0, 30.0, "andú");
+        rest.bbox.y = 688.0;
+        let runs = [run(1, 100.0, 40.0, "primera"), letter, rest];
+
+        let blocks = group_text_runs(&runs);
+
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        assert_eq!(blocks[0].text, "primera\nÑandú");
+    }
+
+    /// A fallback stretch never bridges two different fonts of the file's
+    /// own: the line keeps the font of its first own-font run.
+    #[test]
+    fn a_fallback_stretch_does_not_join_two_file_fonts() {
+        let mut letter = run(2, 115.0, 5.0, "é");
+        letter.resource_font_name = "VFb1.F1".to_string();
+        let mut bold = run(3, 122.0, 20.0, "Bold");
+        bold.resource_font_name = "F2".to_string();
+        let blocks = group_text_runs(&[run(1, 100.0, 15.0, "caf"), letter, bold]);
+        assert_eq!(blocks.len(), 2, "{blocks:?}");
+        assert_eq!(blocks[0].text, "café");
+
+        let mut letter = run(2, 110.0, 5.0, "ñ");
+        letter.resource_font_name = "VFb1.F1".to_string();
+        let runs = [run(1, 100.0, 10.0, "a"), letter, run(3, 115.0, 10.0, "b")];
+        assert_eq!(group_text_runs(&runs).len(), 1);
+    }
+
+    /// Nor does a line wholly in a fallback font bridge two paragraphs in
+    /// different fonts.
+    #[test]
+    fn a_fallback_line_does_not_join_two_file_fonts_into_a_paragraph() {
+        let mut middle = run(2, 100.0, 40.0, "ñ");
+        middle.bbox.y = 688.0;
+        middle.resource_font_name = "VFb1.F1".to_string();
+        let mut bold = run(3, 100.0, 40.0, "Bold");
+        bold.bbox.y = 676.0;
+        bold.resource_font_name = "F2".to_string();
+        let runs = [run(1, 100.0, 40.0, "plain"), middle, bold];
+        assert_eq!(group_text_runs(&runs).len(), 2);
+    }
+
+    /// A fallback stretch joins the font it was written for, not whatever
+    /// line lies to its left: a bold label before a word that starts with
+    /// a fallback letter keeps the letter with its word.
+    #[test]
+    fn a_fallback_stretch_joins_its_own_font_not_the_line_to_its_left() {
+        let mut label = run(1, 100.0, 30.0, "Label:");
+        label.resource_font_name = "F2".to_string();
+        let mut letter = run(2, 133.0, 6.0, "Ñ");
+        letter.resource_font_name = "VFb1.F1".to_string();
+        let blocks = group_text_runs(&[label, letter, run(3, 139.0, 20.0, "andú")]);
+        let texts: Vec<&str> = blocks.iter().map(|block| block.text.as_str()).collect();
+        assert_eq!(texts, ["Label:", "Ñandú"], "{blocks:?}");
+    }
+
+    /// Only this crate's reserved names relax the rule: a font that merely
+    /// starts like one is a different font.
+    #[test]
+    fn a_name_that_only_looks_like_a_fallback_still_ends_the_block() {
+        let mut other = run(2, 130.0, 30.0, "otra");
+        other.resource_font_name = "VFbX".to_string();
+        let runs = [run(1, 100.0, 30.0, "normal"), other];
         assert_eq!(group_text_runs(&runs).len(), 2);
     }
 

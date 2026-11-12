@@ -3,7 +3,8 @@
 //! A line joins the paragraph above it when the two read as consecutive
 //! lines of one piece of text:
 //!
-//! - same page, same font resource, sizes within [`SIZE_TOLERANCE`];
+//! - same page, same font (a fallback stretch counts as its owner's), sizes
+//!   within [`SIZE_TOLERANCE`];
 //! - the baseline step is a plausible leading, between [`MIN_LEADING`] and
 //!   [`MAX_LEADING`] ems, and every step after the first stays within
 //!   [`LEADING_TOLERANCE`] of it — a bigger gap is a paragraph break;

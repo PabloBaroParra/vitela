@@ -52,6 +52,12 @@ use pdf_document::{ContentItemId, ImageItem, ImageSource, Rect, TextRun};
 /// WinAnsi cannot show either is still an `EncodingGap`, named against the
 /// run's own font.
 ///
+/// Any other font — an embedded subset, typically, which only carries the
+/// glyphs its producer used — keeps every character it can show, and only
+/// the ones it cannot are written in the closest standard-14 face (see
+/// [`crate::encoding::fallback`]), each stretch switched to with `Tf` and
+/// back. Here too a character WinAnsi lacks is the run's `EncodingGap`.
+///
 /// A `TJ` array collapses to a single string: its kerning described the old
 /// glyph sequence and means nothing for the new one.
 pub fn replace_text_run(
@@ -67,14 +73,38 @@ pub fn replace_text_run(
     // Encode first: an unrepresentable character must abort before any byte
     // of the document is written — the copies `own_scope` takes included.
     let resources = scope_resources(document, page_object, &target.form_path);
+    // A run in one of this crate's fallback fonts is a stretch of a line in
+    // another font, and is retyped in that one: otherwise a line that began
+    // with a fallback letter would be rewritten wholly in the fallback.
+    if let Some(font) = owner_scope_font(document, &resources, &target.run).or_else(|| {
+        restored_font(&stream, target).and_then(|name| scope_font(document, &resources, &name).ok())
+    }) {
+        return replace_with_fallback(
+            document,
+            page_object,
+            target,
+            &stream,
+            &resources,
+            &font,
+            after,
+        );
+    }
     let font = scope_font(document, &resources, &target.run.resource_font_name)?;
     let codes = match font.encode(after) {
         Ok(codes) => codes,
-        Err(gap @ EditError::EncodingGap { .. }) => {
+        Err(EditError::EncodingGap { .. }) => {
             let Some(base_font) =
                 standard_fallback(document, &resources, &target.run.resource_font_name)
             else {
-                return Err(gap);
+                return replace_with_fallback(
+                    document,
+                    page_object,
+                    target,
+                    &stream,
+                    &resources,
+                    &font,
+                    after,
+                );
             };
             return replace_in_standard_font(
                 document,
@@ -193,47 +223,157 @@ fn replace_in_standard_font(
         &resource_font_name,
     )?;
     let codes = font.encode(after)?;
-    let replacement_operand = if target.operator == "TJ" {
-        let mut array = vec![b'['];
-        array.extend_from_slice(&literal_string(&codes));
-        array.push(b']');
-        array
-    } else {
-        literal_string(&codes)
-    };
+    rewrite_in_pieces(
+        document,
+        page_object,
+        target,
+        stream,
+        &[(resource_font_name.as_str(), codes)],
+        Some((resource_font_name.as_str(), base_font)),
+    )
+}
 
+/// Rewrites `target`'s show-text operation to paint `after` in `font` — the
+/// run's own font, or the one a fallback run is a stretch of — with every
+/// character `font` lacks written in its standard-14 fallback face,
+/// registered under a reserved `VFb{n}` name (see
+/// [`crate::encoding::fallback`]).
+fn replace_with_fallback(
+    document: &mut Document,
+    page_object: ObjectId,
+    target: &LocatedTextRun,
+    stream: &PageStream,
+    resources: &Dictionary,
+    font: &crate::encoding::FontInfo,
+    after: &str,
+) -> Result<(), EditError> {
+    let segments = font.encode_with_fallback(after)?;
+    let base_font = font.fallback_base_font();
+    let fallback_name = crate::insert::fallback_font_resource_name_in(document, resources, font);
+    let mut pieces: Vec<(&str, Vec<u8>)> = segments
+        .into_iter()
+        .map(|segment| {
+            let name = if segment.fallback {
+                fallback_name.as_str()
+            } else {
+                font.resource_name.as_str()
+            };
+            (name, segment.codes)
+        })
+        .collect();
+    if pieces.is_empty() {
+        pieces.push((font.resource_name.as_str(), Vec::new()));
+    }
+    let registers = pieces.iter().any(|(name, _)| *name == fallback_name);
+    rewrite_in_pieces(
+        document,
+        page_object,
+        target,
+        stream,
+        &pieces,
+        registers.then_some((fallback_name.as_str(), base_font)),
+    )
+}
+
+/// The font a fallback run's name says it belongs to, when in scope.
+fn owner_scope_font(
+    document: &Document,
+    resources: &Dictionary,
+    run: &TextRun,
+) -> Option<crate::encoding::FontInfo> {
+    let owner = crate::encoding::fallback::owner_of(&run.resource_font_name)?;
+    scope_font(document, resources, owner).ok()
+}
+
+/// The font a run in one of this crate's fallback fonts is a stretch of:
+/// the one the stream switches back to right after it, which every fallback
+/// write puts there. `None` for any other run, or when the stream does not
+/// switch back before the text object ends.
+fn restored_font(stream: &PageStream, target: &LocatedTextRun) -> Option<String> {
+    if !crate::encoding::fallback::is_fallback_resource(&target.run.resource_font_name) {
+        return None;
+    }
+    let tail = stream.bytes.get(target.operation_span.end..)?;
+    let operations = crate::parse::tokenize(tail).ok()?;
+    let switch = operations
+        .iter()
+        .take_while(|operation| operation.operator != "ET")
+        .find(|operation| operation.operator == "Tf")?;
+    match switch.operands.first()? {
+        crate::parse::Operand::Name(name)
+            if !crate::encoding::fallback::is_fallback_resource(name) =>
+        {
+            Some(name.clone())
+        }
+        _ => None,
+    }
+}
+
+/// Rewrites `target`'s show-text operation as a sequence of shows, one per
+/// piece, each in the font resource it names: a `Tf` at the run's size
+/// selects a piece's font whenever it differs from the one in effect, and a
+/// last `Tf` restores the run's own font, so the operations after it paint
+/// exactly as before. The first piece keeps the operation's own form (`'`
+/// still starts its new line); the others are plain `Tj`s continuing from
+/// where the text cursor stands.
+///
+/// Keeping the operation in place preserves its text matrix, graphics
+/// state, clipping and paint order. `register` is a standard font the pieces
+/// use that the scope must define, as `(resource name, base font)`.
+/// Everything happens on a clone that replaces `document` only once the
+/// splice has succeeded, so a failure registers no font and rewrites no
+/// stream.
+fn rewrite_in_pieces(
+    document: &mut Document,
+    page_object: ObjectId,
+    target: &LocatedTextRun,
+    stream: &PageStream,
+    pieces: &[(&str, Vec<u8>)],
+    register: Option<(&str, &str)>,
+) -> Result<(), EditError> {
+    let own = target.run.resource_font_name.as_str();
+    let size = format_number(target.placement.font_size);
     let operation = &stream.bytes[target.operation_span.clone()];
     let operand_start = target.operand_span.start - target.operation_span.start;
     let operand_end = target.operand_span.end - target.operation_span.start;
-    let mut replacement = format!(
-        "/{} {} Tf ",
-        resource_font_name,
-        format_number(target.placement.font_size)
-    )
-    .into_bytes();
-    replacement.extend_from_slice(&operation[..operand_start]);
-    replacement.extend_from_slice(&replacement_operand);
-    replacement.extend_from_slice(&operation[operand_end..]);
-    replacement.extend_from_slice(
-        format!(
-            " /{} {} Tf",
-            target.run.resource_font_name,
-            format_number(target.placement.font_size)
-        )
-        .as_bytes(),
-    );
+
+    let mut parts: Vec<Vec<u8>> = Vec::new();
+    let mut current = own;
+    for (index, (font, codes)) in pieces.iter().enumerate() {
+        if *font != current {
+            parts.push(format!("/{font} {size} Tf").into_bytes());
+            current = font;
+        }
+        if index == 0 {
+            let mut shown = operation[..operand_start].to_vec();
+            if target.operator == "TJ" {
+                shown.push(b'[');
+                shown.extend_from_slice(&literal_string(codes));
+                shown.push(b']');
+            } else {
+                shown.extend_from_slice(&literal_string(codes));
+            }
+            shown.extend_from_slice(&operation[operand_end..]);
+            parts.push(shown);
+        } else {
+            let mut shown = literal_string(codes);
+            shown.extend_from_slice(b" Tj");
+            parts.push(shown);
+        }
+    }
+    if current != own {
+        parts.push(format!("/{own} {size} Tf").into_bytes());
+    }
+    let replacement = parts.join(&b' ');
 
     let mut working = document.clone();
     let scope = own_scope(&mut working, page_object, &target.form_path, stream)?;
     // The name is the one already written into `replacement`, so the font is
     // registered under it rather than under whatever a second choice made
     // against the copy would have picked.
-    crate::insert::ensure_standard_font_resource(
-        &mut working,
-        scope.owner,
-        &resource_font_name,
-        base_font,
-    )?;
+    if let Some((name, base_font)) = register {
+        crate::insert::ensure_standard_font_resource(&mut working, scope.owner, name, base_font)?;
+    }
     splice(
         &mut working,
         scope.stream_object,
@@ -319,25 +459,15 @@ pub fn text_run_bbox(
         Err(error) => return Err(error),
     };
 
-    // Measured the way `replace_text_run` will write it: a text the run's own
-    // encoding cannot show goes out in the WinAnsi copy of the same font.
-    let after = match font.encode(text) {
-        Ok(codes) => font.width_of(&codes),
-        Err(gap @ EditError::EncodingGap { .. }) => {
-            let Some(base_font) = standard_fallback(document, &resources, &run.resource_font_name)
-            else {
-                return Err(gap);
-            };
-            let fallback = resolve_font(
-                document,
-                &crate::insert::standard_font_dictionary(&base_font),
-                &run.resource_font_name,
-            )?;
-            fallback.width_of(&fallback.encode(text)?)
-        }
-        Err(error) => return Err(error),
+    // Measured the way `replace_text_run` will write it: a fallback stretch
+    // in the line font it belongs to, and a text the run's own encoding
+    // cannot show in the WinAnsi copy of the same font.
+    let after = match restored_scope_font(document, page_object, run, &resources) {
+        Some(line_font) => line_font.width_with_fallback(text)?,
+        None => encoded_width(document, &resources, run, &font, text)?,
     };
-    let before = font.width_of(&font.encode(&run.text)?);
+    // A queued retype's text may already hold letters written in a fallback.
+    let before = font.width_with_fallback(&run.text)?;
     // A run that advances nothing gives no scale to work from — its box is
     // degenerate in the same way, so the size-from-height reading is the only
     // one left rather than a preference.
@@ -348,6 +478,55 @@ pub fn text_run_bbox(
     };
 
     Ok(Rect { width, ..run.bbox })
+}
+
+/// The line font a fallback-stretch `run` is retyped in (see
+/// [`restored_font`]); `None` for any other run.
+fn restored_scope_font(
+    document: &Document,
+    page_object: ObjectId,
+    run: &TextRun,
+    resources: &Dictionary,
+) -> Option<crate::encoding::FontInfo> {
+    if !crate::encoding::fallback::is_fallback_resource(&run.resource_font_name) {
+        return None;
+    }
+    if let Some(owner) = owner_scope_font(document, resources, run) {
+        return Some(owner);
+    }
+    let located = read_located_content(document, page_object).ok()?;
+    let target = resolve_text_run(&located, run).ok()?;
+    let stream = scope_stream(document, &located, &target.form_path, target.stream_index).ok()?;
+    scope_font(document, resources, &restored_font(&stream, target)?).ok()
+}
+
+/// The advance of `text` written in `run`'s own `font`.
+fn encoded_width(
+    document: &Document,
+    resources: &Dictionary,
+    run: &TextRun,
+    font: &crate::encoding::FontInfo,
+    text: &str,
+) -> Result<f64, EditError> {
+    Ok(match font.encode(text) {
+        Ok(codes) => font.width_of(&codes),
+        Err(EditError::EncodingGap { .. }) => {
+            match standard_fallback(document, resources, &run.resource_font_name) {
+                Some(base_font) => {
+                    let fallback = resolve_font(
+                        document,
+                        &crate::insert::standard_font_dictionary(&base_font),
+                        &run.resource_font_name,
+                    )?;
+                    fallback.width_of(&fallback.encode(text)?)
+                }
+                // Any other font writes only its missing characters in the
+                // closest standard face.
+                None => font.width_with_fallback(text)?,
+            }
+        }
+        Err(error) => return Err(error),
+    })
 }
 
 /// Deletes a run, leaving behind the advance it occupied.
@@ -2603,33 +2782,169 @@ mod tests {
         );
     }
 
+    /// An embedded font with no Latin-1 encoding, as a subset typically is.
+    fn embedded_helvetica() -> Dictionary {
+        dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => "ABCDEF+Helvetica",
+        }
+    }
+
+    /// A font with no safe WinAnsi copy of its own — an embedded program, or
+    /// Symbol — keeps every character it has and writes only the missing
+    /// one, in the closest standard face, switched back right after it.
     #[test]
-    fn fonts_without_a_safe_winansi_copy_still_refuse() {
-        let embedded = dictionary! {
-            "Font" => dictionary! {
-                "F1" => dictionary! {
-                    "Type" => "Font",
-                    "Subtype" => "Type1",
-                    "BaseFont" => "ABCDEF+Helvetica",
-                },
-            },
-        };
+    fn fonts_without_a_safe_winansi_copy_write_only_the_missing_character_in_a_fallback() {
+        let embedded = dictionary! { "Font" => dictionary! { "F1" => embedded_helvetica() } };
+        let (mut document, page) = fixture::document_with_content(HELLO, embedded);
+        let target = run(&document, 0);
+
+        replace_text_run(&mut document, page, &target, "Hello ç")
+            .expect("the ç falls back to a standard font");
+
+        assert_eq!(
+            String::from_utf8_lossy(&stream_bytes(&document)),
+            "BT /F1 12 Tf 100 700 Td (Hello ) Tj /VFb1.F1 12 Tf (\\347) Tj /F1 12 Tf ET"
+        );
+        let font = page_font(&document, page, "VFb1.F1");
+        assert_eq!(
+            crate::encoding::resolved_name(&document, &font, b"BaseFont").as_deref(),
+            Some("Helvetica")
+        );
+        let runs = content_of(&document).text_runs;
+        let read: Vec<(&str, &str)> = runs
+            .iter()
+            .map(|run| (run.text.as_str(), run.resource_font_name.as_str()))
+            .collect();
+        assert_eq!(read, [("Hello ", "F1"), ("ç", "VFb1.F1")]);
+
+        let (mut document, page) =
+            fixture::document_with_content(HELLO, bare_standard_font("Symbol"));
+        let target = run(&document, 0);
+        replace_text_run(&mut document, page, &target, "ç").expect("Symbol falls back too");
+        assert_eq!(
+            content_of(&document).text_runs[0].resource_font_name,
+            "VFb1.F1"
+        );
+    }
+
+    #[test]
+    fn a_character_no_fallback_has_is_still_refused_untouched() {
+        let embedded = dictionary! { "Font" => dictionary! { "F1" => embedded_helvetica() } };
         for resources in [bare_standard_font("Symbol"), embedded] {
             let (mut document, page) = fixture::document_with_content(HELLO, resources);
             let target = run(&document, 0);
-            let before = stream_bytes(&document);
+            let before = document.clone();
 
-            let error = replace_text_run(&mut document, page, &target, "ç")
-                .expect_err("no WinAnsi copy of this font can be trusted to paint a ç");
+            let error = replace_text_run(&mut document, page, &target, "ç日")
+                .expect_err("WinAnsi has no 日");
 
-            assert!(matches!(
-                error,
-                EditError::EncodingGap {
-                    character: 'ç', ..
-                }
-            ));
-            assert_eq!(stream_bytes(&document), before);
+            assert!(
+                matches!(
+                    &error,
+                    EditError::EncodingGap { character: '日', resource_font_name }
+                        if resource_font_name == "F1"
+                ),
+                "{error:?}"
+            );
+            assert_eq!(document.objects, before.objects, "nothing written");
         }
+    }
+
+    /// A page that already holds a fallback stretch, as a save writes it.
+    fn mixed_line() -> (Document, ObjectId) {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => embedded_helvetica(),
+                "VFb1.F1" => crate::insert::standard_font_dictionary("Helvetica"),
+            },
+        };
+        fixture::document_with_content(
+            b"BT /F1 12 Tf 100 700 Td (Hello ) Tj /VFb1.F1 12 Tf (\\347) Tj /F1 12 Tf ET",
+            resources,
+        )
+    }
+
+    /// Retyping the fallback stretch writes the run's line font again, not
+    /// the fallback: a line that began with a fallback letter would
+    /// otherwise turn wholly Helvetica.
+    #[test]
+    fn a_fallback_stretch_is_retyped_in_the_font_it_belongs_to() {
+        let (mut document, page) = mixed_line();
+        let target = run(&document, 1);
+        assert_eq!(target.resource_font_name, "VFb1.F1");
+
+        replace_text_run(&mut document, page, &target, "ab").expect("retypable");
+
+        let runs = content_of(&document).text_runs;
+        assert_eq!(runs[1].text, "ab");
+        assert_eq!(runs[1].resource_font_name, "F1");
+    }
+
+    /// The predicted box of a retyped fallback stretch is measured in the
+    /// font the retype writes it in — the line's, here Courier — not in the
+    /// fallback's Helvetica.
+    #[test]
+    fn a_fallback_stretch_box_is_measured_in_the_font_it_is_written_in() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => crate::insert::standard_font_dictionary("Courier"),
+                "VFb1.F1" => crate::insert::standard_font_dictionary("Helvetica"),
+            },
+        };
+        let (mut document, page) = fixture::document_with_content(
+            b"BT /F1 12 Tf 100 700 Td (Hello ) Tj /VFb1.F1 12 Tf (\\347) Tj /F1 12 Tf ET",
+            resources,
+        );
+        let target = run(&document, 1);
+
+        let predicted = text_run_bbox(&document, page, &target, "iiii").expect("measurable");
+        replace_text_run(&mut document, page, &target, "iiii").expect("retypable");
+
+        let written = content_of(&document).text_runs[1].bbox.width;
+        assert!(
+            (predicted.width - written).abs() < 0.01,
+            "{predicted:?} vs {written}"
+        );
+    }
+
+    /// A queued retype of a fallback stretch is measured in its owner font.
+    #[test]
+    fn a_queued_fallback_retype_is_measured_in_its_owner_font() {
+        let resources = dictionary! {
+            "Font" => dictionary! {
+                "F1" => crate::insert::standard_font_dictionary("Courier"),
+                "VFb1.F1" => crate::insert::standard_font_dictionary("Helvetica"),
+            },
+        };
+        let (document, page) = fixture::document_with_content(
+            b"BT /F1 12 Tf 100 700 Td (Hello ) Tj /VFb1.F1 12 Tf (\\347) Tj /F1 12 Tf ET",
+            resources,
+        );
+        let mut queued = run(&document, 1);
+        queued.text = "\u{e9}".to_string();
+
+        let predicted = text_run_bbox(&document, page, &queued, "iiii").expect("measurable");
+
+        // Courier's `iiii` at 12 pt, as written; Helvetica's is 10.656.
+        assert!((predicted.width - 28.8).abs() < 1e-6, "{predicted:?}");
+    }
+
+    /// A second write reuses the fallback the page already has.
+    #[test]
+    fn the_fallback_font_already_on_the_page_is_reused() {
+        let (mut document, page) = mixed_line();
+        let target = run(&document, 0);
+
+        replace_text_run(&mut document, page, &target, "Hola ñ").expect("retypable");
+
+        let fonts = resources_of(&document, page);
+        let fonts = resource_entry(&document, &fonts, b"Font", "VFb2.F1");
+        assert!(fonts.is_none(), "no second fallback font: {fonts:?}");
+        let runs = content_of(&document).text_runs;
+        assert_eq!(runs[1].text, "ñ");
+        assert_eq!(runs[1].resource_font_name, "VFb1.F1");
     }
 
     #[test]
