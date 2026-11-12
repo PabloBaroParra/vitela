@@ -44,7 +44,8 @@ describe('EngineClient', () => {
     expect(message.request).toEqual({ kind: 'open', bytes, password: undefined });
     expect(transfer).toEqual([bytes.buffer]);
 
-    const value = { handle: 3, info: { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }] } };
+    const pages = [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }];
+    const value = { handle: 3, info: { pageCount: 1, pages, textExtractionAllowed: true } };
     reply({ type: 'result', id: message.id, value });
     await expect(opened).resolves.toEqual(value);
   });
@@ -101,6 +102,30 @@ describe('EngineClient', () => {
     ]);
     reply({ type: 'result', id: sent[1]!.message.id, value: undefined });
     await expect(closed).resolves.toBeUndefined();
+  });
+
+  it('names the document and page in every text request', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const found = client.search(4, 'beta');
+    void client.selectText(4, 1, { x: 1, y: 2 }, { x: 3, y: 4 });
+    void client.selectWord(4, 2, { x: 5, y: 6 });
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'search', document: 4, query: 'beta' },
+      { kind: 'selectText', document: 4, pageIndex: 1, anchor: { x: 1, y: 2 }, focus: { x: 3, y: 4 } },
+      { kind: 'selectWord', document: 4, pageIndex: 2, point: { x: 5, y: 6 } },
+    ]);
+    const hits = [{ pageIndex: 0, rects: new Float32Array([1, 2, 3, 4]) }];
+    reply({ type: 'result', id: sent[0]!.message.id, value: hits });
+    await expect(found).resolves.toBe(hits);
+  });
+
+  it('rejects a text read of a restricted document as TextExtractionDenied', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const found = client.search(4, 'beta');
+    reply({ type: 'error', id: sent[0]!.message.id, name: 'TextExtractionDenied', message: 'text extraction is not permitted' });
+    await expect(found).rejects.toMatchObject({ name: 'TextExtractionDenied' });
   });
 
   it('rejects with an EngineError that carries the forwarded name', async () => {

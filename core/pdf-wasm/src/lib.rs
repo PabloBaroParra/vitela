@@ -8,11 +8,12 @@
 //!
 //! ## Layout
 //!
-//! - [`error`] and [`model`] and [`convert`] are plain Rust and build on every
-//!   target, so the workspace's native `cargo test` covers them.
-//! - `engine` and `dto` are the `#[wasm_bindgen]` surface and exist only on
-//!   wasm32; they are tested by `wasm-bindgen-test` in a headless browser
-//!   (`tests/engine.rs`).
+//! - [`error`], [`model`], [`convert`] and [`placement`] are plain Rust and
+//!   build on every target, so the workspace's native `cargo test` covers
+//!   them.
+//! - `engine`, `dto` and `geometry` are the `#[wasm_bindgen]` surface and
+//!   exist only on wasm32; they are tested by `wasm-bindgen-test` in a
+//!   headless browser (`tests/engine.rs`).
 //!
 //! ## Loading
 //!
@@ -24,13 +25,18 @@
 pub mod convert;
 pub mod error;
 pub mod model;
+pub mod placement;
 
 #[cfg(target_arch = "wasm32")]
 mod dto;
 #[cfg(target_arch = "wasm32")]
 mod engine;
+#[cfg(target_arch = "wasm32")]
+mod geometry;
 
 #[cfg(target_arch = "wasm32")]
 pub use dto::{PageCharacters, PageDimensions, RenderedPage, SearchMatch, TextRun};
 #[cfg(target_arch = "wasm32")]
 pub use engine::Engine;
+#[cfg(target_arch = "wasm32")]
+pub use geometry::{place_rects, point_to_pdf};

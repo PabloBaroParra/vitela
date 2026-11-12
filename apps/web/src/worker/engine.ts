@@ -19,7 +19,7 @@ export async function createEngine(): Promise<Engine> {
   if (!core.initialize_pdfium_render(pdfium, engineExports, false)) {
     throw new Error('initialize_pdfium_render refused the pdfium module');
   }
-  return documentEngine(new core.Engine());
+  return documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
 }
 
 async function fetchText(url: string): Promise<string> {

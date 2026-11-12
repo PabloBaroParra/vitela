@@ -17,6 +17,38 @@ export interface DocumentInfo {
   readonly pageCount: number;
   /** One entry per page, in page order. */
   readonly pages: readonly PageSize[];
+  /**
+   * Whether the document lets its text be read (PDF permission bit 5, or
+   * opened with the owner password). When `false` the engine refuses every
+   * text read with `TextExtractionDenied`, and the UI offers neither search
+   * nor selection.
+   */
+  readonly textExtractionAllowed: boolean;
+}
+
+/** A point on a page as it is drawn, in PDF points from its top-left corner. */
+export interface PagePoint {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * Rects on a page as it is drawn, flattened: `left, top, width, height` per
+ * rect, in PDF points from the page's top-left corner, with the page's
+ * `/Rotate` already applied. The viewer only scales them by its zoom.
+ */
+export type PageRects = Float32Array;
+
+/** One exact match of a search: its page and one rect per line it spans. */
+export interface SearchHit {
+  readonly pageIndex: number;
+  readonly rects: PageRects;
+}
+
+/** Selected text on one page and the rects to paint it, one per line. */
+export interface TextSelection {
+  readonly text: string;
+  readonly rects: PageRects;
 }
 
 /**
@@ -52,4 +84,18 @@ export interface Engine {
   renderPage(document: DocumentHandle, pageIndex: number, dpi: number): Promise<RenderedPage>;
   /** Closes `document`; closing one that is not open does nothing. */
   close(document: DocumentHandle): Promise<void>;
+  /**
+   * Every exact, case-sensitive match of `query` (the core's search), in page
+   * order. An empty query matches nothing. Rejects with `TextExtractionDenied`
+   * when the document withholds its text.
+   */
+  search(document: DocumentHandle, query: string): Promise<SearchHit[]>;
+  /**
+   * The text between the characters nearest `anchor` and `focus` on one
+   * page, in either order; empty when they meet or the page has no text.
+   * Same refusal as `search`.
+   */
+  selectText(document: DocumentHandle, pageIndex: number, anchor: PagePoint, focus: PagePoint): Promise<TextSelection>;
+  /** The word under `point`; empty on whitespace. Same refusal as `search`. */
+  selectWord(document: DocumentHandle, pageIndex: number, point: PagePoint): Promise<TextSelection>;
 }

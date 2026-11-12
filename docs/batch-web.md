@@ -153,7 +153,7 @@ Hechos que las fundamentan (mapeados 2026-11-11):
 | **T-219** ✓ | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
 | **T-220** ✓ | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium, Firefox y WebKit (decidida 2026-11-11). | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
 | **T-221** ✓ | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
-| **T-222** | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
+| **T-222** ✓ | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
 
 T-217 y T-218 son independientes entre sí y bloquean T-219; T-220 puede ir en paralelo
 a ellas. Re-verificar al arrancar que T-217…T-222 siguen libres.
@@ -286,6 +286,67 @@ lo que sigue:
 - **Verificado en local (Windows, Playwright 1.65):** `tsc -b`, Vitest 79/79, build y Playwright 33/33
   (Chromium, Firefox, WebKit, incluido zero-network), además de 99/99 con
   `--repeat-each=3`.
+
+### T-222 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Search and text selection").
+Lo que condiciona lo que sigue:
+
+- **El permiso viene del core y llega dos veces.** `open` devuelve también
+  `textExtractionAllowed` (la regla de `pdf_manip`: bit 5 de `/P` o contraseña de
+  propietario), y con `false` la UI desactiva búsqueda y Copiar, las páginas no
+  aceptan selección y una nota explica por qué. Además cada lectura de texto pasa por
+  el gate del core: si el motor rechaza con `TextExtractionDenied` (el `name` que ya
+  reenvía el protocolo, sin tocar su forma), el visor apaga lo mismo. Copiar solo
+  recibe texto que el core leyó para una selección (`textIn`), así que con el permiso
+  denegado no hay nada que copiar.
+- **La geometría la coloca el core.** `pdf-wasm` exporta `placeRects` y `pointToPdf`,
+  envoltorios planos de `pdf_render::place_rect` / `point_to_pdf` (los que usan los
+  shells nativos) a escala 1, y `SearchMatch.lines` (un rect por línea vía
+  `line_rects`). El worker devuelve rects sobre la página **tal como se dibuja**
+  (origen arriba-izquierda, `/Rotate` aplicado); la UI solo multiplica por
+  `CSS_PX_PER_PT × zoom`. No hay matemática de rotación en TypeScript. Los resaltados y
+  la selección viven en un `TextLayer` dentro de cada `PageSlot`.
+- **Búsqueda:** la del core, exacta y sensible a mayúsculas; TS no compara texto.
+  Enter busca, Enter otra vez / ↓ avanza, Shift+Enter / ↑ retrocede, con vuelta al
+  principio. Saltar a un resultado calcula el scroll desde el layout (`revealScroll`,
+  puro), así que funciona con la página sin montar.
+- **Selección:** arrastrar sobre una página o doble clic en una palabra; se queda en la
+  página donde empezó (sin selección entre páginas). El worker guarda los caracteres
+  de las 4 últimas páginas usadas y los libera al cerrar el documento; la UI tiene una
+  sola petición en vuelo y los movimientos intermedios se colapsan en el último.
+- **Copiar:** botón Copiar o Ctrl/⌘+C → `navigator.clipboard.writeText`. Ctrl/⌘+C en un
+  campo, o sobre texto que el propio navegador tiene seleccionado, se deja al navegador.
+- **Hueco del core encontrado (NO arreglado aquí):** un PDF cifrado con contraseña de
+  usuario **vacía** (el caso típico "se abre sin pedir nada pero prohíbe copiar") abre
+  como **no restringido**. lopdf lo descifra al cargar y quita `/Encrypt`, y
+  `pdf_manip::open_document*` toma la salida temprana de `!probe.is_encrypted()` →
+  `security: None`. `read_security_context` sí cubre ese caso (`security_from_probe`),
+  pero las rutas de apertura no. Verificado en `pdf-wasm` (PDF RC4 construido en
+  memoria: `textExtractionAllowed` da `true` y `textRuns` lee el texto); por lectura de
+  código, `pdf-ffi` abre por la misma ruta, así que afectaría también a Windows y
+  Android. No se arregló en este PR porque cambiar la seguridad que devuelve la apertura
+  cambia también el guardado (re-cifrado, gates de reescritura) en todos los shells:
+  merece su propia tarea y revisión. Por eso el E2E de "bloqueado" usa contraseña de
+  usuario no vacía.
+- **Fixtures:** ninguno del corpus prohíbe copiar (los dos de `encrypted/` tienen
+  `/P -3884`, bit 5 activo), así que `e2e/pdf.ts` cifra en memoria con el handler
+  estándar (RC4 128, R3) y añade líneas de texto en posiciones conocidas.
+- **Portapapeles en los E2E:** Chromium y Firefox comprueban el portapapeles real
+  pegando en el cuadro de búsqueda. El WebKit de Playwright ni pega ni lee el
+  portapapeles, así que ahí la prueba es que `writeText` se llamó con el texto y
+  resolvió ("Copied"). Chromium headless necesita `clipboard-read`/`clipboard-write`
+  concedidos.
+- **Verificado en local (Windows, Playwright 1.65):** `tsc -b`, Vitest 155/155 (incluido
+  el test contra pdfium real, que busca y selecciona por `documentEngine` con
+  `placeRects`/`pointToPdf` de verdad), build y Playwright 45/45 (Chromium, Firefox,
+  WebKit, incluido zero-network); los 4 flujos nuevos además 36/36 con
+  `--repeat-each=3`. Rust: `cargo check --target wasm32-unknown-unknown -p pdf-wasm`,
+  `cargo test -p pdf-wasm` (20 unitarios nativos, 5 nuevos de colocación), clippy nativo
+  y wasm32 `--all-targets` con `-D warnings`, `cargo fmt --check`. **No corrido en
+  local:** los `wasm-bindgen-test` en Chrome headless (no hay chromedriver en esta
+  máquina); hay uno nuevo (texto en página girada) y otra aserción en el de búsqueda,
+  que verifica el job `wasm32` de `core.yml`.
 
 ## Verificación
 

@@ -65,12 +65,39 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it('renders by handle and refuses a closed document, as documentEngine relies on', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine());
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
     const a = await engine.open(readFileSync(fixture));
     const b = await engine.open(readFileSync(fixture));
     expect(a.handle).not.toBe(b.handle);
     await engine.close(b.handle);
     expect((await engine.renderPage(a.handle, 0, 72)).width).toBe(612);
     await expect(engine.renderPage(b.handle, 0, 72)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it("searches and selects through the core's placement, on the page as drawn", async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
+    const { handle, info } = await engine.open(readFileSync(fixture));
+    expect(info.textExtractionAllowed).toBe(true);
+
+    // The title line, "Vitela AcroForm interop fixture", is drawn at x 72 pt
+    // on a 792 pt tall page, about 40 pt from its top.
+    const [hit, ...rest] = await engine.search(handle, 'AcroForm');
+    expect(rest).toEqual([]);
+    expect(hit!.pageIndex).toBe(0);
+    const [left, top, width, height] = hit!.rects;
+    expect(hit!.rects).toHaveLength(4);
+    expect(left).toBeGreaterThan(72);
+    expect(top).toBeGreaterThan(30);
+    expect(top).toBeLessThan(60);
+    expect(width).toBeGreaterThan(height!);
+    expect(await engine.search(handle, 'acroform')).toEqual([]);
+
+    // The middle of that match is on the word, and dragging across it reads it.
+    const middle = { x: left! + width! / 2, y: top! + height! / 2 };
+    expect((await engine.selectWord(handle, 0, middle)).text).toBe('AcroForm');
+    const across = await engine.selectText(handle, 0, { x: left! - 1, y: middle.y }, { x: left! + width!, y: middle.y });
+    expect(across.text).toBe('AcroForm');
+    await engine.close(handle);
   });
 });

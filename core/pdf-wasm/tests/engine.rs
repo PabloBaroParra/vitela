@@ -124,6 +124,39 @@ async fn dimensions_follow_the_page_rotation() {
 }
 
 #[wasm_bindgen_test]
+async fn text_on_a_turned_page_is_placed_where_it_is_drawn() {
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::rotated_document(90), None).unwrap();
+    let size = engine.page_dimensions(doc).unwrap()[0];
+    let (width, height, turn) = (
+        size.width_pt as f32,
+        size.height_pt as f32,
+        size.rotation_degrees,
+    );
+
+    let found = engine.search(doc, "rotated".into()).unwrap();
+    let placed = pdf_wasm::place_rects(found[0].lines(), width, height, turn);
+    let (left, top, line_width, line_height) = (placed[0], placed[1], placed[2], placed[3]);
+    // Drawn at PDF (72, 700) on an upright page; a clockwise quarter turn
+    // takes PDF y to the drawn left and PDF x to the drawn top, and the
+    // line now runs down the page rather than across it.
+    assert!((680.0..730.0).contains(&left), "left {left}");
+    assert!((60.0..80.0).contains(&top), "top {top}");
+    assert!(line_height > line_width, "a turned line runs downwards");
+
+    // The middle of that drawn line is back on the word's characters.
+    let middle = pdf_wasm::point_to_pdf(
+        f64::from(left + line_width / 2.0),
+        f64::from(top + line_height / 2.0),
+        width,
+        height,
+        turn,
+    );
+    let characters = engine.page_characters(doc, 0).unwrap();
+    assert_eq!(characters.word_at(middle[0], middle[1]), Some(vec![0, 7]));
+}
+
+#[wasm_bindgen_test]
 async fn reads_text_runs_and_page_characters() {
     let mut engine = engine().await;
     let doc = engine
@@ -165,6 +198,7 @@ async fn search_finds_every_page_and_ignores_an_empty_query() {
     for hit in &found {
         assert_eq!(hit.text(), "beta");
         assert_eq!(hit.bounds().len(), 4 * 4);
+        assert_eq!(hit.lines().len(), 4, "one line rect for a one-line match");
     }
     assert!(engine.search(doc, "Beta".into()).unwrap().is_empty());
     assert!(engine.search(doc, String::new()).unwrap().is_empty());

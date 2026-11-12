@@ -1,12 +1,13 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { Engine, RenderedPage } from '../../core/types';
+import { fakeEngine } from '../../test/fakeEngine';
 import { usePageRender } from './usePageRender';
 
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 
 function engineWith(renderPage: Engine['renderPage']): Engine {
-  return { open: () => Promise.reject(new Error('unused')), renderPage, close: async () => {} };
+  return fakeEngine({ renderPage });
 }
 
 describe('usePageRender', () => {

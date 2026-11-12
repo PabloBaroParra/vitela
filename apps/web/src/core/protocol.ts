@@ -2,7 +2,7 @@
 // worker (worker/). Both sides import only these types, so neither depends on
 // how the other is implemented.
 
-import type { DocumentHandle, OpenedDocument, RenderedPage } from './types';
+import type { DocumentHandle, OpenedDocument, PagePoint, RenderedPage, SearchHit, TextSelection } from './types';
 
 export type EngineRequest =
   | { readonly kind: 'open'; readonly bytes: Uint8Array; readonly password?: string }
@@ -12,12 +12,29 @@ export type EngineRequest =
       readonly pageIndex: number;
       readonly dpi: number;
     }
-  | { readonly kind: 'close'; readonly document: DocumentHandle };
+  | { readonly kind: 'close'; readonly document: DocumentHandle }
+  | { readonly kind: 'search'; readonly document: DocumentHandle; readonly query: string }
+  | {
+      readonly kind: 'selectText';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly anchor: PagePoint;
+      readonly focus: PagePoint;
+    }
+  | {
+      readonly kind: 'selectWord';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly point: PagePoint;
+    };
 
 export interface EngineResults {
   open: OpenedDocument;
   renderPage: RenderedPage;
   close: void;
+  search: SearchHit[];
+  selectText: TextSelection;
+  selectWord: TextSelection;
 }
 
 /** UI -> worker. `id` correlates the reply. */
