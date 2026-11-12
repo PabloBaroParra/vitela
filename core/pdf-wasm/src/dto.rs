@@ -6,6 +6,8 @@
 
 use wasm_bindgen::prelude::*;
 
+use pdf_render::line_rects;
+
 use crate::convert::flatten_rects;
 use crate::model::PageSize;
 
@@ -114,13 +116,15 @@ impl TextRun {
     }
 }
 
-/// One exact match of a search: the page it is on and one flattened rect per
-/// character of the matched text.
+/// One exact match of a search: the page it is on, one flattened rect per
+/// character of the matched text, and the same characters merged into one
+/// rect per visual line — what a viewer highlights.
 #[wasm_bindgen]
 pub struct SearchMatch {
     page_index: u32,
     text: String,
     bounds: Vec<f32>,
+    lines: Vec<f32>,
 }
 
 impl From<pdf_render::TextMatch> for SearchMatch {
@@ -128,6 +132,7 @@ impl From<pdf_render::TextMatch> for SearchMatch {
         SearchMatch {
             page_index: found.page_index,
             bounds: flatten_rects(&found.character_bounds),
+            lines: flatten_rects(&line_rects(&found.character_bounds)),
             text: found.text,
         }
     }
@@ -148,6 +153,13 @@ impl SearchMatch {
     #[wasm_bindgen(getter)]
     pub fn bounds(&self) -> Vec<f32> {
         self.bounds.clone()
+    }
+
+    /// One flattened rect per visual line the match spans, the way
+    /// `PageCharacters::rectsIn` reports a selection.
+    #[wasm_bindgen(getter)]
+    pub fn lines(&self) -> Vec<f32> {
+        self.lines.clone()
     }
 }
 
