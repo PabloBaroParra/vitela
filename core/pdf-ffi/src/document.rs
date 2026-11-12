@@ -826,6 +826,23 @@ fn full_rewrite_blocker(document: &Document) -> Option<pdf_save::RewriteBlocker>
     pdf_save::full_rewrite_blocker(document.security.as_ref())
 }
 
+/// What `command` is, in the terms `pdf_save::check_edit` asks about — read
+/// off the FFI command because the gate runs before `build_core_command`.
+///
+/// Each field is this module's own predicate. Every one of them agrees with
+/// `pdf_save::EditClass::of` on the command `build_core_command` turns it
+/// into (`the_ffi_classes_match_the_core_classes_of_the_built_commands`), so
+/// the two boundaries classify the same edit the same way.
+fn edit_class(command: &FfiEditCommand) -> pdf_save::EditClass {
+    pdf_save::EditClass {
+        annotation: is_annotation_command(command),
+        document_assembly: is_document_assembly_command(command),
+        structural_form: form::is_structural_form_command(command),
+        content: is_content_command(command),
+        page_structure: is_page_structure_command(command),
+    }
+}
+
 /// Whether `command` rewrites a page's own content — text runs and images —
 /// as opposed to an annotation drawn over it or the page structure around
 /// it. These are the commands `pdf_save::content` replays into the content
@@ -1600,6 +1617,59 @@ mod tests {
             assert!(!is_content_command(&command), "{command:?}");
         }
     }
+
+    /// The FFI classifies a command before building it; the core classifies
+    /// the built one. They must never disagree, or the same edit would be
+    /// gated differently here and in `pdf-wasm`.
+    #[test]
+    fn the_ffi_classes_match_the_core_classes_of_the_built_commands() {
+        let handle = restricted_handle(0);
+        let rect = FfiRect {
+            x: 0.0,
+            y: 0.0,
+            width: 20.0,
+            height: 20.0,
+        };
+        for command in [
+            FfiEditCommand::RotatePage {
+                page: 0,
+                delta_degrees: 90,
+            },
+            FfiEditCommand::InsertBlankPage {
+                index: 0,
+                size: FfiPageSize::A4,
+                orientation: FfiOrientation::Portrait,
+            },
+            FfiEditCommand::RemovePage { index: 0 },
+            FfiEditCommand::RemovePages { index: 0, count: 1 },
+            FfiEditCommand::RotatePages {
+                from: 0,
+                count: 1,
+                delta_degrees: 90,
+            },
+            FfiEditCommand::MovePages {
+                from: 0,
+                count: 1,
+                to: 0,
+            },
+            FfiEditCommand::AddHighlight {
+                page: 0,
+                rect,
+                color: crate::types::FfiColor { r: 0, g: 0, b: 0 },
+            },
+            a_checkbox(),
+            FfiEditCommand::SetDocumentInfo {
+                after: FfiDocumentInfo::default(),
+            },
+        ] {
+            let ffi = edit_class(&command);
+            let core = handle
+                .lock()
+                .build_core_command(command.clone())
+                .expect("builds");
+            assert_eq!(ffi, pdf_save::EditClass::of(&core), "{command:?}");
+        }
+    }
 }
 
 /// Returns `false` when `EditLog::apply` rejected the command, leaving both
@@ -1835,59 +1905,13 @@ pub fn render_page_tiles(
 #[uniffi::export]
 pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<(), FfiError> {
     let mut state = handle.lock();
-    if is_annotation_command(&command) && !annotation_editing_is_allowed(&state.document) {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "annotation editing is not permitted".to_string(),
-        });
-    }
-    if is_document_assembly_command(&command)
-        && !pdf_manip::document_assembly_is_allowed(state.document.security.as_ref())
-    {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "this document does not permit inserting, removing or rotating its pages"
-                .to_string(),
-        });
-    }
-    // Deliberately *not* excluded from `is_annotation_command` above: bit 6
-    // is the floor for every form command, including filling one in. What
-    // the structural nine need on top of it is bit 4, and only bit 4 — a
-    // form edit never forces the full-rewrite writer (Batch 20 decision 6),
-    // so unlike a page-content edit it must not be asked the rewrite
-    // question below. Asking it would refuse field editing on an AES-256
-    // document that saves incrementally without complaint.
-    if form::is_structural_form_command(&command)
-        && !pdf_manip::content_editing_is_allowed(state.document.security.as_ref())
-    {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "this document does not permit creating or modifying its form fields"
-                .to_string(),
-        });
-    }
-    let is_content = is_content_command(&command);
-    if is_content && !pdf_manip::content_editing_is_allowed(state.document.security.as_ref()) {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "content editing is not permitted".to_string(),
-        });
-    }
-    // Refused here rather than at the save it would fail: an edit that can
-    // never be written is not pending work, and letting it queue would also
-    // break the preview refresh, which saves a snapshot the same way.
-    //
-    // Page-content edits and page-structure edits both force the full-rewrite
-    // writer, so both ask this. `RotatePage` does not: it stays on the
-    // incremental writer, which re-encrypts from lopdf's own retained state
-    // and needs no password of ours (see `is_page_structure_command`).
-    if is_content || is_page_structure_command(&command) {
-        if let Some(blocker) = full_rewrite_blocker(&state.document) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: format!(
-                    "this edit rewrites the whole file, which this document's encryption \
-                     does not allow: {}",
-                    blocker.reason()
-                ),
-            });
-        }
-    }
+    // Asked before the command is built: building can mint a page id or an
+    // annotation id, and a document that forbids the edit has to say so even
+    // when the position is also wrong. The order and the words are the
+    // core's (`pdf_save::edit_gate`).
+    let class = edit_class(&command);
+    pdf_save::check_edit(state.document.security.as_ref(), class)?;
+    let is_content = class.content;
 
     let is_set_contents = matches!(command, FfiEditCommand::SetAnnotationContents { .. });
     let core_command = state.build_core_command(command)?;

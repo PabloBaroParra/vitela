@@ -170,6 +170,14 @@ impl From<pdf_render::RenderError> for FfiError {
     }
 }
 
+impl From<pdf_save::EditRefusal> for FfiError {
+    fn from(refusal: pdf_save::EditRefusal) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: refusal.to_string(),
+        }
+    }
+}
+
 impl From<pdf_save::RecordError> for FfiError {
     fn from(err: pdf_save::RecordError) -> Self {
         match err {

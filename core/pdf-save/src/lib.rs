@@ -16,6 +16,8 @@
 //! - [`rewrite`]: whether an encrypted document could be fully rewritten at
 //!   all — the question a shell asks before letting an edit be recorded
 //!   (batch PDF assembly section 5).
+//! - [`edit_gate`] (B26 T-223): the permission and rewrite questions asked
+//!   before any edit is recorded, in the order every boundary asks them.
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
@@ -46,6 +48,7 @@ pub mod clipboard;
 pub mod clock;
 pub mod compress;
 pub mod content;
+pub mod edit_gate;
 pub mod error;
 pub mod export;
 pub mod forms;
@@ -79,6 +82,7 @@ pub use content::{
     has_content_edits, replay_content_edits, validate_content_command,
     validate_content_command_after_pending,
 };
+pub use edit_gate::{check_edit, EditClass, EditRefusal};
 pub use error::SaveError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use export::export_page_as_image;
