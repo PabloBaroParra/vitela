@@ -88,8 +88,8 @@ pub(crate) fn try_copy(viewer: &Viewer) -> bool {
         return true;
     }
     let copied = {
-        let state = viewer.state.borrow();
-        let Some(session) = state.session.as_ref() else {
+        let mut state = viewer.state.borrow_mut();
+        let Some(session) = state.session.as_mut() else {
             return true;
         };
         let Some((_, members)) = current_selection(session) else {
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn a_copy_pasted_and_dragged_into_place_is_one_queued_paste() {
         let (mut session, members) = line_session();
-        let clip = command::copy(&session, &members).expect("the line copies");
+        let clip = command::copy(&mut session, &members).expect("the line copies");
 
         command::paste(&mut session, PageId(0), clip, 100.0, 400.0).expect("the clip pastes");
         let before = match entries(&session) {
@@ -435,10 +435,12 @@ mod tests {
         assert!(!selected(viewer), "the undone paste is still selected");
     }
 
+    /// `line_session` cannot checkpoint (its backing holds no bytes), so a
+    /// pending paste is refused there: undo is what takes it back.
     #[test]
     fn a_pending_paste_cannot_be_deleted() {
         let (mut session, members) = line_session();
-        let clip = command::copy(&session, &members).expect("the line copies");
+        let clip = command::copy(&mut session, &members).expect("the line copies");
         command::paste(&mut session, PageId(0), clip, 100.0, 400.0).expect("the clip pastes");
 
         let held = pasted(&session);
@@ -446,12 +448,92 @@ mod tests {
         assert_eq!(entries(&session).len(), 1);
     }
 
+    /// The page's runs as the canvas shows them, pending edits layered on.
+    fn shown(session: &DocumentSession) -> Selection {
+        Selection {
+            runs: crate::app::test_fixtures::shown_runs(session),
+            ..Selection::default()
+        }
+    }
+
+    /// A line moved and not saved copies as it reads now: the core writes
+    /// the queue in memory for the copy, and the copy itself changes nothing
+    /// — no checkpoint, no undo step.
     #[test]
-    fn content_with_an_unsaved_edit_is_not_copied() {
-        let (mut session, members) = line_session();
+    fn content_with_an_unsaved_edit_is_copied_without_a_save() {
+        let mut session = crate::app::test_fixtures::checkpointable_session(&["Hello world"]);
+        let line = pdf_edit::move_selection(&shown(&session), 10.0, 10.0);
+        command::record_batch(&mut session, line).expect("the line moves");
+
+        let moved = shown(&session);
+        let clip = command::copy(&mut session, &moved).expect("the moved line copies");
+
+        assert_eq!(session.content_checkpoints.generation(), 0);
+        assert_eq!(entries(&session).len(), 1);
+        command::paste(&mut session, PageId(0), clip, 100.0, 300.0).expect("the clip pastes");
+        let texts: Vec<String> = crate::app::test_fixtures::saved_runs(&session)
+            .into_iter()
+            .map(|run| run.text)
+            .collect();
+        assert_eq!(texts, ["Hello world", "Hello world"]);
+    }
+
+    /// The reader's report: cut, paste, drag the paste into place, and cut
+    /// it again — the way `try_cut` does it, a copy then a removal.
+    #[test]
+    fn a_moved_paste_is_cut_again_without_a_save() {
+        let mut session = crate::app::test_fixtures::checkpointable_session(&["Hello world"]);
+        let members = shown(&session);
+        let clip = command::copy(&mut session, &members).expect("the line copies");
+        command::record_selection_removal(&mut session, &members).expect("the line is cut");
+        command::paste(&mut session, PageId(0), clip, 100.0, 400.0).expect("the clip pastes");
+        let fresh = pasted(&session);
+        command::record_selection_move(&mut session, &fresh, 15.0, -5.0)
+            .expect("the whole paste moves");
+
+        let held = pasted(&session);
+        let clip = command::copy(&mut session, &held).expect("the moved paste copies");
+        command::record_selection_removal(&mut session, &held).expect("the moved paste is cut");
+        assert!(crate::app::test_fixtures::saved_runs(&session).is_empty());
+
+        command::paste(&mut session, PageId(0), clip, 200.0, 300.0).expect("pasted again");
+        let saved = crate::app::test_fixtures::saved_runs(&session);
+        assert_eq!(saved.len(), 1, "{saved:?}");
+        assert_eq!(saved[0].text, "Hello world");
+        assert!(
+            (saved[0].bbox.x - 200.0).abs() < 0.05,
+            "{:?}",
+            saved[0].bbox
+        );
+    }
+
+    /// Where the core may not checkpoint — here, a session holding an
+    /// imported PDF — content with an unsaved edit is still refused, and so
+    /// is deleting a pending paste.
+    #[test]
+    fn a_session_that_cannot_checkpoint_keeps_the_refusals() {
+        let mut session = crate::app::test_fixtures::checkpointable_session(&["Hello world"]);
+        let members = shown(&session);
+        let clip = command::copy(&mut session, &members).expect("the line copies");
         command::record_batch(&mut session, pdf_edit::move_selection(&members, 10.0, 10.0))
             .expect("the line moves");
+        command::paste(&mut session, PageId(0), clip, 100.0, 400.0).expect("the clip pastes");
+        session
+            .imported_sources
+            .push(crate::app::state::ImportedSource {
+                id: pdf_document::ImportedDocumentId(0),
+                document: (*session.save_backing.as_ref().expect("a backing").base).clone(),
+                name: "imported.pdf".to_string(),
+            });
 
-        assert!(command::copy(&session, &members).is_err());
+        let mut moved = shown(&session);
+        moved
+            .runs
+            .retain(|run| model::pending_log_index(run.id) != Some(1));
+        assert!(command::copy(&mut session, &moved).is_err());
+        let fresh = pasted(&session);
+        assert!(command::record_selection_removal(&mut session, &fresh).is_err());
+        assert_eq!(entries(&session).len(), 2);
+        assert_eq!(session.content_checkpoints.generation(), 0);
     }
 }

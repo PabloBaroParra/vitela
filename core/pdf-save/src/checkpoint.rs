@@ -42,12 +42,16 @@ mod split;
 use std::collections::HashMap;
 
 use pdf_document::{
-    Command, Document, EditLog, ImageItem, PageContent, PageId, PathItem, Rect, TextRun,
+    Command, ContentClip, Document, EditLog, ImageItem, PageContent, PageId, PathItem, Rect,
+    TextRun,
 };
+use pdf_edit::Selection;
 use pdf_manip::LopdfDocument;
 
 use crate::bridge::{document_from_lopdf, populate_document, ImportedSources};
+use crate::clipboard::{copy_from, copy_selection_content, has_edited_member};
 use crate::origin::{read_page_content_of, read_pending_page_content_of};
+use crate::record::RecordError;
 use crate::security::SaveIntent;
 use crate::strategy::{save_document, SaveInput, SignatureAcknowledgement};
 
@@ -265,6 +269,93 @@ pub fn retry_after_checkpoint<S: CheckpointSession, E>(
     }
 }
 
+/// Copies `selection` into a clip, as [`copy_selection_content`] does —
+/// except that a member with an unsaved edit is copied as it reads now, when
+/// the session may checkpoint, rather than refused.
+///
+/// The queue is written into a new base in memory, exactly as a checkpoint
+/// would write it, and the members are rebound to the items that base holds
+/// and copied from it. Nothing is swapped in: a copy is not an edit, so the
+/// session, its undo history and every item a shell holds stay as they were.
+/// A cut's removal that follows records like any other edit, checkpointing
+/// on its own if it needs to.
+///
+/// Where the session may not checkpoint, or a member cannot be told apart in
+/// the written base, the refusal stands.
+pub fn copy_selection<S: CheckpointSession>(
+    session: &S,
+    sources: ImportedSources<'_, '_>,
+    selection: &Selection,
+) -> Result<ContentClip, RecordError> {
+    let copied = copy_selection_content(session.document(), session.base(), sources, selection);
+    if copied.is_ok() || !has_edited_member(session.document(), selection) {
+        return copied;
+    }
+    copy_from_written_queue(session, selection).unwrap_or(copied)
+}
+
+/// [`copy_selection`]'s copy of edited members from the queue written in
+/// memory; `None` when that cannot be done and the refusal stands.
+fn copy_from_written_queue<S: CheckpointSession>(
+    session: &S,
+    selection: &Selection,
+) -> Option<Result<ContentClip, RecordError>> {
+    // The members as the removal that would name them, so they are checked
+    // and rebound exactly as a refused edit of them is.
+    let held = pdf_edit::remove_selection(selection)?;
+    if !may_checkpoint(session) || !targets_are_current(session, &held) {
+        return None;
+    }
+    let (base, _) = write_queue(session)?;
+    let (rebound, _) = rebind_against(session.document(), &base, held);
+    let members = written_members(session.document(), &base, &rebound)?;
+    // `may_checkpoint` ruled out imported PDFs.
+    Some(copy_from(
+        session.document(),
+        &base,
+        ImportedSources::none(),
+        &members,
+        false,
+    ))
+}
+
+/// The selection `removal` names, when every item it names is one `base`
+/// holds as it is. A target [`rebind`] could not tell apart is still the
+/// held one, which `base` does not hold.
+fn written_members(
+    document: &Document,
+    base: &LopdfDocument,
+    removal: &Command,
+) -> Option<Selection> {
+    let mut pages: HashMap<PageId, Option<PageContent>> = HashMap::new();
+    let mut content = |page: PageId| -> Option<PageContent> {
+        pages
+            .entry(page)
+            .or_insert_with(|| {
+                read_page_content_of(document, page, base, ImportedSources::none()).ok()
+            })
+            .clone()
+    };
+    let mut members = Selection::default();
+    for target in targets(removal) {
+        match target {
+            Target::Run(run) => {
+                content(run.page)?.text_runs.contains(run).then_some(())?;
+                members.runs.push(run.clone());
+            }
+            Target::Image(image) => {
+                content(image.page)?.images.contains(image).then_some(())?;
+                members.images.push(image.clone());
+            }
+            Target::Path(path) => {
+                content(path.page)?.paths.contains(path).then_some(())?;
+                members.paths.push(path.clone());
+            }
+        }
+    }
+    Some(members)
+}
+
 /// Whether the session has anything to undo, a checkpoint behind included.
 pub fn can_undo<S: CheckpointSession>(session: &S) -> bool {
     session
@@ -363,6 +454,25 @@ pub fn can_checkpoint(
 /// replaced as the newest checkpoint behind. `None` when the rewrite fails or
 /// does not read back as the same pages and form fields.
 fn take_checkpoint<S: CheckpointSession>(session: &mut S) -> Option<()> {
+    let (base, bytes) = write_queue(session)?;
+    let base = session.checkpointed_base(base, bytes);
+    let checkpoint = swap_in(
+        session,
+        Checkpoint {
+            base,
+            log: EditLog::new(),
+            resume_log: None,
+            aliases: Vec::new(),
+        },
+    );
+    session.checkpoints_mut().behind.push(checkpoint);
+    Some(())
+}
+
+/// The queue written into a new base: its parse and its bytes. `None` when
+/// the rewrite fails or does not read back as the same pages and form
+/// fields. The session is left as it was.
+fn write_queue<S: CheckpointSession>(session: &S) -> Option<(LopdfDocument, Vec<u8>)> {
     // `may_checkpoint` already ruled out imported PDFs, so there are none to
     // hand the save.
     let bytes = save_document(SaveInput {
@@ -380,18 +490,7 @@ fn take_checkpoint<S: CheckpointSession>(session: &mut S) -> Option<()> {
     if reread.pages != document.pages || reread.form_fields != document.form_fields {
         return None;
     }
-    let base = session.checkpointed_base(base, bytes);
-    let checkpoint = swap_in(
-        session,
-        Checkpoint {
-            base,
-            log: EditLog::new(),
-            resume_log: None,
-            aliases: Vec::new(),
-        },
-    );
-    session.checkpoints_mut().behind.push(checkpoint);
-    Some(())
+    Some((base, bytes))
 }
 
 /// Makes `checkpoint` the live base and queue, handing back the ones it
@@ -462,18 +561,21 @@ fn targets_are_current<S: CheckpointSession>(session: &S, command: &Command) -> 
 /// cannot be told apart is left as it was, and the edit then fails
 /// validation instead of landing on the wrong item.
 fn rebind<S: CheckpointSession>(session: &S, command: Command) -> (Command, Vec<(Item, Item)>) {
+    rebind_against(session.document(), session.base(), command)
+}
+
+/// [`rebind`] against `base`, whichever base that is.
+fn rebind_against(
+    document: &Document,
+    base: &LopdfDocument,
+    command: Command,
+) -> (Command, Vec<(Item, Item)>) {
     let mut pages: HashMap<PageId, Option<PageContent>> = HashMap::new();
     let mut content = |page: PageId| -> Option<PageContent> {
         pages
             .entry(page)
             .or_insert_with(|| {
-                read_page_content_of(
-                    session.document(),
-                    page,
-                    session.base(),
-                    ImportedSources::none(),
-                )
-                .ok()
+                read_page_content_of(document, page, base, ImportedSources::none()).ok()
             })
             .clone()
     };
@@ -503,10 +605,14 @@ fn rebind_item(held: Item, content: &mut impl FnMut(PageId) -> Option<PageConten
             .map(Item::Run)
         }),
         Item::Image(item) => content(item.page).and_then(|page| {
+            // An image a pending edit added is named by what that edit holds
+            // — a paste by its clip's resource — and the write renames it
+            // (`/VClip{n}`). Such an image is found by its box instead.
+            let added = pdf_edit::pending_log_index(item.id).is_some();
             nearest(
                 &page.images,
                 item,
-                |image| image.source == item.source,
+                |image| image.source == item.source || (added && same_size(image.bbox, item.bbox)),
                 |image| image.bbox,
             )
             .map(Item::Image)
@@ -675,6 +781,11 @@ fn nearest<T: Clone>(
         (Some(only), None) => Some(only.clone()),
         _ => None,
     }
+}
+
+/// Whether two boxes have the same size, within [`REBIND_TOLERANCE`].
+fn same_size(a: Rect, b: Rect) -> bool {
+    (a.width - b.width).abs() <= REBIND_TOLERANCE && (a.height - b.height).abs() <= REBIND_TOLERANCE
 }
 
 fn step_log(document: &mut Document, step: fn(&mut EditLog, &mut Document) -> bool) -> bool {

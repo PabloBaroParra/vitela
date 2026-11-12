@@ -52,15 +52,22 @@ pub fn move_content_selection(
 
 /// Removes every member of `selection`, as one undo step.
 ///
-/// Pasted content that is not saved yet is refused: the paste is taken back
-/// with undo, and a removal of it would have nothing in the file to resolve.
+/// Pasted content that is not saved yet is removed through a checkpoint,
+/// which writes the paste into the base first. Where the session may not
+/// take one it is refused: the paste is taken back with undo, and a removal
+/// of it would have nothing in the file to resolve.
 #[uniffi::export]
 pub fn remove_content_selection(
     handle: &DocumentHandle,
     selection: FfiContentSelection,
 ) -> Result<(), FfiError> {
-    if let PastedMembers::Whole(_) = pasted_members(&handle.lock(), &selection)? {
-        return Err(pdf_save::paste_not_deletable().into());
+    {
+        let state = handle.lock();
+        if let PastedMembers::Whole(_) = pasted_members(&state, &selection)? {
+            if !state.may_checkpoint() {
+                return Err(pdf_save::paste_not_deletable().into());
+            }
+        }
     }
     apply_selection_edit(handle, selection, pdf_edit::remove_selection)
 }

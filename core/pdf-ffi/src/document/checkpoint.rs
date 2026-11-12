@@ -89,7 +89,7 @@ impl DocumentState {
         pdf_save::checkpoint::redo(self)
     }
 
-    pub(super) fn may_checkpoint(&self) -> bool {
+    pub(crate) fn may_checkpoint(&self) -> bool {
         pdf_save::checkpoint::may_checkpoint(self)
     }
 }

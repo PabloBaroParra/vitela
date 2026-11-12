@@ -25,11 +25,35 @@ use crate::record::{target, RecordError, Target};
 /// Copies every member of `selection` into a clip, leaving the page as it
 /// is. Members with an unsaved edit are refused: the clip is copied from the
 /// file, and the file does not hold that edit yet.
+///
+/// A session that can checkpoint copies those members all the same through
+/// [`crate::checkpoint::copy_selection`], which writes the queue in memory
+/// first; this is the rule for one that cannot.
 pub fn copy_selection_content(
     document: &Document,
     base: &LopdfDocument,
     sources: ImportedSources<'_, '_>,
     selection: &Selection,
+) -> Result<ContentClip, RecordError> {
+    copy_from(document, base, sources, selection, true)
+}
+
+/// Whether a pending edit already changed a member of `selection`, or the
+/// member exists only because of one — what [`copy_selection_content`]
+/// refuses.
+pub(crate) fn has_edited_member(document: &Document, selection: &Selection) -> bool {
+    members(selection).any(|(member, _)| is_edited(document, member))
+}
+
+/// [`copy_selection_content`], with the refusal of edited members only when
+/// `refuse_edited`. Without it, `selection` must name items `base` holds as
+/// they are: a checkpoint's written queue, not the base it was queued on.
+pub(crate) fn copy_from(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    selection: &Selection,
+    refuse_edited: bool,
 ) -> Result<ContentClip, RecordError> {
     if !selection.is_on_one_page() {
         return Err(refused("A selection is copied from one page at a time."));
@@ -37,7 +61,7 @@ pub fn copy_selection_content(
     let Some(page) = members(selection).next().map(|(_, page)| page) else {
         return Err(refused("The selection is empty."));
     };
-    if members(selection).any(|(member, _)| is_edited(document, member)) {
+    if refuse_edited && has_edited_member(document, selection) {
         return Err(refused(
             "Save the document before copying content you have edited.",
         ));

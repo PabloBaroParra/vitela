@@ -69,6 +69,26 @@ impl<'s> Live<'s> {
             pdf_save::ImportedSources::new(&sources),
         )
     }
+
+    /// Copies `selection` into a clip through
+    /// `pdf_save::checkpoint::copy_selection`: members with an unsaved edit
+    /// are copied from the queue written in memory when the session may
+    /// checkpoint. Nothing is swapped in.
+    pub(crate) fn copy(
+        &self,
+        selection: &pdf_edit::Selection,
+    ) -> Result<pdf_document::ContentClip, pdf_save::RecordError> {
+        let sources: Vec<_> = self
+            .imported
+            .iter()
+            .map(|source| (source.id, &source.document))
+            .collect();
+        pdf_save::checkpoint::copy_selection(
+            self,
+            pdf_save::ImportedSources::new(&sources),
+            selection,
+        )
+    }
 }
 
 impl CheckpointSession for Live<'_> {
