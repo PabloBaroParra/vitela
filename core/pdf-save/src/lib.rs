@@ -36,6 +36,8 @@
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
 //! - [`imported_sources`]: session-lifetime registry of imported PDFs,
 //!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
+//! - [`import`] (B26 T-223): adding other PDFs' pages as one undo step —
+//!   the destination's gates, the id cursors, and registering the sources.
 //! - [`origin`]: which document and object hold a model page's bytes — the
 //!   read path's answer to a `PageId` that is no longer a position (batch PDF
 //!   assembly §6).
@@ -52,6 +54,7 @@ pub mod edit_gate;
 pub mod error;
 pub mod export;
 pub mod forms;
+pub mod import;
 pub mod imported_sources;
 pub mod metadata;
 pub mod origin;
@@ -91,6 +94,7 @@ pub use export::{
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
 pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};
+pub use import::{import_refusal, import_sources, ImportError, ImportOutcome, ImportRefusal};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use origin::{

@@ -178,6 +178,22 @@ impl From<pdf_save::EditRefusal> for FfiError {
     }
 }
 
+impl From<pdf_save::ImportError> for FfiError {
+    fn from(err: pdf_save::ImportError) -> Self {
+        use pdf_save::ImportError as E;
+        match err {
+            E::IndexOutOfRange { index } => FfiError::PageIndexOutOfBounds {
+                // The position arrived across this boundary as a `u32`.
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+            },
+            E::Source(err) => err.into(),
+            refused => FfiError::UnsupportedOperation {
+                detail: refused.to_string(),
+            },
+        }
+    }
+}
+
 impl From<pdf_save::RecordError> for FfiError {
     fn from(err: pdf_save::RecordError) -> Self {
         match err {

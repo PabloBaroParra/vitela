@@ -39,8 +39,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use pdf_document::{
     Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
-    ImageItem, ImportedDocumentId, Page, PageId, PageOrigin, Permissions, SecurityContext,
-    SecurityHandler, TextRun,
+    ImageItem, PageId, PageOrigin, Permissions, SecurityContext, SecurityHandler, TextRun,
 };
 use pdf_manip::LopdfDocument;
 
@@ -89,7 +88,7 @@ pub(crate) struct DocumentState {
     /// Kept for the handle's life, not dropped when an undo takes an import's
     /// pages back out: a redo puts them back, and from then on every save,
     /// preview and content read has to be able to materialize them again.
-    imported: Vec<(ImportedDocumentId, LopdfDocument)>,
+    imported: pdf_save::ImportedSourceRegistry,
     /// The bases this session's edits were written into in memory, so a
     /// second edit of an edited item needs no save and reopen. See
     /// [`checkpoint`].
@@ -115,7 +114,7 @@ impl DocumentState {
             render_password,
             next_annotation_id: 0,
             opened_rotations,
-            imported: Vec::new(),
+            imported: pdf_save::ImportedSourceRegistry::new(),
             checkpoints: Default::default(),
         }
     }
@@ -625,11 +624,7 @@ impl DocumentState {
         &self,
         f: impl FnOnce(pdf_save::ImportedSources<'_, '_>) -> R,
     ) -> R {
-        let sources: Vec<(ImportedDocumentId, &LopdfDocument)> = self
-            .imported
-            .iter()
-            .map(|(id, document)| (*id, document))
-            .collect();
+        let sources = self.imported.pairs();
         f(pdf_save::ImportedSources::new(&sources))
     }
 
@@ -643,11 +638,7 @@ impl DocumentState {
             pdf_save::ImportedSources<'_, '_>,
         ) -> Result<(), pdf_save::RecordError>,
     ) -> Result<(), FfiError> {
-        let sources: Vec<(ImportedDocumentId, &LopdfDocument)> = self
-            .imported
-            .iter()
-            .map(|(id, document)| (*id, document))
-            .collect();
+        let sources = self.imported.pairs();
         f(
             &mut self.document,
             &self.base,
@@ -656,40 +647,19 @@ impl DocumentState {
         .map_err(Into::into)
     }
 
-    /// The id the next imported PDF gets: one past the highest this session
-    /// has used, so an id is never handed out twice — not even after an undo
-    /// removed the pages that wore it, since the redo still needs it.
-    pub(crate) fn next_imported_id(&self) -> Result<ImportedDocumentId, FfiError> {
-        self.imported
-            .iter()
-            .map(|(id, _)| id.0)
-            .max()
-            .map_or(Some(0), |id| id.checked_add(1))
-            .map(ImportedDocumentId)
-            .ok_or_else(|| FfiError::UnsupportedOperation {
-                detail: "this document cannot import any more PDFs".to_string(),
-            })
-    }
-
-    /// Inserts `pages` — drawn from any number of sources — at `index` as one
-    /// undoable `ImportPages`, and keeps the sources `take_sources` hands over
-    /// so every later save can materialize them.
+    /// Adds every page of every source in `sources` at `index` as one
+    /// undoable `ImportPages` and keeps the sources for every later save —
+    /// `pdf_save::import_sources` over this session's model and registry.
     ///
-    /// The sources are only taken once the command applied: a refused import
-    /// leaves nothing behind, and the caller still holds every source.
-    pub(crate) fn import_pages(
+    /// A source is taken out of its slot only once the import applied: a
+    /// refused import leaves the caller holding every source.
+    pub(crate) fn import_sources(
         &mut self,
         index: usize,
-        pages: Vec<Page>,
-        take_sources: impl FnOnce() -> Vec<(ImportedDocumentId, LopdfDocument)>,
-    ) -> Result<(), FfiError> {
-        if !apply_command(&mut self.document, Command::ImportPages { index, pages }) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "the imported pages were rejected against the open document".to_string(),
-            });
-        }
-        self.imported.extend(take_sources());
-        Ok(())
+        sources: &mut [&mut Option<LopdfDocument>],
+    ) -> Result<pdf_save::ImportOutcome, FfiError> {
+        pdf_save::import_sources(&mut self.document, &mut self.imported, index, sources)
+            .map_err(Into::into)
     }
 
     /// A read-only view of the live document model, for callers (like
@@ -1088,8 +1058,9 @@ impl DocumentHandle {
         let base = state.base.comments();
         let imported: HashMap<_, _> = state
             .imported
-            .iter()
-            .map(|(id, source)| (*id, source.comments()))
+            .pairs()
+            .into_iter()
+            .map(|(id, source)| (id, source.comments()))
             .collect();
         let mut result = Vec::new();
         for (position, page) in state.document.pages.iter().enumerate() {
