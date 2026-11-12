@@ -82,7 +82,7 @@ pub(crate) fn begin_text_drag(viewer: &Viewer, page_index: usize, point: (f64, f
     let hit = match model::ensure_page_content(&mut page.content, probe, page_id, pending) {
         // A run that is part of a block (B25 T-207) carries the whole block:
         // the reader grabbed a phrase, not the fragment under the pointer.
-        Ok(content) => model::text_run_at(content, (point.0 as f32, point.1 as f32))
+        Ok(content) => model::text_hit_at(content, (point.0 as f32, point.1 as f32))
             .cloned()
             .map(|run| {
                 let block = model::block_runs(content, &run);

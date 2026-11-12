@@ -73,6 +73,7 @@ pub(crate) mod image;
 mod model;
 pub(crate) mod multi;
 pub(crate) mod panel;
+mod paragraph_editor;
 pub(crate) mod path;
 pub(crate) mod text;
 pub(crate) mod watermark;

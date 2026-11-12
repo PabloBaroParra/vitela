@@ -7,7 +7,8 @@
 //! positioned against a page. This adds a real `gtk::Entry` as a third child
 //! of the page's `Overlay`, positioned from `pdf_render::place_rect` — the
 //! same "coordinates are pre-scaled in Rust" posture the rest of the shell
-//! uses.
+//! uses. A paragraph block gets a multi-line `TextView` in the entry's place
+//! (`super::paragraph_editor`); everything else here is shared by both.
 //!
 //! The one exception to "no transform" is the page's own turn. A `/Rotate`
 //! makes the run this box is editing run down the screen rather than across
@@ -36,12 +37,13 @@ use pdf_edit::EditError;
 use pdf_render::{place_point, point_to_pdf, PagePlacement, PageRotation};
 
 use crate::app::i18n::tr;
-use crate::app::state::{ContentEditor, DocumentSession, Viewer};
+use crate::app::state::{ContentEditor, DocumentSession, EditorField, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
 use super::command::{self, pending_move_index, pending_text_command, PendingText};
 use super::model;
+use super::paragraph_editor;
 use super::CLICK_EPSILON_PX;
 
 /// Fixed default box for a newly inserted text run (T-163), in PDF points —
@@ -156,7 +158,17 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         session.selected_image = None;
     }
 
-    let entry = {
+    // A paragraph — a block of several lines — is retyped in a multi-line
+    // field whose line breaks the retype keeps (`super::paragraph_editor`);
+    // a run and a one-line block keep the one-line entry.
+    let field = if model::is_paragraph(&block) {
+        paragraph_editor::new_field(&run.text)
+    } else {
+        let entry = Entry::new();
+        entry.set_text(&run.text);
+        EditorField::Line(entry)
+    };
+    {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return;
@@ -165,29 +177,34 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
             return;
         };
 
-        let entry = Entry::new();
-        entry.set_text(&run.text);
         let frame = Fixed::new();
-        frame.put(&entry, 0.0, 0.0);
-        place_entry(&frame, &entry, run.bbox, page.placement());
+        frame.put(&field.outer_widget(), 0.0, 0.0);
+        place_field(&frame, &field, run.bbox, page.placement());
         page.overlay.add_overlay(&frame);
 
         session.content_editor = Some(ContentEditor {
             page_index,
             run: run.clone(),
-            entry: entry.clone(),
+            field: field.clone(),
             frame,
             is_insertion: false,
             amends,
             block,
         });
+    }
 
-        entry
-    };
-
-    wire_entry(viewer, &entry, false);
-    focus_without_scrolling(&viewer.scroll, &entry);
-    entry.select_region(0, -1);
+    match &field {
+        EditorField::Line(entry) => {
+            wire_entry(viewer, entry, false);
+            focus_without_scrolling(&viewer.scroll, entry);
+            entry.select_region(0, -1);
+        }
+        // The view opens with its text selected (`new_field`).
+        EditorField::Paragraph { view, .. } => {
+            paragraph_editor::wire(viewer, view);
+            focus_without_scrolling(&viewer.scroll, view);
+        }
+    }
     // The Edit page's "Delete text" is gated on exactly this editor being
     // open over an existing run, so the page learns about it here — the
     // image card's controls are refreshed the same way from every
@@ -287,7 +304,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
         session.content_editor = Some(ContentEditor {
             page_index,
             run,
-            entry: entry.clone(),
+            field: EditorField::Line(entry.clone()),
             frame,
             is_insertion: true,
             block: Vec::new(),
@@ -338,24 +355,24 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
 /// of `gtk_widget_get_parent` criticals until the process died. The refusal
 /// is already on the status line; the user fixes the text or presses Escape.
 pub(crate) fn keep_refused_editor(viewer: &Viewer) -> bool {
-    let entry = viewer
+    let field = viewer
         .state
         .borrow()
         .session
         .as_ref()
         .and_then(|session| session.content_editor.as_ref())
-        .map(|editor| editor.entry.clone());
-    let Some(entry) = entry else {
+        .map(|editor| editor.field.focus_widget());
+    let Some(field) = field else {
         return false;
     };
-    focus_without_scrolling(&viewer.scroll, &entry);
+    focus_without_scrolling(&viewer.scroll, &field);
     true
 }
 
-fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
+fn focus_without_scrolling(scroll: &ScrolledWindow, field: &impl IsA<gtk::Widget>) {
     let (horizontal, vertical) = (scroll.hadjustment(), scroll.vadjustment());
     let (left, top) = (horizontal.value(), vertical.value());
-    entry.grab_focus();
+    field.grab_focus();
     horizontal.set_value(left);
     vertical.set_value(top);
 }
@@ -369,8 +386,31 @@ fn focus_without_scrolling(scroll: &ScrolledWindow, entry: &Entry) {
 /// run's box sits, or a rejected move would leave the box somewhere the run
 /// is not.
 fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
-    let (width, height) = entry_size(entry, bbox, page);
+    let size = entry_size(entry, bbox, page);
+    place_sized(frame, entry, size, bbox, page);
+}
 
+/// [`place_entry`] for either kind of field: a paragraph's view is sized by
+/// `super::paragraph_editor` and placed — and turned — exactly as an entry.
+fn place_field(frame: &Fixed, field: &EditorField, bbox: Rect, page: PagePlacement) {
+    match field {
+        EditorField::Line(entry) => place_entry(frame, entry, bbox, page),
+        EditorField::Paragraph { view, scroller } => {
+            let size = paragraph_editor::field_size(view, scroller, bbox, page);
+            place_sized(frame, scroller, size, bbox, page);
+        }
+    }
+}
+
+/// Positions `child`, already `(width, height)` in its own upright frame,
+/// over `bbox` — the arithmetic [`place_entry`] and [`place_field`] share.
+fn place_sized(
+    frame: &Fixed,
+    child: &impl IsA<gtk::Widget>,
+    (width, height): (f64, f64),
+    bbox: Rect,
+    page: PagePlacement,
+) {
     // Where the run's PDF-space top-left corner lands on screen. The entry's
     // own top-left starts there whichever way the page is turned; the turn
     // decides which way the rest of the box then runs.
@@ -395,7 +435,7 @@ fn place_entry(frame: &Fixed, entry: &Entry, bbox: Rect, page: PagePlacement) {
     frame.set_margin_top((anchor.1 - local_y).round().max(0.0) as i32);
 
     frame.set_child_transform(
-        entry,
+        child,
         Some(
             &gsk::Transform::new()
                 .translate(&graphene::Point::new(local_x as f32, local_y as f32))
@@ -581,11 +621,11 @@ fn reposition(viewer: &Viewer, bbox: Rect) {
         state.session.as_ref().and_then(|session| {
             let editor = session.content_editor.as_ref()?;
             let page = session.pages.get(editor.page_index)?;
-            Some((editor.frame.clone(), editor.entry.clone(), page.placement()))
+            Some((editor.frame.clone(), editor.field.clone(), page.placement()))
         })
     };
-    if let Some((frame, entry, page)) = editor {
-        place_entry(&frame, &entry, bbox, page);
+    if let Some((frame, field, page)) = editor {
+        place_field(&frame, &field, bbox, page);
     }
 }
 
@@ -693,7 +733,7 @@ pub(crate) fn commit(viewer: &Viewer) {
     let Some(editor) = session.content_editor.as_ref() else {
         return;
     };
-    let after = editor.entry.text().to_string();
+    let after = editor.field.text();
 
     if after == editor.run.text {
         let editor = session.content_editor.take().expect("checked above");
@@ -709,10 +749,11 @@ pub(crate) fn commit(viewer: &Viewer) {
     // Recorded through the core's queue policy (`pdf_save::record`), which
     // decides where the retype goes: a run the overlay shows because of a
     // pending insertion or retype is folded into that entry, keeping the
-    // snapshot the file holds, and a block is one batch (B25 T-207).
+    // snapshot the file holds, and a block is one batch (B25 T-207) — a
+    // paragraph's wrapped to its width, line breaks kept.
     let (recorded, message) = if !block.is_empty() {
         (
-            command::record_batch(session, pdf_edit::retype_block(&block, &after, false)),
+            command::record_block_retype(session, &block, &after),
             tr("edit-text-updated"),
         )
     } else if is_insertion {
@@ -1274,7 +1315,10 @@ mod tests {
                 .session
                 .as_ref()
                 .and_then(|session| session.content_editor.as_ref())
-                .map(|editor| (editor.run.text.clone(), editor.entry.clone()))
+                .map(|editor| match &editor.field {
+                    EditorField::Line(entry) => (editor.run.text.clone(), entry.clone()),
+                    EditorField::Paragraph { .. } => panic!("a single run opens an entry"),
+                })
         };
 
         open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());

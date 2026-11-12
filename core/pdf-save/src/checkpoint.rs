@@ -545,6 +545,20 @@ fn map_targets(command: Command, map: &mut dyn FnMut(Item) -> Item) -> Command {
             };
             Command::MoveTextRun { item, to }
         }
+        // The new line keeps its offset from the run it is styled after.
+        Command::InsertTextRunLike { item, template } => {
+            let held = template.bbox;
+            let template = run(template, map);
+            let bbox = Rect {
+                x: item.bbox.x + template.bbox.x - held.x,
+                y: item.bbox.y + template.bbox.y - held.y,
+                ..item.bbox
+            };
+            Command::InsertTextRunLike {
+                item: TextRun { bbox, ..item },
+                template,
+            }
+        }
         Command::RemoveImage { item, source } => Command::RemoveImage {
             item: image(item, map),
             source,
@@ -630,6 +644,8 @@ fn targets(command: &Command) -> Vec<Target<'_>> {
         | Command::ReplaceTextRunWithInsertedFont { item, .. }
         | Command::RemoveTextRun(item)
         | Command::MoveTextRun { item, .. } => vec![Target::Run(item)],
+        // The run it is styled after; the run it adds is not in any base yet.
+        Command::InsertTextRunLike { template, .. } => vec![Target::Run(template)],
         Command::RemoveImage { item, .. }
         | Command::MoveImage { item, .. }
         | Command::ResizeImage { item, .. }

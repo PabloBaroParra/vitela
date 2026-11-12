@@ -100,6 +100,34 @@ pub(crate) fn text_run_at(content: &PageContent, point: (f32, f32)) -> Option<&T
         .min_by(|a, b| bbox_area(&a.bbox).partial_cmp(&bbox_area(&b.bbox)).unwrap())
 }
 
+/// The run a press at `point` (PDF page space) lands on for text: the run
+/// under it, or else the first run of the paragraph whose box holds it.
+///
+/// A paragraph's box spans the gaps between its lines, and that box is what
+/// the page outlines, so a press between two lines is a press on the
+/// paragraph rather than a miss. Only blocks of several lines answer: a
+/// one-line block's box is its runs' boxes and the gaps between them.
+pub(crate) fn text_hit_at(content: &PageContent, point: (f32, f32)) -> Option<&TextRun> {
+    if let Some(run) = text_run_at(content, point) {
+        return Some(run);
+    }
+    pdf_edit::group_text_runs(&content.text_runs)
+        .into_iter()
+        .filter(|block| block.lines.len() > 1 && rect_contains(&block.bbox, point))
+        .min_by(|a, b| bbox_area(&a.bbox).total_cmp(&bbox_area(&b.bbox)))
+        .and_then(|block| block.runs.first().copied())
+        .and_then(|id| content.text_run(id))
+}
+
+/// Whether `block`'s runs make a paragraph — one block of several lines —
+/// which the inline editor retypes in a multi-line field.
+pub(crate) fn is_paragraph(block: &[TextRun]) -> bool {
+    matches!(
+        pdf_edit::group_text_runs(block).as_slice(),
+        [only] if only.lines.len() > 1
+    )
+}
+
 /// The image whose bounding box contains `point` (in PDF page space), or
 /// `None` if it lands outside every image on the page. Sibling of
 /// [`text_run_at`], same smallest-bbox tie-break: content-edit mode is about
@@ -315,6 +343,80 @@ mod tests {
 
         let found = text_run_at(&content, (55.0, 55.0)).expect("point is inside both bboxes");
         assert_eq!(found.id, ContentItemId(2));
+    }
+
+    /// A paragraph's lines leave a gap between them that is inside the
+    /// paragraph's box — the box the page outlines and the reader aims at —
+    /// but under no run. A press there is a press on the paragraph.
+    #[test]
+    fn a_click_between_a_paragraphs_lines_finds_the_paragraph() {
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("page 0 parses");
+        let [first, second] = content.text_runs.as_slice() else {
+            panic!("two runs, got {:?}", content.text_runs);
+        };
+        let between = (
+            (first.bbox.x + 10.0) as f32,
+            ((first.bbox.y + second.bbox.y + second.bbox.height) / 2.0) as f32,
+        );
+        assert!(text_run_at(&content, between).is_none(), "no run under it");
+
+        let found = text_hit_at(&content, between).expect("the paragraph is hit");
+        assert_eq!(found.id, first.id, "the paragraph's first run stands in");
+        assert_eq!(block_runs(&content, found).len(), 2);
+    }
+
+    /// Lines a paragraph break apart are separate blocks, and the gap
+    /// between them is nobody's.
+    #[test]
+    fn a_click_between_separate_lines_finds_nothing() {
+        let base =
+            gen_fixtures::build_spaced_line_page_document(&["First line", "Second line"], 100);
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("page 0 parses");
+        let [first, second] = content.text_runs.as_slice() else {
+            panic!("two runs, got {:?}", content.text_runs);
+        };
+        assert!(
+            block_runs(&content, first).is_empty(),
+            "two blocks of one run"
+        );
+        let between = (
+            (first.bbox.x + 10.0) as f32,
+            ((first.bbox.y + second.bbox.y + second.bbox.height) / 2.0) as f32,
+        );
+
+        assert!(text_hit_at(&content, between).is_none());
+    }
+
+    #[test]
+    fn a_click_on_a_run_finds_that_run() {
+        let content = PageContent {
+            text_runs: vec![run(1, 100.0, 700.0, 50.0, 12.0)],
+            images: Vec::new(),
+            paths: Vec::new(),
+        };
+
+        let found = text_hit_at(&content, (110.0, 705.0)).expect("point is inside the bbox");
+        assert_eq!(found.id, ContentItemId(1));
+    }
+
+    /// A paragraph opens the multi-line editor; a line of several runs and
+    /// a single run do not.
+    #[test]
+    fn only_a_block_of_several_lines_is_a_paragraph() {
+        let paragraph =
+            gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let runs = pdf_edit::read_page_content(&paragraph, PageId(0))
+            .expect("page 0 parses")
+            .text_runs;
+        assert!(is_paragraph(&runs));
+        assert!(!is_paragraph(&runs[..1]));
+        assert!(!is_paragraph(&[]));
+        let line = [
+            run(1, 100.0, 700.0, 30.0, 12.0),
+            run(2, 133.0, 700.0, 30.0, 12.0),
+        ];
+        assert!(!is_paragraph(&line));
     }
 
     #[test]

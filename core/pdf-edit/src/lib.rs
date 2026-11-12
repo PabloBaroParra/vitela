@@ -54,6 +54,7 @@ pub mod encoding;
 pub mod error;
 pub mod group;
 pub mod insert;
+pub mod insert_like;
 pub mod parse;
 pub mod path;
 pub mod pending;
@@ -70,8 +71,12 @@ pub use edit::{
     resize_image, text_run_bbox,
 };
 pub use error::EditError;
-pub use group::{group_text_runs, move_block, remove_block, retype_block, TextBlock};
+pub use group::{
+    group_text_lines, group_text_runs, move_block, remove_block, retype_block, retype_paragraph,
+    Alignment, TextBlock, TextLine,
+};
 pub use insert::{insert_image, insert_text_run, inserted_text_run_bbox};
+pub use insert_like::insert_text_run_like;
 pub use parse::{
     page_font_families, page_image_placements, page_object_font_families, page_object_id,
     read_page_content, read_page_object_content, ImagePlacement,

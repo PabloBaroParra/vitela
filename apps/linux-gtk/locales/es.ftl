@@ -216,6 +216,7 @@ edit-no-document = Abre un PDF para editar el texto y las imágenes de sus pági
 edit-no-text-selected = Haz clic en el texto para seleccionarlo; haz doble clic para reescribirlo o arrástralo para moverlo.
 edit-text-selected = Texto seleccionado: arrástralo para moverlo, pulsa Supr para eliminarlo o haz doble clic o pulsa F2 para reescribirlo.
 edit-text-editing = Reescribiendo texto: pulsa Intro para conservarlo o Esc para cancelar, o elimínalo.
+edit-paragraph-editing = Reescribiendo un párrafo: Intro empieza una línea nueva, Ctrl+Intro o hacer clic fuera lo conserva, Esc cancela.
 edit-no-image-selected = Haz clic en una imagen de la página para seleccionarla.
 edit-image-selected = Imagen seleccionada: puedes reemplazarla o eliminarla.
 edit-image-no-replace = Imagen seleccionada: puedes moverla, cambiar su tamaño o eliminarla. No se puede reemplazar porque no es posible recuperar su codificación actual para deshacer el cambio.

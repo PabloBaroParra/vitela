@@ -536,20 +536,62 @@ pub struct FfiContentPathItem {
     pub paint: FfiPathPaint,
 }
 
-/// Text runs that read as one piece of text — on one line, in one font, no
-/// more than a space apart (B25 T-207). A shell selects, moves, deletes and
-/// retypes it as a unit through `move_text_block`, `remove_text_block` and
-/// `retype_text_block`, each one undo step.
+/// Text runs that read as one piece of text — a line in one font, no more
+/// than a space apart (B25 T-207), or lines stacked into a paragraph. A
+/// shell selects, moves, deletes and retypes it as a unit through
+/// `move_text_block`, `remove_text_block` and `retype_text_block`, each one
+/// undo step.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
 pub struct FfiTextBlock {
-    /// The member runs, left to right, exactly as `read_page_content` reads
-    /// them — every run of the page is in exactly one block.
+    /// The member runs, line by line from the top and each line left to
+    /// right, exactly as `read_page_content` reads them — every run of the
+    /// page is in exactly one block.
     pub runs: Vec<FfiContentTextRun>,
     /// The union of the runs' boxes.
     pub bbox: FfiRect,
-    /// The runs' text joined left to right, with a space put back where the
-    /// file left a word gap out of the text.
+    /// The lines' text joined with `'\n'`; each line's runs joined left to
+    /// right, with a space put back where the file left a word gap out of
+    /// the text. A one-line block has no `'\n'`.
     pub text: String,
+    /// The block's lines, top to bottom — one for a block that is not a
+    /// paragraph.
+    pub lines: Vec<FfiTextLine>,
+    /// The mean baseline-to-baseline distance in points; `None` for one line.
+    pub leading: Option<f64>,
+    /// The edge a paragraph's lines share; `Left` for one line.
+    pub alignment: FfiTextAlignment,
+}
+
+/// One line of an [`FfiTextBlock`].
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct FfiTextLine {
+    /// The member runs, left to right.
+    pub runs: Vec<FfiContentTextRun>,
+    /// The union of the runs' boxes.
+    pub bbox: FfiRect,
+    /// The line's baseline in page space, points.
+    pub baseline: f64,
+    /// The runs' text joined left to right.
+    pub text: String,
+}
+
+/// Which edge of a paragraph's lines lines up — where a retype puts each
+/// new line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiTextAlignment {
+    Left,
+    Center,
+    Right,
+}
+
+impl From<pdf_edit::Alignment> for FfiTextAlignment {
+    fn from(alignment: pdf_edit::Alignment) -> Self {
+        match alignment {
+            pdf_edit::Alignment::Left => Self::Left,
+            pdf_edit::Alignment::Center => Self::Center,
+            pdf_edit::Alignment::Right => Self::Right,
+        }
+    }
 }
 
 impl From<PathItem> for FfiContentPathItem {

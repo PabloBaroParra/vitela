@@ -226,6 +226,7 @@ edit-no-document = Open a PDF to edit the text and images on its pages.
 edit-no-text-selected = Click text to select it; double-click to retype it in place, or drag it to move it.
 edit-text-selected = Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.
 edit-text-editing = Retyping text — press Enter to keep it or Esc to cancel, or delete it.
+edit-paragraph-editing = Retyping a paragraph — Enter starts a new line, Ctrl+Enter or clicking away keeps it, Esc cancels.
 edit-no-image-selected = Click an image on the page to select it.
 edit-image-selected = Image selected — replace or delete it.
 edit-image-no-replace = Image selected — move, resize or delete it. It cannot be replaced: its current encoding cannot be read back, so the swap could not be undone.

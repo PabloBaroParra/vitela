@@ -91,7 +91,7 @@ pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use origin::{
     page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
-    PageBacking,
+    retype_text_block_of, PageBacking,
 };
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};

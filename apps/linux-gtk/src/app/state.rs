@@ -14,8 +14,8 @@ use crate::app::signature::SignatureStore;
 use gtk::prelude::*;
 use gtk::{
     cairo, gio, ApplicationWindow, Box as GtkBox, Button, DrawingArea, DropDown, Entry, Fixed,
-    FlowBox, Label, Overlay, Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, ToggleButton,
-    Window,
+    FlowBox, Label, Overlay, Picture, ProgressBar, ScrolledWindow, SpinButton, Stack, TextView,
+    ToggleButton, Window,
 };
 use pdf_document::{
     AnnotationId, Document, FieldValue, FormFieldId, ImageItem, ImportedDocumentId, PageContent,
@@ -981,8 +981,10 @@ pub(crate) struct ContentEditor {
     /// somewhere to hold the same fields before there is a run to match
     /// against at all.
     pub(crate) run: TextRun,
-    pub(crate) entry: Entry,
-    /// The `Fixed` the [`Self::entry`] sits in, and the page overlay's actual
+    /// The text field the user types into: a one-line entry, or a wrapping
+    /// multi-line view over a paragraph block.
+    pub(crate) field: EditorField,
+    /// The `Fixed` the [`Self::field`] sits in, and the page overlay's actual
     /// child.
     ///
     /// GTK4 has no way to turn a widget except through a `GtkFixed`'s child
@@ -1015,6 +1017,53 @@ pub(crate) struct ContentEditor {
     /// block, `run` stands in for the whole of it — its box and text are the
     /// block's — and a commit records one batch over these.
     pub(crate) block: Vec<TextRun>,
+}
+
+/// The text field of an open [`ContentEditor`].
+///
+/// A run, a one-line block and an insertion are typed into a single-line
+/// `Entry`. A paragraph block — several lines a leading apart — gets a
+/// wrapping `TextView` instead, where Enter is a line break the retype keeps.
+#[derive(Clone, PartialEq)]
+pub(crate) enum EditorField {
+    Line(Entry),
+    /// The view, and the `ScrolledWindow` that fixes its size to the
+    /// paragraph's box — the widget the editor's frame actually holds.
+    Paragraph {
+        view: TextView,
+        scroller: ScrolledWindow,
+    },
+}
+
+impl EditorField {
+    /// Everything typed into the field, line breaks included.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::Line(entry) => entry.text().to_string(),
+            Self::Paragraph { view, .. } => {
+                let buffer = view.buffer();
+                buffer
+                    .text(&buffer.start_iter(), &buffer.end_iter(), false)
+                    .to_string()
+            }
+        }
+    }
+
+    /// The widget that takes the keyboard.
+    pub(crate) fn focus_widget(&self) -> gtk::Widget {
+        match self {
+            Self::Line(entry) => entry.clone().upcast(),
+            Self::Paragraph { view, .. } => view.clone().upcast(),
+        }
+    }
+
+    /// The widget the editor's frame holds.
+    pub(crate) fn outer_widget(&self) -> gtk::Widget {
+        match self {
+            Self::Line(entry) => entry.clone().upcast(),
+            Self::Paragraph { scroller, .. } => scroller.clone().upcast(),
+        }
+    }
 }
 
 /// A selected annotation being moved or resized right now.

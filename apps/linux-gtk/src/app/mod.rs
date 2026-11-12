@@ -737,6 +737,14 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
             .as_ref()
             .is_some_and(|editor| !editor.is_insertion)
     });
+    let paragraph_editing = editable.is_some_and(|session| {
+        session.content_editor.as_ref().is_some_and(|editor| {
+            matches!(
+                editor.field,
+                crate::app::state::EditorField::Paragraph { .. }
+            )
+        })
+    });
     let text_selected = editable.is_some_and(|session| session.selected_text_block.is_some());
     let text_enabled = text_editing || text_selected;
     let paths_enabled = state.session.as_ref().is_some_and(|session| {
@@ -763,13 +771,18 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     content_edit::clipboard::update_cut_action(viewer);
     content_edit::multi::update_clear_action(viewer);
     content_edit::block::update_retype_action(viewer);
-    viewer.edit_panel.text_hint.set_text(&tr(if text_editing {
-        content_edit::panel::TEXT_EDITING
-    } else if text_selected {
-        content_edit::panel::TEXT_SELECTED
-    } else {
-        content_edit::panel::NO_TEXT_SELECTED
-    }));
+    viewer
+        .edit_panel
+        .text_hint
+        .set_text(&tr(if paragraph_editing {
+            content_edit::panel::PARAGRAPH_EDITING
+        } else if text_editing {
+            content_edit::panel::TEXT_EDITING
+        } else if text_selected {
+            content_edit::panel::TEXT_SELECTED
+        } else {
+            content_edit::panel::NO_TEXT_SELECTED
+        }));
 }
 
 fn step_zoom(viewer: &Viewer, increase: bool) {

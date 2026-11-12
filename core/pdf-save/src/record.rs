@@ -104,6 +104,9 @@ pub fn record_content_batch(
     sources: ImportedSources<'_, '_>,
     command: Command,
 ) -> Result<(), RecordError> {
+    if strands_inserted_line(document, &command) {
+        return Err(save_first());
+    }
     match queued_batch(document, &command) {
         // Folded into the queued batch: it keeps the snapshots the file
         // holds, so the untouched page is what it is checked against.
@@ -622,6 +625,36 @@ fn fold_into_queued_batch(
         return Ok(Some((index, Command::Batch(folded))));
     }
     Ok(None)
+}
+
+/// Whether `command` edits items of a queued batch that inserted a line, yet
+/// names none of that entry's pending items: it was built from the runs the
+/// file held, so — folded or appended — the inserted line would be kept
+/// beside the new text, ghost text on save.
+fn strands_inserted_line(document: &Document, command: &Command) -> bool {
+    let wanted: Vec<Target> = children(command).iter().filter_map(target).collect();
+    let entry_of = |target: &Target| match target {
+        Target::Text(id, _) | Target::Image(id, _) | Target::Path(id, _) => {
+            pdf_edit::pending_log_index(*id)
+        }
+    };
+    let inserts = |child: &Command| {
+        matches!(
+            child,
+            Command::InsertTextRun(_) | Command::InsertTextRunLike { .. }
+        )
+    };
+    let entries = document.pending_edits.entries();
+    entries.iter().enumerate().any(|(index, entry)| {
+        let queued = children(entry);
+        matches!(entry, Command::Batch(_))
+            && queued.iter().any(inserts)
+            && queued
+                .iter()
+                .filter_map(target)
+                .any(|t| wanted.contains(&t))
+            && !wanted.iter().any(|t| entry_of(t) == Some(index))
+    })
 }
 
 fn save_first() -> RecordError {

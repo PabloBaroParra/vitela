@@ -4,17 +4,21 @@
 //! writes "PRESUPUESTO Nº 3.725/1" as three show-text operators, and to
 //! [`crate::parse`] those are three runs, so content edit "selects by word".
 //! This module joins runs that sit next to each other on one line into a
-//! [`TextBlock`] a shell can select, move, delete and retype as a unit.
+//! line, and lines stacked with a steady leading into a paragraph
+//! ([`paragraph`]) — the [`TextBlock`] a shell can select, move, delete and
+//! retype as a unit.
 //!
-//! It is grouping, **not reflow**: nothing here measures text or wraps a
-//! line, and B21's "out of scope" on reflow still holds. A block is only a
-//! list of the runs it is made of, and every edit of it is a
-//! [`Command::Batch`] of ordinary edits of those runs, so a block move or
-//! delete is one undo step.
-//!
-//! Only lines are joined for now. Lines stacked into a paragraph are left as
-//! separate blocks: retyping a paragraph puts the whole text in its first
-//! run, which would collapse every line onto one.
+//! A block is only a list of the runs it is made of, and every edit of it is
+//! a [`Command::Batch`] of ordinary edits of those runs, so a block move or
+//! delete is one undo step. Grouping itself measures nothing. Retyping a
+//! paragraph does: [`retype_paragraph`] wraps the new text to the
+//! paragraph's width, one line per run, which is the only reflow there is —
+//! within the block, never pushing anything around it.
+
+mod paragraph;
+mod retype;
+
+pub use retype::retype_paragraph;
 
 use pdf_document::{Command, ContentItemId, Rect, TextRun};
 
@@ -37,52 +41,132 @@ const LINE_TOLERANCE: f64 = 0.2;
 /// both runs' text, so the block's text gets one back.
 const IMPLIED_SPACE: f64 = 0.15;
 
-/// Runs that read as one piece of text: on one line, in one font, with no
-/// more than a space between neighbours.
+/// Runs that read as one piece of text: one line, or lines stacked into a
+/// paragraph, in one font.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextBlock {
-    /// The member runs' ids, left to right. A run that joins nothing is a
-    /// block of one, so every run is in exactly one block.
+    /// The member runs' ids, line by line from the top, each line left to
+    /// right. A run that joins nothing is a block of one, so every run is in
+    /// exactly one block.
     pub runs: Vec<ContentItemId>,
     /// The union of the member runs' boxes.
     pub bbox: Rect,
+    /// The lines' text, top to bottom, joined with `'\n'` — the line breaks
+    /// a reader sees, so an editor shows the paragraph as it is laid out.
+    /// A one-line block has no `'\n'`.
+    pub text: String,
+    /// The block's lines, top to bottom. One for a block that is not a
+    /// paragraph.
+    pub lines: Vec<TextLine>,
+    /// The mean baseline-to-baseline distance, in points; `None` for one line.
+    pub leading: Option<f64>,
+    /// The edge the lines share. [`Alignment::Left`] for one line.
+    pub alignment: Alignment,
+}
+
+/// One line of a [`TextBlock`]: runs next to each other on one baseline.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextLine {
+    /// The member runs' ids, left to right.
+    pub runs: Vec<ContentItemId>,
+    /// The union of the member runs' boxes.
+    pub bbox: Rect,
+    /// The baseline of the line's first run, in page space — a quarter of
+    /// the run's height above its box's bottom edge, the parser's convention.
+    pub baseline: f64,
     /// The member runs' text joined left to right, with a space put back
     /// wherever the file left a word gap out of the text.
     pub text: String,
 }
 
+/// Which edge of a paragraph's lines lines up.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Alignment {
+    /// Left edges — also what a justified paragraph reads as.
+    #[default]
+    Left,
+    /// Centres.
+    Center,
+    /// Right edges.
+    Right,
+}
+
 /// Groups `runs` into blocks, in the paint order of each block's first run.
+///
+/// Two passes: runs next to each other on one baseline become a line, then
+/// lines stacked with a steady leading on a shared edge become a paragraph
+/// (see [`paragraph`] for exactly when).
 ///
 /// Every run lands in exactly one block. Runs from different pages are never
 /// joined, so passing a whole page's [`pdf_document::PageContent::text_runs`]
 /// is the expected use.
 pub fn group_text_runs(runs: &[TextRun]) -> Vec<TextBlock> {
+    let lines: Vec<Line> = line_members(runs)
+        .iter()
+        .map(|members| line_of(runs, members))
+        .collect();
+    let mut paragraphs = paragraph::stack(&lines);
+    paragraphs.sort_by_key(|paragraph| {
+        paragraph
+            .lines
+            .iter()
+            .map(|&line| lines[line].first_paint)
+            .min()
+    });
+    paragraphs
+        .into_iter()
+        .map(|paragraph| block_of(&lines, &paragraph.lines, paragraph.alignment))
+        .collect()
+}
+
+/// Groups `runs` into one-line blocks: only the first pass of
+/// [`group_text_runs`], so stacked lines never join into a paragraph. The
+/// shells that edit a block as one line read blocks this way.
+pub fn group_text_lines(runs: &[TextRun]) -> Vec<TextBlock> {
+    let mut lines: Vec<Line> = line_members(runs)
+        .iter()
+        .map(|members| line_of(runs, members))
+        .collect();
+    lines.sort_by_key(|line| line.first_paint);
+    (0..lines.len())
+        .map(|index| block_of(&lines, &[index], Alignment::Left))
+        .collect()
+}
+
+/// A line the first pass built, with what the second pass compares.
+struct Line {
+    line: TextLine,
+    page: pdf_document::PageId,
+    font: String,
+    /// The tallest member run's height — the line's em.
+    height: f64,
+    /// The lowest paint index among the member runs.
+    first_paint: usize,
+}
+
+/// The first pass: runs (by index) joined into lines, each left to right.
+fn line_members(runs: &[TextRun]) -> Vec<Vec<usize>> {
     let mut order: Vec<usize> = (0..runs.len()).collect();
     order.sort_by(|&a, &b| runs[a].bbox.x.total_cmp(&runs[b].bbox.x));
 
-    // Each open block is the runs (by index) it holds so far, left to right.
-    let mut blocks: Vec<Vec<usize>> = Vec::new();
+    // Each open line is the runs (by index) it holds so far, left to right.
+    let mut lines: Vec<Vec<usize>> = Vec::new();
     for index in order {
         let run = &runs[index];
-        let best = blocks
+        let best = lines
             .iter()
             .enumerate()
             .filter_map(|(at, members)| {
-                let last = &runs[*members.last().expect("a block is never empty")];
+                let last = &runs[*members.last().expect("a line is never empty")];
                 word_gap(last, run).map(|gap| (at, gap))
             })
             .min_by(|(_, a), (_, b)| a.total_cmp(b));
         match best {
-            Some((at, _)) => blocks[at].push(index),
-            None => blocks.push(vec![index]),
+            Some((at, _)) => lines[at].push(index),
+            None => lines.push(vec![index]),
         }
     }
-
-    blocks.sort_by_key(|members| members.iter().copied().min());
-    blocks
-        .into_iter()
-        .map(|members| block_of(runs, &members))
-        .collect()
+    lines
 }
 
 /// The gap from `left`'s end to `right`'s start, when `right` continues the
@@ -101,10 +185,11 @@ fn word_gap(left: &TextRun, right: &TextRun) -> Option<f64> {
     (gap >= -MAX_OVERLAP * height && gap <= MAX_WORD_GAP * height).then_some(gap)
 }
 
-fn block_of(runs: &[TextRun], members: &[usize]) -> TextBlock {
+fn line_of(runs: &[TextRun], members: &[usize]) -> Line {
     let first = &runs[members[0]];
     let mut bbox = first.bbox;
     let mut text = first.text.clone();
+    let mut height = first.bbox.height;
     for pair in members.windows(2) {
         let (left, right) = (&runs[pair[0]], &runs[pair[1]]);
         let gap = right.bbox.x - (left.bbox.x + left.bbox.width);
@@ -115,11 +200,58 @@ fn block_of(runs: &[TextRun], members: &[usize]) -> TextBlock {
         }
         text.push_str(&right.text);
         bbox = union(bbox, right.bbox);
+        height = height.max(right.bbox.height);
     }
+    Line {
+        line: TextLine {
+            runs: members.iter().map(|&index| runs[index].id).collect(),
+            bbox,
+            baseline: first.bbox.y + BASELINE_ABOVE_BOTTOM * first.bbox.height,
+            text,
+        },
+        page: first.page,
+        font: first.resource_font_name.clone(),
+        height,
+        first_paint: members.iter().copied().min().unwrap_or_default(),
+    }
+}
+
+/// Where a run's baseline sits above its box's bottom edge, as a fraction
+/// of its height — the parser's box convention (one em tall, the descender
+/// a quarter em), which `crate::insert_text_run` writes by as well.
+const BASELINE_ABOVE_BOTTOM: f64 = 0.25;
+
+fn block_of(lines: &[Line], members: &[usize], alignment: Alignment) -> TextBlock {
+    let block_lines: Vec<TextLine> = members
+        .iter()
+        .map(|&index| lines[index].line.clone())
+        .collect();
+    let bbox = block_lines
+        .iter()
+        .map(|line| line.bbox)
+        .reduce(union)
+        .expect("a block has a line");
+    let text = block_lines
+        .iter()
+        .map(|line| line.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let leading = match block_lines.as_slice() {
+        [first, .., last] => {
+            Some((first.baseline - last.baseline) / (block_lines.len() - 1) as f64)
+        }
+        _ => None,
+    };
     TextBlock {
-        runs: members.iter().map(|&index| runs[index].id).collect(),
+        runs: block_lines
+            .iter()
+            .flat_map(|line| line.runs.iter().copied())
+            .collect(),
         bbox,
         text,
+        lines: block_lines,
+        leading,
+        alignment,
     }
 }
 
@@ -181,7 +313,7 @@ pub fn retype_block(runs: &[TextRun], text: &str, with_inserted_font: bool) -> O
     batch(children)
 }
 
-fn batch(children: Vec<Command>) -> Option<Command> {
+pub(super) fn batch(children: Vec<Command>) -> Option<Command> {
     (!children.is_empty()).then_some(Command::Batch(children))
 }
 

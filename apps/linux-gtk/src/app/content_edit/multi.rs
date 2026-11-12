@@ -101,7 +101,7 @@ pub(crate) fn member_at(content: &PageContent, point: (f64, f64), reach: f64) ->
     if let Some(image) = model::image_at(content, at) {
         return Some(Member::Image(image.clone()));
     }
-    if let Some(run) = model::text_run_at(content, at) {
+    if let Some(run) = model::text_hit_at(content, at) {
         let block = model::block_runs(content, run);
         return Some(Member::Runs(if block.is_empty() {
             vec![run.clone()]
@@ -706,6 +706,30 @@ mod tests {
         assert_eq!(moved.runs[0].id, ContentItemId(1));
         assert_eq!(moved.runs[0].bbox, a_rect(110.0, 480.0, 50.0, 12.0));
         assert_eq!(moved.paths[0].bbox, a_rect(100.0, 280.0, 300.0, 0.0));
+    }
+
+    /// A paragraph is one member: a marquee touching one of its lines takes
+    /// every line, a SHIFT+click between its lines picks it, and it counts
+    /// as one item.
+    #[test]
+    fn a_paragraph_is_one_member_whole() {
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let content = pdf_edit::read_page_content(&base, PageId(0)).expect("the page parses");
+        let (first, second) = (&content.text_runs[0], &content.text_runs[1]);
+
+        let touching_the_last_line = a_rect(second.bbox.x, second.bbox.y, 5.0, 5.0);
+        let marquee = members_in(&content, touching_the_last_line);
+        assert_eq!(marquee.runs, content.text_runs);
+        assert_eq!(item_count(&marquee), 1);
+
+        let between = (
+            first.bbox.x + 10.0,
+            (first.bbox.y + second.bbox.y + second.bbox.height) / 2.0,
+        );
+        let Some(Member::Runs(runs)) = member_at(&content, between, 0.0) else {
+            panic!("the paragraph is picked between its lines");
+        };
+        assert_eq!(runs, content.text_runs);
     }
 
     /// A table — its frame and the text inside — dragged twice before a

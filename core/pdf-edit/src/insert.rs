@@ -421,7 +421,11 @@ pub(crate) fn ensure_standard_font_resource(
     add_resource(document, owner, b"Font", name, Object::Reference(font_id))
 }
 
-fn font_resource(document: &Document, owner: ObjectId, name: &str) -> Option<Dictionary> {
+pub(crate) fn font_resource(
+    document: &Document,
+    owner: ObjectId,
+    name: &str,
+) -> Option<Dictionary> {
     let resources = owned_resources_snapshot(document, owner);
     let fonts = dereferenced_dict(document, resources.get(b"Font").ok()?)?;
     dereferenced_dict(document, fonts.get(name.as_bytes()).ok()?)
