@@ -1951,15 +1951,16 @@ fn apply_content_command(state: &mut DocumentState, core_command: Command) -> Re
 pub fn refresh_preview(handle: &DocumentHandle) -> Result<(), FfiError> {
     let mut state = handle.lock();
 
-    let mut preview = state.document.clone();
-    preview.annotations = Default::default();
-
-    let bytes = state.with_save_input_for(
-        &preview,
-        FfiSaveIntent::Default,
-        FfiSignatureAcknowledgement::ProceedAndInvalidate,
-        pdf_save::save_document,
-    )?;
+    // The snapshot is the core's (`pdf_save::preview`); reopening it in
+    // pdfium is this boundary's.
+    let bytes = state.with_imported_sources(|imported_sources| {
+        pdf_save::session_preview(
+            &state.document,
+            &state.base,
+            state.original_bytes.as_deref(),
+            imported_sources,
+        )
+    })?;
 
     let refreshed = open_render_doc_from_bytes(bytes, state.render_password.as_deref())?;
     if let Some(stale) = state.render_doc.replace(refreshed) {

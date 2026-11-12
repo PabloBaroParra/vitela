@@ -41,6 +41,8 @@
 //! - [`origin`]: which document and object hold a model page's bytes — the
 //!   read path's answer to a `PageId` that is no longer a position (batch PDF
 //!   assembly §6).
+//! - [`preview`] (B26 T-223): the bytes a boundary reopens in pdfium to
+//!   show unsaved edits, minus the session's own annotations.
 //! - [`error`]: [`SaveError`], the shared error type across this crate.
 
 pub mod annotations;
@@ -58,6 +60,7 @@ pub mod import;
 pub mod imported_sources;
 pub mod metadata;
 pub mod origin;
+pub mod preview;
 pub mod record;
 pub mod rewrite;
 pub mod security;
@@ -101,6 +104,7 @@ pub use origin::{
     page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
     retype_text_block_of, text_run_font_program_of, text_run_style_of, PageBacking,
 };
+pub use preview::session_preview;
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
