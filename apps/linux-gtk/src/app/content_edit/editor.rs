@@ -899,17 +899,15 @@ pub(crate) fn commit(viewer: &Viewer) {
     }
 }
 
-/// Why a run that only exists as an unsaved insertion cannot be deleted from
-/// here, said in terms of what to do instead.
+/// Why a run that only exists as an unsaved insertion cannot be deleted
+/// from here, said in terms of what to do instead — only where the session
+/// may not checkpoint (see [`removable`]).
 ///
-/// `EditLog` has no "drop this entry" door, by design — `apply`, `undo`,
-/// `redo` and `amend` are the whole surface — and neither of the two things
-/// this could otherwise record is honest. A `RemoveTextRun` would name a run
-/// no saved file contains, which resolves against nothing at save time and
-/// fails the *entire* save; amending the insertion into an empty one would
-/// leave a run painting no glyphs on the page and still answering clicks.
-/// Undo removes the insertion outright, which is the operation actually being
-/// asked for.
+/// A removal of such a run names a run no file contains yet. Where the core
+/// may checkpoint, it writes the queue into a new in-memory base and removes
+/// the run from there (`pdf_save::checkpoint::record`). Where it may not —
+/// an encrypted or signed file, imported PDFs, page changes — undo removes
+/// the insertion outright, which is the operation actually being asked for.
 pub(crate) const INSERTION_NOT_DELETABLE: &str = "edit-insertion-not-deletable";
 
 /// Removes the run the open inline editor sits on — or its whole block, as
@@ -918,9 +916,9 @@ pub(crate) const INSERTION_NOT_DELETABLE: &str = "edit-insertion-not-deletable";
 /// Whatever is in the box is discarded rather than committed first: a delete
 /// supersedes a retype of the same run. Where the removal lands is the
 /// core's to decide (`pdf_save::record`): a run with a queued retype has that
-/// entry amended into the removal, keeping the snapshot the file holds. A
-/// run that is only an unsaved insertion is refused here, see
-/// [`INSERTION_NOT_DELETABLE`].
+/// entry amended into the removal, keeping the snapshot the file holds, and
+/// a run that is only an unsaved insertion is removed through a checkpoint
+/// — or refused where none may be taken, see [`INSERTION_NOT_DELETABLE`].
 pub(crate) fn delete_open_run(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(&refusal);
@@ -954,6 +952,19 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
     }
 }
 
+/// Whether [`record_removal`] would take `run` (or its `block`) to the
+/// core rather than refuse it outright — what the quick actions' and the
+/// Edit card's Delete read, so neither offers a removal that is refused.
+///
+/// Only a lone run that exists as an unsaved insertion is in question, and
+/// it is removable when the session may checkpoint. The checkpoint check
+/// parses the page tree, so it is asked for that run alone.
+pub(crate) fn removable(session: &DocumentSession, run: &TextRun, block: &[TextRun]) -> bool {
+    !block.is_empty()
+        || model::pending_log_index(run.id).is_none()
+        || super::checkpoint::may_checkpoint(session)
+}
+
 /// Records the removal of `run` — or of its whole `block`, as one batch —
 /// through the core's queue policy. Shared by the open editor's delete and
 /// a selected block's (`super::block::delete_selected`), so the two refuse
@@ -963,7 +974,7 @@ pub(super) fn record_removal(
     run: TextRun,
     block: &[TextRun],
 ) -> Result<(), String> {
-    if block.is_empty() && model::pending_log_index(run.id).is_some() {
+    if !removable(session, &run, block) {
         return Err(tr(INSERTION_NOT_DELETABLE));
     }
     if block.is_empty() {

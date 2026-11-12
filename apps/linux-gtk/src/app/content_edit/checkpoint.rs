@@ -376,4 +376,174 @@ mod tests {
             1
         );
     }
+
+    /// Adds `text` as a new run below the page's first line, the way the
+    /// Add text tool records it, and returns the run as the canvas shows it.
+    fn inserted(session: &mut DocumentSession, text: &str) -> TextRun {
+        let template = shown_runs(session).remove(0);
+        let run = TextRun {
+            id: pdf_document::ContentItemId(0),
+            resource_font_name: "InsertedFont".to_string(),
+            bbox: Rect {
+                y: 40.0,
+                ..template.bbox
+            },
+            text: text.to_string(),
+            ..template
+        };
+        record(session, Command::InsertTextRun(run)).expect("the text inserts");
+        shown(session, text)
+    }
+
+    fn saved_texts(session: &DocumentSession) -> Vec<String> {
+        saved_runs(session)
+            .into_iter()
+            .map(|run| run.text)
+            .collect()
+    }
+
+    /// The reader's report: Add text, select it, Delete — refused with
+    /// "undo the insertion to remove it". The removal checkpoints instead.
+    #[test]
+    fn an_inserted_run_is_deleted_without_a_save() {
+        let mut session = checkpointable_session(&["Original text"]);
+        let run = inserted(&mut session, "Hay vece");
+
+        super::super::editor::record_removal(&mut session, run, &[])
+            .expect("the insertion is deleted");
+
+        assert_eq!(saved_texts(&session), ["Original text"]);
+        assert!(can_undo(&session));
+    }
+
+    /// Cut is a copy and then the same removal.
+    #[test]
+    fn an_inserted_run_is_cut_and_pasted_without_a_save() {
+        use crate::app::content_edit::command::{copy, paste, record_selection_removal};
+
+        let mut session = checkpointable_session(&["Original text"]);
+        let run = inserted(&mut session, "Hay vece");
+        let selection = pdf_edit::Selection {
+            runs: vec![run],
+            ..pdf_edit::Selection::default()
+        };
+
+        let clip = copy(&mut session, &selection).expect("the insertion copies");
+        record_selection_removal(&mut session, &selection).expect("the insertion is cut");
+        assert_eq!(saved_texts(&session), ["Original text"]);
+
+        paste(&mut session, pdf_document::PageId(0), clip, 100.0, 300.0).expect("it pastes");
+        let mut texts = saved_texts(&session);
+        texts.sort();
+        assert_eq!(texts, ["Hay vece", "Original text"]);
+    }
+
+    /// Moving and retyping a fresh insertion fold into it, as before.
+    #[test]
+    fn an_inserted_run_is_moved_and_retyped_without_a_save() {
+        use crate::app::content_edit::command::record_selection_move;
+
+        let mut session = checkpointable_session(&["Original text"]);
+        let run = inserted(&mut session, "Hay vece");
+        record(&mut session, moved(&run, 150.0, 200.0)).expect("the insertion moves");
+        let run = shown(&session, "Hay vece");
+        record(&mut session, retyped(&run, "Hay veces")).expect("the insertion retypes");
+        let run = shown(&session, "Hay veces");
+        let selection = pdf_edit::Selection {
+            runs: vec![run],
+            ..pdf_edit::Selection::default()
+        };
+        record_selection_move(&mut session, &selection, 10.0, 0.0)
+            .expect("the insertion moves as a selection");
+
+        let written = saved_runs(&session);
+        let run = written
+            .iter()
+            .find(|run| run.text == "Hay veces")
+            .unwrap_or_else(|| panic!("{written:?}"));
+        assert!((run.bbox.x - 160.0).abs() < 0.05, "{:?}", run.bbox);
+        assert!((run.bbox.y - 200.0).abs() < 0.05, "{:?}", run.bbox);
+    }
+
+    /// Where the core may not checkpoint, deleting an insertion is still
+    /// refused — undo takes it back — and the quick actions say so up front.
+    #[test]
+    fn an_inserted_run_is_not_deleted_where_no_checkpoint_may_be_taken() {
+        let mut session = checkpointable_session(&["Original text"]);
+        let run = inserted(&mut session, "Hay vece");
+        session
+            .imported_sources
+            .push(crate::app::state::ImportedSource {
+                id: pdf_document::ImportedDocumentId(0),
+                document: (*session.save_backing.as_ref().expect("a backing").base).clone(),
+                name: "imported.pdf".to_string(),
+            });
+
+        assert!(!super::super::editor::removable(&session, &run, &[]));
+        assert!(super::super::editor::record_removal(&mut session, run, &[]).is_err());
+        assert_eq!(session.content_checkpoints.generation(), 0);
+    }
+
+    #[test]
+    fn an_inserted_run_is_removable_where_a_checkpoint_may_be_taken() {
+        let mut session = checkpointable_session(&["Original text"]);
+        let run = inserted(&mut session, "Hay vece");
+        assert!(super::super::editor::removable(&session, &run, &[]));
+        let original = shown(&session, "Original text");
+        assert!(super::super::editor::removable(&session, &original, &[]));
+    }
+
+    /// An image added with Add image and not saved is deleted the same way.
+    #[test]
+    fn an_inserted_image_is_deleted_without_a_save() {
+        use image::{DynamicImage, ImageFormat, RgbImage};
+        use pdf_document::{ContentItemId, ImageItem, ImageSource, PageId};
+
+        let mut png = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(8, 4, image::Rgb([200, 30, 30])))
+            .write_to(&mut png, ImageFormat::Png)
+            .expect("encodes");
+        let mut session = checkpointable_session(&["Original text"]);
+        let item = ImageItem {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 100.0,
+                y: 300.0,
+                width: 80.0,
+                height: 40.0,
+            },
+            source: ImageSource::Resource("XIns1".to_string()),
+        };
+        let document = session.document_model.as_mut().expect("a model");
+        crate::app::content_edit::command::apply_command(
+            document,
+            Command::InsertImage {
+                item,
+                source: Some(png.into_inner()),
+            },
+        );
+        let images = |session: &DocumentSession| {
+            pdf_save::read_pending_page_content_of(
+                session.document_model.as_ref().expect("a model"),
+                PageId(0),
+                &session.save_backing.as_ref().expect("a backing").base,
+                pdf_save::ImportedSources::none(),
+            )
+            .expect("the page reads")
+            .images
+        };
+        let shown = images(&session).pop().expect("the image shows");
+
+        record(
+            &mut session,
+            Command::RemoveImage {
+                item: shown,
+                source: None,
+            },
+        )
+        .expect("the inserted image is deleted");
+
+        assert!(images(&session).is_empty());
+    }
 }
