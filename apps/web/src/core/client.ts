@@ -9,7 +9,15 @@ import type {
   WorkerMessage,
 } from './protocol';
 import { EngineError } from './errors';
-import type { DocumentHandle, Engine, OpenedDocument, RenderedPage } from './types';
+import type {
+  DocumentHandle,
+  Engine,
+  OpenedDocument,
+  PagePoint,
+  RenderedPage,
+  SearchHit,
+  TextSelection,
+} from './types';
 
 interface Pending {
   resolve(value: unknown): void;
@@ -45,6 +53,18 @@ export class EngineClient implements Engine {
 
   close(document: DocumentHandle): Promise<void> {
     return this.send({ kind: 'close', document });
+  }
+
+  search(document: DocumentHandle, query: string): Promise<SearchHit[]> {
+    return this.send({ kind: 'search', document, query });
+  }
+
+  selectText(document: DocumentHandle, pageIndex: number, anchor: PagePoint, focus: PagePoint): Promise<TextSelection> {
+    return this.send({ kind: 'selectText', document, pageIndex, anchor, focus });
+  }
+
+  selectWord(document: DocumentHandle, pageIndex: number, point: PagePoint): Promise<TextSelection> {
+    return this.send({ kind: 'selectWord', document, pageIndex, point });
   }
 
   /** Marks the engine dead (e.g. the worker script failed to load). */

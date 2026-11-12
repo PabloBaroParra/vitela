@@ -1,19 +1,21 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Engine, PageSize, RenderedPage } from '../../core/types';
+import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { DocumentViewer } from './DocumentViewer';
 
 const VIEWPORT = { width: 800, height: 600 };
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 const pages: PageSize[] = Array(40).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 });
-const doc: OpenDocument = { name: 'long.pdf', info: { pageCount: pages.length, pages }, handle: 1, generation: 1 };
-
-const engine: Engine = {
-  open: () => Promise.reject(new Error('unused')),
-  renderPage: async () => page,
-  close: async () => {},
+const doc: OpenDocument = {
+  name: 'long.pdf',
+  info: { pageCount: pages.length, pages, textExtractionAllowed: true },
+  handle: 1,
+  generation: 1,
 };
+
+const engine: Engine = fakeEngine({ renderPage: async () => page });
 
 /** jsdom lays nothing out: give every element the viewer's viewport and real scroll offsets. */
 function fakeLayout() {

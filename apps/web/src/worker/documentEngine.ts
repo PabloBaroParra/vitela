@@ -4,19 +4,16 @@
 // "whichever one is newest". Kept apart from engine.ts (which loads the WASM)
 // so it is tested with a fake core.
 
-import type { DocumentHandle, Engine, OpenedDocument, PageSize, RenderedPage } from '../core/types';
-
-/** A wasm-bindgen object the caller must free. */
-interface Owned {
-  free(): void;
-}
+import type { DocumentHandle, Engine, OpenedDocument, PagePoint, PageSize, RenderedPage } from '../core/types';
+import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText';
 
 /** The slice of core/pdf-wasm's `Engine` this module uses. */
-export interface CoreEngine {
+export interface CoreEngine extends CoreText {
   open(bytes: Uint8Array, password?: string): number;
   close(doc: number): boolean;
   pageCount(doc: number): number;
   pageDimensions(doc: number): (PageSize & Owned)[];
+  textExtractionAllowed(doc: number): boolean;
   renderPage(doc: number, page: number, dpi: number, invert: boolean): Owned & {
     readonly width: number;
     readonly height: number;
@@ -24,12 +21,30 @@ export interface CoreEngine {
   };
 }
 
-export function documentEngine(core: CoreEngine): Engine {
+export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine {
+  const text = new PageText(core, geometry);
+  /** Each open document's page sizes: the placement of its text needs them. */
+  const sizes = new Map<DocumentHandle, readonly PageSize[]>();
+  const pagesOf = (document: DocumentHandle) => {
+    const pages = sizes.get(document);
+    // The core's own refusal, for a document this side never opened.
+    if (!pages) throw named('DocumentNotFound', `document ${document} is not open`);
+    return pages;
+  };
+  const pageOf = (document: DocumentHandle, pageIndex: number) => {
+    const page = pagesOf(document)[pageIndex];
+    if (!page) throw named('PageIndexOutOfBounds', `page ${pageIndex} is out of bounds`);
+    return page;
+  };
+
   return {
     async open(bytes: Uint8Array, password?: string): Promise<OpenedDocument> {
       const doc = core.open(bytes, password);
       try {
-        return { handle: doc, info: { pageCount: core.pageCount(doc), pages: pageSizes(core, doc) } };
+        const pages = pageSizes(core, doc);
+        const info = { pageCount: core.pageCount(doc), pages, textExtractionAllowed: core.textExtractionAllowed(doc) };
+        sizes.set(doc, pages);
+        return { handle: doc, info };
       } catch (error) {
         core.close(doc);
         throw error;
@@ -49,9 +64,27 @@ export function documentEngine(core: CoreEngine): Engine {
       }
     },
     async close(document: DocumentHandle): Promise<void> {
+      text.forget(document);
+      sizes.delete(document);
       core.close(document);
     },
+    async search(document: DocumentHandle, query: string) {
+      return text.search(document, pagesOf(document), query);
+    },
+    async selectText(document: DocumentHandle, pageIndex: number, anchor: PagePoint, focus: PagePoint) {
+      return text.selectText(document, pageIndex, pageOf(document, pageIndex), anchor, focus);
+    },
+    async selectWord(document: DocumentHandle, pageIndex: number, point: PagePoint) {
+      return text.selectWord(document, pageIndex, pageOf(document, pageIndex), point);
+    },
   };
+}
+
+/** An `Error` named like the core's own refusals, so the UI branches alike. */
+function named(name: string, message: string): Error {
+  const error = new Error(message);
+  error.name = name;
+  return error;
 }
 
 /** Copies the core's page sizes into plain objects and frees the wasm ones. */

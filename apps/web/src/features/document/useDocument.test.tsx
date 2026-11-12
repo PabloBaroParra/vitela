@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { EngineError } from '../../core/errors';
 import type { DocumentInfo, Engine, OpenedDocument } from '../../core/types';
+import { fakeEngine } from '../../test/fakeEngine';
 import { useDocument } from './useDocument';
 
 function file(name: string, bytes = [37, 80, 68, 70]): File {
@@ -9,7 +10,11 @@ function file(name: string, bytes = [37, 80, 68, 70]): File {
 }
 
 function info(pageCount: number): DocumentInfo {
-  return { pageCount, pages: Array(pageCount).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 }) };
+  return {
+    pageCount,
+    pages: Array(pageCount).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 }),
+    textExtractionAllowed: true,
+  };
 }
 
 function deferred<T>() {
@@ -29,16 +34,15 @@ function deferred<T>() {
 function engineWith(open: (bytes: Uint8Array, password?: string) => Promise<DocumentInfo>) {
   let nextHandle = 1;
   const closed: number[] = [];
-  const engine: Engine = {
+  const engine: Engine = fakeEngine({
     open: async (bytes, password): Promise<OpenedDocument> => {
       const opened = await open(bytes, password);
       return { handle: nextHandle++, info: opened };
     },
-    renderPage: () => Promise.reject(new Error('unused')),
     close: async (handle) => {
       closed.push(handle);
     },
-  };
+  });
   return Object.assign(engine, { closed });
 }
 

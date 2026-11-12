@@ -5,6 +5,7 @@
 /** The failure kinds the UI branches on. Others are shown generically. */
 export const PASSWORD_REQUIRED = 'PasswordRequired';
 export const WRONG_PASSWORD = 'WrongPassword';
+export const TEXT_EXTRACTION_DENIED = 'TextExtractionDenied';
 
 /** A failure reported by the engine, carrying the core's kind as `name`. */
 export class EngineError extends Error {
