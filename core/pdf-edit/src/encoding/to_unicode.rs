@@ -279,6 +279,9 @@ fn text_of_units(units: &[u16]) -> Option<String> {
     (!text.is_empty() && text.chars().any(|character| character != '\0')).then_some(text)
 }
 
+/// Arrays nest at most this deep; a `bfrange` destination array needs one.
+const MAX_ARRAY_DEPTH: usize = 4;
+
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     Hex(Vec<u8>),
@@ -292,6 +295,7 @@ enum Token {
 /// `bfrange` destination array is the one place a token holds others.
 fn tokenize(bytes: &[u8]) -> Vec<Token> {
     let mut stack: Vec<Vec<Token>> = vec![Vec::new()];
+    let mut flattened = 0usize;
     let mut at = 0;
     while at < bytes.len() {
         let byte = bytes[at];
@@ -315,7 +319,18 @@ fn tokenize(bytes: &[u8]) -> Vec<Token> {
                 at = skip_literal(bytes, at);
             }
             b'[' => {
-                stack.push(Vec::new());
+                // A destination array holds strings, never arrays; deeper
+                // brackets are flattened so a hostile stream cannot build a
+                // tree whose recursive drop overflows the stack.
+                if stack.len() <= MAX_ARRAY_DEPTH {
+                    stack.push(Vec::new());
+                } else {
+                    flattened += 1;
+                }
+                at += 1;
+            }
+            b']' if flattened > 0 => {
+                flattened -= 1;
                 at += 1;
             }
             b']' => {
@@ -552,5 +567,23 @@ mod tests {
 
         assert!(map.entries.len() <= 0x1_0000);
         assert_eq!(map.simple(0x00), Some("A"), "the first range still maps");
+    }
+
+    /// Dropping a token tree millions of arrays deep recurses once per level,
+    /// so an unbounded nesting overflowed the stack and aborted the process.
+    #[test]
+    fn deeply_nested_arrays_do_not_overflow_the_stack() {
+        let hostile = format!(
+            "beginbfrange\n<41> <41> [{}<0042>{}]\n<43> <43> <0044>\nendbfrange",
+            "[".repeat(2_000_000),
+            "]".repeat(2_000_000),
+        );
+        let map = parse(&hostile);
+
+        assert_eq!(
+            map.simple(0x43),
+            Some("D"),
+            "entries after the nesting still map"
+        );
     }
 }
