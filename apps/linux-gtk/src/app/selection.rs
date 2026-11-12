@@ -52,35 +52,26 @@ const HANDLE_PX: f64 = 8.0;
 /// Handle fill. Solid, unlike the annotations, so a handle reads as chrome the
 /// user can grab rather than as part of the mark.
 const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
-/// Outline for a content-edit-mode text run that can be retyped.
-const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
-/// The run being dragged or selected right now, brighter than a resting one
-/// — same posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting
-/// colour.
+/// The run being dragged or selected right now, solid and coloured so it
+/// stands out above the grey dashes every resting item wears
+/// (`content_edit::outline`).
 const DRAGGED_CONTENT_RUN_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.90);
 /// A selected text block's outline is drawn this much heavier than a resting
 /// one, in device pixels, the way Windows doubles its stroke: a block has no
 /// handles to mark it, so the line itself has to.
 const SELECTED_CONTENT_RUN_LINE_WIDTH: f64 = 3.0;
-/// Outline for a composite-font run: distinct colour *and* dashed, so the
-/// difference reads even to a colour-blind user — T-161's "shown
+/// Outline for a composite-font run: distinct colour *and* a heavier, longer
+/// dash than the resting grey one, so the difference reads even to a
+/// colour-blind user — T-161's "shown
 /// distinguishable" requirement for runs `pdf-edit` will never accept an edit
 /// against.
 const COMPOSITE_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.75, 0.20, 0.20, 0.55);
 const COMPOSITE_RUN_DASH: [f64; 2] = [4.0, 3.0];
-/// Outline for a page image in content-edit mode (T-162) — distinct from
-/// the text-run outline colours so the two item kinds read as different
-/// things.
-const CONTENT_IMAGE_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.55);
-/// The selected image's outline/handles, brighter than an unselected one —
-/// same posture as `SELECTED_ANNOTATION_ALPHA` vs `ANNOTATION_ALPHA`.
+/// The selected image's outline (T-162), solid and coloured above the grey
+/// dashes an unselected one wears.
 const SELECTED_CONTENT_IMAGE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.85);
-/// Outline for a vector path in content-edit mode (B25 T-206): faint and
-/// dashed, because a page can paint hundreds of table rules and every one of
-/// them outlined solid would bury the text it frames.
-const CONTENT_PATH_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.35);
-const CONTENT_PATH_DASH: [f64; 2] = [2.0, 3.0];
-/// The selected path, solid and brighter, with its handles.
+/// The selected vector path (B25 T-206), solid and coloured, with its
+/// handles; an unselected one wears the resting grey dashes.
 const SELECTED_CONTENT_PATH_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.90);
 /// Several selected items and the box around them (B25 T-208): the handle
 /// blue, so the selection reads as chrome the user can grab.
@@ -424,14 +415,13 @@ fn draw_content_run_outlines(
             let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&COMPOSITE_RUN_DASH, 0.0);
-        } else {
-            let (red, green, blue, alpha) = if dragging.is_some() || selected {
-                DRAGGED_CONTENT_RUN_RGBA
-            } else {
-                CONTENT_RUN_OUTLINE_RGBA
-            };
+        } else if dragging.is_some() || selected {
+            let (red, green, blue, alpha) = DRAGGED_CONTENT_RUN_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&[], 0.0);
+        } else {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
         }
         context.set_line_width(if selected {
             SELECTED_CONTENT_RUN_LINE_WIDTH
@@ -548,18 +538,16 @@ fn draw_content_image_outlines(
             },
             page.placement(),
         );
-        let (red, green, blue, alpha) = if selected {
-            SELECTED_CONTENT_IMAGE_RGBA
-        } else {
-            CONTENT_IMAGE_OUTLINE_RGBA
-        };
+        if !selected {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
+        }
+        let (red, green, blue, alpha) = SELECTED_CONTENT_IMAGE_RGBA;
         context.set_source_rgba(red, green, blue, alpha);
         context.set_dash(&[], 0.0);
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
-        if selected {
-            draw_corner_handles(context, rect, page.placement());
-        }
+        draw_corner_handles(context, rect, page.placement());
     }
 }
 
@@ -603,21 +591,17 @@ fn draw_content_path_outlines(
             },
             page.placement(),
         );
-        let (red, green, blue, alpha) = if selected {
-            context.set_dash(&[], 0.0);
-            SELECTED_CONTENT_PATH_RGBA
-        } else {
-            context.set_dash(&CONTENT_PATH_DASH, 0.0);
-            CONTENT_PATH_OUTLINE_RGBA
-        };
+        if !selected {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
+        }
+        let (red, green, blue, alpha) = SELECTED_CONTENT_PATH_RGBA;
         context.set_source_rgba(red, green, blue, alpha);
+        context.set_dash(&[], 0.0);
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
-        if selected {
-            draw_corner_handles(context, rect, page.placement());
-        }
+        draw_corner_handles(context, rect, page.placement());
     }
-    context.set_dash(&[], 0.0);
 }
 
 /// Paints several selected items (B25 T-208): each member's box, the dashed

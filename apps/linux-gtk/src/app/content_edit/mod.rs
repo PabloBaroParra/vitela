@@ -78,6 +78,7 @@ pub(crate) mod hover;
 pub(crate) mod image;
 mod model;
 pub(crate) mod multi;
+pub(crate) mod outline;
 pub(crate) mod panel;
 pub(crate) mod path;
 pub(crate) mod quick_actions;
