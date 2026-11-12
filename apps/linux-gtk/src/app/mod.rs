@@ -247,6 +247,9 @@ fn build_ui(application: &Application) -> BuiltUi {
     page_area.set_hexpand(true);
     page_area.set_child(Some(&scroll));
     page_area.add_overlay(&app_mark);
+    // Above the pages, beside whatever is selected in content-edit mode.
+    let content_quick_actions = content_edit::quick_actions::build();
+    page_area.add_overlay(&content_quick_actions.root);
 
     let page_navigation = GtkBox::new(Orientation::Vertical, 4);
     page_navigation.add_css_class("page-navigation");
@@ -413,6 +416,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         delete_path_button,
         add_watermark_button,
         edit_panel,
+        content_quick_actions,
         forms: form_field_toolbar,
         choose_signing_certificate,
         choose_pkcs11_certificate,
@@ -458,6 +462,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
     content_edit::connect_insert_toggles(&viewer);
+    content_edit::quick_actions::connect(&viewer);
     forms::connect_forms_toolbar(&viewer);
     connect_sign_toolbar(&window, &viewer);
     signature::connect_signature(&viewer);
@@ -763,6 +768,9 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     content_edit::clipboard::update_cut_action(viewer);
     content_edit::multi::update_clear_action(viewer);
     content_edit::block::update_retype_action(viewer);
+    // The floating bar offers the same doors, so it follows the same
+    // refresh — an inline editor opening or closing reaches only this.
+    content_edit::quick_actions::sync(viewer);
     viewer.edit_panel.text_hint.set_text(&tr(if text_editing {
         content_edit::panel::TEXT_EDITING
     } else if text_selected {

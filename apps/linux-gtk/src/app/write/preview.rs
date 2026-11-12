@@ -185,8 +185,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     // so it re-parses the base the restored model's commands
                     // are actually keyed to.
                     if still_editing {
-                        crate::app::content_edit::load_visible_page_content(&viewer);
-                        crate::app::selection::redraw(&viewer);
+                        crate::app::content_edit::reload_after_refresh(&viewer);
                     }
                     viewer
                         .status

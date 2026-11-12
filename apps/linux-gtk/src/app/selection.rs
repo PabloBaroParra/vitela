@@ -52,35 +52,26 @@ const HANDLE_PX: f64 = 8.0;
 /// Handle fill. Solid, unlike the annotations, so a handle reads as chrome the
 /// user can grab rather than as part of the mark.
 const HANDLE_RGB: (f64, f64, f64) = (0.10, 0.35, 0.85);
-/// Outline for a content-edit-mode text run that can be retyped.
-const CONTENT_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.55);
-/// The run being dragged or selected right now, brighter than a resting one
-/// — same posture as `SELECTED_CONTENT_IMAGE_RGBA` beside its own resting
-/// colour.
+/// The run being dragged or selected right now, solid and coloured so it
+/// stands out above the grey dashes every resting item wears
+/// (`content_edit::outline`).
 const DRAGGED_CONTENT_RUN_RGBA: (f64, f64, f64, f64) = (0.20, 0.60, 0.30, 0.90);
 /// A selected text block's outline is drawn this much heavier than a resting
 /// one, in device pixels, the way Windows doubles its stroke: a block has no
 /// handles to mark it, so the line itself has to.
 const SELECTED_CONTENT_RUN_LINE_WIDTH: f64 = 3.0;
-/// Outline for a composite-font run: distinct colour *and* dashed, so the
-/// difference reads even to a colour-blind user — T-161's "shown
+/// Outline for a composite-font run: distinct colour *and* a heavier, longer
+/// dash than the resting grey one, so the difference reads even to a
+/// colour-blind user — T-161's "shown
 /// distinguishable" requirement for runs `pdf-edit` will never accept an edit
 /// against.
 const COMPOSITE_RUN_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.75, 0.20, 0.20, 0.55);
 const COMPOSITE_RUN_DASH: [f64; 2] = [4.0, 3.0];
-/// Outline for a page image in content-edit mode (T-162) — distinct from
-/// the text-run outline colours so the two item kinds read as different
-/// things.
-const CONTENT_IMAGE_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.55);
-/// The selected image's outline/handles, brighter than an unselected one —
-/// same posture as `SELECTED_ANNOTATION_ALPHA` vs `ANNOTATION_ALPHA`.
+/// The selected image's outline (T-162), solid and coloured above the grey
+/// dashes an unselected one wears.
 const SELECTED_CONTENT_IMAGE_RGBA: (f64, f64, f64, f64) = (0.55, 0.35, 0.85, 0.85);
-/// Outline for a vector path in content-edit mode (B25 T-206): faint and
-/// dashed, because a page can paint hundreds of table rules and every one of
-/// them outlined solid would bury the text it frames.
-const CONTENT_PATH_OUTLINE_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.35);
-const CONTENT_PATH_DASH: [f64; 2] = [2.0, 3.0];
-/// The selected path, solid and brighter, with its handles.
+/// The selected vector path (B25 T-206), solid and coloured, with its
+/// handles; an unselected one wears the resting grey dashes.
 const SELECTED_CONTENT_PATH_RGBA: (f64, f64, f64, f64) = (0.10, 0.55, 0.65, 0.90);
 /// Several selected items and the box around them (B25 T-208): the handle
 /// blue, so the selection reads as chrome the user can grab.
@@ -111,18 +102,18 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     area.set_has_tooltip(true);
     area.connect_query_tooltip({
         let viewer = viewer.clone();
-        move |_, x, y, keyboard_mode, tooltip| {
-            // Keyboard-triggered tooltips carry no pointer position.
-            if keyboard_mode {
-                return false;
+        move |_, x, y, keyboard_mode, tooltip| match tooltip_text(
+            &viewer,
+            page_index,
+            x,
+            y,
+            keyboard_mode,
+        ) {
+            Some(text) => {
+                tooltip.set_text(Some(&text));
+                true
             }
-            match annotations::note_tooltip(&viewer, page_index, f64::from(x), f64::from(y)) {
-                Some(text) => {
-                    tooltip.set_text(Some(&text));
-                    true
-                }
-                None => false,
-            }
+            None => false,
         }
     });
 
@@ -143,6 +134,8 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
         }
     });
     area.add_controller(motion);
+    // The outline round the content item under the pointer.
+    content_edit::hover::connect(&area, viewer, page_index);
 
     let drag = GestureDrag::new();
     drag.connect_drag_begin({
@@ -192,6 +185,28 @@ pub(crate) fn build_highlight_layer(viewer: &Viewer, page_index: usize) -> Drawi
     area
 }
 
+/// What the highlight layer's tooltip says at `(x, y)`, if anything.
+///
+/// GTK runs this not only from pointer motion but synchronously from any
+/// tooltip change anywhere in the window (`gtk_widget_set_tooltip_text`
+/// re-queries the widget under the pointer), so it can land in the middle of
+/// a handler that holds the state mutably. A panic here would cross GTK's
+/// `extern "C"` trampoline and abort the app, so a busy state shows no
+/// tooltip this time instead; the next pointer motion asks again.
+fn tooltip_text(
+    viewer: &Viewer,
+    page_index: usize,
+    x: i32,
+    y: i32,
+    keyboard_mode: bool,
+) -> Option<String> {
+    // Keyboard-triggered tooltips carry no pointer position.
+    if keyboard_mode || viewer.state.try_borrow().is_err() {
+        return None;
+    }
+    annotations::note_tooltip(viewer, page_index, f64::from(x), f64::from(y))
+}
+
 /// A pointer position on a drawn page, in PDF page space.
 ///
 /// `None` when the page is not laid out yet — there is no page-space answer to
@@ -236,6 +251,7 @@ fn draw_highlights(viewer: &Viewer, page_index: usize, context: &cairo::Context)
         draw_content_run_outlines(context, page, session, page_index);
         draw_content_image_outlines(context, page, session, page_index);
         draw_content_selection(context, page, session, page_index);
+        content_edit::hover::draw(context, page, session, page_index);
     }
 
     if forms::mode_is_active(viewer) {
@@ -399,14 +415,13 @@ fn draw_content_run_outlines(
             let (red, green, blue, alpha) = COMPOSITE_RUN_OUTLINE_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&COMPOSITE_RUN_DASH, 0.0);
-        } else {
-            let (red, green, blue, alpha) = if dragging.is_some() || selected {
-                DRAGGED_CONTENT_RUN_RGBA
-            } else {
-                CONTENT_RUN_OUTLINE_RGBA
-            };
+        } else if dragging.is_some() || selected {
+            let (red, green, blue, alpha) = DRAGGED_CONTENT_RUN_RGBA;
             context.set_source_rgba(red, green, blue, alpha);
             context.set_dash(&[], 0.0);
+        } else {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
         }
         context.set_line_width(if selected {
             SELECTED_CONTENT_RUN_LINE_WIDTH
@@ -523,18 +538,16 @@ fn draw_content_image_outlines(
             },
             page.placement(),
         );
-        let (red, green, blue, alpha) = if selected {
-            SELECTED_CONTENT_IMAGE_RGBA
-        } else {
-            CONTENT_IMAGE_OUTLINE_RGBA
-        };
+        if !selected {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
+        }
+        let (red, green, blue, alpha) = SELECTED_CONTENT_IMAGE_RGBA;
         context.set_source_rgba(red, green, blue, alpha);
         context.set_dash(&[], 0.0);
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
-        if selected {
-            draw_corner_handles(context, rect, page.placement());
-        }
+        draw_corner_handles(context, rect, page.placement());
     }
 }
 
@@ -578,21 +591,17 @@ fn draw_content_path_outlines(
             },
             page.placement(),
         );
-        let (red, green, blue, alpha) = if selected {
-            context.set_dash(&[], 0.0);
-            SELECTED_CONTENT_PATH_RGBA
-        } else {
-            context.set_dash(&CONTENT_PATH_DASH, 0.0);
-            CONTENT_PATH_OUTLINE_RGBA
-        };
+        if !selected {
+            content_edit::outline::stroke_resting(context, placed);
+            continue;
+        }
+        let (red, green, blue, alpha) = SELECTED_CONTENT_PATH_RGBA;
         context.set_source_rgba(red, green, blue, alpha);
+        context.set_dash(&[], 0.0);
         context.rectangle(placed.left, placed.top, placed.width, placed.height);
         let _ = context.stroke();
-        if selected {
-            draw_corner_handles(context, rect, page.placement());
-        }
+        draw_corner_handles(context, rect, page.placement());
     }
-    context.set_dash(&[], 0.0);
 }
 
 /// Paints several selected items (B25 T-208): each member's box, the dashed
@@ -1551,6 +1560,9 @@ pub(crate) fn copy_selection(viewer: &Viewer) {
 /// costs a dirty flag, whereas working out which pages are on screen would
 /// duplicate `layout::visible_range` for no gain.
 pub(crate) fn redraw(viewer: &Viewer) {
+    // Every selection change and every drag step ends here, so this is where
+    // the quick-action bar learns to move, hide or come back.
+    content_edit::quick_actions::sync(viewer);
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
         return;
@@ -1604,6 +1616,20 @@ pub(crate) fn connect_copy(
 mod tests {
     use super::*;
     use pdf_document::{FormFieldId, FormFieldKind, PageId, TextStyle};
+
+    /// A tooltip query that lands while a handler holds the state — a
+    /// status change re-queries the tooltip under the pointer on the spot —
+    /// shows nothing rather than panicking inside GTK's trampoline, which
+    /// would abort the app.
+    #[gtk::test]
+    fn gtk_ui_the_page_tooltip_stands_down_while_the_state_is_held() {
+        let built = crate::app::ui_tests::built_ui();
+        {
+            let _held = built.viewer.state.borrow_mut();
+            assert_eq!(tooltip_text(&built.viewer, 0, 10, 10, false), None);
+        }
+        built.window.close();
+    }
 
     fn a_field(name: &str, value: &str) -> FormField {
         FormField {

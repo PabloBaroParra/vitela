@@ -418,7 +418,7 @@ fn hint(text: &str) -> Label {
 /// solves the same problem with `tools::tile_tint`, but its answer is static
 /// because a tool tile's availability never changes after build; here it
 /// changes on every document open and every image click.
-fn tile(button: &Button, label: &str, icon: Icon, tooltip: &str) {
+pub(super) fn tile(button: &Button, label: &str, icon: Icon, tooltip: &str) {
     let content = GtkBox::new(Orientation::Horizontal, 8);
     content.set_halign(Align::Start);
     content.append(&build_icon(icon, EDIT_ICON_PX, ACCENT_TINT));

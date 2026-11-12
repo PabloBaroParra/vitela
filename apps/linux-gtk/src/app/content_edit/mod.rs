@@ -42,6 +42,11 @@
 //! - [`text`] is the page-gesture half of moving a run — press, drag,
 //!   release — plus `record_move`, the single door every reposition goes
 //!   through, whichever gesture asked for it.
+//! - [`hover`] is what the pointer rests on: the outline round the item a
+//!   press would grab, and the move cursor and whole-item move on its edge.
+//! - [`quick_actions`] is the floating bar beside a selection: retype,
+//!   replace, cut, copy and delete, each the same handler its key or Edit
+//!   card button already calls.
 //! - [`panel`] is the "Edit" page of the right-hand tools panel: the five
 //!   controls above, the cards they sit in, and the two sentences that say
 //!   what each gesture does and why a control is unavailable. It owns
@@ -69,11 +74,16 @@ pub(crate) mod checkpoint;
 pub(crate) mod clipboard;
 pub(crate) mod editor;
 pub(crate) mod geometry;
+pub(crate) mod hover;
 pub(crate) mod image;
 mod model;
 pub(crate) mod multi;
+pub(crate) mod outline;
 pub(crate) mod panel;
 pub(crate) mod path;
+pub(crate) mod quick_actions;
+#[cfg(test)]
+mod test_support;
 pub(crate) mod text;
 pub(crate) mod watermark;
 
@@ -428,6 +438,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         editor::commit(viewer);
         clear_selected_image(viewer);
         clear_text_drag(viewer);
+        hover::clear(viewer);
         // T-163: an armed insert kind cannot outlive the mode that makes it
         // reachable — a page click only reaches an insert path while
         // `content_edit_mode` is true (`selection.rs`'s gesture dispatch), so
@@ -466,6 +477,9 @@ pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) 
 
     if kind.is_some() {
         set_mode(viewer, true);
+        // Every click now places something new, so nothing on the page is
+        // what a press would grab.
+        hover::clear(viewer);
     }
 
     // Resolves whatever is already open/selected first — the same
@@ -545,6 +559,11 @@ fn clear_selected_image(viewer: &Viewer) {
 /// press a toggle, a press inside the selection's box drags all of it, and a
 /// press nothing claimed starts a marquee.
 ///
+/// A press on the border band round the hovered item (`hover`) comes after
+/// the image ask, so a selected image's handles keep their reach, and before
+/// every other: it moves the whole item, even off the item's own box, where
+/// the asks below would find nothing and start a marquee.
+///
 /// A selected text block survives a press on text, which the release turns
 /// into a selection or a move either way, and a marquee, which only decides
 /// what it means once it has grown; a press that took an image or a shape
@@ -570,6 +589,22 @@ pub(crate) fn begin_drag(
         clear_selected_path(viewer);
         block::clear(viewer);
         return true;
+    }
+    match hover::begin_border_move(viewer, page_index, point, reach) {
+        Some(hover::Grabbed::Image) => {
+            clear_selected_path(viewer);
+            block::clear(viewer);
+            return true;
+        }
+        Some(hover::Grabbed::Text) => {
+            clear_selected_path(viewer);
+            return true;
+        }
+        Some(hover::Grabbed::Path) => {
+            block::clear(viewer);
+            return true;
+        }
+        None => {}
     }
     if text::begin_text_drag(viewer, page_index, point) {
         clear_selected_path(viewer);
@@ -759,6 +794,15 @@ pub(crate) fn load_visible_page_content(viewer: &Viewer) {
     }
 }
 
+/// The tail of a preview refresh that landed with the mode on: parse the
+/// pages in view again, repaint them, and find the hover again under a
+/// pointer that has not moved since the edit dropped it.
+pub(crate) fn reload_after_refresh(viewer: &Viewer) {
+    load_visible_page_content(viewer);
+    redraw(viewer);
+    hover::restore_soon(viewer);
+}
+
 /// The content-edit half of a page's drag gesture.
 ///
 /// Tries [`image::finish_image_drag`] first (T-162): if an image drag was in
@@ -842,12 +886,17 @@ fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
 
     match block::text_block_at(viewer, page_index, point) {
         block::TextHit::Block(run, runs) => block::select(viewer, page_index, run, runs),
-        // An empty-space click resolves whatever was open rather than
-        // opening nothing and leaving it stranded.
-        block::TextHit::Miss => {
-            editor::commit(viewer);
-            block::clear(viewer);
-        }
+        // A click on the border band round a block, off its own box, is
+        // still aimed at the block.
+        block::TextHit::Miss => match hover::border_block(viewer, page_index, point) {
+            Some((run, runs)) => block::select(viewer, page_index, run, runs),
+            // An empty-space click resolves whatever was open rather than
+            // opening nothing and leaving it stranded.
+            None => {
+                editor::commit(viewer);
+                block::clear(viewer);
+            }
+        },
         block::TextHit::Unreadable(error) => viewer.status.set_text(&error),
         block::TextHit::Unavailable => {}
     }
