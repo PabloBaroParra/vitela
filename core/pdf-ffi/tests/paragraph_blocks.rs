@@ -13,10 +13,10 @@ fn fixture() -> Vec<u8> {
 }
 
 const SPEC: [&str; 4] = [
-    "COMPOSICION: Aluminio lacado con rotura de puente termico",
+    "COMPOSICIÓN: Aluminio lacado con rotura de puente térmico",
     "COLOR: Blanco RAL 9016 mate",
     "APERTURA: Corredera de dos hojas",
-    "VIDRIO: Doble 4/16/4 bajo emisivo",
+    "GARANTÍA: Total en perfilería y herrajes",
 ];
 
 #[test]

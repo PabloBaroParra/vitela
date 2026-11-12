@@ -19,11 +19,13 @@ What this produces: one page shaped like a joinery quote.
   three left-aligned columns, rows 14 pt apart. Its cells stack exactly like
   short paragraph lines would, which is what the detector must not join.
 
-The text is ASCII only on purpose. reportlab subsets the TrueType font and
-maps non-ASCII characters to codes only its /ToUnicode CMap explains, which
-pdf-edit does not read yet, so an accented "COMPOSICIÓN" would decode as
-U+FFFD and could not be retyped — a separate gap, not what this fixture is
-for.
+The text carries Spanish accents on purpose (`COMPOSICIÓN`, `GARANTÍA`,
+`Descripción`, `Instalación`), like the real quote it stands in for.
+reportlab subsets the TrueType font, declares no /Encoding, and gives each
+non-ASCII character a low code (`Ó` is `\001`) that only the font's
+/ToUnicode CMap explains — so this fixture is also the regression test for
+reading and writing text through /ToUnicode. The subset has no `ñ`, which is
+what the "character the font lacks" tests rely on: keep it out of the text.
 
 Regenerate with:
     pip install reportlab
@@ -41,17 +43,17 @@ OUTPUT = os.path.join(os.path.dirname(__file__), "reportlab_quote_paragraph.pdf"
 HEADING = "PRESUPUESTO 3.725/1"
 
 SPEC_LINES = [
-    "COMPOSICION: Aluminio lacado con rotura de puente termico",
+    "COMPOSICIÓN: Aluminio lacado con rotura de puente térmico",
     "COLOR: Blanco RAL 9016 mate",
     "APERTURA: Corredera de dos hojas",
-    "VIDRIO: Doble 4/16/4 bajo emisivo",
+    "GARANTÍA: Total en perfilería y herrajes",
 ]
 
 TABLE_COLUMNS = [72, 160, 400]
 TABLE_ROWS = [
-    ["Cantidad", "Descripcion", "Precio"],
+    ["Cantidad", "Descripción", "Precio"],
     ["1", "Ventana corredera", "450,00"],
-    ["2", "Puerta abatible", "890,00"],
+    ["2", "Instalación", "890,00"],
 ]
 
 
@@ -64,8 +66,11 @@ def main() -> None:
     # pageCompression=0 for the same reason as the embedded-subset fixture:
     # reportlab's default ASCII85 + Flate chain is a filter chain pdf-edit
     # refuses to rewrite.
-    doc = canvas.Canvas(OUTPUT, pagesize=(612, 792), pageCompression=0)
-    # A fixed creation date and no random id keep regeneration stable.
+    doc = canvas.Canvas(
+        OUTPUT, pagesize=(612, 792), pageCompression=0, invariant=1
+    )
+    # invariant=1 fixes the creation date and file id, so regeneration is
+    # byte-stable.
     doc.setCreator("generate_reportlab_quote_paragraph.py")
 
     doc.setFont("Vera", 14)

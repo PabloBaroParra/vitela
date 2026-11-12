@@ -6,16 +6,18 @@
 //! The fixture is `tests/fixtures/content-edit/reportlab_quote_paragraph.pdf`
 //! (see its generator script): a quote with a four-line specification
 //! paragraph in an embedded subset TrueType font, dark blue with `0.3 Tc`,
-//! and a small table in the same font.
+//! and a small table in the same font. Its accented letters have codes only
+//! the font's /ToUnicode CMap explains, so these tests also pin that text
+//! reads, retypes and saves in the font's own subset.
 
 use pdf_document::{Command, Document, PageId};
 use pdf_edit::{group_text_runs, TextBlock};
 use pdf_save::{save_document, ImportedSources, SaveInput, SaveIntent, SignatureAcknowledgement};
 
-const SPEC: &str = "COMPOSICION: Aluminio lacado con rotura de puente termico\n\
+const SPEC: &str = "COMPOSICIÓN: Aluminio lacado con rotura de puente térmico\n\
                     COLOR: Blanco RAL 9016 mate\n\
                     APERTURA: Corredera de dos hojas\n\
-                    VIDRIO: Doble 4/16/4 bajo emisivo";
+                    GARANTÍA: Total en perfilería y herrajes";
 
 /// The spec paragraph's fill colour and character spacing, as the fixture
 /// writes them.
@@ -38,7 +40,7 @@ fn blocks_of(document: &lopdf::Document) -> Vec<TextBlock> {
 fn spec_block(blocks: &[TextBlock]) -> &TextBlock {
     blocks
         .iter()
-        .find(|block| block.text.starts_with("COMPOSICION") || block.lines.len() > 1)
+        .find(|block| block.text.starts_with("COMPOSICI") || block.lines.len() > 1)
         .expect("the spec paragraph")
 }
 
@@ -55,10 +57,15 @@ fn page_content(document: &lopdf::Document) -> String {
     }
     content
 }
-
 /// Retypes the spec paragraph to `text` through `record_content_batch`,
 /// saves, and reopens the result.
 fn retype_spec(text: &str) -> lopdf::Document {
+    try_retype_spec(text).expect("retyped and saved")
+}
+
+/// [`retype_spec`], reporting the first refusal on the way as its message
+/// instead of panicking.
+fn try_retype_spec(text: &str) -> Result<lopdf::Document, String> {
     let bytes = fixture_bytes();
     let (base, security) = pdf_manip::open_document_from_bytes(&bytes, None).unwrap();
     let mut document: Document = pdf_save::document_from_lopdf(&base, security).unwrap();
@@ -85,11 +92,11 @@ fn retype_spec(text: &str) -> lopdf::Document {
         text,
         false,
     )
-    .expect("retypable")
+    .map_err(|error| error.to_string())?
     .expect("a batch");
     assert!(matches!(command, Command::Batch(_)));
     pdf_save::record_content_batch(&mut document, &base, ImportedSources::none(), command)
-        .expect("recorded");
+        .map_err(|error| error.to_string())?;
 
     let saved = save_document(SaveInput {
         document: &document,
@@ -99,9 +106,30 @@ fn retype_spec(text: &str) -> lopdf::Document {
         signatures: SignatureAcknowledgement::Unacknowledged,
         imported_sources: ImportedSources::none(),
     })
-    .expect("saved");
-    lopdf::Document::load_mem(&saved).expect("the output reloads")
+    .map_err(|error| error.to_string())?;
+    Ok(lopdf::Document::load_mem(&saved).expect("the output reloads"))
 }
+
+/// The resource names of the fonts `block`'s runs paint in.
+fn block_fonts(document: &lopdf::Document, block: &TextBlock) -> Vec<String> {
+    let runs = pdf_edit::read_page_content(document, PageId(0))
+        .unwrap()
+        .text_runs;
+    block
+        .runs
+        .iter()
+        .map(|id| {
+            runs.iter()
+                .find(|run| run.id == *id)
+                .unwrap()
+                .resource_font_name
+                .clone()
+        })
+        .collect()
+}
+
+/// The fixture's one font resource: the reportlab subset of Vera.
+const SUBSET_FONT: &str = "F2+0";
 
 #[test]
 fn the_fixture_reads_as_heading_paragraph_and_table_cells() {
@@ -159,11 +187,11 @@ fn a_paragraph_retyped_to_more_lines_saves_as_one_paragraph_in_its_own_look() {
 
 #[test]
 fn a_paragraph_retyped_to_fewer_lines_saves_as_one_paragraph() {
-    let saved = retype_spec("COMPOSICION: PVC\nCOLOR: Gris antracita");
+    let saved = retype_spec("COMPOSICIÓN: PVC\nCOLOR: Gris antracita");
 
     let blocks = blocks_of(&saved);
     let spec = spec_block(&blocks);
-    assert_eq!(spec.text, "COMPOSICION: PVC\nCOLOR: Gris antracita");
+    assert_eq!(spec.text, "COMPOSICIÓN: PVC\nCOLOR: Gris antracita");
     assert!((spec.leading.unwrap() - 11.0).abs() < 1e-6);
     // The table is untouched.
     let cells = blocks.iter().filter(|block| block.bbox.y < 600.0).count();
@@ -200,4 +228,79 @@ fn a_second_retype_from_the_original_runs_is_refused_not_ghosted() {
     let second = retype("A\nB\nC\nD");
 
     assert!(second.is_err(), "the stale inserted line would be kept");
+}
+
+/// The accented letters are codes only /ToUnicode explains; they must read
+/// as themselves, never as U+FFFD.
+#[test]
+fn accented_text_reads_through_the_fonts_to_unicode_map() {
+    let document = lopdf::Document::load_mem(&fixture_bytes()).unwrap();
+    let blocks = blocks_of(&document);
+
+    let texts: Vec<&str> = blocks.iter().map(|block| block.text.as_str()).collect();
+    assert!(
+        spec_block(&blocks).text.starts_with("COMPOSICIÓN"),
+        "{texts:?}"
+    );
+    assert!(texts.contains(&"Descripción"), "{texts:?}");
+    assert!(texts.contains(&"Instalación"), "{texts:?}");
+    assert!(
+        texts.iter().all(|text| !text.contains('\u{FFFD}')),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn an_accented_paragraph_retyped_keeps_its_accents_and_its_own_subset_font() {
+    let text = "COMPOSICIÓN: Aluminio térmico\nGARANTÍA: Instalación incluida";
+    let saved = retype_spec(text);
+
+    let blocks = blocks_of(&saved);
+    let spec = spec_block(&blocks);
+    assert_eq!(spec.text, text);
+    let fonts = block_fonts(&saved, spec);
+    assert!(fonts.iter().all(|font| font == SUBSET_FONT), "{fonts:?}");
+}
+
+/// One accented line retyped in place, through the single-run edit every
+/// shell's one-line editor uses.
+#[test]
+fn an_accented_line_retyped_in_place_round_trips_in_the_subset_font() {
+    let mut document = lopdf::Document::load_mem(&fixture_bytes()).unwrap();
+    let page = pdf_edit::page_object_id(&document, PageId(0)).unwrap();
+    let runs = pdf_edit::read_page_content(&document, PageId(0))
+        .unwrap()
+        .text_runs;
+    let line = runs
+        .iter()
+        .find(|run| run.text.starts_with("GARANTÍA"))
+        .expect("the guarantee line")
+        .clone();
+
+    pdf_edit::replace_text_run(&mut document, page, &line, "GARANTÍA: Instalación térmica")
+        .expect("every character is in the subset");
+    let mut bytes = Vec::new();
+    document.save_to(&mut bytes).unwrap();
+    let reopened = lopdf::Document::load_mem(&bytes).unwrap();
+
+    let runs = pdf_edit::read_page_content(&reopened, PageId(0))
+        .unwrap()
+        .text_runs;
+    let line = runs
+        .iter()
+        .find(|run| run.text.starts_with("GARANTÍA"))
+        .expect("the retyped line");
+    assert_eq!(line.text, "GARANTÍA: Instalación térmica");
+    assert_eq!(line.resource_font_name, SUBSET_FONT);
+}
+
+/// The subset carries no `Ñ`: the refusal must name that character, not a
+/// U+FFFD read back from some other accented letter.
+#[test]
+fn a_character_the_subset_lacks_is_refused_by_name() {
+    let error =
+        try_retype_spec("COMPOSICIÓN: Aluminio\nDISEÑO: Moderno").expect_err("the subset has no Ñ");
+
+    assert!(error.contains("'Ñ'"), "{error}");
+    assert!(!error.contains('\u{FFFD}'), "{error}");
 }

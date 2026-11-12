@@ -9,7 +9,7 @@
 
 mod filter;
 mod fonts;
-pub(crate) use filter::encode_flate;
+pub(crate) use filter::{decode as decode_stream, encode_flate};
 pub mod inline;
 pub mod interpreter;
 pub mod lexer;

@@ -194,14 +194,39 @@ mod gtk_tests {
 
     impl Fixture {
         fn open() -> Self {
-            let built = built_ui();
-            built.viewer.view_stack.set_visible_child_name("editor");
-            built.window.present();
-
             let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
             let runs = pdf_edit::read_page_content(&base, PageId(0))
                 .expect("the fixture page parses")
                 .text_runs;
+            Self::open_on(base, runs)
+        }
+
+        /// The editor over the committed reportlab quote's accented spec
+        /// paragraph, whose accents only the font's /ToUnicode explains.
+        fn open_accented_quote() -> Self {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf");
+            let base = lopdf::Document::load(path).expect("committed fixture loads");
+            let page = pdf_edit::read_page_content(&base, PageId(0))
+                .expect("the fixture page parses")
+                .text_runs;
+            let spec = pdf_edit::group_text_runs(&page)
+                .into_iter()
+                .find(|block| block.lines.len() > 1)
+                .expect("the spec paragraph");
+            let runs = spec
+                .runs
+                .iter()
+                .map(|id| page.iter().find(|run| run.id == *id).unwrap().clone())
+                .collect();
+            Self::open_on(base, runs)
+        }
+
+        fn open_on(base: lopdf::Document, runs: Vec<TextRun>) -> Self {
+            let built = built_ui();
+            built.viewer.view_stack.set_visible_child_name("editor");
+            built.window.present();
+
             let mut session = crate::app::test_fixtures::backed_session(base);
             let overlay = Overlay::new();
             overlay.set_child(Some(&Picture::new()));
@@ -271,6 +296,23 @@ mod gtk_tests {
 
     /// The view is the paragraph's: its text, a line break per line, and
     /// wrapping by word (characters only for a word wider than the box).
+    /// An accented paragraph reads with its accents and commits: the
+    /// editor closes instead of staying open on a "cannot represent" error.
+    #[gtk::test]
+    fn gtk_ui_an_accented_paragraph_commits_and_closes_the_editor() {
+        let fixture = Fixture::open_accented_quote();
+        let text = fixture.field().expect("open").text();
+        assert!(text.starts_with("COMPOSICIÓN"), "{text:?}");
+
+        fixture.type_and_commit(
+            "COMPOSICIÓN: Aluminio térmico
+GARANTÍA: Instalación incluida",
+        );
+
+        assert!(fixture.field().is_none(), "the editor closed");
+        assert_eq!(fixture.entries().len(), 1, "one queued batch");
+    }
+
     #[gtk::test]
     fn gtk_ui_the_paragraph_opens_in_a_wrapping_view() {
         let fixture = Fixture::open();
