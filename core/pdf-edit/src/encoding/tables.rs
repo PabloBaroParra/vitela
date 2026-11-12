@@ -507,18 +507,11 @@ pub const GLYPH_NAMES: &[(&str, char)] = &[
 /// are `quotesingle`'s and `grave`'s AFM widths instead, so a lookup keyed by
 /// the *decoded character* (which is what the caller has) is correct for the
 /// common WinAnsi case. A font that genuinely decodes to a curly quote there
-/// (StandardEncoding) still falls through safely: `\u{2019}`/`\u{2018}` are
-/// outside 0x20..=0x7E, so the lookup simply misses and the caller's existing
-/// `missing_width` fallback applies — never a wrong width, only an
-/// unimproved one.
+/// (StandardEncoding) is measured by that character, at its own WinAnsi code.
 ///
-/// Deliberately ASCII-only: accented Latin-1 and typographic punctuation
-/// (the AFM's `C 161`..`C 251` block) are not covered. Adding them means
-/// resolving each AFM glyph name to a character via [`char_for_glyph_name`]
-/// and is future work — this table exists to fix the bug that motivated it
-/// (T-161: an inline editor sized from the old flat-500-per-character
-/// fallback didn't cover its own run's plain-ASCII text), not to be a
-/// complete AFM port.
+/// ASCII only: the WinAnsi 0x80..=0xFF half of each face is generated into
+/// `afm_widths.rs` and joined to these in `winansi.rs`, which is what a
+/// lookup by character goes through.
 pub type AsciiWidths = [u16; 95];
 
 pub const HELVETICA_ASCII_WIDTHS: AsciiWidths = [

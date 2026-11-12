@@ -456,3 +456,19 @@ fn a_character_no_standard_font_has_is_refused_by_name() {
     assert!(error.contains("'漢'"), "{error}");
     assert!(!error.contains('\u{FFFD}'), "{error}");
 }
+
+/// The wrap measures a fallback letter at its real standard-14 width: six
+/// Helvetica `Ñ` (722 thousandths each) no longer fit where the widest line
+/// ended, though at the old half-em guess they did.
+#[test]
+fn a_wrap_measures_fallback_letters_at_their_real_width() {
+    let saved = retype_spec("COMPOSICIÓN: Aluminio lacado con rotura de puente ÑÑÑÑÑÑ");
+
+    let blocks = blocks_of(&saved);
+    let spec = spec_block(&blocks);
+    assert_eq!(
+        spec.text,
+        "COMPOSICIÓN: Aluminio lacado con rotura de puente
+ÑÑÑÑÑÑ"
+    );
+}

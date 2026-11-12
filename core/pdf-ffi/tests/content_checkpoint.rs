@@ -371,3 +371,94 @@ fn a_retyped_spaced_run_can_be_moved_as_a_block_without_saving_first() {
     assert!(undo(&handle), "undo the retype, across the checkpoint");
     assert!(!undo(&handle));
 }
+
+/// The quote fixture's spec line `APERTURA: …`, as one line block.
+fn apertura(handle: &pdf_ffi::DocumentHandle) -> pdf_ffi::FfiTextBlock {
+    pdf_ffi::read_page_text_blocks(handle, 0)
+        .expect("blocks")
+        .into_iter()
+        .find(|block| block.text.starts_with("APERTURA"))
+        .expect("the APERTURA line")
+}
+
+/// A line retyped with a letter its subset lacks is written as several runs:
+/// the subset's, and a standard font's for that letter. The checkpoint a
+/// later move takes still finds the line in them, so the move lands, and the
+/// line retypes again, unsaved, with another fallback letter.
+#[test]
+fn a_line_split_by_a_fallback_letter_is_found_again_after_a_checkpoint() {
+    let handle = quote();
+    let line = apertura(&handle);
+    retype(
+        &handle,
+        line.runs[0].clone(),
+        "APERTURA: Dos hojas pequeñas",
+    );
+
+    pdf_ffi::move_text_block(&handle, apertura(&handle).runs, 0.0, -30.0)
+        .expect("moved after a checkpoint");
+    assert_eq!(handle.content_base_generation(), 1);
+    pdf_ffi::retype_text_block(
+        &handle,
+        apertura(&handle).runs,
+        "APERTURA: AÑO 2024".into(),
+        false,
+    )
+    .expect("retyped again");
+
+    let written = saved_line(&handle, line.bbox.y - 30.0);
+    let text: String = written.iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(text, "APERTURA: AÑO 2024");
+    let letter = written
+        .iter()
+        .find(|run| run.text == "Ñ")
+        .expect("the Ñ run");
+    assert!(letter.resource_font_name.starts_with("VFb"), "{letter:?}");
+}
+
+/// The quote fixture, open.
+fn quote() -> Arc<pdf_ffi::DocumentHandle> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf");
+    open_from_bytes(std::fs::read(path).unwrap(), None).expect("open")
+}
+
+/// The line `y` points above the page foot, read back from a save.
+fn saved_line(handle: &pdf_ffi::DocumentHandle, y: f64) -> Vec<FfiContentTextRun> {
+    runs(&saved_and_reopened(handle))
+        .into_iter()
+        .filter(|run| (run.bbox.y - y).abs() < 0.5)
+        .collect()
+}
+
+/// A second retype of a line whose first one needed a fallback letter is
+/// spread over the runs that letter split the line into: the old runs are
+/// removed, not left beside the new text.
+#[test]
+fn a_line_split_by_a_fallback_letter_retypes_again_as_one_line() {
+    let handle = quote();
+    let line = apertura(&handle);
+    retype(
+        &handle,
+        line.runs[0].clone(),
+        "APERTURA: Dos hojas pequeñas",
+    );
+
+    pdf_ffi::retype_text_block(
+        &handle,
+        apertura(&handle).runs,
+        "APERTURA: AÑO".into(),
+        false,
+    )
+    .expect("retyped again");
+
+    assert_eq!(handle.content_base_generation(), 1);
+    let written = saved_line(&handle, line.bbox.y);
+    let text: String = written.iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(text, "APERTURA: AÑO");
+    let letter = written
+        .iter()
+        .find(|run| run.text == "Ñ")
+        .expect("the Ñ run");
+    assert!(letter.resource_font_name.starts_with("VFb"), "{letter:?}");
+}

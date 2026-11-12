@@ -231,6 +231,7 @@ impl FontInfo {
 mod tests {
     use super::*;
     use crate::encoding::resolve_font;
+    use crate::encoding::winansi::encode_winansi;
     use lopdf::dictionary;
 
     fn face(base_font: &str, flags: Option<i64>, weight: Option<f64>, angle: Option<f64>) -> &str {
@@ -395,5 +396,18 @@ mod tests {
     fn the_width_adds_each_segment_in_its_own_font() {
         let width = subset_of_ab().width_with_fallback("ac").unwrap();
         assert!((width - (0.400 + 0.444)).abs() < 1e-9, "{width}");
+    }
+
+    /// A fallback measures accented and typographic characters at the
+    /// face's AFM widths, not at the half-em default for a missing width.
+    #[test]
+    fn a_fallback_measures_non_ascii_at_its_afm_width() {
+        let helvetica = standard_font_info("Helvetica", "VFb1.F1");
+        let codes = encode_winansi("ñé€Ñ").unwrap();
+        let expected = 0.556 * 3.0 + 0.722;
+        assert!((helvetica.width_of(&codes) - expected).abs() < 1e-9);
+
+        let times = standard_font_info("Times-Roman", "VFb1.F1");
+        assert!((times.width_of(&encode_winansi("é").unwrap()) - 0.444).abs() < 1e-9);
     }
 }

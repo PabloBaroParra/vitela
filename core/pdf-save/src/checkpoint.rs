@@ -37,6 +37,8 @@
 //! with a password beside them — so the core works on it through
 //! [`CheckpointSession`] and stores whatever the shell calls a base.
 
+mod split;
+
 use std::collections::HashMap;
 
 use pdf_document::{
@@ -233,13 +235,7 @@ pub fn retry_after_checkpoint<S: CheckpointSession, E>(
     {
         return Err(refusal);
     }
-    let rebound = rebind(session, command.clone());
-    let aliases: Vec<(Item, Item)> = targets(&command)
-        .into_iter()
-        .zip(targets(&rebound))
-        .map(|(held, rebound)| (held.to_item(), rebound.to_item()))
-        .filter(|(held, rebound)| held != rebound)
-        .collect();
+    let (rebound, aliases) = rebind(session, command);
     match apply(session, rebound) {
         Ok(()) => {
             let checkpoints = session.checkpoints_mut();
@@ -461,9 +457,11 @@ fn targets_are_current<S: CheckpointSession>(session: &S, command: &Command) -> 
 }
 
 /// `command` with every target replaced by the item the live base holds for
-/// it. A target that cannot be told apart is left as it was, and the edit
-/// then fails validation instead of landing on the wrong item.
-fn rebind<S: CheckpointSession>(session: &S, command: Command) -> Command {
+/// it, and what was rebound as `(held, rebound)`. A run the checkpoint wrote
+/// as several runs is edited as all of them (see [`split`]). A target that
+/// cannot be told apart is left as it was, and the edit then fails
+/// validation instead of landing on the wrong item.
+fn rebind<S: CheckpointSession>(session: &S, command: Command) -> (Command, Vec<(Item, Item)>) {
     let mut pages: HashMap<PageId, Option<PageContent>> = HashMap::new();
     let mut content = |page: PageId| -> Option<PageContent> {
         pages
@@ -479,7 +477,16 @@ fn rebind<S: CheckpointSession>(session: &S, command: Command) -> Command {
             })
             .clone()
     };
-    map_targets(command, &mut |held| rebind_item(held, &mut content))
+    let mut aliases = Vec::new();
+    let command = map_targets(command, &mut |held| {
+        let rebound = rebind_item(held.clone(), &mut content);
+        if rebound != held {
+            aliases.push((held, rebound.clone()));
+        }
+        rebound
+    });
+    let command = split::spread_split_runs(command, &mut content, &mut aliases);
+    (command, aliases)
 }
 
 /// The item the live base holds for `held`, found by what it shows and
@@ -624,16 +631,6 @@ enum Target<'a> {
     Run(&'a TextRun),
     Image(&'a ImageItem),
     Path(&'a PathItem),
-}
-
-impl Target<'_> {
-    fn to_item(&self) -> Item {
-        match self {
-            Target::Run(item) => Item::Run((*item).clone()),
-            Target::Image(item) => Item::Image((*item).clone()),
-            Target::Path(item) => Item::Path((*item).clone()),
-        }
-    }
 }
 
 /// Every item `command` names. Empty for an edit that names none (an

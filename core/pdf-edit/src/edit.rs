@@ -2924,6 +2924,8 @@ mod tests {
         );
         let mut queued = run(&document, 1);
         queued.text = "\u{e9}".to_string();
+        // The queue measured its `é` in Helvetica: 556 thousandths at 12 pt.
+        queued.bbox.width = 0.556 * 12.0;
 
         let predicted = text_run_bbox(&document, page, &queued, "iiii").expect("measurable");
 

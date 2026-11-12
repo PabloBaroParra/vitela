@@ -16,6 +16,7 @@
 //! each code paints, and a subset font routinely gives accented letters codes
 //! nothing else explains (see [`to_unicode`]).
 
+mod afm_widths;
 pub mod fallback;
 pub mod tables;
 pub mod to_unicode;
@@ -263,29 +264,24 @@ fn last_char(document: &Document, font_dict: &Dictionary) -> Option<usize> {
 
 /// Fills the gaps `simple_widths` left (there being no `/Widths` array is the
 /// common case for a Standard-14 font, which is allowed to omit one) from the
-/// real AFM metrics in [`tables::standard_14_ascii_widths`], for whichever
-/// codes decode to plain ASCII.
+/// real AFM metrics in [`winansi::standard_14_char_width`], for every code
+/// that decodes to a character WinAnsi can show.
 ///
 /// Never overrides a width the font's own `/Widths` array actually supplied
 /// — that is the document's own authoritative data and wins over a table
-/// this crate ships. Only ASCII gets filled; see the table's own doc for why.
+/// this crate ships. The lookup is keyed by the *decoded character*, so a
+/// StandardEncoding `quoteright` at 0x27 gets `quoteright`'s width.
 fn apply_standard_14_widths(
     mut widths: Vec<Option<f64>>,
     base_font: &str,
     to_unicode: &[Option<char>],
 ) -> Vec<Option<f64>> {
-    let Some(table) = tables::standard_14_ascii_widths(base_font) else {
-        return widths;
-    };
-    for code in 0..widths.len() {
-        if widths[code].is_some() {
-            continue;
-        }
-        let Some(character) = to_unicode[code] else {
-            continue;
-        };
-        if ('\u{20}'..='\u{7E}').contains(&character) {
-            widths[code] = Some(f64::from(table[character as usize - 0x20]));
+    for (width, character) in widths.iter_mut().zip(to_unicode) {
+        if width.is_none() {
+            *width = character
+                .and_then(|character| winansi::standard_14_char_width(base_font, character))
+                .filter(|&thousandths| thousandths > 0)
+                .map(f64::from);
         }
     }
     widths
@@ -766,13 +762,14 @@ mod tests {
         };
         assert!((resolve_in(with_descriptor).width_of(b"AB") - 0.5).abs() < 1e-9);
 
-        // Standard-14 ASCII now comes from the real AFM table (see
-        // `standard14_widths_come_from_the_real_afm_metrics_not_a_flat_fallback`),
-        // but the half-em fallback still applies outside that table's ASCII
-        // scope — an accented character, here.
+        // A Standard-14 face measures every WinAnsi character from its AFM
+        // table (Helvetica's `é` is 556); the half-em fallback is left for a
+        // font with no `/Widths`, no descriptor and no such table.
         let helvetica = resolve_in(helvetica());
         let accented = helvetica.encode("é").expect("winansi covers this");
-        assert!((helvetica.width_of(&accented) - 0.5).abs() < 1e-9);
+        assert!((helvetica.width_of(&accented) - 0.556).abs() < 1e-9);
+        let unknown = resolve_in(dictionary! { "Subtype" => "Type1", "BaseFont" => "Unknown" });
+        assert!((unknown.width_of(b"a") - 0.5).abs() < 1e-9);
     }
 
     fn mac_roman() -> FontInfo {
