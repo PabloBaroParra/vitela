@@ -101,8 +101,12 @@ fn history(viewer: &Viewer, undo: bool) {
         }
         if is_content_edit {
             // A selected text block is a snapshot of the page content this
-            // step has just changed under it, and so is the hover.
+            // step has just changed under it, and so are a several-item
+            // selection and the hover. Undoing a paste removes the very
+            // items the paste selected: kept, their boxes stay on screen
+            // over nothing.
             session.selected_text_block = None;
+            session.content_selection = None;
             crate::app::content_edit::hover::forget(session);
         }
         let Some(document) = session.document_model.as_ref() else {

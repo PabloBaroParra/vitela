@@ -54,8 +54,9 @@ impl From<FfiContentClip> for ContentClip {
 
 /// Copies every member of `selection` into a clip, leaving the page as it is.
 ///
-/// Members with an unsaved edit are refused: the clip is copied from the
-/// file, and the file does not hold that edit yet.
+/// Members with an unsaved edit are copied as they read now, from the queue
+/// written in memory (`pdf_save::checkpoint::copy_selection`); they are
+/// refused only where the session may not checkpoint.
 #[uniffi::export]
 pub fn copy_content_selection(
     handle: &DocumentHandle,
@@ -146,7 +147,7 @@ fn copy(state: &DocumentState, selection: FfiContentSelection) -> Result<Content
     };
     state
         .with_imported_sources(|sources| {
-            pdf_save::copy_selection_content(state.document(), state.base(), sources, &selection)
+            pdf_save::checkpoint::copy_selection(state, sources, &selection)
         })
         .map_err(Into::into)
 }

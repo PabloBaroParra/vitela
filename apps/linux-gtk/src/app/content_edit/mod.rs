@@ -85,7 +85,7 @@ mod paragraph_editor;
 pub(crate) mod path;
 pub(crate) mod quick_actions;
 #[cfg(test)]
-mod test_support;
+pub(crate) mod test_support;
 pub(crate) mod text;
 pub(crate) mod watermark;
 

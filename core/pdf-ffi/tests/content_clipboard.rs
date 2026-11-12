@@ -5,7 +5,7 @@
 use lopdf::{dictionary, Document, Object, Stream};
 use pdf_ffi::{
     apply_edit, copy_content_selection, cut_content_selection, move_content_selection,
-    open_from_bytes, paste_content, remove_content_selection, save_to_bytes, undo, DocumentHandle,
+    open_from_bytes, paste_content, retype_text_block, save_to_bytes, undo, DocumentHandle,
     FfiContentSelection, FfiEditCommand, FfiRect, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
@@ -211,8 +211,6 @@ fn part_of_a_fresh_paste_waits_for_the_save() {
     let mut part = pasted(&handle, 1);
     part.runs.truncate(1);
     assert!(move_content_selection(&handle, part, 5.0, 5.0).is_err());
-    assert!(remove_content_selection(&handle, pasted(&handle, 1)).is_err());
-    assert!(copy_content_selection(&handle, pasted(&handle, 1)).is_err());
 
     // Once saved, what was pasted is ordinary page content.
     let saved = reopened(&handle);
@@ -221,6 +219,87 @@ fn part_of_a_fresh_paste_waits_for_the_save() {
     part.images.clear();
     part.paths.clear();
     move_content_selection(&saved, part, 5.0, 5.0).expect("an ordinary move");
+}
+
+/// The runs page `page` shows that read `text`.
+fn runs_reading(handle: &DocumentHandle, page: u32, text: &str) -> FfiContentSelection {
+    FfiContentSelection {
+        runs: handle
+            .read_page_content(page)
+            .expect("read")
+            .text_runs
+            .into_iter()
+            .filter(|run| run.text == text)
+            .collect(),
+        ..FfiContentSelection::default()
+    }
+}
+
+/// A run retyped and not saved copies as it reads now, without a save: the
+/// queue is written in memory for the copy. The copy itself is no undo step.
+#[test]
+fn content_edited_and_not_saved_is_copied_as_it_reads() {
+    let handle = open_from_bytes(two_pages(), None).expect("open");
+    let domingo = runs_reading(&handle, 0, "Domingo").runs;
+    retype_text_block(&handle, domingo, "Mimi".to_string(), false).expect("retyped");
+
+    let clip = copy_content_selection(&handle, runs_reading(&handle, 0, "Mimi"))
+        .expect("the retyped run copies without a save");
+    paste_content(&handle, 1, clip, 40.0, 500.0).expect("pasted");
+
+    assert_eq!(texts(&pasted(&handle, 1)), ["Mimi"]);
+    assert_eq!(texts(&pasted(&reopened(&handle), 1)), ["Mimi"]);
+    // The paste, then the retype: nothing else to undo.
+    assert!(undo(&handle));
+    assert!(undo(&handle));
+    assert!(!handle.can_undo());
+    assert_eq!(texts(&everything(&handle, 0)), ["Cliente", "Domingo"]);
+}
+
+/// The reader's report: cut, paste, drag the paste into place, and cut it
+/// again — all without saving.
+#[test]
+fn a_moved_paste_is_cut_again_without_a_save() {
+    let handle = open_from_bytes(two_pages(), None).expect("open");
+    let clip = cut_content_selection(&handle, everything(&handle, 0)).expect("cut");
+    paste_content(&handle, 1, clip, 40.0, 500.0).expect("pasted");
+    move_content_selection(&handle, pasted(&handle, 1), 25.0, -10.0).expect("moved");
+
+    let clip =
+        cut_content_selection(&handle, pasted(&handle, 1)).expect("the moved paste cuts again");
+    let left = pasted(&handle, 1);
+    assert!(left.runs.is_empty() && left.images.is_empty() && left.paths.is_empty());
+
+    paste_content(&handle, 1, clip, 200.0, 300.0).expect("pasted again");
+    assert_eq!(texts(&pasted(&handle, 1)), ["Cliente", "Domingo"]);
+    let saved = reopened(&handle);
+    assert_eq!(texts(&pasted(&saved, 1)), ["Cliente", "Domingo"]);
+    assert_near(top_left(&pasted(&saved, 1)), (200.0, 300.0));
+    assert!(everything(&saved, 0).runs.is_empty());
+
+    // The second cut was one step: undo it and the moved paste is back.
+    assert!(undo(&handle));
+    assert!(undo(&handle));
+    assert_near(top_left(&pasted(&handle, 1)), (65.0, 490.0));
+}
+
+/// Cut, paste, retype part of the paste, then cut what was retyped.
+#[test]
+fn a_retyped_paste_is_cut_again_without_a_save() {
+    let handle = open_from_bytes(two_pages(), None).expect("open");
+    let clip = cut_content_selection(&handle, everything(&handle, 0)).expect("cut");
+    paste_content(&handle, 1, clip, 40.0, 500.0).expect("pasted");
+    let domingo = runs_reading(&handle, 1, "Domingo").runs;
+    retype_text_block(&handle, domingo, "Mimi".to_string(), false).expect("retyped");
+
+    let clip = cut_content_selection(&handle, runs_reading(&handle, 1, "Mimi"))
+        .expect("the retyped run cuts without a save");
+    assert_eq!(texts(&pasted(&handle, 1)), ["Cliente"]);
+
+    paste_content(&handle, 0, clip, 100.0, 700.0).expect("pasted back");
+    let saved = reopened(&handle);
+    assert_eq!(texts(&everything(&saved, 0)), ["Mimi"]);
+    assert_eq!(texts(&pasted(&saved, 1)), ["Cliente"]);
 }
 
 #[test]

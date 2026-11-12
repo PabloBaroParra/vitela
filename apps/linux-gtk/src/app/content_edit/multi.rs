@@ -24,7 +24,7 @@ use pdf_edit::Selection;
 
 use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
-use crate::app::state::{ContentSelection, SelectionGesture, Viewer};
+use crate::app::state::{ContentSelection, DocumentSession, SelectionGesture, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
@@ -149,6 +149,17 @@ pub(crate) fn toggled(mut selection: Selection, member: Member) -> Selection {
         }
     }
     selection
+}
+
+/// The several-item selection held on `page_index`, if any. Its members wear
+/// no outline of their own: the group frame round them is the only thing
+/// drawn, so the group reads as one object.
+pub(crate) fn held_on(session: &DocumentSession, page_index: usize) -> Option<&Selection> {
+    session
+        .content_selection
+        .as_ref()
+        .filter(|held| held.page_index == page_index)
+        .map(|held| &held.members)
 }
 
 /// The union of every member's box — the dashed box a group drag grabs.

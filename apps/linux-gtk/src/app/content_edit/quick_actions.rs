@@ -241,7 +241,8 @@ fn selected(
             block.run.bbox,
             Some(editable),
             None,
-            editable,
+            // An unsaved insertion is deletable only through a checkpoint.
+            editable && super::editor::removable(session, &block.run, &block.block),
         ));
     }
     if let Some(selected) = session.selected_image.as_ref() {
@@ -564,6 +565,35 @@ mod tests {
         assert!(actions.copy.is_sensitive());
         assert!(!actions.cut.is_sensitive());
         assert!(!actions.delete.is_sensitive());
+    }
+
+    /// A selected unsaved insertion is offered for deletion only where the
+    /// core may checkpoint to remove it — never enabled and then refused.
+    #[gtk::test]
+    fn gtk_ui_an_unsaved_insertion_is_deletable_only_where_it_can_be_removed() {
+        let fixture = Fixture::new(PageRotation::None);
+        select_first_block(&fixture);
+        {
+            let mut state = fixture.viewer().state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            let selected = session.selected_text_block.as_mut().expect("a block");
+            selected.block.clear();
+            selected.run.id =
+                pdf_document::ContentItemId(super::super::model::PENDING_ITEM_ID_BASE);
+            let base = (*session.save_backing.as_ref().expect("a backing").base).clone();
+            session
+                .imported_sources
+                .push(crate::app::state::ImportedSource {
+                    id: pdf_document::ImportedDocumentId(0),
+                    document: base,
+                    name: "imported.pdf".to_string(),
+                });
+        }
+
+        let target = current(&fixture).expect("the selection still has a bar");
+
+        assert!(!target.delete);
+        assert!(target.copy);
     }
 
     /// Runs every idle the bar has queued.

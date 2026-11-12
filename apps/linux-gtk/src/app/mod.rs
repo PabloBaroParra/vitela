@@ -754,6 +754,21 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     });
     let text_selected = editable.is_some_and(|session| session.selected_text_block.is_some());
     let text_enabled = text_editing || text_selected;
+    // The run or block Delete text would remove: an unsaved insertion is
+    // removable only through a checkpoint (`content_edit::editor::removable`).
+    let text_removable = editable.is_some_and(|session| {
+        let target = session
+            .content_editor
+            .as_ref()
+            .map(|editor| (&editor.run, &editor.block))
+            .or_else(|| {
+                session
+                    .selected_text_block
+                    .as_ref()
+                    .map(|selected| (&selected.run, &selected.block))
+            });
+        target.is_some_and(|(run, block)| content_edit::editor::removable(session, run, block))
+    });
     let paths_enabled = state.session.as_ref().is_some_and(|session| {
         session.content_edit_access.refusal().is_none() && session.selected_path.is_some()
     });
@@ -771,7 +786,9 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     } else {
         content_edit::panel::NO_SHAPE_SELECTED
     }));
-    viewer.delete_text_button.set_sensitive(text_enabled);
+    viewer
+        .delete_text_button
+        .set_sensitive(text_enabled && text_removable);
     // The Delete key's action is enabled off the path, image and text block
     // selections too; Esc and F2 off the selections they act on.
     annotations::update_annotation_controls(viewer);

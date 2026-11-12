@@ -363,12 +363,14 @@ pub(super) fn record_selection_move(
 }
 
 /// Removes every member of `selection` as one undo step. A pending paste is
-/// refused: undo is what takes it back.
+/// removed through a checkpoint, which writes it into the base first; where
+/// the session may not take one it is refused, and undo is what takes it
+/// back.
 pub(super) fn record_selection_removal(
     session: &mut DocumentSession,
     selection: &pdf_edit::Selection,
 ) -> Result<(), String> {
-    if whole_paste(session, selection)?.is_some() {
+    if whole_paste(session, selection)?.is_some() && !super::checkpoint::may_checkpoint(session) {
         return Err(pdf_save::paste_not_deletable().to_string());
     }
     record_batch(session, pdf_edit::remove_selection(selection))
@@ -389,30 +391,19 @@ fn whole_paste(
     }
 }
 
-/// Copies `selection` out of its page into a clip (B25 T-209), refusing
-/// members with an unsaved edit — the clip is copied from the file.
+/// Copies `selection` out of its page into a clip (B25 T-209). Members with
+/// an unsaved edit are copied as they read now from the queue the core
+/// writes in memory (`pdf_save::checkpoint::copy_selection`), and refused
+/// only where the session may not checkpoint. The session is not changed:
+/// it is borrowed mutably only because [`Live`] lends its parts that way.
 pub(super) fn copy(
-    session: &DocumentSession,
+    session: &mut DocumentSession,
     selection: &pdf_edit::Selection,
 ) -> Result<pdf_document::ContentClip, String> {
-    let (Some(document), Some(backing)) = (
-        session.document_model.as_ref(),
-        session.save_backing.as_ref(),
-    ) else {
-        return Err(tr("edit-open-to-copy"));
-    };
-    let sources: Vec<_> = session
-        .imported_sources
-        .iter()
-        .map(|source| (source.id, &source.document))
-        .collect();
-    pdf_save::copy_selection_content(
-        document,
-        &backing.base,
-        pdf_save::ImportedSources::new(&sources),
-        selection,
-    )
-    .map_err(|error| error.to_string())
+    Live::of(session)
+        .ok_or_else(|| tr("edit-open-to-copy"))?
+        .copy(selection)
+        .map_err(|error| error.to_string())
 }
 
 /// Pastes `clip` onto `page` with its top-left corner at `(left, top)`, as
