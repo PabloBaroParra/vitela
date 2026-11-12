@@ -52,4 +52,47 @@ describe('usePageRender', () => {
     const { result } = renderHook(() => usePageRender(engine, 1, 0, 144));
     await waitFor(() => expect(result.current).toEqual({ status: 'failed', message: 'render: out of memory' }));
   });
+
+  it('keeps showing the previous bitmap while a new dpi renders, then swaps it', async () => {
+    const sharp: RenderedPage = { width: 2, height: 2, rgba: new Uint8ClampedArray(16) };
+    let resolveSharp!: (page: RenderedPage) => void;
+    const engine = engineWith((_index, dpi) =>
+      dpi === 72 ? Promise.resolve(page) : new Promise((resolve) => (resolveSharp = resolve)),
+    );
+    const { result, rerender } = renderHook(({ dpi }) => usePageRender(engine, 1, 0, dpi), {
+      initialProps: { dpi: 72 },
+    });
+    await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page }));
+
+    rerender({ dpi: 144 });
+    expect(result.current).toEqual({ status: 'rendering', previous: page });
+    resolveSharp(sharp);
+    await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page: sharp }));
+  });
+
+  it('ignores a render that finishes after the dpi moved on', async () => {
+    const pending: ((page: RenderedPage) => void)[] = [];
+    const engine = engineWith(() => new Promise((resolve) => pending.push(resolve)));
+    const { result, rerender } = renderHook(({ dpi }) => usePageRender(engine, 1, 0, dpi), {
+      initialProps: { dpi: 72 },
+    });
+    rerender({ dpi: 144 });
+    const late: RenderedPage = { width: 1, height: 2, rgba: new Uint8ClampedArray(8) };
+    const current: RenderedPage = { width: 2, height: 4, rgba: new Uint8ClampedArray(32) };
+    pending[1]!(current);
+    await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page: current }));
+    pending[0]!(late);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(result.current).toEqual({ status: 'rendered', page: current });
+  });
+
+  it('never carries a bitmap over to another document', async () => {
+    const engine = engineWith(() => Promise.resolve(page));
+    const { result, rerender } = renderHook(({ generation }) => usePageRender(engine, generation, 0, 72), {
+      initialProps: { generation: 1 },
+    });
+    await waitFor(() => expect(result.current.status).toBe('rendered'));
+    rerender({ generation: 2 });
+    expect(result.current).toEqual({ status: 'rendering' });
+  });
 });
