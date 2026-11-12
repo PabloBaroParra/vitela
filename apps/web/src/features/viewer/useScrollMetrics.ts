@@ -9,21 +9,19 @@ export interface ScrollMetrics {
   readonly width: number;
   readonly height: number;
   readonly top: number;
-  readonly left: number;
 }
 
 const read = (element: HTMLElement): ScrollMetrics => ({
   width: element.clientWidth,
   height: element.clientHeight,
   top: element.scrollTop,
-  left: element.scrollLeft,
 });
 
 const same = (a: ScrollMetrics, b: ScrollMetrics) =>
-  a.width === b.width && a.height === b.height && a.top === b.top && a.left === b.left;
+  a.width === b.width && a.height === b.height && a.top === b.top;
 
 export function useScrollMetrics(ref: RefObject<HTMLElement | null>): ScrollMetrics {
-  const [metrics, setMetrics] = useState<ScrollMetrics>({ width: 0, height: 0, top: 0, left: 0 });
+  const [metrics, setMetrics] = useState<ScrollMetrics>({ width: 0, height: 0, top: 0 });
 
   const update = useCallback(() => {
     const element = ref.current;
