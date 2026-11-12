@@ -17,7 +17,8 @@ use crate::document::LopdfDocument;
 use crate::error::ManipError;
 
 /// Opens the PDF at `path`. If it is encrypted, `credential` must be `Some`
-/// with either its user or owner password. The returned `SecurityContext`
+/// with either its user or owner password — unless its user password is
+/// empty, which opens with `None` (see below). The returned `SecurityContext`
 /// records the authenticated role and the one known password. This is enough
 /// for incremental saves; use [`open_document_with_passwords`] before an
 /// encrypted full rewrite so both PDF password roles can be preserved.
@@ -110,8 +111,9 @@ pub fn open_document_with_passwords(
 /// choice, made once here instead of in every facade.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OpenCredentials {
-    /// No password: enough for an unencrypted document, and refused with
-    /// [`ManipError::PasswordRequired`] by an encrypted one.
+    /// No password: enough for an unencrypted document or one whose user
+    /// password is empty, and refused with [`ManipError::PasswordRequired`]
+    /// by any other encrypted one.
     NoPassword,
     /// One password, matched against the user and then the owner password.
     Password(String),
@@ -240,9 +242,17 @@ fn security_from_probe(
 fn security_from_unlocked_state(
     state: &lopdf::EncryptionState,
 ) -> Result<SecurityContext, ManipError> {
-    let crypt_filter_method = state
-        .crypt_filters()
+    // Which `/CF` entry names the cipher: the one the string filter points
+    // at, else the stream filter's, else `StdCF` — the entry
+    // [`security_handler_from_dict`] reads. lopdf's map holds only declared
+    // `/CF` entries, so `/StrF /Identity` (strings in the clear) or a filter
+    // left to its default would otherwise find nothing and refuse a document
+    // the password path opens.
+    let filters = state.crypt_filters();
+    let crypt_filter_method = filters
         .get(state.default_string_filter())
+        .or_else(|| filters.get(state.default_stream_filter()))
+        .or_else(|| filters.get(b"StdCF".as_slice()))
         .map(|filter| filter.method().to_vec());
 
     Ok(SecurityContext {

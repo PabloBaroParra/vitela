@@ -255,3 +255,48 @@ fn the_probe_resolves_the_owner_password_the_same_way_the_open_does() {
         Err(ManipError::WrongPassword)
     ));
 }
+
+/// AES-128 streams with `/StrF /Identity`: strings are stored in the clear,
+/// and lopdf's crypt-filter map holds only the `/CF` entries, so the string
+/// filter names nothing in it. The handler must still resolve — the same
+/// document opened with a real user password reads `/CF/StdCF/CFM` and
+/// opens fine, and an empty user password must not make it unopenable.
+fn promptless_aes_identity_strings() -> Vec<u8> {
+    let mut doc = support::build_pdf_with_pages(&["restricted"]);
+    doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
+    let file_id = Object::string_literal("promptless-identity-fixture-id");
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+
+    let crypt_filter: Arc<dyn CryptFilter> =
+        Arc::new(lopdf::encryption::crypt_filters::Aes128CryptFilter);
+    let version = EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"Identity".to_vec(),
+        owner_password: OWNER_PASSWORD,
+        user_password: "",
+        permissions: Permissions::PRINTABLE,
+    };
+    let state = EncryptionState::try_from(version).expect("build encryption state");
+    doc.encrypt(&state).expect("encrypt fixture");
+
+    let mut bytes = Vec::new();
+    doc.save_to(&mut bytes).expect("save fixture");
+    bytes
+}
+
+#[test]
+fn an_identity_string_filter_still_resolves_the_handler() {
+    let bytes = promptless_aes_identity_strings();
+
+    let (_, as_user) = open_document_from_bytes(&bytes, None).expect("opens without a prompt");
+    let as_user = as_user.expect("encrypted");
+    assert_eq!(as_user.handler, SecurityHandler::Aes128);
+    assert!(!text_extraction_is_allowed(Some(&as_user)));
+
+    let (_, as_owner) =
+        open_document_from_bytes(&bytes, Some(OWNER_PASSWORD)).expect("the owner opens");
+    assert_eq!(as_owner.unwrap().credential, Credential::Owner);
+}
