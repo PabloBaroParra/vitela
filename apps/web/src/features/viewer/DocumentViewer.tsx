@@ -25,15 +25,19 @@ interface DocumentViewerProps {
 export function DocumentViewer({ engine, document }: DocumentViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages } = document.info;
+  // Zoom first: its layout effect must scroll before the metrics re-read.
+  const { zoom, pendingScroll, zoomTo, fitWidth } = useViewerZoom(scroller, pages);
   const metrics = useScrollMetrics(scroller);
-  const { zoom, zoomTo, fitWidth } = useViewerZoom(scroller, pages);
   const renderZoom = useSettled(zoom, RENDER_SETTLE_MS);
   const pixelRatio = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1;
 
   const layout = useMemo(() => layoutPages(pages, zoom, metrics.width), [pages, zoom, metrics.width]);
+  // On a zoom's commit the scroller still has the old scroll: lay out at the
+  // one the zoom is about to apply, or the pages in view would unmount.
+  const top = pendingScroll?.y ?? metrics.top;
   // One viewport of overscan on each side keeps short scrolls painted.
-  const range = visiblePages(layout, metrics.top, metrics.height, metrics.height);
-  const current = (pageAt(layout, metrics.top + metrics.height / 2) ?? 0) + 1;
+  const range = visiblePages(layout, top, metrics.height, metrics.height);
+  const current = (pageAt(layout, top + metrics.height / 2) ?? 0) + 1;
 
   const slots = [];
   if (range && metrics.height > 0) {
