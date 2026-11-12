@@ -367,8 +367,29 @@ mod tests {
     }
 
     /// A fresh directory under the test binary's target dir — never the
-    /// real temp dir, which the tests must not litter or race on.
-    fn scratch(name: &str) -> PathBuf {
+    /// real temp dir, which the tests must not litter or race on — removed
+    /// again when the guard drops.
+    ///
+    /// Removal matters beyond tidiness: CI runs the suite as root inside a
+    /// network namespace, and a 0700 directory left under `target/` is one
+    /// the runner user cannot read, so the cache step's
+    /// `hashFiles('**/Cargo.lock')` walk fails the job afterwards.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = PathBuf;
+        fn deref(&self) -> &PathBuf {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn scratch(name: &str) -> Scratch {
         let exe = std::env::current_exe().expect("the test binary");
         let base = exe
             .parent()
@@ -376,7 +397,17 @@ mod tests {
             .join(format!("font-dir-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(&base).expect("the scratch dir");
-        base
+        Scratch(base)
+    }
+
+    #[test]
+    fn a_scratch_directory_is_removed_when_its_guard_drops() {
+        let path = {
+            let base = scratch("guard");
+            font_directory_in(&base).expect("a fresh directory");
+            base.0.clone()
+        };
+        assert!(!path.exists(), "no private directory is left under target/");
     }
 
     fn mode(path: &Path) -> u32 {
