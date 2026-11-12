@@ -889,6 +889,10 @@ pub(crate) fn cancel(viewer: &Viewer) {
 /// before detaching), which is what lets both this function and
 /// `update_content_edit_controls` take their own.
 fn detach(viewer: &Viewer, editor: &ContentEditor) {
+    // Before the borrow: dropping the cursor fires the box's focus-out,
+    // which routes to `commit` and borrows the state itself. The editor is
+    // already off the session by now, so that commit finds nothing to do.
+    release_focus(&editor.frame);
     {
         let state = viewer.state.borrow();
         if let Some(page) = state
@@ -900,6 +904,28 @@ fn detach(viewer: &Viewer, editor: &ContentEditor) {
         }
     }
     update_content_edit_controls(viewer);
+}
+
+/// Takes the cursor out of `frame` when it is in there, leaving the window
+/// with no focus widget at all.
+///
+/// Removing the widget that has the cursor makes GTK move it on by itself, to
+/// the next focusable widget it finds — the tools panel's tab strip, here —
+/// and the canvas's viewport answers that focus change with an eased scroll
+/// of its own (its `scroll-to-focus`; turning that off stops it). That is
+/// what slid a zoomed-in page sideways on every commit, click-away or
+/// Escape. With the focus cleared first there is nothing for GTK to move and
+/// nothing for the viewport to chase; the next click or Tab starts afresh.
+fn release_focus(frame: &Fixed) {
+    let Some(root) = frame.root() else {
+        return;
+    };
+    if root
+        .focus()
+        .is_some_and(|focused| focused.is_ancestor(frame))
+    {
+        root.set_focus(None::<&gtk::Widget>);
+    }
 }
 
 #[cfg(test)]
@@ -1170,6 +1196,143 @@ mod tests {
 
         built.viewer.state.borrow_mut().session = None;
         built.window.close();
+    }
+
+    /// Where the canvas sits once an editor opened on a parked canvas has
+    /// been committed and the loop has run dry — over a lone run when
+    /// `paragraph` is false, over a two-line paragraph block when it is true.
+    ///
+    /// The shell's own `viewer.scroll` and a real `open_editor`/`commit`, so
+    /// the box that loses the cursor is the one the user typed in. No pdfium:
+    /// the commit's preview refresh is held back by marking one in flight.
+    fn canvas_after_a_commit(paragraph: bool) -> ((f64, f64), (f64, f64)) {
+        const PARKED: (f64, f64) = (60.0, 40.0);
+
+        let built = crate::app::ui_tests::built_ui();
+        built.viewer.view_stack.set_visible_child_name("editor");
+        // The window the bug was seen in. Narrower, and the tools panel
+        // folds away — and with it the only widget GTK could move the cursor
+        // on to, which is the move that scrolls the canvas.
+        built.window.set_default_size(1_000, 720);
+        built.window.present();
+        struct Teardown<'a>(&'a crate::app::BuiltUi);
+        impl Drop for Teardown<'_> {
+            fn drop(&mut self) {
+                self.0.viewer.state.borrow_mut().session = None;
+                self.0.window.close();
+            }
+        }
+        let _teardown = Teardown(&built);
+
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        let runs = pdf_edit::read_page_content(&base, pdf_document::PageId(0))
+            .expect("the fixture page parses")
+            .text_runs;
+        let mut session = crate::app::test_fixtures::backed_session(base);
+        // Wider and taller than the viewport, so there is a position to lose.
+        let page = Picture::new();
+        page.set_width_request(2_000);
+        page.set_height_request(1_500);
+        let overlay = Overlay::new();
+        overlay.set_child(Some(&page));
+        overlay.set_halign(gtk::Align::Center);
+        built.viewer.pages.append(&overlay);
+        session
+            .pages
+            .push(crate::app::test_fixtures::page_slot(overlay));
+        session.page_heights.push(1_500);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            state.session = Some(session);
+            state.content_edit_mode = true;
+            state.preview_refresh_in_flight = true;
+        }
+        settle(&built.viewer.pages);
+
+        let (horizontal, vertical) = (
+            built.viewer.scroll.hadjustment(),
+            built.viewer.scroll.vadjustment(),
+        );
+        horizontal.set_value(PARKED.0);
+        vertical.set_value(PARKED.1);
+        pump();
+        assert_eq!(
+            (horizontal.value(), vertical.value()),
+            PARKED,
+            "the canvas has to start away from the origin, \
+             or a jump cannot be told from a no-op"
+        );
+
+        if paragraph {
+            let stand_in = model::block_stand_in(runs[0].clone(), &runs);
+            open_editor(&built.viewer, 0, stand_in, runs.clone());
+        } else {
+            open_editor(&built.viewer, 0, runs[0].clone(), Vec::new());
+        }
+        pump();
+
+        let field = built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .map(|editor| editor.field.clone())
+            .expect("the editor opened");
+        // The cursor has to be in the box, or there is nothing for its
+        // removal to hand on and the assertion below passes for free.
+        let focused =
+            gtk::prelude::RootExt::focus(&built.window).expect("something took the cursor");
+        assert!(
+            focused.is_ancestor(&field.focus_widget()) || focused == field.focus_widget(),
+            "the cursor has to land inside the box"
+        );
+        match &field {
+            EditorField::Line(entry) => entry.set_text("Edited line"),
+            EditorField::Paragraph { view, .. } => view.buffer().set_text("Edited\nparagraph"),
+        }
+
+        commit(&built.viewer);
+        // Long enough for an animated scroll to run its course: a jump is
+        // eased in over several frames, not set at once.
+        for _ in 0..3 {
+            pump();
+        }
+
+        assert!(
+            built
+                .viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .is_some_and(|session| session.content_editor.is_none()),
+            "the commit has to land and close the box: {:?}",
+            built.viewer.status.text()
+        );
+        (PARKED, (horizontal.value(), vertical.value()))
+    }
+
+    /// Closing the box handed the cursor to GTK, which moved it on by
+    /// itself — and the canvas viewport scrolls to reveal whatever gains
+    /// focus inside it, so the page slid away from where the user was
+    /// reading. Reported zoomed in: "the page goes to the middle".
+    #[gtk::test]
+    fn gtk_ui_committing_a_line_leaves_the_canvas_where_it_was() {
+        let (parked, after) = canvas_after_a_commit(false);
+        assert_eq!(after, parked, "committing a run must not scroll the canvas");
+    }
+
+    /// The same for the multi-line paragraph field, whose view sits in a
+    /// scroller of its own.
+    #[gtk::test]
+    fn gtk_ui_committing_a_paragraph_leaves_the_canvas_where_it_was() {
+        let (parked, after) = canvas_after_a_commit(true);
+        assert_eq!(
+            after, parked,
+            "committing a paragraph must not scroll the canvas"
+        );
     }
 
     /// Pumps the main loop until `widget` has been allocated.
