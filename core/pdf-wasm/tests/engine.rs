@@ -82,7 +82,9 @@ fn error_name(error: JsValue) -> String {
 }
 
 fn inked_pixels(rgba: &[u8]) -> usize {
-    rgba.chunks_exact(4)
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
         .filter(|pixel| pixel[..3].iter().any(|&channel| channel < 128))
         .count()
 }
