@@ -762,6 +762,8 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             content_selection: None,
             selection_gesture: None,
             content_pointer: None,
+            content_hover: None,
+            content_hover_pointer: None,
             text_drag: None,
             physical_width: fit.available_width,
             physical_height: fit.available_height,

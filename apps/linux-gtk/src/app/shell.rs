@@ -24,6 +24,7 @@ use gtk::{Box as GtkBox, Button, Label, Orientation, Separator};
 
 use super::brand::build_brand_lockup;
 use super::content_edit::panel::EDIT_CSS;
+use super::content_edit::quick_actions::QUICK_ACTIONS_CSS;
 use super::home::HOME_CSS;
 use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
@@ -441,7 +442,7 @@ fn rail_item(rail: &GtkBox, label: &str, icon: Icon) -> Button {
 /// Every stylesheet the shell installs, in cascade order. They share one
 /// palette (see `theme`) and one provider.
 pub(crate) fn all_sheets() -> String {
-    format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}{ORGANIZE_CSS}")
+    format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}")
 }
 
 pub(crate) fn install_shell_css() {

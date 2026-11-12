@@ -348,14 +348,18 @@ fn apply_render_result(
             // Mark the slot failed so `update_viewport` doesn't re-queue the
             // same doomed render on every scroll tick. A refit resets it.
             slot.state = PageState::Failed;
-            viewer.status.set_text(&tr_args(
+            let message = tr_args(
                 "render-page-failed",
                 &[
                     ("page", (page_index + 1).into()),
                     ("total", page_count.into()),
                     ("error", error.to_string().into()),
                 ],
-            ));
+            );
+            // Released first: a status change re-queries the tooltip under
+            // the pointer, and the page layer's tooltip reads the state.
+            drop(state);
+            viewer.status.set_text(&message);
         }
     }
 }
@@ -502,14 +506,17 @@ fn apply_tile_result(
             // scroll tick can't re-queue the same doomed batch, and tell the
             // user instead of leaving the page silently soft.
             page.tile_failed_dpi = dpi;
-            viewer.status.set_text(&tr_args(
+            let message = tr_args(
                 "render-sharpen-failed",
                 &[
                     ("page", (page_index + 1).into()),
                     ("total", page_count.into()),
                     ("error", error.to_string().into()),
                 ],
-            ));
+            );
+            // Released first, as in `apply_render_result`.
+            drop(state);
+            viewer.status.set_text(&message);
             return;
         }
     };
@@ -517,14 +524,16 @@ fn apply_tile_result(
     // mismatch is a core-side defect, not a transient failure to retry.
     if rendered.len() != tiles.len() {
         page.tile_failed_dpi = dpi;
-        viewer.status.set_text(&tr_args(
+        let message = tr_args(
             "render-tile-mismatch",
             &[
                 ("page", (page_index + 1).into()),
                 ("returned", rendered.len().into()),
                 ("requested", tiles.len().into()),
             ],
-        ));
+        );
+        drop(state);
+        viewer.status.set_text(&message);
         return;
     }
     let logical_per_pixel = page.budget.factor * POINTS_PER_INCH / f64::from(dpi);

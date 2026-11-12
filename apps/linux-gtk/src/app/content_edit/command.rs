@@ -354,6 +354,7 @@ pub(super) fn record_selection_move(
             .as_mut()
             .ok_or_else(|| tr("edit-open-to-edit"))?;
         pdf_save::move_pending_paste(document, index, dx, dy).map_err(|error| error.to_string())?;
+        super::hover::forget(session);
         session.edit_revision += 1;
         session.unsaved_to_disk = true;
         return Ok(());
@@ -442,6 +443,8 @@ fn record_checkpointed(
     if session.content_checkpoints.generation() != generation {
         forget_page_content(session);
     }
+    // The page under the pointer changed: the hover is a snapshot of it.
+    super::hover::forget(session);
     session.edit_revision += 1;
     // Dirty when the command joins the log, not when the refresh lands — a
     // refresh that fails must still leave the document reporting dirty.
@@ -474,6 +477,7 @@ fn record_with(
         pdf_save::ImportedSources::new(&sources),
     )
     .map_err(|error| error.to_string())?;
+    super::hover::forget(session);
     session.edit_revision += 1;
     // Dirty when the command joins the log, not when the refresh lands — a
     // refresh that fails must still leave the document reporting dirty.
