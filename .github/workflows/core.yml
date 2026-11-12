@@ -138,6 +138,64 @@ jobs:
       - name: Run tests (workspace)
         run: cargo test --workspace --locked -- --skip gtk_ui_
 
+  wasm32:
+    name: pdf-wasm on wasm32 (clippy + wasm-bindgen-test in headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Bump together with core/pdf-wasm/Cargo.toml's wasm-bindgen pin,
+      # apps/web/scripts/build-wasm.sh and web.yml.
+      WASM_BINDGEN_VERSION: "0.2.130"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust (stable) with the wasm32 target
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: clippy
+      - name: Cache cargo registry, wasm32 build and wasm-bindgen-cli
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # `.crates.toml` / `.crates2.json` travel with the binaries, or
+          # `cargo install` refuses to overwrite a binary it has no record of.
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            ~/.cargo/bin/wasm2es6js
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            target
+          key: ${{ runner.os }}-cargo-wasm32-${{ env.WASM_BINDGEN_VERSION }}-${{ hashFiles('**/Cargo.lock') }}
+      - name: Install wasm-bindgen-cli (provides wasm-bindgen-test-runner)
+        run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+      # tests/engine.rs compiles the pinned pdfium in (PDFIUM_WASM_DIR).
+      - name: Cache pdfium WASM (sha256-checked by fetch-pdfium.sh either way)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/pdfium-wasm
+          key: pdfium-wasm-${{ hashFiles('core/pdf-wasm/scripts/fetch-pdfium.sh') }}
+      - name: Fetch pdfium WASM
+        run: core/pdf-wasm/scripts/fetch-pdfium.sh target/pdfium-wasm
+      - name: Check (wasm32)
+        run: cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm
+      - name: Clippy (wasm32, all targets)
+        env:
+          PDFIUM_WASM_DIR: ${{ github.workspace }}/target/pdfium-wasm
+        run: cargo clippy --locked --target wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings
+      # ubuntu-latest ships Chrome and a matching chromedriver
+      # ($CHROMEWEBDRIVER); the tests run in a dedicated worker, like the
+      # web shell's engine.
+      - name: wasm-bindgen-test (headless Chrome)
+        env:
+          PDFIUM_WASM_DIR: ${{ github.workspace }}/target/pdfium-wasm
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+        run: |
+          export CHROMEDRIVER="$CHROMEWEBDRIVER/chromedriver"
+          cargo test --locked --target wasm32-unknown-unknown -p pdf-wasm
+
   zero-network:
     name: zero-network enforcement (T-005)
     runs-on: ubuntu-latest

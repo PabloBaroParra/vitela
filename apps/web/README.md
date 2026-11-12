@@ -10,27 +10,28 @@ src/
   main.tsx          boot only
   app/              engine worker start-up, engine status, shell layout, styles
   core/             typed worker client + shared types and message protocol
-  worker/           the Web Worker: loads pdfium + the render module, serves requests
+  worker/           the Web Worker: loads pdfium + core/pdf-wasm, serves requests
   features/
     document/       open a PDF
     render/         render a page and paint it into a canvas
   ui/               presentational pieces, no logic
 e2e/                Playwright flows (production build)
-render-wasm/        TEMPORARY Rust render crate (see below)
 scripts/            build-wasm.sh
 generated/          build output of build-wasm.sh (git-ignored)
 ```
 
-## The engine today, and what replaces it
+## The engine
 
 The worker loads two WASM modules:
 
 - **pdfium**: bblanchon `pdfium-binaries` `chromium/7763`, `pdfium-wasm.tgz`,
-  downloaded and sha256-checked by `scripts/build-wasm.sh`.
-- **`render-wasm/`**: a small wasm-bindgen crate over `pdfium-render =0.9.5`
-  that opens a document from bytes and renders a page to RGBA. It stands in
-  for `core/pdf-wasm` (T-219). `src/worker/engine.ts` is the only file that
-  imports it, so the swap stays inside `src/worker/`.
+  downloaded and sha256-checked by `core/pdf-wasm/scripts/fetch-pdfium.sh`
+  (which `scripts/build-wasm.sh` calls).
+- **[`core/pdf-wasm`](../../core/pdf-wasm)**: the Rust core's wasm-bindgen
+  boundary (B26 T-219) — open from bytes (no password, one, or both), page
+  count and dimensions, render to RGBA at a DPI, text runs, page characters,
+  search. Built from the root workspace with its `wasm-release` profile.
+  `src/worker/engine.ts` is the only file that imports it.
 
 Two pdfium-render workarounds live in `src/worker/pdfium.ts`, and both are
 covered by tests:
@@ -51,7 +52,7 @@ npm ci
 ```
 
 ```bash
-npm run build:wasm    # render-wasm + pinned pdfium into generated/
+npm run build:wasm    # core/pdf-wasm + pinned pdfium into generated/
 ```
 
 ```bash

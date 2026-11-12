@@ -1,33 +1,44 @@
-// The engine behind the worker: pdfium (Emscripten) + the Rust render module
-// (wasm-bindgen). This file is the ONLY place that knows which WASM module
-// implements the engine — today the temporary render-wasm crate, later
-// core/pdf-wasm (B26 T-219). Swapping it must not touch anything outside
-// src/worker/.
+// The engine behind the worker: pdfium (Emscripten) + core/pdf-wasm
+// (wasm-bindgen). This file is the ONLY place that imports the Rust module;
+// everything else talks to the `Engine` interface in core/types.ts.
 
-import initRender, * as render from '../../generated/render/vitela_web_render.js';
-import renderWasmUrl from '../../generated/render/vitela_web_render_bg.wasm?url';
+import initEngine, * as core from '../../generated/engine/pdf_wasm.js';
+import engineWasmUrl from '../../generated/engine/pdf_wasm_bg.wasm?url';
 import pdfiumGlueUrl from '../../generated/pdfium/pdfium.js?url';
 import pdfiumWasmUrl from '../../generated/pdfium/pdfium.wasm?url';
 import type { DocumentInfo, Engine, RenderedPage } from '../core/types';
 import { instantiatePdfium } from './pdfium';
 
-/** Loads both WASM modules and binds pdfium-render to pdfium. */
+/** Loads both WASM modules, binds pdfium-render to pdfium, starts the core. */
 export async function createEngine(): Promise<Engine> {
-  const [pdfium, renderExports] = await Promise.all([
+  const [pdfium, engineExports] = await Promise.all([
     fetchText(pdfiumGlueUrl).then((glue) => instantiatePdfium(glue, pdfiumWasmUrl)),
-    initRender({ module_or_path: renderWasmUrl }),
+    initEngine({ module_or_path: engineWasmUrl }),
   ]);
-  if (!render.initialize_pdfium_render(pdfium, renderExports, false)) {
+  if (!core.initialize_pdfium_render(pdfium, engineExports, false)) {
     throw new Error('initialize_pdfium_render refused the pdfium module');
   }
+  return singleDocumentEngine(new core.Engine());
+}
+
+/**
+ * The UI holds one document at a time: opening another closes the previous
+ * one, so pdfium never keeps a document nobody can reach.
+ */
+function singleDocumentEngine(engine: core.Engine): Engine {
+  let current: number | null = null;
   return {
     async open(bytes: Uint8Array): Promise<DocumentInfo> {
-      return { pageCount: render.open_document(bytes) };
+      const doc = engine.open(bytes);
+      if (current !== null) engine.close(current);
+      current = doc;
+      return { pageCount: engine.pageCount(doc) };
     },
-    async renderPage(pageIndex: number, targetWidth: number): Promise<RenderedPage> {
-      const page = render.render_page(pageIndex, targetWidth);
+    async renderPage(pageIndex: number, dpi: number): Promise<RenderedPage> {
+      if (current === null) throw new Error('render: no document is open');
+      const page = engine.renderPage(current, pageIndex, dpi, false);
       try {
-        const rgba = page.take_rgba();
+        const rgba = page.takeRgba();
         return {
           width: page.width,
           height: page.height,

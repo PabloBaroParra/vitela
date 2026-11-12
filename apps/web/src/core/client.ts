@@ -38,8 +38,8 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'open', bytes }, [bytes.buffer as ArrayBuffer]);
   }
 
-  renderPage(pageIndex: number, targetWidth: number): Promise<RenderedPage> {
-    return this.send({ kind: 'renderPage', pageIndex, targetWidth });
+  renderPage(pageIndex: number, dpi: number): Promise<RenderedPage> {
+    return this.send({ kind: 'renderPage', pageIndex, dpi });
   }
 
   /** Marks the engine dead (e.g. the worker script failed to load). */

@@ -150,7 +150,7 @@ Hechos que las fundamentan (mapeados 2026-11-11):
 |---|---|---|
 | **T-217** ✓ #560 | `pdf-render` sin hilos en wasm32: sacar los `*_job` a un módulo `jobs`, extraer `open_from_bytes_job`, y poner actor, `library.rs`, `bind_actor` y la apertura por ruta tras `cfg(not(target_arch = "wasm32"))`. En wasm32, estado en `thread_local` y métodos síncronos. | Nativo: **cero cambio de comportamiento** (tests de `core.yml` en verde). `cargo check --target wasm32-unknown-unknown -p pdf-render` pasa. |
 | **T-218** ✓ #561 | Bajar al core la lógica que hoy vive en `pdf-ffi`: dimensiones de página con rotación, apertura con contraseñas y el gate de extracción de texto. `pdf-ffi` pasa a delegar. | Tests movidos junto a la lógica; los shells no notan nada. |
-| **T-219** | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
+| **T-219** ✓ | `core/pdf-wasm` en el workspace (wasm-bindgen): abrir desde bytes (con/sin contraseña, dual), nº de páginas, dimensiones, render → RGBA, text runs, caracteres de página, búsqueda. | `wasm-bindgen-test` en navegador headless; job wasm32 en CI; cubierto por cargo-audit/deny del root. |
 | **T-220** ✓ | Esqueleto `apps/web` (Vite + React + TS): worker que carga ambos WASM (con el alias), cliente tipado del worker, Vitest, Playwright con el test zero-network, `web.yml`. Matriz: Chromium, Firefox y WebKit (decidida 2026-11-11). | Build reproducible; Playwright abre un fixture y ve un canvas pintado; zero-network en verde. |
 | **T-221** | Visor: abrir (selector + soltar archivo), diálogo de contraseña, scroll virtualizado, zoom (incl. rueda anclada al puntero). | Flujos Playwright: abrir normal, abrir cifrado, scroll a la última página, zoom. |
 | **T-222** | Búsqueda y selección de texto (resaltado, copiar), respetando el permiso de extracción. | Flujos Playwright: buscar y saltar entre resultados; seleccionar y copiar; PDF sin permiso → bloqueado. |
@@ -193,6 +193,53 @@ Detalle en [`apps/web/README.md`](../apps/web/README.md). Lo que condiciona lo q
   del worker. El test exige ver el `pdfium.wasm` del worker durante la carga, para
   demostrar que no es ciego en ese navegador. Además se comprobó que falla en los tres
   navegadores si el worker hace un `fetch` tras la carga.
+
+### T-219 — resultado
+
+`core/pdf-wasm` es miembro del workspace y sustituye a `apps/web/render-wasm/`, que se
+borró. Lo que condiciona lo que sigue:
+
+- **Superficie:** un único `Engine` (wasm-bindgen) dueño del `SyncRenderer` de T-217 y de
+  los documentos abiertos, que se direccionan por id numérico como los handles nativos:
+  `open(bytes, password?)`, `openWithPasswords(bytes, user, owner)`, `close`,
+  `pageCount`, `pageDimensions` (ancho/alto en puntos + giro), `textExtractionAllowed`,
+  `renderPage(doc, page, dpi, invert)` → RGBA sin padding, `textRuns`, `pageCharacters`
+  (`caretAt`, `wordAt`, `textIn`, `rectsIn`) y `search`. Los rects cruzan aplanados en un
+  `Float32Array` (`x, y, ancho, alto` por rect, origen abajo-izquierda), no como objetos.
+- **Misma lógica que `pdf-ffi`, sin duplicarla:** abrir primero el modelo lopdf con
+  `pdf_manip::OpenCredentials` y después pdfium con `render_password()`; dimensiones con
+  `pdf_manip::current_page_dimensions`; el gate de texto con
+  `pdf_manip::ensure_text_extraction_allowed` delante de runs, caracteres y búsqueda.
+- **Errores tipados:** todo fallo llega a JS como `Error` cuyo `name` es el tipo
+  (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`, `PageIndexOutOfBounds`,
+  `DocumentNotFound`, `InvalidDocument`, `RenderFailed`, `EngineUnavailable`,
+  `UnsupportedSecurityHandler`). **Pendiente para T-221:** el protocolo del worker solo
+  reenvía `message`; el diálogo de contraseña necesita que también viaje el `name`.
+- **El render es por DPI, no por ancho.** El contrato del core (todos los shells) es DPI
+  entero, y 1200 px exactos no salen de ningún DPI entero para Letter. El protocolo del
+  worker pasó de `targetWidth` a `dpi`; el visor pinta a 144 dpi y el E2E espera
+  1224×1584. Es el único cambio fuera de `src/worker/`.
+- **Una sola fijación de pdfium:** `core/pdf-wasm/scripts/fetch-pdfium.sh <dir>` (tag +
+  sha256); la usan `apps/web/scripts/build-wasm.sh` y los tests del crate.
+- **Tests:** 15 unitarios nativos (errores, modelo, conversión) dentro del `cargo test
+  --workspace` de `core.yml`; 8 `wasm-bindgen-test` contra el pdfium real en Chrome
+  headless, **dentro de un dedicated worker** como en producción, con el glue evaluado
+  como cuerpo de función igual que `pdfium.ts`. pdfium entra compilado en el test
+  (`PDFIUM_WASM_DIR`), así el servidor del runner no sirve nada más. Se comprobó que fallan
+  al romper una aserción. Los PDFs de prueba (texto, `/Rotate 90`, AES con copia
+  prohibida) se construyen en memoria con lopdf porque `gen-fixtures` no compila a wasm32.
+- **CI:** job `wasm32` nuevo en `core.yml` (check, clippy `--all-targets` y los tests en
+  Chrome headless con el chromedriver del runner). `web.yml` ahora también se dispara con
+  cambios en `core/`, `vendor/` y `Cargo.*`. `security.yml` ya no audita un lockfile
+  aparte: `pdf-wasm` está en el `Cargo.lock` del root, cubierto por cargo-audit/deny (sin
+  advisories nuevas). El root pasa de wasm-bindgen 0.2.126 a 0.2.130 (fijado exacto, igual
+  que el CLI); solo se compila para wasm32.
+- **Tamaño:** perfil `wasm-release` (LTO + 1 CGU) en el root. El módulo pesa 1,56 MB crudo
+  / 502 KB gzip, frente a 513 KB / 100 KB del shim: ahora incluye lopdf y el modelo de
+  `pdf-save`. pdfium sigue siendo 5,2 MB / 2,4 MB.
+- **Verificado en local (Windows):** `cargo check --target wasm32-unknown-unknown -p
+  pdf-wasm`, los 8 tests de navegador (Chrome 157 + chromedriver de Chrome for Testing),
+  Vitest 30/30 y Playwright 9/9 (Chromium, Firefox, WebKit, incluido zero-network).
 
 ## Verificación
 
