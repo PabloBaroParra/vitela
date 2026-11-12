@@ -15,5 +15,6 @@ export interface RenderedPage {
 /** What the UI may ask the engine to do. */
 export interface Engine {
   open(bytes: Uint8Array): Promise<DocumentInfo>;
-  renderPage(pageIndex: number, targetWidth: number): Promise<RenderedPage>;
+  /** Renders a whole page at `dpi` (72 = one pixel per PDF point). */
+  renderPage(pageIndex: number, dpi: number): Promise<RenderedPage>;
 }

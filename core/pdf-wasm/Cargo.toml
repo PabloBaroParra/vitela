@@ -1,0 +1,38 @@
+[package]
+name = "pdf-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "wasm-bindgen boundary for the web shell (B26 T-219): open from bytes, page count and dimensions, render to RGBA, text runs, page characters, search."
+publish = false
+
+[lib]
+# cdylib: the module apps/web's worker loads (via wasm-bindgen --target web).
+# rlib: lets the native half (open/model/error rules) be unit-tested by the
+# workspace's ordinary `cargo test`.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pdf-document = { path = "../pdf-document" }
+pdf-manip = { path = "../pdf-manip" }
+pdf-render = { path = "../pdf-render" }
+pdf-save = { path = "../pdf-save" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Pinned EXACTLY: the wasm-bindgen CLI that post-processes this crate must be
+# the same version (apps/web/scripts/build-wasm.sh, web.yml, core.yml's
+# wasm32 job). Bump all of them together.
+wasm-bindgen = "=0.2.130"
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+# Not used directly: lopdf's `wasm_js` feature is what lets its getrandom
+# build for the browser (same trick as spikes/web-wasm). Target-scoped, so the
+# native graph never sees it.
+lopdf = { version = "0.45", features = ["wasm_js"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
+wasm-bindgen-futures = "0.4"
+
+[dev-dependencies]
+lopdf = "0.45"

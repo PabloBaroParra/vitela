@@ -5,8 +5,8 @@ import { StatusLine } from '../../ui/StatusLine';
 import { PageCanvas } from './PageCanvas';
 import { usePageRender } from './usePageRender';
 
-/** Device pixels across the page until zoom lands (B26 T-221). */
-const RENDER_WIDTH = 1200;
+/** Fixed resolution until zoom lands (B26 T-221): twice one pixel per point. */
+const RENDER_DPI = 144;
 
 interface PageViewProps {
   readonly engine: Engine;
@@ -15,7 +15,7 @@ interface PageViewProps {
 }
 
 export function PageView({ engine, generation, name }: PageViewProps) {
-  const render = usePageRender(engine, generation, 0, RENDER_WIDTH);
+  const render = usePageRender(engine, generation, 0, RENDER_DPI);
   switch (render.status) {
     case 'idle':
     case 'rendering':

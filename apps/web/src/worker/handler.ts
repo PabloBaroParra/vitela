@@ -15,7 +15,7 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
       case 'open':
         return { message: { type: 'result', id, value: await engine.open(request.bytes) }, transfer: [] };
       case 'renderPage': {
-        const page = await engine.renderPage(request.pageIndex, request.targetWidth);
+        const page = await engine.renderPage(request.pageIndex, request.dpi);
         return { message: { type: 'result', id, value: page }, transfer: [page.rgba.buffer as ArrayBuffer] };
       }
     }

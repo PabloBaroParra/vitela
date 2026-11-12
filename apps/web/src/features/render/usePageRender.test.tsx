@@ -16,21 +16,21 @@ describe('usePageRender', () => {
       calls.push(args);
       return page;
     });
-    const { result } = renderHook(() => usePageRender(engine, null, 0, 800));
+    const { result } = renderHook(() => usePageRender(engine, null, 0, 144));
     expect(result.current).toEqual({ status: 'idle' });
     expect(calls).toHaveLength(0);
   });
 
-  it('renders the requested page of the open document at the requested width', async () => {
+  it('renders the requested page of the open document at the requested dpi', async () => {
     const calls: [number, number][] = [];
-    const engine = engineWith(async (index, width) => {
-      calls.push([index, width]);
+    const engine = engineWith(async (index, dpi) => {
+      calls.push([index, dpi]);
       return page;
     });
-    const { result } = renderHook(() => usePageRender(engine, 1, 0, 800));
+    const { result } = renderHook(() => usePageRender(engine, 1, 0, 144));
     expect(result.current).toEqual({ status: 'rendering' });
     await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page }));
-    expect(calls).toEqual([[0, 800]]);
+    expect(calls).toEqual([[0, 144]]);
   });
 
   it('re-renders when a new document generation opens', async () => {
@@ -39,7 +39,7 @@ describe('usePageRender', () => {
       calls++;
       return page;
     });
-    const { result, rerender } = renderHook(({ generation }) => usePageRender(engine, generation, 0, 800), {
+    const { result, rerender } = renderHook(({ generation }) => usePageRender(engine, generation, 0, 144), {
       initialProps: { generation: 1 },
     });
     await waitFor(() => expect(result.current.status).toBe('rendered'));
@@ -49,7 +49,7 @@ describe('usePageRender', () => {
 
   it('reports a failed render with the engine message', async () => {
     const engine = engineWith(() => Promise.reject(new Error('render: out of memory')));
-    const { result } = renderHook(() => usePageRender(engine, 1, 0, 800));
+    const { result } = renderHook(() => usePageRender(engine, 1, 0, 144));
     await waitFor(() => expect(result.current).toEqual({ status: 'failed', message: 'render: out of memory' }));
   });
 });
