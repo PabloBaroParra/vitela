@@ -6,10 +6,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { PageSize } from '../../core/types';
 import type { Point } from './layout';
-import { fitWidthZoom, wheelZoom, zoomAround } from './zoom';
+import { fitWidthZoom, wheelZoom, zoomAround, type ZoomView } from './zoom';
 
 export function useViewerZoom(scroller: RefObject<HTMLElement | null>, pages: readonly PageSize[]) {
-  const [zoom, setZoom] = useState(1);
+  // A fresh object per request, even when the zoom does not change (Fit
+  // width twice, Ctrl+wheel at a limit): React then always commits it and
+  // the layout effect below always applies, and clears, its scroll.
+  const [view, setView] = useState<ZoomView>({ zoom: 1, scroll: { x: 0, y: 0 } });
+  const { zoom } = view;
   // Wheel events can arrive faster than React commits: each one builds on
   // the zoom and scroll the previous one asked for, not on stale DOM values.
   const target = useRef(1);
@@ -28,7 +32,7 @@ export function useViewerZoom(scroller: RefObject<HTMLElement | null>, pages: re
       const result = zoomAround(pages, viewport, view, next, pointer ?? centre);
       target.current = result.zoom;
       pendingScroll.current = result.scroll;
-      setZoom(result.zoom);
+      setView(result);
     },
     [scroller, pages],
   );
@@ -41,7 +45,7 @@ export function useViewerZoom(scroller: RefObject<HTMLElement | null>, pages: re
     pendingScroll.current = null;
     element.scrollLeft = scroll.x;
     element.scrollTop = scroll.y;
-  }, [scroller, zoom]);
+  }, [scroller, view]);
 
   useEffect(() => {
     const element = scroller.current;
