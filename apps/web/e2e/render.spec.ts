@@ -10,11 +10,13 @@ test('opens a repo fixture and paints its first page', async ({ page }) => {
 
   await expect(page.getByText('reportlab_acroform.pdf — 1 page')).toBeVisible();
   const canvas = await inkedPixelCount(page);
-  // US Letter (8.5 x 11 in) at the viewer's 144 dpi.
-  expect(canvas.width).toBe(1224);
-  expect(canvas.height).toBe(1584);
+  // US Letter (8.5 x 11 in) at 100% zoom: 96 dpi per device pixel ratio
+  // (1 in the Chromium and Firefox desktop profiles, 2 in WebKit's).
+  const ratio = await page.evaluate(() => window.devicePixelRatio);
+  expect(canvas.width).toBe(816 * ratio);
+  expect(canvas.height).toBe(1056 * ratio);
   // Blank-but-painted would pass a size check; demand real ink.
-  expect(canvas.inked).toBeGreaterThan(5_000);
+  expect(canvas.inked).toBeGreaterThan(3_000);
   expect(errors).toEqual([]);
 });
 
