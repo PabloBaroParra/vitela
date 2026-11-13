@@ -1322,10 +1322,9 @@ mod tests {
     /// The password prompt for an encrypted sample, with Sign armed the way a
     /// Home tile or a mode arms it before there is a document.
     ///
-    /// Raised directly rather than through `open_initial`: reaching it that
-    /// way needs pdfium to report the missing password, and the GTK UI CI
-    /// job runs without pdfium. What these tests exercise is the prompt's own
-    /// exits, which pdfium plays no part in.
+    /// Raised directly rather than through `open_initial`: what these tests
+    /// exercise is the prompt's own exits, which pdfium plays no part in, so
+    /// they need not wait on a background open to report the password.
     fn prompting_for_a_password(built: &BuiltUi) -> Window {
         built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
         let generation = begin_loading(&built.viewer);
@@ -1420,6 +1419,30 @@ mod tests {
         dialog.close();
 
         assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// A wrong password keeps the prompt up for another try, so the open is
+    /// still going and the tool must survive it. Needs pdfium to refuse the
+    /// password; the GTK UI CI job provides it.
+    #[gtk::test]
+    fn gtk_ui_a_wrong_password_keeps_the_pending_tool_for_the_retry() {
+        let built = built_ui();
+        let dialog = prompting_for_a_password(&built);
+        let open = find_button(dialog.upcast_ref(), &tr("open-password-open"))
+            .expect("the prompt offers Open");
+
+        open.emit_clicked();
+
+        assert!(
+            wait_until(|| built.viewer.status.text() == tr("open-password-waiting")),
+            "the empty password must be refused"
+        );
+        assert_eq!(
+            built.viewer.state.borrow().pending_tool,
+            Some(HomeTool::Sign)
+        );
+        dialog.destroy();
         built.window.close();
     }
 }
