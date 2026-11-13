@@ -54,7 +54,7 @@ pub(crate) struct Viewer {
     /// place that knows an open succeeded.
     pub(crate) view_stack: Stack,
     /// The right panel's Annotate/Edit/Comments/Fill & Sign pages. Held here
-    /// for the same reason `view_stack` is: three of the app rail's sections
+    /// for the same reason `view_stack` is: three of the mode bar's modes
     /// (and the matching Home tiles) navigate to a page on it, and none of
     /// them is built where `tools_panel::build_tools_panel` returned it.
     pub(crate) tools_stack: Stack,
@@ -382,11 +382,14 @@ pub(crate) struct ViewerState {
     ///
     /// Shell mode rather than document state, like `active_tool` and
     /// `content_edit_mode` above — but unlike them it is deliberately
-    /// *short*-lived: `home::apply_pending_tool` takes it at the end of the
-    /// next successful open, so an open the user reached some other way
-    /// (Ctrl+O, a file-manager launch) never inherits a tool armed minutes
-    /// earlier on Home. A cancelled file chooser leaves it set until the next
-    /// open, which is the behaviour the user asked for by clicking the tile.
+    /// *short*-lived: it lives only for the open it was armed for.
+    /// `home::apply_pending_tool` takes it when that open lands, and
+    /// `home::abandon_pending_tool` drops it on every way the open can end
+    /// without a document — a dismissed chooser, a file with no local path, a
+    /// failed open, a cancelled or closed password prompt. Left behind, it
+    /// would fire on the next open the user reached some other way (Recent, a
+    /// drop, Ctrl+O). An open that a newer one supersedes leaves it alone:
+    /// the newer open is the one it now belongs to.
     pub(crate) pending_tool: Option<HomeTool>,
     /// The drawn-signature flow's shell state (T-088) — see
     /// [`SignatureState`].
@@ -438,13 +441,13 @@ pub(crate) enum HomeTool {
     /// Unlike the other three, this does not focus a control inside the
     /// editor — `home::tools::apply`'s arm for it switches `view_stack` to
     /// `organize::ORGANIZE_PAGE` instead. Kept in this enum anyway rather
-    /// than a parallel one: the rail, the Home tile, and the cold-start
+    /// than a parallel one: the mode bar, the Home tile, and the cold-start
     /// `pending_tool` resume path all already dispatch on `HomeTool`, and a
     /// second enum would only duplicate that plumbing for one entry.
     Organize,
     /// Also unlike the other three: this one opens a modal dialog rather than
     /// revealing a control that was already on screen. It is in this enum for
-    /// the same reason `Organize` is — the rail, the Home tile and the
+    /// the same reason `Organize` is — the mode bar, the Home tile and the
     /// cold-start `pending_tool` resume path all dispatch on `HomeTool`, and
     /// "protect the document I just picked" is exactly the cold-start gesture
     /// that path exists to serve.
@@ -670,9 +673,7 @@ pub(crate) struct FormFieldToolbar {
     pub(crate) delete: Button,
     /// True while the inspector is being written from the selected field's
     /// style, so the controls' own change handlers know not to treat that
-    /// write-back as a user edit and record a spurious restyle — same guard
-    /// shape `tools_panel::build_tab_switcher` uses to keep its tab strip
-    /// from driving the `Stack` it is only meant to follow.
+    /// write-back as a user edit and record a spurious restyle.
     pub(crate) syncing: Rc<Cell<bool>>,
     /// Shown instead of `fill_rows` when the open document has no form
     /// fields (or none is open) — T-142's twin of `tools_panel`'s own

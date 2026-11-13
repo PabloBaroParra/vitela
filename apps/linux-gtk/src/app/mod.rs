@@ -20,6 +20,7 @@ mod icons;
 mod input;
 mod layout;
 mod metadata;
+mod mode_bar;
 mod organize;
 mod pan;
 mod print;
@@ -64,10 +65,10 @@ use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
 use search::{run_search, step_match};
-use shell::{build_app_rail, install_shell_css, mark_active};
+use shell::install_shell_css;
 use side_panel::{collapsible, Column};
 use sign::{build_sign_content, connect_sign_toolbar};
-use state::{HomeTool, Viewer, ViewerState};
+use state::{Viewer, ViewerState};
 use write::show_save_chooser;
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
@@ -80,6 +81,10 @@ pub(crate) const PAGE_GAP: i32 = 12;
 struct BuiltUi {
     window: ApplicationWindow,
     viewer: Viewer,
+    /// Read by tests only: production wires the bar once and never looks
+    /// at it again — it follows the stacks on its own.
+    #[cfg_attr(not(test), allow(dead_code))]
+    mode_bar: mode_bar::ModeBar,
 }
 
 pub fn run() -> glib::ExitCode {
@@ -187,8 +192,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     // past the screen (see `annotations::add_annotation_toolbar`).
     let (annotation_toolbar, annotation_row) = add_annotation_toolbar();
     // The content-edit controls and the page they live on, built as one unit
-    // by their own module — the tools panel's "Edit" tab, which is where the
-    // app rail's "Edit PDF" button now lands. They used to be five bare
+    // by their own module — the tools panel's "Edit" page, which is where the
+    // mode bar's "Edit" mode lands. They used to be five bare
     // buttons appended here and dropped into a "Content" section of the Tools
     // tab; `content_edit::panel` documents what that cost the user.
     //
@@ -284,8 +289,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     tools_panel.update_property(&[gtk::accessible::Property::Label(&tr("editor-tools-panel"))]);
     tools_panel.set_hexpand(false);
     // No `width_request`. The 220 that used to be here was never the real
-    // floor anyway — the tab strip's own 400px was — and now that the strip
-    // wraps (`tools_panel::build_tab_switcher`), the honest minimum is
+    // floor anyway — the old tab strip's own 400px was — and with the strip
+    // gone (the mode bar drives the pages now), the honest minimum is
     // whatever the controls inside actually need. A hard request on top of
     // that would only make the divider collapse the column earlier than it
     // has to. The *initial* width is the `Paned` position below, not a
@@ -297,8 +302,6 @@ fn build_ui(application: &Application) -> BuiltUi {
         .child(&tools_panel)
         .build();
 
-    let (app_rail, app_rail_box) = build_app_rail();
-
     // Each column goes into the `Paned` through a slot that can fold it away
     // while staying visible itself — which is what keeps the divider's own
     // separator on screen to drag back. See `side_panel::collapsible`.
@@ -307,9 +310,7 @@ fn build_ui(application: &Application) -> BuiltUi {
 
     // Nav | (canvas | tools), both boundaries user-draggable — a plain
     // `GtkBox` has no drag handle of its own, so the three-column layout
-    // needs two nested `Paned`s rather than one flat row. The rail sits
-    // outside both: it is icon-rail width always, never something a document
-    // window is short on room for.
+    // needs two nested `Paned`s rather than one flat row.
     let canvas_tools_paned = Paned::new(Orientation::Horizontal);
     canvas_tools_paned.set_wide_handle(true);
     canvas_tools_paned.set_hexpand(true);
@@ -363,17 +364,18 @@ fn build_ui(application: &Application) -> BuiltUi {
     let (organize_panel, organize_page) = organize::build_organize_panel();
     view_stack.add_named(&organize_page, Some(organize::ORGANIZE_PAGE));
 
-    // The rail and the status bar stay outside the stack: switching views
-    // must not move the navigation or drop the last message shown.
+    // The mode bar and the status bar stay outside the stack: switching
+    // views must not move the navigation or drop the last message shown.
+    let mode_bar = mode_bar::build_mode_bar();
     let main = GtkBox::new(Orientation::Horizontal, 0);
     main.add_css_class("editor-main");
     main.set_vexpand(true);
-    main.append(&app_rail_box);
     main.append(&view_stack);
 
     status.add_css_class("status-bar");
     let content = GtkBox::new(Orientation::Vertical, 0);
     content.add_css_class("vitela-shell");
+    content.append(&mode_bar.root);
     content.append(&main);
     content.append(&status);
     window.set_child(Some(&content));
@@ -493,59 +495,8 @@ fn build_ui(application: &Application) -> BuiltUi {
         let viewer = viewer.clone();
         move |_| content_edit::watermark::begin_watermark(&viewer)
     });
-    // Navigation group. Neither of these closes the open document: coming
-    // back to Home leaves the editor page exactly as it was.
-    app_rail.home.connect_clicked({
-        let viewer = viewer.clone();
-        let rail_box = app_rail_box.clone();
-        move |button| {
-            home::show_home(&viewer);
-            mark_active(&rail_box, button);
-        }
-    });
-    app_rail.recent.connect_clicked({
-        let viewer = viewer.clone();
-        let rail_box = app_rail_box.clone();
-        let recents = home.recents.clone();
-        move |button| {
-            home::show_home(&viewer);
-            mark_active(&rail_box, button);
-            // Home is already the recents list's home; this only puts the
-            // keyboard on it, which is what distinguishes Recent from Home.
-            recents.focus_first_card();
-        }
-    });
-    // Same command as the toolbar's Open PDF button, just reachable from the
-    // rail — `win.open` is installed once, below, by
-    // `connect_standard_shortcuts`. The extra handler only maintains the
-    // rail's own highlight; the action still does the work.
-    app_rail.files.set_action_name(Some("win.open"));
-    app_rail.files.connect_clicked({
-        let rail_box = app_rail_box.clone();
-        move |button| mark_active(&rail_box, button)
-    });
-
-    // Document group. All four are the same gesture Home's tool tiles are —
-    // go to this control, picking a document first if there is not one yet —
-    // so they share `home::tools::open_tool` rather than each keeping its own
-    // copy of what "Edit" or "Sign" opens.
-    for (button, tool) in [
-        (&app_rail.annotate, HomeTool::Annotate),
-        (&app_rail.edit_pdf, HomeTool::Edit),
-        (&app_rail.sign, HomeTool::Sign),
-        (&app_rail.organize, HomeTool::Organize),
-        (&app_rail.protect, HomeTool::Protect),
-    ] {
-        button.connect_clicked({
-            let window = window.clone();
-            let viewer = viewer.clone();
-            let rail_box = app_rail_box.clone();
-            move |button| {
-                mark_active(&rail_box, button);
-                home::tools::open_tool(&window, &viewer, tool);
-            }
-        });
-    }
+    // After Home is on the stack, so the first sync already reads it.
+    mode_bar::connect(&mode_bar, &window, &viewer);
     // Window-level, not page-level: the pointer is rarely over the page that
     // holds the selection by the time the user reaches for Ctrl+C.
     selection::connect_copy(application, &window, &viewer);
@@ -623,7 +574,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     });
     sample_actions.add_action(&action_sample_rc4128);
 
-    BuiltUi { window, viewer }
+    BuiltUi {
+        window,
+        viewer,
+        mode_bar,
+    }
 }
 
 pub(crate) fn navigate_to_page(viewer: &Viewer, page_index: usize) {

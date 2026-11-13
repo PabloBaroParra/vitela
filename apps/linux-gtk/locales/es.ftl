@@ -76,17 +76,15 @@ home-shortcut-print = Imprimir
 home-version = Vitela { $version }
 home-version-dev = desarrollo
 
-## Persistent navigation rail
+## Mode bar (top of the window)
 
-rail-sections = Secciones de Vitela
-rail-home = Inicio
-rail-recent = Recientes
-rail-files = Mis archivos
-rail-edit = Editar PDF
-rail-annotate = Anotar
-rail-sign = Firmar
-rail-organize = Organizar páginas
-rail-protect = Proteger
+mode-bar-sections = Secciones de Vitela
+mode-home = Inicio
+mode-edit = Editar
+mode-annotate = Anotar
+mode-organize = Organizar
+mode-sign = Firmar
+mode-protect = Proteger
 
 ## Editor: toolbar groups (accessible names)
 
@@ -142,12 +140,9 @@ search-no-matches = No hay coincidencias para «{ $query }».
 search-failed = No se pudo buscar: { $error }
 search-match = Coincidencia { $index } de { $total } para «{ $query }».
 
-## Tools panel: navigation (page identifiers stay language-independent)
+## Tools panel: page headings
 
-tools-tab-edit = Editar
-tools-tab-annotate = Anotar
-tools-tab-comments = Comentarios
-tools-tab-fill-sign = Rellenar y firmar
+tools-comments = Comentarios
 tools-annotations = Anotaciones
 tools-comments-unavailable = Los comentarios aún no están disponibles en esta versión.
 

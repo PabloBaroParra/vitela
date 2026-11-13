@@ -14,8 +14,8 @@
 //! `SignRequest` itself documents), then hands off to
 //! `write::begin_sign` — the destination chooser, background
 //! `pdf_sign::sign_document` call, and save→reopen cycle, T-185's half of
-//! this batch. Fase 5 (T-186) wires both flows into the rail's "Sign" button
-//! (see `shell::build_app_rail`/`app::build_ui`, which switch the tools
+//! this batch. Fase 5 (T-186) wires both flows into the mode bar's Sign mode
+//! (see `mode_bar`/`app::build_ui`, which switch the tools
 //! panel to the "Fill & Sign" tab this module's buttons live on) and gates
 //! that button along with `choose_pfx`/`choose_pkcs11` on the same
 //! decision-5 criterion `begin_sign_from_picker` already enforces — see

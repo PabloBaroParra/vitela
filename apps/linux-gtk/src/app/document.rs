@@ -22,6 +22,7 @@ use pdf_document::{Document, FieldValue, Orientation, PageSize, SecurityContext}
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
+use super::home::abandon_pending_tool;
 use super::i18n::{tr, tr_args};
 use super::layout::set_placeholder_size;
 use super::render::update_viewport;
@@ -72,17 +73,30 @@ pub(crate) fn show_file_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
-        move |result| {
-            let Ok(file) = result else {
-                return;
-            };
-            let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("open-not-local-file"));
-                return;
-            };
-            open_initial(&window, &viewer, DocumentSource::File(path));
-        }
+        move |result| open_chosen_file(&window, &viewer, result)
     });
+}
+
+/// What the file chooser's answer leads to: an open for a local file, and
+/// nothing at all for a dismissed chooser or a file with no local path.
+///
+/// Split out of [`show_file_chooser`] so the answers that end the open there
+/// can be driven without a real dialog.
+fn open_chosen_file(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    result: Result<gio::File, glib::Error>,
+) {
+    let Ok(file) = result else {
+        abandon_pending_tool(viewer);
+        return;
+    };
+    let Some(path) = file.path() else {
+        viewer.status.set_text(&tr("open-not-local-file"));
+        abandon_pending_tool(viewer);
+        return;
+    };
+    open_initial(window, viewer, DocumentSource::File(path));
 }
 
 /// The page ids of `model`, in its own page order — the order any bytes
@@ -300,6 +314,7 @@ fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSourc
                 }
                 Err(error) if is_current(&viewer, generation) => {
                     viewer.status.set_text(&open_failed(&error));
+                    abandon_pending_tool(&viewer);
                 }
                 Err(_) => {}
             }
@@ -922,6 +937,7 @@ fn prompt_for_password(
                         }
                         Err(error) if is_current(&viewer, generation) => {
                             viewer.status.set_text(&open_failed(&error));
+                            abandon_pending_tool(&viewer);
                             dismiss_password_dialog(&viewer, &dialog);
                         }
                         Err(_) => {}
@@ -940,7 +956,22 @@ fn prompt_for_password(
         let dialog = dialog.clone();
         move |_| {
             viewer.status.set_text(&tr("open-password-cancelled"));
+            abandon_pending_tool(&viewer);
             dismiss_password_dialog(&viewer, &dialog);
+        }
+    });
+    // The title bar's close button abandons the open as surely as Cancel.
+    // `destroy` — how Cancel, a landed open and a superseding open each take
+    // the prompt down — does not emit `close-request`, so this sees only the
+    // user closing it; the generation check is belt and braces for the
+    // superseded case, whose tool belongs to the newer open.
+    dialog.connect_close_request({
+        let viewer = viewer.clone();
+        move |_| {
+            if is_current(&viewer, generation) {
+                abandon_pending_tool(&viewer);
+            }
+            glib::Propagation::Proceed
         }
     });
     dialog.present();
@@ -962,17 +993,22 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
 #[cfg(test)]
 mod tests {
     use super::{
-        go_to_page, next_form_field_id, open_failed, page_overlay, rendered_field_values,
-        source_name, unsaved_decision, UnsavedDecision, SAMPLE_PDF, UNSAVED_DETAIL_CLOSING,
+        begin_loading, go_to_page, next_form_field_id, open_chosen_file, open_failed, open_initial,
+        page_overlay, prompt_for_password, rendered_field_values, source_name, unsaved_decision,
+        UnsavedDecision, AES128_SAMPLE_PDF, SAMPLE_PDF, UNSAVED_DETAIL_CLOSING,
         UNSAVED_DETAIL_OPENING,
     };
     use crate::app::i18n::{speak, tr, Language};
     use crate::app::state::DocumentSource;
+    use crate::app::state::HomeTool;
     use crate::app::test_fixtures::a_form_field;
+    use crate::app::ui_tests::built_ui;
+    use crate::app::BuiltUi;
     use gtk::prelude::*;
-    use gtk::{glib, Box as GtkBox, ContentFit, Orientation, Picture, Window};
+    use gtk::{gio, glib, Box as GtkBox, Button, ContentFit, Orientation, Picture, Window};
     use pdf_document::{Document, FieldValue};
     use std::path::PathBuf;
+    use std::time::{Duration, Instant};
 
     /// Pumps the main loop until `widget` has been allocated, so a test can
     /// read real widths rather than the zeroes of an unmapped window.
@@ -1249,5 +1285,164 @@ mod tests {
         assert_eq!(source_name(&source), "Opened PDF");
         let _spanish = speak(Language::Spanish);
         assert_eq!(source_name(&source), "PDF abierto");
+    }
+
+    /// Pumps the main loop until `condition` holds or three seconds pass, and
+    /// answers whether it held — the opens below finish on a background
+    /// thread and report back through the main context.
+    fn wait_until(condition: impl Fn() -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !condition() && Instant::now() < deadline {
+            let context = glib::MainContext::default();
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        condition()
+    }
+
+    /// The first button under `root` labelled `label`, depth first.
+    fn find_button(root: &gtk::Widget, label: &str) -> Option<Button> {
+        if let Some(button) = root.downcast_ref::<Button>() {
+            if button.label().as_deref() == Some(label) {
+                return Some(button.clone());
+            }
+        }
+        let mut child = root.first_child();
+        while let Some(widget) = child {
+            if let Some(found) = find_button(&widget, label) {
+                return Some(found);
+            }
+            child = widget.next_sibling();
+        }
+        None
+    }
+
+    /// The password prompt for an encrypted sample, with Sign armed the way a
+    /// Home tile or a mode arms it before there is a document.
+    ///
+    /// Raised directly rather than through `open_initial`: what these tests
+    /// exercise is the prompt's own exits, which pdfium plays no part in, so
+    /// they need not wait on a background open to report the password.
+    fn prompting_for_a_password(built: &BuiltUi) -> Window {
+        built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
+        let generation = begin_loading(&built.viewer);
+        prompt_for_password(
+            &built.window,
+            &built.viewer,
+            DocumentSource::Embedded(AES128_SAMPLE_PDF),
+            generation,
+        );
+        let dialog = built.viewer.state.borrow().password_dialog.clone();
+        dialog.expect("the prompt is tracked")
+    }
+
+    /// A chooser the user dismissed is the open the tool was armed for ending
+    /// with no document. Left armed, the tool would fire on whatever the user
+    /// opened next from anywhere else — Recent, a drop, Ctrl+O.
+    #[gtk::test]
+    fn gtk_ui_a_dismissed_chooser_drops_the_pending_tool() {
+        let built = built_ui();
+        built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
+
+        open_chosen_file(
+            &built.window,
+            &built.viewer,
+            Err(glib::Error::new(gtk::DialogError::Dismissed, "dismissed")),
+        );
+
+        assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// A file with no local path never starts an open, so it ends the one the
+    /// tool was armed for just as a dismissed chooser does.
+    #[gtk::test]
+    fn gtk_ui_a_chosen_file_with_no_local_path_drops_the_pending_tool() {
+        let built = built_ui();
+        built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
+        // An unknown scheme gives GIO's placeholder file, which has no path.
+        let remote = gio::File::for_uri("vitela-test://nowhere/file.pdf");
+        assert!(remote.path().is_none(), "the fixture must not be local");
+
+        open_chosen_file(&built.window, &built.viewer, Ok(remote));
+
+        assert_eq!(built.viewer.status.text(), tr("open-not-local-file"));
+        assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// An open that fails — here, bytes that are not a PDF — ends without a
+    /// document, so it must not leave the tool for the next one.
+    #[gtk::test]
+    fn gtk_ui_a_failed_open_drops_the_pending_tool() {
+        let built = built_ui();
+        built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
+
+        open_initial(
+            &built.window,
+            &built.viewer,
+            DocumentSource::Bytes(b"this is not a PDF".to_vec()),
+        );
+
+        assert!(
+            wait_until(|| built.viewer.status.text() != tr("open-busy")),
+            "the open must finish"
+        );
+        assert!(built.viewer.state.borrow().session.is_none());
+        assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// Cancelling the password prompt is the user abandoning the open.
+    #[gtk::test]
+    fn gtk_ui_cancelling_the_password_prompt_drops_the_pending_tool() {
+        let built = built_ui();
+        let dialog = prompting_for_a_password(&built);
+        let cancel = find_button(dialog.upcast_ref(), &tr("open-password-cancel"))
+            .expect("the prompt offers Cancel");
+
+        cancel.emit_clicked();
+
+        assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// Closing the prompt from its title bar abandons the open as surely as
+    /// Cancel does, and has to drop the tool the same way.
+    #[gtk::test]
+    fn gtk_ui_closing_the_password_prompt_drops_the_pending_tool() {
+        let built = built_ui();
+        let dialog = prompting_for_a_password(&built);
+
+        dialog.close();
+
+        assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// A wrong password keeps the prompt up for another try, so the open is
+    /// still going and the tool must survive it. Needs pdfium to refuse the
+    /// password; the GTK UI CI job provides it.
+    #[gtk::test]
+    fn gtk_ui_a_wrong_password_keeps_the_pending_tool_for_the_retry() {
+        let built = built_ui();
+        let dialog = prompting_for_a_password(&built);
+        let open = find_button(dialog.upcast_ref(), &tr("open-password-open"))
+            .expect("the prompt offers Open");
+
+        open.emit_clicked();
+
+        assert!(
+            wait_until(|| built.viewer.status.text() == tr("open-password-waiting")),
+            "the empty password must be refused"
+        );
+        assert_eq!(
+            built.viewer.state.borrow().pending_tool,
+            Some(HomeTool::Sign)
+        );
+        dialog.destroy();
+        built.window.close();
     }
 }

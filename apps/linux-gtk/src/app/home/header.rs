@@ -26,9 +26,9 @@ pub(crate) struct HomeHeader {
 }
 
 pub(crate) fn build_home_header(window: &ApplicationWindow, viewer: &Viewer) -> HomeHeader {
-    // No brand lockup here. The app rail carries one directly to the left of
+    // No brand lockup here. The mode bar carries one directly above
     // this row, and two "Vitela" marks a centimetre apart read as a bug, not
-    // as branding — the rail's is the one that stays, because it is on screen
+    // as branding — the mode bar's is the one that stays, because it is on screen
     // for the editor view too.
     let root = GtkBox::new(Orientation::Horizontal, 12);
     root.add_css_class("home-header");

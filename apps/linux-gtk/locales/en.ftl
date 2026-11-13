@@ -83,17 +83,15 @@ home-shortcut-print = Print
 home-version = Vitela { $version }
 home-version-dev = dev
 
-## Persistent navigation rail
+## Mode bar (top of the window)
 
-rail-sections = Vitela sections
-rail-home = Home
-rail-recent = Recent
-rail-files = My files
-rail-edit = Edit PDF
-rail-annotate = Annotate
-rail-sign = Sign
-rail-organize = Organize pages
-rail-protect = Protect
+mode-bar-sections = Vitela sections
+mode-home = Home
+mode-edit = Edit
+mode-annotate = Annotate
+mode-organize = Organize
+mode-sign = Sign
+mode-protect = Protect
 
 ## Editor: toolbar groups (accessible names)
 
@@ -152,12 +150,9 @@ search-failed = Could not search: { $error }
 # $index, $total (Number) - one-based match index and total matches.
 search-match = Match { $index } of { $total } for "{ $query }".
 
-## Tools panel: navigation (page identifiers stay language-independent)
+## Tools panel: page headings
 
-tools-tab-edit = Edit
-tools-tab-annotate = Annotate
-tools-tab-comments = Comments
-tools-tab-fill-sign = Fill & Sign
+tools-comments = Comments
 tools-annotations = Annotations
 tools-comments-unavailable = Comments aren't available in this shell yet.
 

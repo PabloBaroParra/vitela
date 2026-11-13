@@ -1,6 +1,6 @@
 //! Protect: giving a document password protection it does not already have.
 //!
-//! The rail's "Protect" item and Home's "Protect" tile both land here, the
+//! The mode bar's "Protect" button and Home's "Protect" tile both land here, the
 //! same way Annotate/Edit/Sign land on their own controls — except this one
 //! opens a dialog instead of revealing a panel, because there is no ambient
 //! state to reveal: protection is a decision made once, with two passwords,
@@ -268,7 +268,7 @@ mod tests {
     use super::*;
     use crate::app::ui_tests::built_ui;
 
-    /// The gate a cold start hits. The rail item and the Home tile are both
+    /// The gate a cold start hits. The mode-bar button and the Home tile are both
     /// live with no document open -- they route through the file chooser
     /// first -- so reaching this function without a session has to say so,
     /// rather than open a dialog asking for two passwords to protect nothing.

@@ -29,6 +29,26 @@ jobs:
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
         with:
           toolchain: stable
+      # Tests that open a real document (e.g. the password prompt an
+      # encrypted sample raises) need the prebuilt pdfium dynamic library,
+      # which is never committed. Same pinned release and resolution as the
+      # workspace test job in core.yml.
+      - name: Cache pdfium prebuilt
+        id: pdfium-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: core/pdf-render/vendor/pdfium
+          key: pdfium-linux-x64-7763
+      - name: Download pdfium prebuilt (cache miss)
+        if: steps.pdfium-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7763/pdfium-linux-x64.tgz" \
+            | tar -xz -C core/pdf-render/vendor/pdfium
+      - name: Point PDFIUM_DYNAMIC_LIB_PATH at the extracted library
+        run: |
+          lib="$(find core/pdf-render/vendor/pdfium -name 'libpdfium.so' | head -n1)"
+          test -n "$lib" || { echo "libpdfium.so not found after extraction"; exit 1; }
+          echo "PDFIUM_DYNAMIC_LIB_PATH=$GITHUB_WORKSPACE/$lib" >> "$GITHUB_ENV"
       - name: Work around a slow/unreachable azure.archive.ubuntu.com mirror
         # GitHub's Azure-hosted Ubuntu runners point apt at a regional mirror
         # (azure.archive.ubuntu.com, listed first in /etc/apt/apt-mirrors.txt)

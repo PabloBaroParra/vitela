@@ -212,8 +212,8 @@ mod gtk_tests {
     use super::super::editor;
 
     /// A window over a real page whose two lines read as one paragraph, with
-    /// the editor open over it. No pdfium: a commit's refresh is held back by
-    /// marking one already in flight, so it is queued, not run.
+    /// the editor open over it. It needs no pdfium: a commit's refresh is held
+    /// back by marking one already in flight, so it is queued, not run.
     struct Fixture {
         built: BuiltUi,
         runs: Vec<TextRun>,
