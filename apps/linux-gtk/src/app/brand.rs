@@ -29,8 +29,8 @@ const MARK_LOGICAL_PX: i32 = 96;
 
 /// Logical edge of the mark inside [`build_brand_lockup`]. Sized against the
 /// wordmark beside it rather than against the empty state's 96px: at anything
-/// larger the isotype outweighs the word it is meant to sit with in the mode
-/// bar, where the lockup sits at the start of a single row of modes.
+/// larger the isotype outweighs the word it is meant to sit with at the start
+/// of the mode bar.
 const LOCKUP_MARK_PX: i32 = 22;
 
 /// Builds the mark widget and keeps it in step with the theme and the monitor

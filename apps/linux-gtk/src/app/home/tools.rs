@@ -238,7 +238,7 @@ pub(crate) fn open_tool(window: &ApplicationWindow, viewer: &Viewer, tool: HomeT
 /// Reveals the control behind `tool` in the editor.
 ///
 /// The one definition of what each tool means, shared by the Home grid, the
-/// app rail, and [`super::apply_pending_tool`]. Every arm is a *navigation*
+/// mode bar, and [`super::apply_pending_tool`]. Every arm is a *navigation*
 /// gesture: it focuses or switches to the control, and never starts an edit
 /// on the user's behalf — clicking "Annotate" must not commit a highlight the
 /// moment the page loads.

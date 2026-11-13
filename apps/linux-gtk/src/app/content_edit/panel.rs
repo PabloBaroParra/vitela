@@ -1,5 +1,5 @@
-//! The "Edit" page of the right-hand tools panel: the surface the app rail's
-//! "Edit PDF" button and Home's "Edit" tile now land on.
+//! The "Edit" page of the right-hand tools panel: the surface the mode bar's
+//! "Edit" mode and Home's "Edit" tile now land on.
 //!
 //! ## Why a page of its own
 //!
@@ -14,7 +14,7 @@
 //!    on somewhere inside a scrolling column of a dozen other controls, with
 //!    nothing moving on screen to say where. On a document that refuses
 //!    content changes it did *nothing at all*, silently, because
-//!    `home::tools::apply` skips an insensitive control. Now the rail always
+//!    `home::tools::apply` skips an insensitive control. Now the Edit mode always
 //!    lands on this page, and the page always says what state it is in.
 //! 2. **Nothing said what the mode does.** "Edit content" is a mode: it
 //!    changes what a *page click* means. The only place that was ever

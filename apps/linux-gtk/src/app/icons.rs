@@ -64,8 +64,8 @@ pub(crate) const PROTECT_TINT: &str = "#6366f1";
 
 /// Navigation and quick actions: the same secondary text colour their labels
 /// use. They are a list to read, not a grid of features to pick from, and
-/// six accent colours down the rail would compete with the one thing on it
-/// that is actually highlighted — the section you are in.
+/// six accent colours across the mode bar would compete with the one thing
+/// on it that is actually highlighted — the section you are in.
 pub(crate) const NEUTRAL_TINT: &str = "#51496a";
 
 /// Anything disabled, matching the `:disabled` label colour in the shell's
@@ -88,7 +88,7 @@ pub(crate) enum Icon {
     Delete,
     /// A capital "T". The Edit page's marker for the *text* half of page
     /// content, as `Image` is for the other half — `Edit` already means the
-    /// feature as a whole (it is the rail's own icon), so it cannot also mean
+    /// feature as a whole (it is the Edit mode's own icon), so it cannot also mean
     /// one of the two things the feature acts on.
     Text,
     Image,

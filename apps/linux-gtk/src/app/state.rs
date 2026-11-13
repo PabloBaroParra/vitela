@@ -438,13 +438,13 @@ pub(crate) enum HomeTool {
     /// Unlike the other three, this does not focus a control inside the
     /// editor — `home::tools::apply`'s arm for it switches `view_stack` to
     /// `organize::ORGANIZE_PAGE` instead. Kept in this enum anyway rather
-    /// than a parallel one: the rail, the Home tile, and the cold-start
+    /// than a parallel one: the mode bar, the Home tile, and the cold-start
     /// `pending_tool` resume path all already dispatch on `HomeTool`, and a
     /// second enum would only duplicate that plumbing for one entry.
     Organize,
     /// Also unlike the other three: this one opens a modal dialog rather than
     /// revealing a control that was already on screen. It is in this enum for
-    /// the same reason `Organize` is — the rail, the Home tile and the
+    /// the same reason `Organize` is — the mode bar, the Home tile and the
     /// cold-start `pending_tool` resume path all dispatch on `HomeTool`, and
     /// "protect the document I just picked" is exactly the cold-start gesture
     /// that path exists to serve.
