@@ -76,6 +76,24 @@ fn restyle(document: &mut Document, page: ObjectId, from: TextRunLook, to: TextR
 }
 
 #[test]
+fn a_kerned_array_keeps_its_gaps_in_the_sibling_face_and_back() {
+    let (mut document, page) = document_with_content(
+        b"BT /F1 12 Tf 100 700 Td [(Hello)-333(World)] TJ (!) Tj ET",
+        fonts(&[("F2", "Helvetica-Bold")]),
+    );
+    for (from, to, font) in [(false, true, "F2"), (true, false, "F1")] {
+        restyle(&mut document, page, look(from, false), look(to, false));
+        let text = page_text(&document, page);
+        assert!(text.contains("[(Hello) -333 (World)] TJ"), "{text}");
+        let run = first_run(&document, page);
+        assert_eq!(
+            (run.text.as_str(), run.resource_font_name.as_str()),
+            ("HelloWorld", font)
+        );
+    }
+}
+
+#[test]
 fn bold_switches_to_a_bold_sibling_the_page_already_has() {
     let (mut document, page) = document_with_content(HELLO, fonts(&[("F2", "Helvetica-Bold")]));
 

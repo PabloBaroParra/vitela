@@ -87,7 +87,8 @@ pub fn text_run_look(
             .ok_or(refusal)?,
     };
     let resources = scope_resources(document, page_object, &located.form_path);
-    let current = Current::read(document, &resources, &content, located);
+    let stream = scope_stream(document, &content, &located.form_path, located.stream_index)?;
+    let current = Current::read(document, &resources, &content, located, &stream);
     let look = current.look();
     let possible = |to: TextRunLook| plan(&current, look, to).is_ok();
     Ok(RunLook {
@@ -125,7 +126,7 @@ pub fn restyle_text_run(
     let target = resolve_text_run(&located, item)?;
     let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
     let resources = scope_resources(document, page_object, &target.form_path);
-    let current = Current::read(document, &resources, &located, target);
+    let current = Current::read(document, &resources, &located, target, &stream);
     let plan = plan(&current, current.look(), to)?;
 
     let mut working = document.clone();
@@ -199,12 +200,15 @@ impl Current {
         resources: &Dictionary,
         content: &LocatedContent,
         located: &LocatedTextRun,
+        stream: &PageStream,
     ) -> Self {
         let own = &located.run.resource_font_name;
+        let (text, span) = (&located.run.text, located.operand_span.clone());
+        let array = (located.operator == "TJ").then(|| &stream.bytes[span]);
         let (face, siblings) = match sibling::own_face(document, resources, own) {
             Some((font, look)) => (
                 look,
-                sibling::siblings(document, resources, own, &font, &located.run.text),
+                sibling::siblings(document, resources, own, &font, text, array),
             ),
             None => (Look::default(), Vec::new()),
         };
@@ -265,7 +269,8 @@ impl Plan<'_> {
         };
         let size = target.placement.font_size;
         let spaces = face.codes.iter().filter(|&&code| code == b' ').count() as f64;
-        (face.info.width_of(&face.codes) * size
+        let kerning = face.array.as_ref().map_or(0.0, |array| array.1 / 1000.0);
+        ((face.info.width_of(&face.codes) - kerning) * size
             + paint.char_spacing * face.codes.len() as f64
             + paint.word_spacing * spaces)
             * paint.horizontal_scale
@@ -354,13 +359,10 @@ fn rewrite(
     let operand_start = target.operand_span.start - target.operation_span.start;
     let operand_end = target.operand_span.end - target.operation_span.start;
     let operand: Vec<u8> = match plan.face {
-        Some(face) if target.operator == "TJ" => {
-            let mut array = vec![b'['];
-            array.extend_from_slice(&literal_string(&face.codes));
-            array.push(b']');
-            array
-        }
-        Some(face) => literal_string(&face.codes),
+        Some(face) => match &face.array {
+            Some((array, _)) => array.clone(),
+            None => literal_string(&face.codes),
+        },
         None => operation[operand_start..operand_end].to_vec(),
     };
     let size = format_number(placement.font_size);

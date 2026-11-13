@@ -9,9 +9,11 @@
 
 use lopdf::{Dictionary, Document, Object};
 
+use crate::edit::{format_number, literal_string};
 use crate::encoding::fallback::{font_look, is_fallback_resource, Look};
 use crate::encoding::{resolve_font, resolved_name, FontInfo};
 use crate::insert::dereferenced_dict;
+use crate::parse::{tokenize, Operand};
 
 /// One face of the run's family, with the run's text already encoded in it.
 pub(crate) struct Face {
@@ -20,6 +22,25 @@ pub(crate) struct Face {
     pub(crate) look: Look,
     pub(crate) info: FontInfo,
     pub(crate) codes: Vec<u8>,
+    pub(crate) array: Option<(Vec<u8>, f64)>,
+}
+
+/// A `TJ` array's strings re-encoded from `own` into `face`, its kerning
+/// (often the word gaps) kept, and the kerning's sum; `None` when one cannot be.
+fn array_in(items: &[Operand], own: &FontInfo, face: &FontInfo) -> Option<(Vec<u8>, f64)> {
+    let (mut array, mut kerning) = (b"[".to_vec(), 0.0);
+    for item in items {
+        match item.as_bytes() {
+            Some(codes) => array.extend(literal_string(&face.encode(&own.decode(codes)).ok()?)),
+            None => {
+                kerning += item.as_f64().unwrap_or(0.0);
+                let number = format_number(item.as_f64().unwrap_or(0.0));
+                array.extend(format!(" {number} ").into_bytes());
+            }
+        }
+    }
+    array.push(b']');
+    Some((array, kerning))
 }
 
 /// Words a font name ends in that name a face, not a family. Stripped
@@ -64,7 +85,7 @@ pub(crate) fn own_face(
 }
 
 /// Every other font in `resources` of the same family as `own`, which can
-/// show all of `text`. Fallback fonts this crate registered are left out:
+/// show all of `text`, string by string for a `TJ` `array`. Fallbacks this crate wrote are out:
 /// a run in one is a stretch of a line in another font.
 pub(crate) fn siblings(
     document: &Document,
@@ -72,7 +93,17 @@ pub(crate) fn siblings(
     own_name: &str,
     own: &Dictionary,
     text: &str,
+    array: Option<&[u8]>,
 ) -> Vec<Face> {
+    let items = match array.map(|operand| tokenize(&[operand, b" TJ"].concat())) {
+        Some(Ok(operations)) => match operations.first().and_then(|op| op.operands.first()) {
+            Some(Operand::Array(items)) => Some(items.clone()),
+            _ => return Vec::new(),
+        },
+        Some(Err(_)) => return Vec::new(),
+        None => None,
+    };
+    let own_info = resolve_font(document, own, own_name).ok();
     let family = family_of(&resolved_name(document, own, b"BaseFont").unwrap_or_default());
     if family.is_empty() {
         return Vec::new();
@@ -86,11 +117,16 @@ pub(crate) fn siblings(
         .filter_map(|(name, font)| {
             let info = resolve_font(document, &font, &name).ok()?;
             let codes = info.encode(text).ok()?;
+            let array = match &items {
+                Some(items) => Some(array_in(items, own_info.as_ref()?, &info)?),
+                None => None,
+            };
             Some(Face {
                 look: font_look(document, &font),
                 name,
                 info,
                 codes,
+                array,
             })
         })
         .collect();
