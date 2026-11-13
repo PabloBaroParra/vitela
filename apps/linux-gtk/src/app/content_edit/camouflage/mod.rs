@@ -6,8 +6,8 @@
 //! Three questions, answered apart:
 //!
 //! - **what the text looks like** — [`look_for`], from the core's read of the
-//!   run (`pdf_save::text_run_style_of`) and its embedded font
-//!   ([`fonts`]); and the page's colour behind it ([`background`]);
+//!   run ([`read`], over `pdf_save::text_run_style_of`) and its embedded
+//!   font ([`fonts`]); and the page's colour behind it ([`background`]);
 //! - **how GTK is told** — [`Camouflage`], a CSS provider scoped to one
 //!   class on one editor, removed again when the editor goes;
 //! - **where the box goes** — [`box_geometry`], pure arithmetic over the
@@ -20,14 +20,13 @@
 
 mod background;
 mod fonts;
+mod read;
 
-use std::cell::{Cell, RefCell};
-use std::sync::{Arc, Weak};
+use std::cell::Cell;
 
 use gtk::{gdk, pango, prelude::*, CssProvider};
-use pdf_document::{PageId, Rect, TextRun};
+use pdf_document::{Rect, TextRun};
 use pdf_edit::Alignment;
-use pdf_manip::LopdfDocument;
 
 use crate::app::state::DocumentSession;
 
@@ -342,16 +341,6 @@ impl Drop for Camouflage {
     }
 }
 
-/// The font family a document's font resource resolved to, per
-/// (document, page, resource), so opening the editor over the same font
-/// again neither extracts its program nor registers it a second time. The
-/// document is held weakly: one dropped takes its entries' meaning with it.
-type FamilyCacheEntry = (Weak<LopdfDocument>, PageId, String, Option<String>);
-
-thread_local! {
-    static FAMILIES: RefCell<Vec<FamilyCacheEntry>> = const { RefCell::new(Vec::new()) };
-}
-
 /// How the text of `run` — the stand-in for `block` when there is one —
 /// has to look on page `page_index`, read through the session's document.
 /// Whatever the core cannot say (a run only a pending insertion holds)
@@ -400,7 +389,7 @@ pub(crate) fn look_for(
         ),
     };
 
-    let read = read_style(session, &first, font_map);
+    let read = read::read_style(session, &first, font_map);
     let background = session
         .pages
         .get(page_index)
@@ -421,91 +410,6 @@ pub(crate) fn look_for(
         block: bbox,
         first_baseline,
     }
-}
-
-/// What the core could say about a run's look.
-struct ReadStyle {
-    base_font: String,
-    family: Option<String>,
-    size_pt: Option<f64>,
-    colour: [f64; 3],
-    letter_spacing_pt: f64,
-}
-
-fn read_style(session: &DocumentSession, run: &TextRun, font_map: &pango::FontMap) -> ReadStyle {
-    let mut read = ReadStyle {
-        base_font: String::new(),
-        family: None,
-        size_pt: None,
-        colour: [0.0; 3],
-        letter_spacing_pt: 0.0,
-    };
-    let (Some(document), Some(backing)) = (
-        session.document_model.as_ref(),
-        session.save_backing.as_ref(),
-    ) else {
-        return read;
-    };
-    let sources: Vec<_> = session
-        .imported_sources
-        .iter()
-        .map(|source| (source.id, &source.document))
-        .collect();
-    let sources = pdf_save::ImportedSources::new(&sources);
-
-    match pdf_save::text_run_style_of(document, &backing.base, sources, run) {
-        Ok(Some(style)) => {
-            read.base_font = style.base_font;
-            read.size_pt = Some(style.font_size);
-            read.colour = style.fill_rgb;
-            read.letter_spacing_pt = style.char_spacing;
-        }
-        _ => {
-            read.base_font =
-                pdf_save::page_font_families_of(document, run.page, &backing.base, sources)
-                    .ok()
-                    .and_then(|families| families.get(&run.resource_font_name).cloned())
-                    .unwrap_or_default();
-        }
-    }
-
-    read.family = cached_family(&backing.base, run).unwrap_or_else(|| {
-        let family = pdf_save::text_run_font_program_of(document, &backing.base, sources, run)
-            .ok()
-            .flatten()
-            .and_then(|program| fonts::register(font_map, &program));
-        remember_family(&backing.base, run, family.clone());
-        family
-    });
-    read
-}
-
-/// The family cached for `run`'s font in `base`: `Some(None)` when it is
-/// known to have none, `None` when it has not been looked up.
-fn cached_family(base: &Arc<LopdfDocument>, run: &TextRun) -> Option<Option<String>> {
-    FAMILIES.with(|families| {
-        let mut families = families.borrow_mut();
-        families.retain(|(document, ..)| document.strong_count() > 0);
-        families
-            .iter()
-            .find(|(document, page, resource, _)| {
-                std::ptr::eq(document.as_ptr(), Arc::as_ptr(base))
-                    && *page == run.page
-                    && *resource == run.resource_font_name
-            })
-            .map(|(.., family)| family.clone())
-    })
-}
-
-fn remember_family(base: &Arc<LopdfDocument>, run: &TextRun, family: Option<String>) {
-    FAMILIES.with(|families| {
-        families.borrow_mut().push((
-            Arc::downgrade(base),
-            run.page,
-            run.resource_font_name.clone(),
-            family,
-        ));
-    });
 }
 
 #[cfg(test)]
