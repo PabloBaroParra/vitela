@@ -17,6 +17,8 @@ use crate::bridge::ImportedSources;
 use crate::content::{validate_content_command, validate_content_command_after_pending};
 use crate::error::SaveError;
 
+mod restyle;
+
 /// Why an edit was not recorded.
 #[derive(Debug)]
 pub enum RecordError {
@@ -68,6 +70,11 @@ pub fn record_content_command(
     if let Some((index, batch)) = folded {
         validate_content_command(document, base, sources, &batch)?;
         return amend(document, index, batch);
+    }
+    // Bold / italic / underline toggles, and edits of a run that has one
+    // queued, follow their own fold rules (see `restyle`).
+    if let Some(recorded) = restyle::record(document, base, sources, &core_command) {
+        return recorded;
     }
     let queued = pending_text_amendment_index(document, &core_command)?;
     if let Some(index) = queued {
@@ -431,6 +438,7 @@ pub fn target(command: &Command) -> Option<Target> {
         Command::ReplaceTextRunContent { item, .. }
         | Command::ReplaceTextRunWithInsertedFont { item, .. }
         | Command::MoveTextRun { item, .. }
+        | Command::RestyleTextRun { item, .. }
         | Command::RemoveTextRun(item)
         | Command::InsertTextRun(item) => Target::Text(item.id, item.page),
         Command::InsertImage { item, .. }
@@ -515,6 +523,7 @@ fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
     if let Command::RemoveTextRun(_) = next {
         return match earlier {
             Command::MoveTextRun { item, .. }
+            | Command::RestyleTextRun { item, .. }
             | Command::RemoveTextRun(item)
             | Command::ReplaceTextRunContent { item, .. }
             | Command::ReplaceTextRunWithInsertedFont { item, .. } => {
@@ -524,6 +533,9 @@ fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
         };
     }
     if let Some(folded) = with_original_geometry(next, earlier) {
+        return Some(folded);
+    }
+    if let Some(folded) = restyle::with_original(next, earlier) {
         return Some(folded);
     }
     Some(match (next, earlier) {

@@ -223,6 +223,27 @@ pub fn text_run_style_of(
     }
 }
 
+/// How `run` looks — bold, italic — and which of those can be taken off it,
+/// read through the page's origin ([`pdf_edit::text_run_look`]). What a
+/// shell's bold / italic toggles show before the reader presses one. `None`
+/// for a page with no content.
+pub fn text_run_look_of(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    run: &pdf_document::TextRun,
+) -> Result<Option<pdf_edit::RunLook>, SaveError> {
+    match page_backing(document, run.page, base, sources)? {
+        PageBacking::Empty => Ok(None),
+        PageBacking::Object {
+            document: backing,
+            object,
+        } => pdf_edit::text_run_look(backing.as_lopdf(), object, run)
+            .map(Some)
+            .map_err(Into::into),
+    }
+}
+
 /// The font program embedded for `run`'s font, read through the page's
 /// origin ([`pdf_edit::text_run_font_program`]). `None` for a font that
 /// embeds none, and for a page with no content.

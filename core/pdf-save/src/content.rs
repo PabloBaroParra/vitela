@@ -49,6 +49,7 @@ fn is_content_edit(command: &Command) -> bool {
             | Command::InsertTextRunLike { .. }
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
+            | Command::RestyleTextRun { .. }
             | Command::InsertImage { .. }
             | Command::RemoveImage { .. }
             | Command::MoveImage { .. }
@@ -292,6 +293,29 @@ pub fn validate_content_command_after_pending(
     probe_in_sequence(document, base, sources, &pending, commands)
 }
 
+/// Dry-runs every pending page-content edit, in log order, against the pages
+/// they touch — the save's own replay, writing nothing.
+///
+/// For a queue that was just amended in the middle: an edit recorded after
+/// the amended one was checked against what that one used to write, and only
+/// replaying the whole queue says whether it still can be.
+pub fn validate_pending_content_edits(
+    document: &Document,
+    base: &pdf_manip::LopdfDocument,
+    sources: crate::bridge::ImportedSources<'_, '_>,
+) -> Result<(), SaveError> {
+    let pending: Vec<Command> = document
+        .pending_edits
+        .entries()
+        .iter()
+        .flat_map(|entry| match entry {
+            Command::Batch(children) => children.clone(),
+            single => vec![single.clone()],
+        })
+        .collect();
+    probe_in_sequence(document, base, sources, &[], &pending)
+}
+
 /// Applies `prelude` and then `commands` to one probe per page `commands`
 /// touches, in order. A prelude command on a page `commands` does not touch
 /// is skipped: pages do not share content streams once edited, so it cannot
@@ -338,9 +362,9 @@ fn content_page(command: &Command) -> Option<PageId> {
         Command::ReplaceTextRunContent { item, .. } => Some(item.page),
         Command::ReplaceTextRunWithInsertedFont { item, .. } => Some(item.page),
         Command::InsertTextRun(run) | Command::RemoveTextRun(run) => Some(run.page),
-        Command::MoveTextRun { item, .. } | Command::InsertTextRunLike { item, .. } => {
-            Some(item.page)
-        }
+        Command::MoveTextRun { item, .. }
+        | Command::InsertTextRunLike { item, .. }
+        | Command::RestyleTextRun { item, .. } => Some(item.page),
         Command::InsertImage { item, .. }
         | Command::RemoveImage { item, .. }
         | Command::MoveImage { item, .. }
@@ -376,6 +400,9 @@ fn apply(
         Command::RemoveTextRun(run) => pdf_edit::remove_text_run(working, page_object, run)?,
         Command::MoveTextRun { item, to } => {
             pdf_edit::move_text_run(working, page_object, item, *to)?
+        }
+        Command::RestyleTextRun { item, from, to } => {
+            pdf_edit::restyle_text_run(working, page_object, item, *from, *to)?
         }
         Command::InsertImage { item, source } => {
             pdf_edit::insert_image(working, page_object, item, source.as_deref())?

@@ -102,7 +102,8 @@ pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use origin::{
     page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
-    retype_text_block_of, text_run_font_program_of, text_run_style_of, PageBacking,
+    retype_text_block_of, text_run_font_program_of, text_run_look_of, text_run_style_of,
+    PageBacking,
 };
 pub use preview::session_preview;
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};

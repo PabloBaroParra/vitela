@@ -126,6 +126,19 @@ pub enum EditError {
     /// A clip handed to a paste is not one this crate can write: not a PDF,
     /// not one page, or content that names a resource it does not carry.
     InvalidClip(String),
+    /// A restyle asked to take a style off a run that this crate can only
+    /// put on: a run painted in a bold (or italic) font with no regular
+    /// sibling on the page, or an underline or strikethrough the file
+    /// already draws. Faking the opposite is refused rather than attempted.
+    /// `style` names the one that cannot go: `bold`, `italic`, `underline`
+    /// or `strikethrough`.
+    StyleNotRemovable { style: &'static str },
+    /// A restyle cannot be written without changing more than the run: a
+    /// slant for a run shown with `"`, which also sets the spacing for
+    /// everything after it (see [`Self::TextRunNotMovable`]), or a stroked
+    /// bold for a run whose render mode is neither fill nor fill-and-stroke
+    /// (invisible OCR text would become visible).
+    TextRunNotRestylable { reason: String },
     /// A structural problem reported by lopdf while reading the document.
     Lopdf(String),
 }
@@ -215,6 +228,13 @@ impl fmt::Display for EditError {
                 write!(f, "this selection cannot be copied: {reason}")
             }
             EditError::InvalidClip(msg) => write!(f, "the copied content cannot be pasted: {msg}"),
+            EditError::StyleNotRemovable { style } => write!(
+                f,
+                "this text cannot be made non-{style}: its font has no plain sibling on                  this page, or the line is part of the file"
+            ),
+            EditError::TextRunNotRestylable { reason } => {
+                write!(f, "this text cannot be restyled: {reason}")
+            }
             EditError::Lopdf(msg) => write!(f, "pdf structure error: {msg}"),
         }
     }

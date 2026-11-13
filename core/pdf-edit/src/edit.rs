@@ -782,7 +782,7 @@ fn bring_run_to_front(
 }
 
 /// `a b c d e f Tm `, trailing space included so operands never run together.
-fn matrix_operator(matrix: Matrix) -> Vec<u8> {
+pub(crate) fn matrix_operator(matrix: Matrix) -> Vec<u8> {
     format!(
         "{} {} {} {} {} {} Tm ",
         format_number(matrix.a),

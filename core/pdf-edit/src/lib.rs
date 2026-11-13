@@ -21,6 +21,9 @@
 //!   sees, and the one-undo-step batches that move, remove or retype it.
 //! - [`clipboard`] (B25 T-209): a selection copied out as a self-contained
 //!   one-page PDF, and pasted onto any page with its resources renamed.
+//! - [`restyle`]: bold, italic, underline and strikethrough toggled on an
+//!   existing run — a sibling face when the page has one, synthesized
+//!   otherwise.
 //! - [`pending`]: a page's content as the reader sees it — the parse with
 //!   every page-content edit still pending in the `EditLog` layered on top,
 //!   so a shell hit-tests what the refreshed preview paints.
@@ -60,6 +63,7 @@ pub mod insert_like;
 pub mod parse;
 pub mod path;
 pub mod pending;
+pub mod restyle;
 pub mod selection;
 pub mod style;
 pub mod watermark;
@@ -88,6 +92,7 @@ pub use path::{move_path, remove_path, resize_path};
 pub use pending::{
     overlay_pending_content, pending_log_index, pending_text_bbox, PENDING_ITEM_ID_BASE,
 };
+pub use restyle::{restyle_text_run, text_run_look, RunLook};
 pub use selection::{move_selection, remove_selection, Selection};
 pub use style::{
     text_run_font_program, text_run_style, FontProgram, FontProgramFormat, TextRunStyle,
