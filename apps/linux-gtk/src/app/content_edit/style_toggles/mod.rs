@@ -19,6 +19,7 @@
 //! with a tooltip saying why, rather than faking a regular face.
 
 mod model;
+mod reselect;
 
 use gtk::prelude::*;
 use gtk::{gio, Box as GtkBox, Label, Orientation, ToggleButton};
@@ -32,6 +33,7 @@ use crate::app::write::refresh_preview;
 
 use super::{command, editor};
 pub(crate) use model::Style;
+pub(crate) use reselect::restore as restore_selection;
 
 /// The three buttons. Held on the `Viewer`; every field is a widget handle.
 #[derive(Clone)]
@@ -39,6 +41,8 @@ pub(crate) struct StyleToggles {
     pub(crate) bold: ToggleButton,
     pub(crate) italic: ToggleButton,
     pub(crate) underline: ToggleButton,
+    /// The selected block to select again once a toggle's refresh lands.
+    reselect: reselect::Pending,
 }
 
 impl StyleToggles {
@@ -108,6 +112,7 @@ pub(crate) fn build() -> (StyleToggles, GtkBox) {
             &tr("edit-style-underline"),
             &tr("edit-style-underline-tooltip"),
         ),
+        reselect: reselect::Pending::default(),
     };
     (toggles, row)
 }
@@ -231,6 +236,11 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
     };
     match outcome {
         Ok(Some(restyled)) => {
+            // The refresh drops the selected block; it is selected again
+            // when the refresh lands, so the next toggle stacks on this one.
+            if let Some(session) = viewer.state.borrow().session.as_ref() {
+                viewer.style_toggles.reselect.remember(session);
+            }
             if let Some((provider, css)) = restyled {
                 provider.load_from_data(&css);
                 editor::refit(viewer);

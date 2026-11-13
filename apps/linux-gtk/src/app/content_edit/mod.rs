@@ -802,6 +802,7 @@ pub(crate) fn load_visible_page_content(viewer: &Viewer) {
 /// pointer that has not moved since the edit dropped it.
 pub(crate) fn reload_after_refresh(viewer: &Viewer) {
     load_visible_page_content(viewer);
+    style_toggles::restore_selection(viewer);
     redraw(viewer);
     hover::restore_soon(viewer);
 }

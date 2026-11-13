@@ -153,3 +153,71 @@ fn gtk_ui_a_multi_selection_is_restyled_as_one_step() {
     };
     assert_eq!(children.len(), fixture.runs.len());
 }
+
+/// What a preview refresh landing does to the session: every page's parse
+/// and the selected block dropped (`write::preview::swap`), then the pages
+/// read again (`content_edit::reload_after_refresh`).
+fn land_refresh(viewer: &Viewer) {
+    {
+        let mut state = viewer.state.borrow_mut();
+        let session = state.session.as_mut().expect("a session");
+        for page in &mut session.pages {
+            page.content = None;
+        }
+        session.selected_text_block = None;
+        crate::app::content_edit::hover::forget(session);
+    }
+    crate::app::content_edit::reload_after_refresh(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_bold_then_italic_stack_on_a_selected_block_across_the_refresh() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+
+    toggle(viewer, Style::Bold);
+    land_refresh(viewer);
+    update(viewer);
+    assert!(
+        viewer.style_toggles.bold.is_active(),
+        "the block is selected again, showing its bold"
+    );
+    toggle(viewer, Style::Italic);
+
+    let queued = entries(viewer);
+    let [step] = queued.as_slice() else {
+        panic!("one step, the second press folded into it: {queued:?}");
+    };
+    let looks = restyles(step);
+    assert_eq!(looks.len(), fixture.runs.len());
+    assert!(looks.iter().all(|(_, to)| to.bold && to.italic), "{step:?}");
+}
+
+#[gtk::test]
+fn gtk_ui_a_refresh_after_another_edit_does_not_bring_the_block_back() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    toggle(viewer, Style::Bold);
+    // Any edit recorded after the toggle makes the remembered block stale.
+    viewer
+        .state
+        .borrow_mut()
+        .session
+        .as_mut()
+        .expect("a session")
+        .edit_revision += 1;
+
+    land_refresh(viewer);
+
+    let state = viewer.state.borrow();
+    assert!(state
+        .session
+        .as_ref()
+        .expect("a session")
+        .selected_text_block
+        .is_none());
+}
