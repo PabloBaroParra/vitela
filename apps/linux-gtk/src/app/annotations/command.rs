@@ -32,8 +32,8 @@ pub(crate) fn connect_history_shortcuts(
     });
     window.add_action(&viewer.undo_action);
     window.add_action(&viewer.redo_action);
-    application.set_accels_for_action("win.undo", &["<Control>z"]);
-    application.set_accels_for_action("win.redo", &["<Control>y"]);
+    crate::app::shortcuts::UNDO.install(application);
+    crate::app::shortcuts::REDO.install(application);
 }
 
 fn undo(viewer: &Viewer) {

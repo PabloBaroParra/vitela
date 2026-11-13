@@ -144,22 +144,31 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       decisión 8). La consulta se parte por espacios y **cada término** tiene que
       aparecer como subsecuencia; los términos se buscan por separado, en cualquier
       orden y pueden solaparse ("pagina rotar" también encuentra "Rotar página"); el
-      puntaje es la suma. Puntos por carácter: 1, +8 inicio de palabra (comienzo o
-      tras espacio, `-`, `_`, `/`), +4 contiguo, +12 si el término arranca en el primer
-      carácter. Cada término prueba todas las posiciones de su primer carácter y
-      completa el resto de forma voraz: no es una búsqueda exhaustiva de alineaciones,
-      pero encuentra la de inicio de palabra. La tabla de tildes es explícita, sin
+      puntaje es la suma. Puntos por carácter: 1, +8 inicio de palabra (comienzo, o
+      tras cualquier espacio en blanco o `-`, `_`, `/`, `(`, `)`, `.`, `,`, `:`), +4
+      contiguo, +12 si el término arranca en el primer carácter. Cada término prueba
+      todas las posiciones de su primer carácter; cada carácter siguiente va, en este
+      orden: justo después del anterior (una corrida contigua como "rot" en "Rotate" no
+      se rompe), o en la primera aparición posterior que sea inicio de palabra si el
+      resto del término todavía cabe después de ella, o en la primera aparición. No es
+      una búsqueda exhaustiva de alineaciones, pero "ep" en "Export pages" pone la `p`
+      en "pages" y no dentro de "Export". **Corrección de la revisión de T-228**
+      (aplicada en T-229): la primera versión solo buscaba inicio de palabra para el
+      primer carácter de cada término y tomaba la aparición más temprana para el
+      resto, y sus separadores de palabra eran solo espacio, `-`, `_` y `/`; esta nota
+      y el doc comment ya describen el código corregido. La tabla de tildes es explícita, sin
       crate: minúsculas de Latin-1 Supplement y Latin Extended-A (español, portugués,
       francés, alemán), más `ß`→"ss", `æ`→"ae", `œ`→"oe"; el resto (griego, cirílico,
-      CJK, marcas combinantes) pasa solo en minúsculas. El `dead_code` se silencia con
-      un único `#![cfg_attr(not(test), allow(dead_code))]` en `matcher.rs` hasta que
-      T-229 lo use.
+      CJK, marcas combinantes) pasa solo en minúsculas. El `dead_code` se silenciaba
+      con un único `#![cfg_attr(not(test), allow(dead_code))]` en `matcher.rs`; T-229
+      lo quitó al llamar a `rank`, y `score` (la forma de un solo candidato) quedó
+      `#[cfg(test)]` porque solo la usan los tests.
       **Evidencia TDD:** 16 tests escritos primero contra cuerpos `todo!()`: 0 pasan /
       16 fallan; tras implementar, 16/16. Gate en WSL: `cargo fmt --all -- --check`,
       `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y
       `cargo test -p linux-gtk --locked palette::` en verde; la suite completa de
       `linux-gtk`: **974 pasan, 0 fallan, 1 ignorado**.)
-- [ ] T-229 `palette/entries.rs`: `PaletteEntry { id, label_key, keywords_key,
+- [x] T-229 `palette/entries.rs`: `PaletteEntry { id, label_key, keywords_key,
       shortcut, category, availability, run }` y el catálogo de la v1:
       - modos de `Mode::ALL` (vía `apply` / `open_tool`);
       - las acciones `win.*` del hecho 2;
@@ -170,6 +179,96 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
         según la decisión 2.
       Un test fija que todo `Mode` y todo `Tool` tiene su entrada, para que una
       herramienta nueva no quede fuera de la paleta en silencio. [Palette]
+      **(2026-11-13 — completo.** Partido en `palette/entries/mod.rs` (tipos, catálogo,
+      `search`), `entries/invoke.rs` (qué corre cada entrada y su disponibilidad) y
+      `entries/tests.rs`. `PaletteEntry { id, label_key, keywords_key, shortcut,
+      category, target }`: en vez de dos punteros `fn` (`availability`, `run`), un
+      `Target` cerrado (`Mode`, `Action(Shortcut)`, `Annotation(Tool)`,
+      `FormField(FieldKind)`, `Click(ClickTool)`) y dos métodos que hacen `match`
+      sobre él; un `fn` no puede capturar qué `Mode` o qué `Tool` es, y el `match`
+      obliga a cubrir cada variante nueva. `run` recibe `&ApplicationWindow` además
+      del `&Viewer` porque `open_tool` y los selectores de archivos lo necesitan.
+      `Availability` es `Available | Refused(String)`. `search(viewer, query)`
+      devuelve `(PaletteEntry, Availability, u32)` con `matcher::rank` sobre la
+      etiqueta activa, la etiqueta en inglés y los sinónimos; con la consulta vacía,
+      el orden del catálogo (los recientes de la decisión 8 quedan para T-230).
+      **Catálogo real: 35 entradas.** Modos (6, uno por `Mode::ALL`, vía
+      `Mode::open`); archivo (4: abrir, nuevo, guardar, imprimir) y edición (3:
+      deshacer, rehacer, buscar), todas `win.*` activadas en la ventana; anotar (8,
+      `Tool::ALL`); formularios (4, `FieldKind::ALL`); documento (3: exportar
+      imágenes, marca de agua, comprimir); páginas (3: añadir PDFs, extraer,
+      dividir); firma (4: certificado `.pfx`, tarjeta o token, certificado del equipo,
+      dibujar firma). Etiquetas: todas claves existentes (`mode-*`, `home-quick-*`,
+      `editor-*`, `annotate-tool-*`, `forms-kind-*`, `edit-watermark`,
+      `home-tool-compress`, `organize-*`, `sign-*`, `signature-draw`).
+      `keywords_key` es `None` en todas (T-231).
+      **Lista real de herramientas solo-clic** (enumerada al arrancar): exportar
+      imágenes (`export::begin_export`), marca de agua
+      (`content_edit::watermark::begin_watermark`), añadir PDFs
+      (`organize::import::show_chooser`), extraer y dividir
+      (`write::begin_extract`/`begin_split`), los tres botones de certificado
+      (`sign::show_pfx_chooser`, `begin_pkcs11_flow`, `begin_nss_flow`) y dibujar firma
+      (`signature::flow::open`). Comprimir y proteger ya pasaban por
+      `home::tools::apply` (`HomeTool`); comprimir entra por `open_tool` como su
+      tarjeta de Home, y organizar y proteger son modos. **Ningún botón tenía lógica
+      dentro del closure**: todos llamaban ya a una función con nombre, así que la
+      única extracción fue `Mode::open` en `mode_bar.rs`, el `match` que el botón de
+      modo tenía en su closure; ahora el botón y la paleta llaman a esa función. El
+      resto solo cambió de visibilidad: `structural_edit_refusal`, `signing_refusal`,
+      `protection_refusal`, `import_refusal`, `show_chooser`, los tres flujos de firma
+      y `flow::open` (reexportado como `signature::draw_signature`, que el botón
+      también usa). `Mode::label_key` pasó a `pub(crate)`; `Tool` y `FieldKind`
+      ganaron `label_key()` y su `label()` la usa.
+      **Fuera, y por qué:** **rotar.** Sus botones giran la página o el bloque de una
+      tarjeta de Organize; no hay rotación a nivel de documento a la que llamar, e
+      inventar "girar la página actual" sería un camino propio (decisión 2). El
+      criterio de aceptación "rotar pagina" queda pendiente de esa decisión.
+      **Decisiones que la ficha no fijaba:** (1) Las anotaciones y los campos de
+      formulario se ejecutan llevando el editor a su página (Anotar / Rellenar y
+      firmar) y haciendo `set_active(true)` en su toggle, que dispara el mismo
+      handler que el clic; si ya estaba activo, sigue activo. (2) Las cuatro entradas
+      de firma abren primero la página Rellenar y firmar: la firma dibujada se suelta
+      al salir de esa página (`signature::connect_signature`). (3) Añadir PDFs abre
+      antes Organize si no está en pantalla, porque el progreso y el cancelar de la
+      importación viven en su cabecera; si `organize::show` lo rechaza, no se abre el
+      selector. (4) Disponibilidad: sin documento, los modos y comprimir siguen
+      disponibles (`open_tool` pide el archivo), abrir y nuevo también; el resto se
+      rechaza con el texto que la propia función muestra sin documento
+      (`save-no-document`, `print-open-first`, `search-open-first`,
+      `annotate-no-document`, `forms-no-document`, `export-no-document`, etc.). Con
+      documento: Organizar → `content_edit_refusal`, Proteger →
+      `protection_refusal`, buscar y exportar → `text_extraction_refusal`, marca de
+      agua → `content_edit_refusal`, añadir PDFs → `import_refusal`, extraer/dividir →
+      extracción y luego `full_rewrite_refusal` (el orden de `begin_extract`), firma
+      con certificado → `signing_refusal`, dibujar → `annotation_editing_refusal`,
+      campos → `structural_edit_refusal`; Editar, Anotar y Firmar como modos son
+      navegación y no se rechazan. Comprimir no muestra rechazo: necesita la
+      instantánea de guardado completa y `begin_compress` lo informa al ejecutarse.
+      Deshacer/rehacer siguen `is_enabled()` de su `SimpleAction`; para ese caso no
+      había texto y se añadieron **dos claves** en `en.ftl` y `es.ftl`:
+      `palette-nothing-to-undo`, `palette-nothing-to-redo`. Buscar activa `win.find`,
+      que solo abre el popover si el editor está en pantalla; T-230 decide si la
+      paleta lleva antes al editor. (5) Decisión 7, mínimo: nuevo `app/shortcuts.rs`
+      con un `Shortcut { action, accel }` por acción (`OPEN`, `SAVE`, `PRINT`, `FIND`,
+      `NEW`, `UNDO`, `REDO`); `connect_standard_shortcuts`,
+      `connect_history_shortcuts`, los `SimpleAction::new` de las siete acciones y el
+      catálogo leen esas constantes. La tarjeta de atajos de Home sigue igual (T-232).
+      (6) `i18n::tr_in(Language, key)` para la etiqueta en inglés, con los mismos
+      fallbacks que `tr`, y `has_message(Language, key)` solo para tests. (7) La
+      búsqueda en español sin tildes se prueba con "anadir pdf" e "imagenes": ninguna
+      etiqueta del catálogo contiene "página", así que "pagina" no encuentra nada
+      hasta que T-231 escriba los sinónimos. `entries` lleva
+      `#![cfg_attr(not(test), allow(dead_code))]` hasta que T-230 lo llame.
+      **Evidencia TDD:** corrección del matcher: 4 tests nuevos, 2 en rojo contra el
+      código de T-228 ("ep" en "Export pages" y la `z` tras `(`; los otros 2 fijan que
+      una corrida contigua no se rompe y que un inicio de palabra que deja sin sitio al
+      resto se salta), 20/20 tras corregir. Catálogo: 18 tests; contra `invoke.rs` con
+      cuerpos `todo!()`, 8 pasan (los de forma del catálogo, que es dato) y 10 fallan;
+      tras implementar, 18/18 (filtro `palette::`: 28/38 → 38/38). Más 3 tests de
+      `shortcuts` y 1 de `i18n::tr_in`. Gate en WSL: `cargo fmt --all -- --check`,
+      `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y
+      `cargo test -p linux-gtk --locked` en verde: **1000 pasan, 0 fallan, 1
+      ignorado**.)
 
 ### Fase 2 — UI
 - [ ] T-230 `palette/view.rs` + `mod.rs`: overlay, `SearchEntry`, `ListView` con

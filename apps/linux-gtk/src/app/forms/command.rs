@@ -50,7 +50,7 @@ const NO_DOCUMENT: &str = "forms-no-document";
 /// fields a document never actually authorized. Every entry point in this
 /// module that records a structural command must call this, not
 /// `Viewer::annotation_editing_refusal` directly.
-pub(super) fn structural_edit_refusal(viewer: &Viewer) -> Option<String> {
+pub(crate) fn structural_edit_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .annotation_editing_refusal()
         .or_else(|| viewer.content_edit_refusal())

@@ -8,9 +8,6 @@
 //! combining marks from decomposed input) passes through lowercased but
 //! otherwise unchanged, so it still matches itself exactly.
 
-// Caller lands in T-229 (palette catalog).
-#![cfg_attr(not(test), allow(dead_code))]
-
 /// Lowercases `text` and strips diacritics with the module's fold table, so
 /// "Página", "PÁGINA" and "pagina" all become "pagina".
 pub(crate) fn normalize(text: &str) -> String {
@@ -73,6 +70,11 @@ const PREFIX: u32 = 12;
 ///
 /// A query with no terms (empty or whitespace only) matches everything with
 /// `Some(0)`, so an empty search keeps the catalog order.
+///
+/// Test-only: the catalog searches through [`rank`], which applies these
+/// same rules to every haystack of every entry. This single-candidate form
+/// is what the scoring tests pin.
+#[cfg(test)]
 pub(crate) fn score(query: &str, candidate: &str) -> Option<u32> {
     score_terms(&terms(query), candidate)
 }
@@ -117,9 +119,10 @@ fn score_terms(terms: &[Vec<char>], candidate: &str) -> Option<u32> {
 }
 
 /// Best score of one term: every position where the term's first character
-/// occurs is tried as a starting point and the rest is matched greedily
-/// (earliest next occurrence). Not an exhaustive alignment search, but it
-/// finds the word-start or prefix alignment a user typing a label expects.
+/// occurs is tried as a starting point, and each later character is placed
+/// by [`next_position`]. Not an exhaustive alignment search, but it finds the
+/// word-start or prefix alignment a user typing a label expects — "ep" puts
+/// its `p` at "pages" in "Export pages", not inside "Export".
 fn score_term(term: &[char], candidate: &[char]) -> Option<u32> {
     let (&first, rest) = term.split_first()?;
     candidate
@@ -129,11 +132,8 @@ fn score_term(term: &[char], candidate: &[char]) -> Option<u32> {
         .filter_map(|(start, _)| {
             let mut total = char_score(candidate, start, None);
             let mut previous = start;
-            for &wanted in rest {
-                let offset = candidate[previous + 1..]
-                    .iter()
-                    .position(|&c| c == wanted)?;
-                let at = previous + 1 + offset;
+            for (index, &wanted) in rest.iter().enumerate() {
+                let at = next_position(candidate, previous, wanted, &rest[index + 1..])?;
                 total += char_score(candidate, at, Some(previous));
                 previous = at;
             }
@@ -142,9 +142,53 @@ fn score_term(term: &[char], candidate: &[char]) -> Option<u32> {
         .max()
 }
 
+/// Where `wanted` goes after the character matched at `previous`, with
+/// `remaining` still to place after it. In order of preference:
+///
+/// 1. directly after `previous`, so a contiguous run ("rot" in "Rotate")
+///    is never broken up to chase a word start;
+/// 2. the first later occurrence that starts a word, provided `remaining`
+///    can still be matched after it;
+/// 3. the earliest occurrence.
+///
+/// `None` when `wanted` does not occur after `previous` at all.
+fn next_position(
+    candidate: &[char],
+    previous: usize,
+    wanted: char,
+    remaining: &[char],
+) -> Option<usize> {
+    let after = previous + 1;
+    let earliest = after + candidate[after..].iter().position(|&c| c == wanted)?;
+    if earliest == after {
+        return Some(earliest);
+    }
+    let word_start = (earliest..candidate.len()).find(|&at| {
+        candidate[at] == wanted
+            && starts_word(candidate, at)
+            && is_subsequence(remaining, &candidate[at + 1..])
+    });
+    Some(word_start.unwrap_or(earliest))
+}
+
+fn is_subsequence(needle: &[char], haystack: &[char]) -> bool {
+    let mut haystack = haystack.iter();
+    needle.iter().all(|c| haystack.any(|h| h == c))
+}
+
+/// Whether the character at `at` begins a word: the candidate's first
+/// character, or one after whitespace or `-`, `_`, `/`, `(`, `)`, `.`, `,`,
+/// `:`.
+fn starts_word(candidate: &[char], at: usize) -> bool {
+    at == 0 || {
+        let before = candidate[at - 1];
+        before.is_whitespace() || matches!(before, '-' | '_' | '/' | '(' | ')' | '.' | ',' | ':')
+    }
+}
+
 fn char_score(candidate: &[char], at: usize, previous: Option<usize>) -> u32 {
     let mut points = MATCH;
-    if at == 0 || matches!(candidate[at - 1], ' ' | '-' | '_' | '/') {
+    if starts_word(candidate, at) {
         points += WORD_START;
     }
     if at == 0 && previous.is_none() {
@@ -226,6 +270,41 @@ mod tests {
     fn best_alignment_is_found_not_just_the_first() {
         // The first 'p' is mid-word; a later one starts a word.
         assert!(s("pa", "Stamp page") > s("pa", "Stamp xaxa"));
+    }
+
+    #[test]
+    fn later_characters_prefer_a_word_start() {
+        // "ep": the 'p' of "pages" starts a word, the 'p' inside "Export"
+        // does not. "xages" has no word-start 'p', so it can only score the
+        // mid-word one.
+        assert!(s("ep", "Export pages") > s("ep", "Export xages"));
+        assert_eq!(
+            s("ep", "Export pages"),
+            (MATCH + WORD_START + PREFIX) + (MATCH + WORD_START)
+        );
+    }
+
+    #[test]
+    fn a_contiguous_run_is_not_broken_for_a_word_start() {
+        // "rot" stays the prefix run of "Rotate", not 'r' + the 'o' of "options".
+        assert_eq!(
+            s("rot", "Rotate options"),
+            (MATCH + WORD_START + PREFIX) + 2 * (MATCH + CONTIGUOUS)
+        );
+    }
+
+    #[test]
+    fn a_word_start_that_strands_the_rest_is_skipped() {
+        // Jumping to the word-start 'p' of "pq" would leave no 'x' after it.
+        assert!(score("epx", "Expx pq").is_some());
+    }
+
+    #[test]
+    fn word_start_after_punctuation_and_any_whitespace() {
+        let mid = s("z", "xaz");
+        for candidate in ["xa(z", "xa)z", "xa.z", "xa,z", "xa:z", "xa\tz", "xa\u{a0}z"] {
+            assert!(s("z", candidate) > mid, "{candidate:?}");
+        }
     }
 
     #[test]

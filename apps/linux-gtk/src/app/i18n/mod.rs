@@ -69,9 +69,26 @@ pub(crate) fn tr(key: &str) -> String {
 
 /// Message `key` in the active language, with Fluent arguments.
 pub(crate) fn tr_args(key: &str, args: &[(&str, FluentValue<'_>)]) -> String {
-    let active = ACTIVE.with(Cell::get);
+    tr_args_in(ACTIVE.with(Cell::get), key, args)
+}
+
+/// Message `key` in `language` rather than the active one — how the command
+/// palette searches its English labels while the window speaks Spanish. The
+/// same fallbacks as [`tr`].
+pub(crate) fn tr_in(language: Language, key: &str) -> String {
+    tr_args_in(language, key, &[])
+}
+
+/// Whether `language`'s own bundle has `key`, without the English fallback
+/// [`tr`] would quietly take.
+#[cfg(test)]
+pub(crate) fn has_message(language: Language, key: &str) -> bool {
+    with_bundle(language, |bundle| bundle.has_message(key))
+}
+
+fn tr_args_in(language: Language, key: &str, args: &[(&str, FluentValue<'_>)]) -> String {
     if let Rendered::Complete(text) =
-        with_bundle(active, |bundle| bundle::render(bundle, key, args))
+        with_bundle(language, |bundle| bundle::render(bundle, key, args))
     {
         return text;
     }
@@ -187,6 +204,15 @@ mod tests {
             assert_eq!(tr("home-tools-title"), "Herramientas");
         }
         assert_eq!(tr("home-tools-title"), "Tools");
+    }
+
+    #[test]
+    fn tr_in_ignores_the_active_language() {
+        let _spanish = speak(Language::Spanish);
+        assert_eq!(tr_in(Language::English, "home-tools-title"), "Tools");
+        assert_eq!(tr_in(Language::Spanish, "home-tools-title"), "Herramientas");
+        assert!(has_message(Language::Spanish, "home-tools-title"));
+        assert!(!has_message(Language::Spanish, "no-such-message"));
     }
 
     #[test]

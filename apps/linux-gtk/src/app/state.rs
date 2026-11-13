@@ -561,7 +561,12 @@ impl Tool {
     /// `match` rather than a lookup table so adding a variant fails to
     /// compile until it is named.
     pub(crate) fn label(self) -> String {
-        tr(match self {
+        tr(self.label_key())
+    }
+
+    /// The message id behind [`Self::label`].
+    pub(crate) fn label_key(self) -> &'static str {
+        match self {
             Tool::Highlight => "annotate-tool-highlight",
             Tool::Underline => "annotate-tool-underline",
             Tool::Strikeout => "annotate-tool-strikeout",
@@ -570,7 +575,7 @@ impl Tool {
             Tool::FreeText => "annotate-tool-text-box",
             Tool::Shape => "annotate-tool-shape",
             Tool::Stamp => "annotate-tool-stamp",
-        })
+        }
     }
 
     /// Whether this tool marks up existing text rather than drawing a shape.
@@ -639,12 +644,17 @@ impl FieldKind {
 
     /// The kind's toolbar button label, also used in status messages.
     pub(crate) fn label(self) -> String {
-        tr(match self {
+        tr(self.label_key())
+    }
+
+    /// The message id behind [`Self::label`].
+    pub(crate) fn label_key(self) -> &'static str {
+        match self {
             FieldKind::Text => "forms-kind-text",
             FieldKind::Checkbox => "forms-kind-checkbox",
             FieldKind::RadioGroup => "forms-kind-radio-group",
             FieldKind::Dropdown => "forms-kind-dropdown",
-        })
+        }
     }
 
     /// The base a freshly placed field of this kind's `/T` name is derived

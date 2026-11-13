@@ -980,3 +980,8 @@ selection-copied =
         [one] Copied { $count } character to the clipboard.
        *[other] Copied { $count } characters to the clipboard.
     }
+
+## Command palette (B27)
+
+palette-nothing-to-undo = Nothing to undo.
+palette-nothing-to-redo = Nothing to redo.

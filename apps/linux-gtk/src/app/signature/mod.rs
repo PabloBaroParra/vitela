@@ -47,6 +47,7 @@ use crate::app::state::Viewer;
 use crate::app::tools_panel::FILL_SIGN_PAGE;
 
 pub(crate) use armed::place_armed;
+pub(crate) use flow::open as draw_signature;
 pub(crate) use store::{default_store, SignatureStore};
 
 // Fluent keys for the entry's label and tooltip.
@@ -71,7 +72,7 @@ pub(crate) fn build_draw_signature_button(sign_content: &GtkBox) -> Button {
 pub(crate) fn connect_signature(viewer: &Viewer) {
     viewer.draw_signature.connect_clicked({
         let viewer = viewer.clone();
-        move |_| flow::open(&viewer)
+        move |_| draw_signature(&viewer)
     });
     viewer.tools_stack.connect_visible_child_notify({
         let viewer = viewer.clone();
