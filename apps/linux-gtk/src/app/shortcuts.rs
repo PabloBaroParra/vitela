@@ -3,9 +3,9 @@
 //! Each [`Shortcut`] pairs a `win.*` action name with its accelerator. The
 //! code that registers the action (`connect_standard_shortcuts`,
 //! `annotations::connect_history_shortcuts`) and the command palette's
-//! catalog both read these constants, so the key the palette shows is the
-//! key GTK listens for. Home's shortcut card still writes its own text until
-//! T-232 moves it onto this table.
+//! catalog and Home's shortcut card all read these constants, so the key the
+//! palette and the card show is the key GTK listens for. [`accel_label`] is
+//! the one place an accelerator becomes the text the user reads.
 //!
 //! The text-editing keys ([`TEXT_EDITING`]) are handed to the palette's
 //! search and the Find entry while they have the cursor: see
@@ -86,6 +86,21 @@ impl Shortcut {
     fn uninstall(self, application: &gtk::Application) {
         application.set_accels_for_action(&self.detailed_action(), &[]);
     }
+}
+
+/// An accelerator in GTK syntax as the user reads it, e.g. `"Ctrl+O"`, or
+/// `None` when GTK cannot parse it.
+///
+/// The one formatter for every place a shortcut is shown — the command
+/// palette's rows and Home's shortcut card — so the two cannot spell the
+/// same key differently. GTK's own label rather than a hand-written
+/// "Ctrl+" prefix: it is what GTK's shortcut windows and menus print, and
+/// GTK translates the modifier names through its own catalog, so the text
+/// follows the keyboard labels of the system locale. In the C and English
+/// locales it reads "Ctrl+O", the text Home's card always showed.
+pub(crate) fn accel_label(accel: &str) -> Option<String> {
+    let (key, modifiers) = gtk::accelerator_parse(accel)?;
+    Some(gtk::accelerator_get_label(key, modifiers).into())
 }
 
 /// The window shortcuts a text field has keys of its own for: cut, copy,
@@ -190,6 +205,16 @@ mod tests {
                 assert_ne!(shortcut.accel, other.accel);
             }
         }
+    }
+
+    #[gtk::test]
+    fn gtk_ui_accel_label_is_what_the_user_reads() {
+        assert_eq!(accel_label(OPEN.accel).as_deref(), Some("Ctrl+O"));
+        assert_eq!(
+            accel_label(COMMAND_PALETTE.accel).as_deref(),
+            Some("Ctrl+K")
+        );
+        assert_eq!(accel_label("not an accelerator"), None);
     }
 
     #[test]

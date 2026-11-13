@@ -17,6 +17,7 @@ use gtk::{
 
 use super::entries::{Availability, PaletteEntry};
 use crate::app::i18n::tr;
+use crate::app::shortcuts::accel_label;
 
 /// Set on the row of a refused entry, which stays selectable so its reason
 /// can be read.
@@ -159,7 +160,7 @@ pub(super) fn row(entry: &PaletteEntry, availability: &Availability) -> ListBoxR
     label.set_ellipsize(pango::EllipsizeMode::End);
     let line = GtkBox::new(Orientation::Horizontal, 12);
     line.append(&label);
-    if let Some(text) = entry.shortcut.and_then(shortcut_text) {
+    if let Some(text) = entry.shortcut.and_then(accel_label) {
         let shortcut = Label::new(Some(&text));
         shortcut.add_css_class("palette-shortcut");
         line.append(&shortcut);
@@ -183,12 +184,6 @@ pub(super) fn row(entry: &PaletteEntry, availability: &Availability) -> ListBoxR
         row.update_state(&[gtk::accessible::State::Disabled(true)]);
     }
     row
-}
-
-/// An accelerator in GTK syntax as the user reads it, e.g. "Ctrl+O".
-pub(super) fn shortcut_text(accel: &str) -> Option<String> {
-    let (key, modifiers) = gtk::accelerator_parse(accel)?;
-    Some(gtk::accelerator_get_label(key, modifiers).into())
 }
 
 /// What a key pressed in the palette does, if anything special.
@@ -236,9 +231,50 @@ mod tests {
         assert_eq!(key_action(gdk::Key::Return), None);
     }
 
+    /// The text of the row's shortcut label, if it shows one.
+    fn shortcut_shown(row: &ListBoxRow) -> Option<String> {
+        let column = row.child()?.downcast::<GtkBox>().ok()?;
+        let line = column.first_child()?.downcast::<GtkBox>().ok()?;
+        let mut child = line.first_child();
+        while let Some(widget) = child {
+            if widget.has_css_class("palette-shortcut") {
+                return widget
+                    .downcast::<Label>()
+                    .ok()
+                    .map(|label| label.text().into());
+            }
+            child = widget.next_sibling();
+        }
+        None
+    }
+
+    /// The palette and Home's shortcut card print the same key the same
+    /// way: both go through `shortcuts::accel_label` (B27 decision 7).
     #[gtk::test]
-    fn gtk_ui_palette_shortcut_text_is_what_the_user_reads() {
-        assert_eq!(shortcut_text("<Control>o").as_deref(), Some("Ctrl+O"));
-        assert_eq!(shortcut_text("not an accelerator"), None);
+    fn gtk_ui_palette_and_home_card_spell_a_shortcut_alike() {
+        use crate::app::home::tools::{
+            build_shortcuts_card, test_support::card_rows, SHORTCUT_CARD,
+        };
+        use crate::app::shortcuts::COMMAND_PALETTE;
+
+        let card = card_rows(&build_shortcuts_card());
+        assert_eq!(card.len(), SHORTCUT_CARD.len());
+        let catalog = crate::app::palette::entries::catalog();
+        let mut compared = 0;
+        for ((_, shortcut), (label, on_card)) in SHORTCUT_CARD.iter().zip(&card) {
+            let Some(entry) = catalog
+                .iter()
+                .find(|entry| entry.shortcut == Some(shortcut.accel))
+            else {
+                // Ctrl+K: the palette does not list itself.
+                assert_eq!(*shortcut, COMMAND_PALETTE);
+                assert_eq!(Some(on_card.clone()), accel_label(shortcut.accel));
+                continue;
+            };
+            let on_palette = shortcut_shown(&row(entry, &Availability::Available));
+            assert_eq!(on_palette.as_deref(), Some(on_card.as_str()), "{label}");
+            compared += 1;
+        }
+        assert_eq!(compared, SHORTCUT_CARD.len() - 1, "all but Ctrl+K");
     }
 }
