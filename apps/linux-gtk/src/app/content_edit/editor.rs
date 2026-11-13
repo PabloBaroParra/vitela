@@ -1285,9 +1285,10 @@ mod tests {
     ///
     /// Built on the shell's own `Viewer` rather than on a scroller assembled
     /// here: a hand-rolled one does not reproduce it, and a test that cannot
-    /// fail is worse than no test. What it cannot use is a real document —
-    /// the GTK gate runs without pdfium — so the canvas is given a page-shaped
-    /// widget instead, which is all the scroll position depends on.
+    /// fail is worse than no test. The canvas is given a page-shaped widget
+    /// rather than a rendered document: the widget's size is all the scroll
+    /// position depends on, so a raster would add nothing but a pdfium
+    /// round trip.
     #[gtk::test]
     fn gtk_ui_focusing_a_fresh_editor_leaves_the_canvas_where_it_was() {
         const PARKED_AT: f64 = 300.0;
@@ -1756,8 +1757,8 @@ mod tests {
         let (_, entry) = open_entry(&built.viewer).expect("the first click opens a box");
         entry.set_text("Kőszeg");
         entry.emit_activate();
-        // Read before the loop runs: with no pdfium in the gate, a queued
-        // render reports its own failure on the same status line.
+        // Read before the loop runs: a queued render that fails, or a change
+        // in the visible page range, writes to the same status line.
         assert!(
             built.viewer.status.text().contains("cannot represent"),
             "the fixture's font has to refuse the ő, or this test proves nothing: {:?}",
