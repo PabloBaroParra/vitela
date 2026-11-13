@@ -16,6 +16,7 @@ use lopdf::{Dictionary, Document, Object, ObjectId};
 use pdf_document::TextRun;
 
 use crate::edit::{locate_run_for_style, scope_resources};
+use crate::encoding::fallback::{font_look, Look};
 use crate::error::EditError;
 use crate::parse::{decode_stream, tokenize, LocatedTextRun, Operand};
 
@@ -41,6 +42,17 @@ pub struct TextRunStyle {
     pub char_spacing: f64,
     /// `Tz` as a factor: `1.0` is unscaled.
     pub horizontal_scale: f64,
+    /// Whether the font is a bold face, by its `/BaseFont` name or its
+    /// descriptor (`/Flags` ForceBold, a `/FontWeight` of 600 or more).
+    /// Says nothing of a stroked "fake bold" — see [`Self::render_mode`].
+    pub bold: bool,
+    /// Whether the font is an italic face, by its name or its descriptor
+    /// (`/Flags` Italic, a non-zero `/ItalicAngle`).
+    pub italic: bool,
+    /// `Tr`, the text rendering mode: `0` fills, `2` fills and strokes —
+    /// the stroke thickening the glyphs is how producers fake a bold face.
+    /// A value outside `0..=7` reads as `0`.
+    pub render_mode: u8,
 }
 
 /// The kind of program a font embeds, which says what a font loader has to
@@ -80,10 +92,16 @@ pub fn text_run_style(
 ) -> Result<TextRunStyle, EditError> {
     let located = locate_run_for_style(document, page_object, run)?;
     let resources = scope_resources(document, page_object, &located.form_path);
-    let base_font = font_dictionary(document, &resources, &run.resource_font_name)
-        .and_then(|font| name_of(document, &font, b"BaseFont"))
+    let font = font_dictionary(document, &resources, &run.resource_font_name);
+    let base_font = font
+        .as_ref()
+        .and_then(|font| name_of(document, font, b"BaseFont"))
         .unwrap_or_default();
-    Ok(style_of(&located, base_font))
+    let look = font
+        .as_ref()
+        .map(|font| font_look(document, font))
+        .unwrap_or_default();
+    Ok(style_of(&located, base_font, look))
 }
 
 /// The program embedded for `run`'s font, or `None` for a font that embeds
@@ -133,7 +151,7 @@ pub fn text_run_font_program(
 }
 
 /// The style a located run was painted with.
-fn style_of(located: &LocatedTextRun, base_font: String) -> TextRunStyle {
+fn style_of(located: &LocatedTextRun, base_font: String, look: Look) -> TextRunStyle {
     let placement = &located.placement;
     let transform = placement.text_matrix.then(placement.ctm);
     // How far one text-space unit up, and one across, reach on the page.
@@ -146,6 +164,9 @@ fn style_of(located: &LocatedTextRun, base_font: String) -> TextRunStyle {
         fill_rgb: paint.fill_rgb,
         char_spacing: paint.char_spacing * paint.horizontal_scale * horizontal,
         horizontal_scale: paint.horizontal_scale,
+        bold: look.bold,
+        italic: look.italic,
+        render_mode: paint.render_mode,
     }
 }
 
@@ -154,6 +175,7 @@ struct PaintState {
     fill_rgb: [f64; 3],
     char_spacing: f64,
     horizontal_scale: f64,
+    render_mode: u8,
 }
 
 impl PaintState {
@@ -166,6 +188,7 @@ impl PaintState {
             fill_rgb: [0.0; 3],
             char_spacing: 0.0,
             horizontal_scale: 1.0,
+            render_mode: 0,
         };
         let Ok(operations) = tokenize(paint_state) else {
             return state;
@@ -207,6 +230,12 @@ impl PaintState {
                 }
                 "Tc" => state.char_spacing = numbers.first().copied().unwrap_or(0.0),
                 "Tz" => state.horizontal_scale = numbers.first().copied().unwrap_or(100.0) / 100.0,
+                "Tr" => {
+                    state.render_mode = numbers
+                        .first()
+                        .filter(|mode| (0.0..=7.0).contains(*mode) && mode.fract() == 0.0)
+                        .map_or(0, |mode| *mode as u8)
+                }
                 _ => {}
             }
         }
@@ -285,6 +314,7 @@ mod tests {
     use super::*;
     use crate::fixture::{document_with_content, helvetica_resources};
     use crate::parse::read_page_object_content;
+    use lopdf::dictionary;
     use pdf_document::PageId;
 
     fn first_run(document: &Document, page: ObjectId) -> TextRun {
@@ -394,6 +424,78 @@ mod tests {
         assert!(close(style.horizontal_scale, 0.5));
         // 1 unit of Tc, squeezed by Tz to 0.5, doubled by the CTM.
         assert!(close(style.char_spacing, 1.0), "{}", style.char_spacing);
+    }
+
+    /// A resources dictionary whose `/F1` is called `base_font` and carries
+    /// `descriptor`, if any — the font is not embedded, which the style
+    /// read does not need.
+    fn font_resources(base_font: &str, descriptor: Option<Dictionary>) -> Dictionary {
+        let mut font = dictionary! {
+            "Type" => "Font",
+            "Subtype" => "Type1",
+            "BaseFont" => Object::Name(base_font.as_bytes().to_vec()),
+            "Encoding" => "WinAnsiEncoding",
+        };
+        if let Some(descriptor) = descriptor {
+            font.set("FontDescriptor", descriptor);
+        }
+        dictionary! { "Font" => dictionary! { "F1" => font } }
+    }
+
+    fn style_in(base_font: &str, descriptor: Option<Dictionary>, content: &[u8]) -> TextRunStyle {
+        let (document, page) =
+            document_with_content(content, font_resources(base_font, descriptor));
+        let run = first_run(&document, page);
+        text_run_style(&document, page, &run).expect("the run has a style")
+    }
+
+    const PLAIN: &[u8] = b"BT /F1 12 Tf 100 700 Td (Hi) Tj ET";
+
+    #[test]
+    fn the_font_name_says_bold_and_italic() {
+        let regular = style(PLAIN);
+        assert!(!regular.bold && !regular.italic);
+
+        let bold = style_in("ABCDEF+Arial-BoldMT", None, PLAIN);
+        assert!(bold.bold && !bold.italic);
+
+        let italic = style_in("ABCDEF+Arial-ItalicMT", None, PLAIN);
+        assert!(!italic.bold && italic.italic);
+    }
+
+    /// A subset named after neither — `ABCDEF+F1` is common — still says
+    /// what it is through its descriptor.
+    #[test]
+    fn the_descriptor_says_bold_and_italic_when_the_name_does_not() {
+        let force_bold = style_in(
+            "ABCDEF+F1",
+            Some(dictionary! { "Flags" => 1i64 << 18 }),
+            PLAIN,
+        );
+        assert!(force_bold.bold && !force_bold.italic);
+
+        let heavy = style_in(
+            "ABCDEF+F1",
+            Some(dictionary! { "Flags" => 32, "FontWeight" => 700 }),
+            PLAIN,
+        );
+        assert!(heavy.bold);
+
+        let slanted = style_in(
+            "ABCDEF+F1",
+            Some(dictionary! { "Flags" => 32, "ItalicAngle" => -12 }),
+            PLAIN,
+        );
+        assert!(slanted.italic && !slanted.bold);
+    }
+
+    /// `Tr 2` — fill then stroke — is how producers fake a bold face.
+    #[test]
+    fn the_text_render_mode_is_read() {
+        assert_eq!(style(PLAIN).render_mode, 0);
+        let faked = style(b"BT /F1 12 Tf 2 Tr 100 700 Td (Hi) Tj ET");
+        assert_eq!(faked.render_mode, 2);
+        assert!(!faked.bold, "the font itself is not bold");
     }
 
     /// A run whose retype is still pending shows text the file does not
