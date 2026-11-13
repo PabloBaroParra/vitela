@@ -127,10 +127,38 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
 ## Fases y tareas
 
 ### Fase 1 — Lógica pura
-- [ ] T-228 `palette/matcher.rs`: normalización (minúsculas, tildes) y puntaje por
+- [x] T-228 `palette/matcher.rs`: normalización (minúsculas, tildes) y puntaje por
       subsecuencia. TDD estricto: casos de inicio de palabra, contiguo contra disperso,
       sin coincidencia, empate estable por orden del catálogo y "pagina" contra
       "Página". [Palette]
+      **(2026-11-13 — completo.** `app/palette/mod.rs` solo declara `mod matcher;`;
+      `mod palette;` queda registrado en `app/mod.rs`. API: `normalize(&str) -> String`,
+      `score(query, candidate) -> Option<u32>` y `rank<T>(query, &[T], impl Fn(&T) ->
+      Vec<String>) -> Vec<(usize, u32)>`. `rank` toma el mejor puntaje entre los textos
+      de cada entrada (etiqueta activa, etiqueta en inglés, sinónimos), descarta las que
+      no coinciden y ordena por puntaje descendente con desempate por índice del
+      catálogo. Los textos son `String` porque las etiquetas traducidas salen de `tr`
+      como valores propios.
+      **Decisiones que la ficha no fijaba:** consulta vacía o solo espacios →
+      `Some(0)` para todo, así `rank` devuelve el catálogo en su orden (base de la
+      decisión 8). La consulta se parte por espacios y **cada término** tiene que
+      aparecer como subsecuencia; los términos se buscan por separado, en cualquier
+      orden y pueden solaparse ("pagina rotar" también encuentra "Rotar página"); el
+      puntaje es la suma. Puntos por carácter: 1, +8 inicio de palabra (comienzo o
+      tras espacio, `-`, `_`, `/`), +4 contiguo, +12 si el término arranca en el primer
+      carácter. Cada término prueba todas las posiciones de su primer carácter y
+      completa el resto de forma voraz: no es una búsqueda exhaustiva de alineaciones,
+      pero encuentra la de inicio de palabra. La tabla de tildes es explícita, sin
+      crate: minúsculas de Latin-1 Supplement y Latin Extended-A (español, portugués,
+      francés, alemán), más `ß`→"ss", `æ`→"ae", `œ`→"oe"; el resto (griego, cirílico,
+      CJK, marcas combinantes) pasa solo en minúsculas. El `dead_code` se silencia con
+      un único `#![cfg_attr(not(test), allow(dead_code))]` en `matcher.rs` hasta que
+      T-229 lo use.
+      **Evidencia TDD:** 16 tests escritos primero contra cuerpos `todo!()`: 0 pasan /
+      16 fallan; tras implementar, 16/16. Gate en WSL: `cargo fmt --all -- --check`,
+      `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y
+      `cargo test -p linux-gtk --locked palette::` en verde; la suite completa de
+      `linux-gtk`: **974 pasan, 0 fallan, 1 ignorado**.)
 - [ ] T-229 `palette/entries.rs`: `PaletteEntry { id, label_key, keywords_key,
       shortcut, category, availability, run }` y el catálogo de la v1:
       - modos de `Mode::ALL` (vía `apply` / `open_tool`);
