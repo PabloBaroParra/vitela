@@ -48,7 +48,7 @@ struct ImportProgress {
     total: usize,
 }
 
-pub(super) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+pub(crate) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     if let Some(refusal) = import_refusal(viewer) {
         viewer.status.set_text(&refusal);
         return;
@@ -107,7 +107,7 @@ pub(super) fn cancel(viewer: &Viewer) {
     viewer.status.set_text(&tr(IMPORT_CANCELLED));
 }
 
-fn import_refusal(viewer: &Viewer) -> Option<String> {
+pub(crate) fn import_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .content_edit_refusal()
         .or_else(|| viewer.page_assembly_refusal())

@@ -1,6 +1,7 @@
 //! Command palette (Ctrl+K), batch B27 — see `docs/batch-command-palette.md`.
 //!
-//! Only the pure fuzzy matcher exists so far (T-228). The entry catalog lands
-//! in T-229 and the overlay view plus the `win.command-palette` wiring in T-230.
+//! The pure fuzzy matcher (T-228) and the entry catalog (T-229) exist so
+//! far. The overlay view and the `win.command-palette` wiring land in T-230.
 
+mod entries;
 mod matcher;

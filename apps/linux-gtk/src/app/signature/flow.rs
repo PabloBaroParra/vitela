@@ -29,7 +29,7 @@ const FORGOTTEN: &str = "signature-forgotten";
 
 /// **Draw signature**: the remembered signature, or a blank pad when there is
 /// none — and only where a stamp could be placed.
-pub(super) fn open(viewer: &Viewer) {
+pub(crate) fn open(viewer: &Viewer) {
     let Some(session_id) = current_session_id(viewer) else {
         viewer.status.set_text(&tr(NO_DOCUMENT));
         return;

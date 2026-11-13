@@ -30,6 +30,7 @@ mod render;
 mod search;
 mod selection;
 mod shell;
+mod shortcuts;
 mod side_panel;
 mod sign;
 mod signature;
@@ -386,8 +387,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     // Without this the toolbar would offer Undo and Redo on an empty window,
     // before any history exists to act on. `print_button` and `save_button`
     // start closed for the same reason, a few lines above.
-    let undo_action = gio::SimpleAction::new("undo", None);
-    let redo_action = gio::SimpleAction::new("redo", None);
+    let undo_action = gio::SimpleAction::new(shortcuts::UNDO.action, None);
+    let redo_action = gio::SimpleAction::new(shortcuts::REDO.action, None);
     undo_action.set_enabled(false);
     redo_action.set_enabled(false);
 
@@ -604,34 +605,34 @@ fn connect_standard_shortcuts(
     window: &gtk::ApplicationWindow,
     viewer: &Viewer,
 ) {
-    let open = gio::SimpleAction::new("open", None);
+    let open = gio::SimpleAction::new(shortcuts::OPEN.action, None);
     open.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
         move |_, _| show_file_chooser(&window, &viewer)
     });
     window.add_action(&open);
-    application.set_accels_for_action("win.open", &["<Control>o"]);
+    shortcuts::OPEN.install(application);
 
-    let save = gio::SimpleAction::new("save", None);
+    let save = gio::SimpleAction::new(shortcuts::SAVE.action, None);
     save.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
         move |_, _| show_save_chooser(&window, &viewer)
     });
     window.add_action(&save);
-    application.set_accels_for_action("win.save", &["<Control>s"]);
+    shortcuts::SAVE.install(application);
 
-    let print = gio::SimpleAction::new("print", None);
+    let print = gio::SimpleAction::new(shortcuts::PRINT.action, None);
     print.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
         move |_, _| print_document(&window, &viewer)
     });
     window.add_action(&print);
-    application.set_accels_for_action("win.print", &["<Control>p"]);
+    shortcuts::PRINT.install(application);
 
-    let find = gio::SimpleAction::new("find", None);
+    let find = gio::SimpleAction::new(shortcuts::FIND.action, None);
     find.connect_activate({
         let entry = viewer.search_entry.clone();
         move |_, _| {
@@ -646,16 +647,16 @@ fn connect_standard_shortcuts(
         }
     });
     window.add_action(&find);
-    application.set_accels_for_action("win.find", &["<Control>f"]);
+    shortcuts::FIND.install(application);
 
-    let new = gio::SimpleAction::new("new", None);
+    let new = gio::SimpleAction::new(shortcuts::NEW.action, None);
     new.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
         move |_, _| new_blank_document(&window, &viewer)
     });
     window.add_action(&new);
-    application.set_accels_for_action("win.new", &["<Control>n"]);
+    shortcuts::NEW.install(application);
 }
 
 /// Whether the Edit page's three target-gated controls are usable, and

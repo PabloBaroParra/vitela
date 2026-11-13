@@ -141,7 +141,7 @@ pub(crate) fn connect_sign_toolbar(window: &ApplicationWindow, viewer: &Viewer) 
 
 /// T-180: a `GtkFileDialog` filtered to `.pfx`/`.p12`, mirroring
 /// `document::show_file_chooser`'s shape.
-fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
+pub(crate) fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     let filter = FileFilter::new();
     filter.set_name(Some(&tr("sign-pfx-filter")));
     filter.add_pattern("*.pfx");
@@ -400,7 +400,7 @@ fn find_pkcs11_module() -> Option<PathBuf> {
 
 /// T-182: tries the typical module paths first; only asks the user to
 /// navigate to a `.so` by hand when none of them are present.
-fn begin_pkcs11_flow(window: &ApplicationWindow, viewer: &Viewer) {
+pub(crate) fn begin_pkcs11_flow(window: &ApplicationWindow, viewer: &Viewer) {
     match find_pkcs11_module() {
         Some(module_path) => prompt_for_pkcs11_pin(window, viewer, module_path),
         None => show_pkcs11_module_chooser(window, viewer),
@@ -622,7 +622,7 @@ fn default_nss_profile_dir() -> Option<PathBuf> {
 /// the typical NSS module path and the shared `~/.pki/nssdb` profile first,
 /// only asking the user to navigate to either by hand when they are not
 /// found — the NSS twin of `begin_pkcs11_flow`.
-fn begin_nss_flow(window: &ApplicationWindow, viewer: &Viewer) {
+pub(crate) fn begin_nss_flow(window: &ApplicationWindow, viewer: &Viewer) {
     match find_nss_module() {
         Some(module_path) => continue_nss_flow_with_module(window, viewer, module_path),
         None => show_nss_module_chooser(window, viewer),
@@ -1035,10 +1035,10 @@ fn begin_sign_from_picker(
 /// The permission gate for signing: a signed field is a new `/FT /Sig` entry
 /// in `/AcroForm`/`/Annots`, structurally the same kind of change as placing
 /// a form field (batch decision 5). Mirrors
-/// `forms::command::structural_edit_refusal` rather than importing it —
-/// that function is `pub(super)` to `forms`, so duplicating its one line is
-/// cheaper than widening its visibility for this single caller outside it.
-fn signing_refusal(viewer: &Viewer) -> Option<String> {
+/// `forms::structural_edit_refusal`'s one line rather than calling it, so
+/// the signing gate stays named where signing lives. `pub(crate)` because
+/// the command palette reports it for its signing entries (B27 T-229).
+pub(crate) fn signing_refusal(viewer: &Viewer) -> Option<String> {
     viewer
         .annotation_editing_refusal()
         .or_else(|| viewer.content_edit_refusal())

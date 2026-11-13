@@ -50,6 +50,7 @@ use crate::app::i18n::{tr, tr_args};
 use crate::app::selection::redraw;
 use crate::app::state::{FieldKind, Viewer};
 
+pub(crate) use command::structural_edit_refusal;
 pub(crate) use gesture::{begin_field_drag, begin_placement, extend_field_drag, extend_placement};
 pub(crate) use toolbar::{build_forms_content, connect_forms_toolbar, update_forms_controls};
 

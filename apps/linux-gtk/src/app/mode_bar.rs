@@ -102,7 +102,7 @@ impl Mode {
         Mode::Protect,
     ];
 
-    fn label_key(self) -> &'static str {
+    pub(crate) fn label_key(self) -> &'static str {
         match self {
             Mode::Home => "mode-home",
             Mode::Edit => "mode-edit",
@@ -134,6 +134,18 @@ impl Mode {
             Mode::Organize => Some(HomeTool::Organize),
             Mode::Sign => Some(HomeTool::Sign),
             Mode::Protect => Some(HomeTool::Protect),
+        }
+    }
+
+    /// What clicking this mode's button does, minus the bar's own resync.
+    /// The command palette runs the same function (B27 decision 2), so a mode
+    /// picked from the palette cannot land somewhere its button would not.
+    pub(crate) fn open(self, window: &ApplicationWindow, viewer: &Viewer) {
+        match self.tool() {
+            // Navigation only: the open document, if any, stays open behind
+            // Home exactly as it was.
+            None => home::show_home(viewer),
+            Some(tool) => home::tools::open_tool(window, viewer, tool),
         }
     }
 
@@ -270,12 +282,7 @@ pub(crate) fn connect(bar: &ModeBar, window: &ApplicationWindow, viewer: &Viewer
             let viewer = viewer.clone();
             let mode = *mode;
             move |_| {
-                match mode.tool() {
-                    // Navigation only: the open document, if any, stays open
-                    // behind Home exactly as it was.
-                    None => home::show_home(&viewer),
-                    Some(tool) => home::tools::open_tool(&window, &viewer, tool),
-                }
+                mode.open(&window, &viewer);
                 // Always, not only through the stack notifications below: a
                 // click that moved no page (the mode already current, a file
                 // chooser opened instead, Organize refusing the document,

@@ -927,3 +927,8 @@ selection-copied =
         [one] { $count } carácter copiado al portapapeles.
        *[other] { $count } caracteres copiados al portapapeles.
     }
+
+## Command palette (B27)
+
+palette-nothing-to-undo = No hay nada que deshacer.
+palette-nothing-to-redo = No hay nada que rehacer.
