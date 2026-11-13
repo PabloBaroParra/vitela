@@ -1945,6 +1945,7 @@ version = "0.1.0"
 dependencies = [
  "gen-fixtures",
  "image",
+ "js-sys",
  "lopdf",
  "pdf-annotate",
  "pdf-compress",

@@ -16,6 +16,8 @@
 //! [`IdGenerator`]).
 
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Produces the `/ModDate` (and, for newly-created documents, `/CreationDate`)
@@ -32,11 +34,29 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn pdf_date_string(&self) -> String {
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs();
-        pdf_date_string_from_unix_secs(secs)
+        pdf_date_string_from_unix_secs(since_unix_epoch().as_secs())
+    }
+}
+
+/// Wall-clock time since the Unix epoch (zero if the clock reads earlier).
+///
+/// `std::time::SystemTime::now()` panics on `wasm32-unknown-unknown` — there
+/// is no OS clock behind it — so the web engine (`pdf-wasm`) reads the
+/// browser's `Date.now()` instead. Same value, millisecond resolution.
+#[cfg(not(target_arch = "wasm32"))]
+fn since_unix_epoch() -> Duration {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn since_unix_epoch() -> Duration {
+    let millis = js_sys::Date::now();
+    if millis.is_finite() && millis > 0.0 {
+        Duration::from_secs_f64(millis / 1000.0)
+    } else {
+        Duration::ZERO
     }
 }
 
@@ -116,10 +136,7 @@ impl IdGenerator for RandomIdGenerator {
         use std::hash::{Hash, Hasher};
 
         let seq = self.counter.fetch_add(1, Ordering::Relaxed);
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
+        let now = since_unix_epoch().as_nanos();
 
         let mut hasher = DefaultHasher::new();
         seq.hash(&mut hasher);

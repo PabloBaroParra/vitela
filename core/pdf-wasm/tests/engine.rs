@@ -16,7 +16,7 @@
 
 use std::cell::Cell;
 
-use pdf_wasm::Engine;
+use pdf_wasm::{EditCommand, Engine};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::*;
@@ -304,4 +304,158 @@ async fn bad_addresses_are_refused_by_kind() {
     assert!(!engine.close(doc), "closing twice is a no-op");
     let closed = engine.page_count(doc).unwrap_err();
     assert_eq!(error_name(closed), "DocumentNotFound");
+}
+
+/// Each page's text in page order, read through the engine's own search of
+/// the page's single word.
+fn page_words(engine: &mut Engine, doc: u32, words: &[&str]) -> Vec<String> {
+    let count = engine.page_count(doc).unwrap() as usize;
+    let mut order = vec![String::new(); count];
+    for word in words {
+        for hit in engine.search(doc, (*word).into()).unwrap() {
+            order[hit.page_index() as usize] = (*word).into();
+        }
+    }
+    order
+}
+
+#[wasm_bindgen_test]
+async fn edits_save_and_reopen_with_their_order_turn_and_count() {
+    let words = ["one", "two", "three", "four"];
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::text_document(&words), None).unwrap();
+
+    engine
+        .apply_edit(doc, &EditCommand::move_pages(0, 1, 3))
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::rotate_pages(0, 1, 90))
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::remove_pages(1, 1))
+        .unwrap();
+    assert_eq!(engine.page_count(doc).unwrap(), 3);
+
+    let saved = engine.save_to_bytes(doc, false).unwrap();
+    let reopened = engine.open(saved, None).unwrap();
+    assert_eq!(engine.page_count(reopened).unwrap(), 3);
+    assert_eq!(
+        page_words(&mut engine, reopened, &words),
+        ["two", "four", "one"]
+    );
+    let turns: Vec<u32> = engine
+        .page_dimensions(reopened)
+        .unwrap()
+        .iter()
+        .map(|page| page.rotation_degrees)
+        .collect();
+    assert_eq!(turns, [90, 0, 0]);
+}
+
+#[wasm_bindgen_test]
+async fn undo_and_redo_step_the_edits() {
+    let words = ["one", "two"];
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::text_document(&words), None).unwrap();
+    assert!(!engine.can_undo(doc).unwrap());
+    assert!(!engine.undo(doc).unwrap(), "nothing to undo");
+
+    engine
+        .apply_edit(doc, &EditCommand::remove_pages(0, 1))
+        .unwrap();
+    assert!(engine.undo(doc).unwrap());
+    assert_eq!(engine.page_count(doc).unwrap(), 2);
+    assert!(engine.can_redo(doc).unwrap());
+    assert!(engine.redo(doc).unwrap());
+    assert!(!engine.can_redo(doc).unwrap());
+
+    let reopened = engine.open(engine.save_to_bytes(doc, false).unwrap(), None);
+    let reopened = reopened.unwrap();
+    assert_eq!(page_words(&mut engine, reopened, &words), ["two"]);
+}
+
+#[wasm_bindgen_test]
+async fn refresh_preview_renders_the_edited_pages() {
+    let words = ["one", "two"];
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::text_document(&words), None).unwrap();
+
+    engine
+        .apply_edit(doc, &EditCommand::rotate_pages(1, 1, 90))
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::move_pages(1, 1, 0))
+        .unwrap();
+    engine.refresh_preview(doc).unwrap();
+
+    let page = engine.render_page(doc, 0, 72, false).unwrap();
+    assert_eq!(
+        (page.width(), page.height()),
+        (792, 612),
+        "turned page first"
+    );
+    assert_eq!(page_words(&mut engine, doc, &words), ["two", "one"]);
+
+    assert!(engine.undo(doc).unwrap());
+    assert!(engine.undo(doc).unwrap());
+    engine.refresh_preview(doc).unwrap();
+    let page = engine.render_page(doc, 0, 72, false).unwrap();
+    assert_eq!((page.width(), page.height()), (612, 792));
+    assert_eq!(page_words(&mut engine, doc, &words), ["one", "two"]);
+}
+
+#[wasm_bindgen_test]
+async fn a_refresh_reopens_an_encrypted_document_with_its_password() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open_with_passwords(
+            pdfs::restricted_document(),
+            pdfs::USER_PASSWORD.into(),
+            pdfs::OWNER_PASSWORD.into(),
+        )
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::rotate_pages(0, 1, 90))
+        .unwrap();
+    engine.refresh_preview(doc).unwrap();
+    let page = engine.render_page(doc, 0, 72, false).unwrap();
+    assert_eq!((page.width(), page.height()), (792, 612));
+}
+
+#[wasm_bindgen_test]
+async fn page_edits_are_refused_by_kind() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(pdfs::text_document(&["one", "two"]), None)
+        .unwrap();
+    for edit in [
+        EditCommand::move_pages(0, 1, 2),
+        EditCommand::rotate_pages(2, 1, 90),
+        EditCommand::remove_pages(5, 1),
+    ] {
+        let err = engine.apply_edit(doc, &edit).unwrap_err();
+        assert_eq!(error_name(err), "PageIndexOutOfBounds");
+    }
+
+    let restricted = engine
+        .open(
+            pdfs::restricted_document(),
+            Some(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+    for edit in [
+        EditCommand::move_pages(0, 1, 0),
+        EditCommand::rotate_pages(0, 1, 90),
+        EditCommand::remove_pages(0, 1),
+        EditCommand::remove_pages(5, 1),
+    ] {
+        let err = engine.apply_edit(restricted, &edit).unwrap_err();
+        assert_eq!(error_name(err), "EditNotPermitted");
+    }
+    assert!(!engine.can_undo(restricted).unwrap());
+
+    let unknown = engine
+        .apply_edit(99, &EditCommand::remove_pages(0, 1))
+        .unwrap_err();
+    assert_eq!(error_name(unknown), "DocumentNotFound");
 }

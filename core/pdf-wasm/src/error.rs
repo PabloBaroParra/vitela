@@ -31,6 +31,17 @@ pub enum ErrorKind {
     RenderFailed,
     /// pdfium was not bound before the engine was created.
     EngineUnavailable,
+    /// The document's permissions withhold this kind of edit (for page
+    /// edits, the document-assembly permission).
+    EditNotPermitted,
+    /// The edit cannot be recorded on this document: the model rejected it
+    /// (a zero-page run, a move onto itself), or no writer could save it under the document's encryption.
+    UnsupportedOperation,
+    /// The save would break a signature the file carries, and the caller did
+    /// not say the user was told.
+    SignaturesWouldBeInvalidated,
+    /// The edited document could not be written.
+    SaveFailed,
 }
 
 impl ErrorKind {
@@ -46,6 +57,10 @@ impl ErrorKind {
             Self::InvalidDocument => "InvalidDocument",
             Self::RenderFailed => "RenderFailed",
             Self::EngineUnavailable => "EngineUnavailable",
+            Self::EditNotPermitted => "EditNotPermitted",
+            Self::UnsupportedOperation => "UnsupportedOperation",
+            Self::SignaturesWouldBeInvalidated => "SignaturesWouldBeInvalidated",
+            Self::SaveFailed => "SaveFailed",
         }
     }
 }
@@ -105,10 +120,39 @@ impl From<pdf_manip::ManipError> for EngineError {
 }
 
 impl From<pdf_save::SaveError> for EngineError {
-    /// Only `document_from_lopdf` reaches here: building the model of a
-    /// document lopdf has already parsed.
+    /// A save or a preview snapshot that failed. Building the model at open
+    /// is not a save and maps to `InvalidDocument` at its call site.
     fn from(err: pdf_save::SaveError) -> Self {
-        Self::new(ErrorKind::InvalidDocument, err.to_string())
+        let kind = match err {
+            pdf_save::SaveError::SignaturesWouldBeInvalidated => {
+                ErrorKind::SignaturesWouldBeInvalidated
+            }
+            _ => ErrorKind::SaveFailed,
+        };
+        Self::new(kind, err.to_string())
+    }
+}
+
+impl From<pdf_save::EditRefusal> for EngineError {
+    /// A permission the document withholds is `EditNotPermitted`; an edit no
+    /// writer could save under its encryption is not a permission question,
+    /// and is `UnsupportedOperation` (`pdf-ffi` reports both as its
+    /// `UnsupportedOperation`, with the same message).
+    fn from(refusal: pdf_save::EditRefusal) -> Self {
+        let kind = match refusal {
+            pdf_save::EditRefusal::FullRewrite(_) => ErrorKind::UnsupportedOperation,
+            _ => ErrorKind::EditNotPermitted,
+        };
+        Self::new(kind, refusal.to_string())
+    }
+}
+
+impl From<pdf_document::PagePositionOutOfRange> for EngineError {
+    /// The position the core named, as `pdf-ffi`'s `PageIndexOutOfBounds`.
+    fn from(err: pdf_document::PagePositionOutOfRange) -> Self {
+        // A position came from a `u32` on the way in, so it fits on the way
+        // out; saturate rather than wrap if that ever stops being true.
+        Self::page_out_of_bounds(u32::try_from(err.position).unwrap_or(u32::MAX))
     }
 }
 
@@ -174,6 +218,51 @@ mod tests {
             ErrorKind::EngineUnavailable
         );
         assert_eq!(kind(E::RenderFailed("x".into())), ErrorKind::RenderFailed);
+    }
+
+    #[test]
+    fn a_permission_refusal_is_edit_not_permitted() {
+        use pdf_save::EditRefusal as R;
+        for refusal in [
+            R::AnnotationEditing,
+            R::DocumentAssembly,
+            R::FormFieldEditing,
+            R::ContentEditing,
+        ] {
+            let err = EngineError::from(refusal);
+            assert_eq!(err.kind, ErrorKind::EditNotPermitted, "{refusal:?}");
+            assert_eq!(err.message, refusal.to_string());
+        }
+        assert_eq!(ErrorKind::EditNotPermitted.name(), "EditNotPermitted");
+    }
+
+    #[test]
+    fn an_edit_no_writer_could_save_is_unsupported_not_denied() {
+        let refusal =
+            pdf_save::EditRefusal::FullRewrite(pdf_save::RewriteBlocker::UnsupportedHandler);
+        assert_eq!(
+            EngineError::from(refusal).kind,
+            ErrorKind::UnsupportedOperation
+        );
+    }
+
+    #[test]
+    fn an_out_of_range_page_position_is_page_index_out_of_bounds() {
+        let err = EngineError::from(pdf_document::PagePositionOutOfRange { position: 7 });
+        assert_eq!(err.kind, ErrorKind::PageIndexOutOfBounds);
+        assert_eq!(err.message, "page index 7 is out of bounds");
+    }
+
+    #[test]
+    fn save_failures_keep_the_signature_refusal_apart() {
+        assert_eq!(
+            EngineError::from(pdf_save::SaveError::SignaturesWouldBeInvalidated).kind,
+            ErrorKind::SignaturesWouldBeInvalidated
+        );
+        assert_eq!(
+            EngineError::from(pdf_save::SaveError::InvalidSaveRequest("x")).kind,
+            ErrorKind::SaveFailed
+        );
     }
 
     #[test]
