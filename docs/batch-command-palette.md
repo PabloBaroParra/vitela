@@ -366,6 +366,52 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       WSL: `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets
       --locked -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1017
       pasan, 0 fallan, 1 ignorado**.)
+      **Corrección posterior (revisión de T-230).** Los aceleradores `win.*` se
+      resuelven en la fase de captura, antes que el campo enfocado. Escribiendo en la
+      búsqueda de la paleta (y, ya antes, en el campo Buscar), Ctrl+X cortaba el
+      contenido seleccionado de la página, Ctrl+V pegaba el clip o un bitmap en el
+      documento, Ctrl+C copiaba la selección del documento y Ctrl+Z/Ctrl+Y deshacían
+      o rehacían ediciones del documento. **Arreglo:** `shortcuts.rs` suma `CUT`,
+      `COPY` y `PASTE` a la tabla (los tres módulos dejan sus literales) y la lista
+      `TEXT_EDITING` (cortar, copiar, pegar, deshacer, rehacer);
+      `connect_search_field_handoff`, en un solo lugar y vigilando
+      `notify::focus-widget` de la ventana como Supr/F2, **desvincula** esos cinco
+      atajos mientras el foco está dentro del campo de la paleta o de
+      `viewer.search_entry` (comparados explícitamente, igualdad o `is_ancestor`,
+      porque un `GtkEntry` delega el foco en su `GtkText` interno) y los vuelve a
+      instalar al salir. **Alcance: solo esos dos campos.** Una primera versión usaba
+      `text_input_has_focus` (cualquier campo de texto) y la revisión encontró la
+      regresión: un clic en la página no mueve el foco, así que con el foco olvidado
+      en, por ejemplo, el `SpinButton` de tamaño de letra de Formularios, Ctrl+Z/C/V
+      quedaban muertos mientras el usuario seguía trabajando en la página con el
+      mouse. Una consulta nunca es contenido de la página; otros campos sí conviven
+      con el trabajo en la página. Por eso los editores de contenido (línea y
+      párrafo), los campos de Formularios y el resto **conservan a propósito** el
+      comportamiento previo: deshacer y portapapeles del documento. **Por qué
+      desvincular y no deshabilitar** (lo que hacen Supr/F2): `win.undo`/`win.redo`
+      alimentan también los botones Deshacer/Rehacer de la barra y de Organizar y la
+      entrada Deshacer de la paleta, que leen `is_enabled()`; deshabilitarlos
+      apagaría esos botones y la paleta diría "nada que deshacer" mientras su propia
+      búsqueda tiene el foco. Sin acelerador GTK no tiene nada que despachar y la
+      tecla sigue al campo; el estado habilitado nunca se toca, así que al salir no
+      hay nada que recalcular (Ctrl+X vuelve a seguir a `update_cut_action`). Un
+      `return` temprano en el handler no servía: el acelerador igual consume la
+      tecla. **Tests** (`shortcuts::tests::search_field_handoff`, 6 `gtk_ui_*`): GDK
+      no permite construir un evento de teclado, así que no se pulsó Ctrl+X real;
+      cada test comprueba, como la medición de Ctrl+K, si algún `ShortcutController`
+      de la ventana lista la acción, que la acción sigue habilitada según el
+      documento y que la selección y la cola de ediciones quedan intactas. Cubren:
+      paleta + selección de contenido (Ctrl+X), paleta + clip (Ctrl+V, Ctrl+C), campo
+      Buscar (los cinco), cerrar la paleta devuelve Ctrl+X/C/V habilitados y
+      Deshacer/Rehacer vinculados (Deshacer apagado sin nada que deshacer),
+      Ctrl+Z/Ctrl+Y desvinculados en la paleta con un corte pendiente sin que
+      `undo_action` se apague, y un `SpinButton` o un `Entry` cualquiera enfocado
+      deja los cinco **vinculados**. **Rojo → verde:** primera versión, contra el
+      código previo: 0 pasan / 5 fallan; tras ella, 5/5. Al acotar, el test nuevo
+      de "otros campos" contra la versión amplia: 5 pasan / 1 falla; tras acotar,
+      6/6. No verificado con una pulsación real (xdotool) en la app. Gate en WSL:
+      `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked
+      -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1023 pasan, 0 fallan, 1 ignorado**.
 - [ ] T-231 Claves Fluent en `en.ftl` y `es.ftl`: etiquetas que falten, sinónimos
       `palette-*-keywords` y el placeholder. Se reutilizan las claves existentes del
       hecho 5 en vez de duplicarlas. [PaletteUI]

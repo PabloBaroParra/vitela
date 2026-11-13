@@ -287,12 +287,14 @@ fn copied_message(key: &str, count: usize) -> String {
 }
 
 /// The window action CTRL+X is bound to.
-const CUT_ACTION: &str = "cut-content";
+const CUT_ACTION: &str = crate::app::shortcuts::CUT.action;
 
 /// CTRL+X cuts the selected content. The action is enabled only while
 /// something is selected in content-edit mode: a disabled action does not
-/// consume its accelerator, so CTRL+X still cuts text in the search entry
-/// and in an open editor the rest of the time.
+/// consume its accelerator, so CTRL+X still cuts text in an open editor.
+/// While the palette's search or the Find entry has the cursor the key is
+/// unbound altogether (`shortcuts::connect_search_field_handoff`), so a
+/// selection left on the page does not steal it from the query.
 pub(crate) fn connect_cut_shortcut(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
@@ -307,7 +309,7 @@ pub(crate) fn connect_cut_shortcut(
         }
     });
     window.add_action(&action);
-    application.set_accels_for_action(&format!("win.{CUT_ACTION}"), &["<Control>x"]);
+    crate::app::shortcuts::CUT.install(application);
 }
 
 /// Enables CTRL+X exactly while there is something to cut.

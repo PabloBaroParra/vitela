@@ -120,6 +120,11 @@ fn row_index(row: &gtk::ListBoxRow) -> usize {
 }
 
 impl Palette {
+    /// The query field, for `shortcuts::connect_search_field_handoff`.
+    pub(crate) fn search_field(&self) -> gtk::Widget {
+        self.inner.view.search.clone().upcast()
+    }
+
     pub(crate) fn is_open(&self) -> bool {
         self.inner.view.layer.is_visible()
     }

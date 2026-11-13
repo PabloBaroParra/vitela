@@ -33,7 +33,7 @@ pub(crate) fn connect_paste(
     window: &gtk::ApplicationWindow,
     viewer: &Viewer,
 ) {
-    let paste = gio::SimpleAction::new("paste", None);
+    let paste = gio::SimpleAction::new(super::shortcuts::PASTE.action, None);
     paste.connect_activate({
         let viewer = viewer.clone();
         // A content clip held in content-edit mode pastes as content (B25
@@ -45,7 +45,7 @@ pub(crate) fn connect_paste(
         }
     });
     window.add_action(&paste);
-    application.set_accels_for_action("win.paste", &["<Control>v"]);
+    super::shortcuts::PASTE.install(application);
 }
 
 /// Makes every page's input layer accept local file drops. Coordinates are
