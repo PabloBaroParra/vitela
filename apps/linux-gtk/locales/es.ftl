@@ -930,5 +930,8 @@ selection-copied =
 
 ## Command palette (B27)
 
+palette-title = Paleta de comandos
+palette-search-placeholder = Buscar comandos…
+palette-no-results = Ningún comando coincide.
 palette-nothing-to-undo = No hay nada que deshacer.
 palette-nothing-to-redo = No hay nada que rehacer.

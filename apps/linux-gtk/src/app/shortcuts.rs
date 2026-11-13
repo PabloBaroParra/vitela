@@ -46,6 +46,11 @@ pub(crate) const REDO: Shortcut = Shortcut {
     action: "redo",
     accel: "<Control>y",
 };
+/// Opens the command palette (B27).
+pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
+    action: "command-palette",
+    accel: "<Control>k",
+};
 
 impl Shortcut {
     /// The action's detailed name, `win.<action>`.
@@ -63,7 +68,7 @@ impl Shortcut {
 mod tests {
     use super::*;
 
-    const ALL: [Shortcut; 7] = [OPEN, SAVE, PRINT, FIND, NEW, UNDO, REDO];
+    const ALL: [Shortcut; 8] = [OPEN, SAVE, PRINT, FIND, NEW, UNDO, REDO, COMMAND_PALETTE];
 
     #[test]
     fn every_action_and_accelerator_is_used_once() {

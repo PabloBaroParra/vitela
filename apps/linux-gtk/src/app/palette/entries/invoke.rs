@@ -1,19 +1,22 @@
 //! What each [`Target`] runs and whether it can run now.
 //!
 //! Every arm calls the function the matching button or accelerator already
-//! calls; nothing here decides a permission. Refusal text comes from the
-//! `*_refusal` gates, and the "no document" text from the message the
-//! feature itself shows when invoked without one.
+//! calls, after at most a screen switch to where that button lives (the
+//! tools page for annotation, form and signing entries, Organize for Add
+//! PDFs, the editor for Find); nothing here decides a permission. Refusal
+//! text comes from the `*_refusal` gates, the "no document" text from the
+//! message the feature itself shows when invoked without one, and undo/redo
+//! from their action's `is_enabled()`. [`run`] assumes the caller already
+//! asked [`availability`]: `PaletteEntry::run` does, for every target.
 
 use gtk::prelude::*;
 use gtk::ApplicationWindow;
 
-use super::{Availability, ClickTool, Target};
-use crate::app::home::{self, tools::open_tool};
+use super::{Availability, ClickTool, Target, WindowAction};
+use crate::app::home::{self, tools::open_tool, EDITOR_PAGE};
 use crate::app::i18n::tr;
 use crate::app::mode_bar::Mode;
 use crate::app::organize::ORGANIZE_PAGE;
-use crate::app::shortcuts::{self, Shortcut};
 use crate::app::state::{FieldKind, HomeTool, Tool, Viewer};
 use crate::app::tools_panel::{ANNOTATE_PAGE, FILL_SIGN_PAGE};
 
@@ -21,7 +24,7 @@ pub(super) fn availability(target: Target, viewer: &Viewer) -> Availability {
     let has_document = viewer.state.borrow().session.is_some();
     let refusal = match target {
         Target::Mode(mode) => mode_refusal(mode, viewer, has_document),
-        Target::Action(shortcut) => action_refusal(shortcut, viewer, has_document),
+        Target::Action(action) => action_refusal(action, viewer, has_document),
         Target::Annotation(_) => document_then(has_document, "annotate-no-document", || {
             viewer.annotation_editing_refusal()
         }),
@@ -39,8 +42,16 @@ pub(super) fn availability(target: Target, viewer: &Viewer) -> Availability {
 pub(super) fn run(target: Target, window: &ApplicationWindow, viewer: &Viewer) {
     match target {
         Target::Mode(mode) => mode.open(window, viewer),
-        Target::Action(shortcut) => {
-            ActionGroupExt::activate_action(window, shortcut.action, None);
+        Target::Action(action) => {
+            // `win.find` only opens its popover while the editor is up; with
+            // a document open (the entry is refused without one), Find from
+            // Home or Organize takes the user to the editor first.
+            if action == WindowAction::Find
+                && viewer.view_stack.visible_child_name().as_deref() != Some(EDITOR_PAGE)
+            {
+                home::show_editor(viewer);
+            }
+            ActionGroupExt::activate_action(window, action.shortcut().action, None);
         }
         Target::Annotation(tool) => arm_annotation(viewer, tool),
         Target::FormField(kind) => arm_form_field(viewer, kind),
@@ -76,21 +87,20 @@ fn mode_refusal(mode: Mode, viewer: &Viewer, has_document: bool) -> Option<Strin
     }
 }
 
-fn action_refusal(shortcut: Shortcut, viewer: &Viewer, has_document: bool) -> Option<String> {
-    match shortcut {
-        shortcuts::OPEN | shortcuts::NEW => None,
-        shortcuts::SAVE => document_then(has_document, "save-no-document", || None),
-        shortcuts::PRINT => document_then(has_document, "print-open-first", || None),
-        shortcuts::FIND => document_then(has_document, "search-open-first", || {
+fn action_refusal(action: WindowAction, viewer: &Viewer, has_document: bool) -> Option<String> {
+    match action {
+        WindowAction::Open | WindowAction::New => None,
+        WindowAction::Save => document_then(has_document, "save-no-document", || None),
+        WindowAction::Print => document_then(has_document, "print-open-first", || None),
+        WindowAction::Find => document_then(has_document, "search-open-first", || {
             viewer.text_extraction_refusal()
         }),
-        shortcuts::UNDO => {
+        WindowAction::Undo => {
             (!viewer.undo_action.is_enabled()).then(|| tr("palette-nothing-to-undo"))
         }
-        shortcuts::REDO => {
+        WindowAction::Redo => {
             (!viewer.redo_action.is_enabled()).then(|| tr("palette-nothing-to-redo"))
         }
-        other => unreachable!("no palette entry for win.{}", other.action),
     }
 }
 

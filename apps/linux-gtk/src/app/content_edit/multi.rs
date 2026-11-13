@@ -32,7 +32,7 @@ use super::{block, command, editor, geometry, model, path};
 
 /// The window action Esc is bound to while a selection exists — this one or
 /// a single selected text block (`super::block`).
-pub(super) const CLEAR_ACTION: &str = "clear-content-selection";
+pub(crate) const CLEAR_ACTION: &str = "clear-content-selection";
 
 /// A marquee or a group drag shorter than this, in PDF points on both axes,
 /// is a click.
@@ -605,8 +605,15 @@ pub(crate) fn connect_clear_shortcut(
 /// Enables Esc exactly while there is a selection for it to clear. Run from
 /// `update_content_edit_controls`, which every change to either selection
 /// already reaches.
+///
+/// Off while the command palette is open, whatever is selected: an enabled
+/// accelerator runs in the window's capture phase, ahead of the palette, so
+/// Esc would clear the selection instead of closing the palette. A disabled
+/// one does not consume the key. The palette calls this on open and close,
+/// so the answer is always recomputed from state and cannot be left stale.
 pub(crate) fn update_clear_action(viewer: &Viewer) {
-    let selected = has_selection(viewer) || block::has_selection(viewer);
+    let selected = (has_selection(viewer) || block::has_selection(viewer))
+        && !viewer.state.borrow().palette_open;
     if let Some(action) = viewer
         .window()
         .and_then(|window| window.lookup_action(CLEAR_ACTION))

@@ -5,16 +5,16 @@
 //! An entry never carries behaviour of its own (decision 2). Its [`Target`]
 //! names an existing door — a mode button's [`Mode::open`], a `win.*`
 //! action, an annotation or form-field toggle, or the named function a
-//! toolbar button calls — and [`invoke`] only walks through it. Whether it
-//! can is answered by the same `*_refusal` functions that gate the buttons
-//! (decision 3), so a refused entry states the button's own reason.
+//! toolbar button calls — and [`invoke`] only walks through it, after at
+//! most a screen switch: to the editor's tools page for annotation, form and
+//! signing entries, to Organize for Add PDFs, to the editor for Find. Whether
+//! it can is answered by the same `*_refusal` functions that gate the buttons
+//! (decision 3), so a refused entry states the button's own reason; undo and
+//! redo follow their action's `is_enabled()`.
 //!
 //! Page rotation is not in the catalog: its buttons turn the page or block
 //! of one Organize card, and there is no document-level rotate for the
 //! palette to call.
-
-// Caller lands in T-230 (palette overlay).
-#![cfg_attr(not(test), allow(dead_code))]
 
 mod invoke;
 
@@ -56,7 +56,9 @@ pub(crate) enum Category {
 }
 
 /// The click-only tools: commands whose only door before the palette was a
-/// button's `connect_clicked`. Each names the function that button calls.
+/// button's `connect_clicked`. Each names the function that button calls —
+/// except Compress, a Home tool, which goes through `open_tool` like its
+/// Home card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClickTool {
     ExportImages,
@@ -86,11 +88,40 @@ impl ClickTool {
     ];
 }
 
+/// The `win.*` actions the catalog lists. A closed set, so the shortcut
+/// each one activates is an exhaustive `match` the compiler checks, not a
+/// lookup that can miss at run time.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WindowAction {
+    Open,
+    New,
+    Save,
+    Print,
+    Undo,
+    Redo,
+    Find,
+}
+
+impl WindowAction {
+    /// The action and accelerator from the shared table.
+    pub(crate) fn shortcut(self) -> Shortcut {
+        match self {
+            WindowAction::Open => shortcuts::OPEN,
+            WindowAction::New => shortcuts::NEW,
+            WindowAction::Save => shortcuts::SAVE,
+            WindowAction::Print => shortcuts::PRINT,
+            WindowAction::Undo => shortcuts::UNDO,
+            WindowAction::Redo => shortcuts::REDO,
+            WindowAction::Find => shortcuts::FIND,
+        }
+    }
+}
+
 /// The existing door an entry walks through.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Target {
     Mode(Mode),
-    Action(Shortcut),
+    Action(WindowAction),
     Annotation(Tool),
     FormField(FieldKind),
     Click(ClickTool),
@@ -99,7 +130,7 @@ pub(crate) enum Target {
 /// One command in the palette.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct PaletteEntry {
-    /// Stable id, unique in the catalog (for T-230's recent-commands list).
+    /// Stable id, unique in the catalog; the recent-commands list keys on it.
     pub(crate) id: &'static str,
     /// Message id of the label, reused from the button the entry mirrors.
     pub(crate) label_key: &'static str,
@@ -117,10 +148,21 @@ impl PaletteEntry {
         invoke::availability(self.target, viewer)
     }
 
-    /// Runs the entry through its existing door. A refused entry is never
-    /// meant to be run; the door it walks through refuses it again anyway.
-    pub(crate) fn run(&self, window: &ApplicationWindow, viewer: &Viewer) {
+    /// Runs the entry through its existing door, unless [`availability`]
+    /// refuses it now — then nothing runs and the refusal comes back.
+    ///
+    /// Checked here, once for every target, because the doors do not all
+    /// refuse on their own: `set_active(true)` on an insensitive annotation
+    /// or form-field toggle still runs its handler and arms the tool, and
+    /// the signing entries open their chooser with no gate in front.
+    ///
+    /// [`availability`]: PaletteEntry::availability
+    pub(crate) fn run(&self, window: &ApplicationWindow, viewer: &Viewer) -> Result<(), String> {
+        if let Availability::Refused(reason) = self.availability(viewer) {
+            return Err(reason);
+        }
         invoke::run(self.target, window, viewer);
+        Ok(())
     }
 
     /// The texts a query is matched against: the label in the active
@@ -148,35 +190,55 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
     let actions = [
         (
             "file.open",
-            shortcuts::OPEN,
+            WindowAction::Open,
             "home-quick-open",
             Category::File,
         ),
         (
             "file.new",
-            shortcuts::NEW,
+            WindowAction::New,
             "home-quick-new-blank",
             Category::File,
         ),
-        ("file.save", shortcuts::SAVE, "editor-save", Category::File),
+        (
+            "file.save",
+            WindowAction::Save,
+            "editor-save",
+            Category::File,
+        ),
         (
             "file.print",
-            shortcuts::PRINT,
+            WindowAction::Print,
             "editor-print",
             Category::File,
         ),
-        ("edit.undo", shortcuts::UNDO, "editor-undo", Category::Edit),
-        ("edit.redo", shortcuts::REDO, "editor-redo", Category::Edit),
-        ("edit.find", shortcuts::FIND, "editor-find", Category::Edit),
+        (
+            "edit.undo",
+            WindowAction::Undo,
+            "editor-undo",
+            Category::Edit,
+        ),
+        (
+            "edit.redo",
+            WindowAction::Redo,
+            "editor-redo",
+            Category::Edit,
+        ),
+        (
+            "edit.find",
+            WindowAction::Find,
+            "editor-find",
+            Category::Edit,
+        ),
     ]
     .into_iter()
-    .map(|(id, shortcut, label_key, category)| PaletteEntry {
+    .map(|(id, action, label_key, category)| PaletteEntry {
         id,
         label_key,
         keywords_key: None,
-        shortcut: Some(shortcut.accel),
+        shortcut: Some(action.shortcut().accel),
         category,
-        target: Target::Action(shortcut),
+        target: Target::Action(action),
     });
     let tools = Tool::ALL.into_iter().map(|tool| PaletteEntry {
         id: tool_id(tool),
@@ -216,7 +278,7 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
 /// The catalog ranked against `query`, each with its current availability
 /// and its score. Refused entries stay in the list (decision 3). An empty
 /// query keeps catalog order; putting the session's recent commands first
-/// (decision 8) is the overlay's job.
+/// (decision 8) is the overlay's job (`palette::recent`).
 pub(crate) fn search(viewer: &Viewer, query: &str) -> Vec<(PaletteEntry, Availability, u32)> {
     let entries = catalog();
     matcher::rank(query, &entries, PaletteEntry::haystacks)
