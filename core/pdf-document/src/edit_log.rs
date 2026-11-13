@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 
 use crate::annotation::{Annotation, Rect};
-use crate::content::{ContentClip, ImageItem, PathItem, TextRun};
+use crate::content::{ContentClip, ImageItem, PathItem, TextRun, TextRunLook};
 use crate::document::PageId;
 use crate::document::{Document, Orientation, Page, PageSize};
 use crate::form::{FieldValue, FormField, FormFieldId, TextStyle};
@@ -242,6 +242,19 @@ pub enum Command {
     MoveTextRun {
         item: TextRun,
         to: Rect,
+    },
+    /// Turns an existing run's bold, italic, underline or strikethrough on
+    /// or off — `from` is how it looked when the toggle was pressed, `to` how
+    /// it should look. The text, size and position stay.
+    ///
+    /// Like a retype, recording it does not mean it can be written: whether
+    /// the page holds a bold or italic sibling of the run's font, and whether
+    /// a natively bold run can be made regular at all, is `pdf-edit`'s call
+    /// at write time (`pdf_edit::restyle_text_run`).
+    RestyleTextRun {
+        item: TextRun,
+        from: TextRunLook,
+        to: TextRunLook,
     },
     /// Adds an image to the page.
     ///
@@ -571,6 +584,7 @@ impl Command {
                 | Command::InsertTextRunLike { .. }
                 | Command::RemoveTextRun(_)
                 | Command::MoveTextRun { .. }
+                | Command::RestyleTextRun { .. }
                 | Command::InsertImage { .. }
                 | Command::RemoveImage { .. }
                 | Command::MoveImage { .. }
@@ -884,6 +898,7 @@ impl Command {
             | Command::InsertTextRunLike { .. }
             | Command::RemoveTextRun(_)
             | Command::MoveTextRun { .. }
+            | Command::RestyleTextRun { .. }
             | Command::InsertImage { .. }
             | Command::RemoveImage { .. }
             | Command::MoveImage { .. }
@@ -1074,6 +1089,13 @@ impl Command {
                     to: item.bbox,
                 }
             }
+            // The same run, the looks swapped. Undo pops the entry rather
+            // than writing this, so the run snapshot is never re-resolved.
+            Command::RestyleTextRun { item, from, to } => Command::RestyleTextRun {
+                item: item.clone(),
+                from: *to,
+                to: *from,
+            },
             Command::InsertImage { item, source } => Command::RemoveImage {
                 item: item.clone(),
                 source: source.clone(),
@@ -1317,6 +1339,9 @@ impl EditLog {
         self.redo_stack.last()
     }
 }
+
+#[cfg(test)]
+mod restyle_tests;
 
 #[cfg(test)]
 mod tests {

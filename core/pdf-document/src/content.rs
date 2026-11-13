@@ -55,6 +55,24 @@ pub enum FontKind {
     EmbeddedComposite,
 }
 
+/// The four face toggles a content editor offers for an existing text run.
+///
+/// It says what the reader should *see*, not how it is painted: a bold run
+/// may be painted in a bold font or in its own font with a stroked outline,
+/// an italic one in an italic font or sheared. `pdf-edit` decides the method
+/// when it writes the change (see `pdf_edit::restyle`).
+///
+/// `underline` and `strike` are only ever lines this editor draws: a line
+/// the file already paints under a run is a separate path that nothing
+/// relates to the run yet, so a look read from a file never has them set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct TextRunLook {
+    pub bold: bool,
+    pub italic: bool,
+    pub underline: bool,
+    pub strike: bool,
+}
+
 /// A contiguous run of text painted by one show-text operator (`Tj`/`TJ`/
 /// `'`/`"`) under a single active font.
 #[derive(Debug, Clone, PartialEq)]
