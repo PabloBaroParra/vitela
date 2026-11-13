@@ -1595,7 +1595,7 @@ pub(crate) fn connect_copy(
     window: &gtk::ApplicationWindow,
     viewer: &Viewer,
 ) {
-    let copy = gio::SimpleAction::new("copy", None);
+    let copy = gio::SimpleAction::new(crate::app::shortcuts::COPY.action, None);
     copy.connect_activate({
         let viewer = viewer.clone();
         // Content-edit mode's selection is copied as content (B25 T-209);
@@ -1607,7 +1607,7 @@ pub(crate) fn connect_copy(
         }
     });
     window.add_action(&copy);
-    application.set_accels_for_action("win.copy", &["<Control>c"]);
+    crate::app::shortcuts::COPY.install(application);
 }
 
 #[cfg(test)]

@@ -560,6 +560,13 @@ fn build_ui(application: &Application) -> BuiltUi {
     });
     let palette = palette::install(&window, &viewer, &root);
     connect_standard_shortcuts(application, &window, &viewer, &palette);
+    // After every text-editing key is bound (copy, paste, cut, history,
+    // above), so its first sync sees them all.
+    shortcuts::connect_search_field_handoff(
+        application,
+        &window,
+        [viewer.search_entry.clone().upcast(), palette.search_field()],
+    );
 
     open_button.connect_clicked({
         let window = window.clone();
