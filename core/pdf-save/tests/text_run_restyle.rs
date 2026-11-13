@@ -236,7 +236,7 @@ fn a_second_toggle_of_the_same_run_amends_the_first() {
         "one step, from the look the file has to the last one asked for"
     );
     let saved = session.saved();
-    assert_eq!(saved.look("Hello"), look(true, true, false));
+    assert_eq!(saved.look("Hello"), look(true, true, true));
     let lines = pdf_save::read_page_content(&saved.base, PageId(0))
         .unwrap()
         .paths;
@@ -445,4 +445,121 @@ impl Session {
         let mut document = self.document.clone();
         record_content_command(&mut document, &self.base, ImportedSources::none(), command)
     }
+}
+
+fn line_count(session: &Session) -> usize {
+    pdf_save::read_page_content(&session.base, PageId(0))
+        .unwrap()
+        .paths
+        .len()
+}
+
+#[test]
+fn an_underline_reads_back_after_a_save_and_comes_off_after_the_reopen() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    session
+        .record(restyle(
+            session.run("Hello"),
+            look(false, false, false),
+            look(false, false, true),
+        ))
+        .unwrap();
+    let mut reopened = session.saved();
+    assert!(reopened.look("Hello").underline, "found in the saved file");
+
+    reopened
+        .record(restyle(
+            reopened.run("Hello"),
+            look(false, false, true),
+            look(false, false, false),
+        ))
+        .unwrap();
+
+    let saved = reopened.saved();
+    assert!(!saved.look("Hello").underline);
+    assert_eq!(line_count(&saved), 0, "the line is gone, not hidden");
+}
+
+#[test]
+fn underlining_an_underlined_run_again_never_doubles_the_line() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    let underlined = look(false, false, true);
+    session
+        .record(restyle(
+            session.run("Hello"),
+            look(false, false, false),
+            underlined,
+        ))
+        .unwrap();
+    let mut reopened = session.saved();
+
+    // A shell that did not read the line back would claim the run plain.
+    reopened
+        .record(restyle(
+            reopened.run("Hello"),
+            look(false, false, false),
+            underlined,
+        ))
+        .unwrap();
+
+    assert_eq!(line_count(&reopened.saved()), 1);
+}
+
+#[test]
+fn an_underline_written_by_a_checkpoint_is_read_back_and_removable() {
+    let mut session = Session::open(pdf_bytes(HELLO, true));
+    session
+        .record(restyle(
+            session.run("Hello"),
+            look(false, false, false),
+            look(true, false, true),
+        ))
+        .unwrap();
+    // A retype of a run switched to its bold face goes through a checkpoint,
+    // which writes the underline into the new base.
+    session
+        .record(Command::ReplaceTextRunContent {
+            item: session.run("Hello"),
+            after: "Howdy".to_string(),
+        })
+        .unwrap();
+    assert!(session.look("Howdy").underline, "read from the new base");
+
+    session
+        .record(restyle(
+            session.run("Howdy"),
+            look(true, false, true),
+            look(true, false, false),
+        ))
+        .unwrap();
+
+    let saved = session.saved();
+    assert_eq!(saved.look("Howdy"), look(true, false, false));
+    assert_eq!(line_count(&saved), 0);
+}
+
+#[test]
+fn a_moved_underlined_run_keeps_one_line_under_it() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    session
+        .record(restyle(
+            session.run("Hello"),
+            look(false, false, false),
+            look(false, false, true),
+        ))
+        .unwrap();
+    let mut reopened = session.saved();
+    let run = reopened.run("Hello");
+    let to = pdf_document::Rect {
+        x: run.bbox.x + 40.0,
+        y: run.bbox.y - 200.0,
+        ..run.bbox
+    };
+    reopened
+        .record(Command::MoveTextRun { item: run, to })
+        .unwrap();
+
+    let saved = reopened.saved();
+    assert!(saved.look("Hello").underline, "the line went with the run");
+    assert_eq!(line_count(&saved), 1);
 }

@@ -11,21 +11,25 @@
 //!   the fill colour, italic as a 12° shear of the text matrix around the
 //!   run's origin. Both are set back right after the run, so nothing else on
 //!   the page changes.
-//! - **Underline and strikethrough** are lines drawn after the page's content
-//!   ([`decoration`]).
+//! - **Underline and strikethrough** are tagged lines drawn after the page's
+//!   content ([`decoration`]), which is how they are found again: read back
+//!   as part of the run's look, removed by the off-toggle, never drawn twice.
 //!
 //! Turning a style **off** reverses whichever method is on the page: a
 //! stroked bold is set back to fill, a shear straightened, a bold or italic
 //! face switched to its plain sibling. A run painted in a bold face whose
 //! page has no regular sibling cannot be made regular — faking it is not
 //! attempted — and [`text_run_look`] says so before the reader asks, through
-//! [`RunLook::can_remove_bold`]. The same holds for italic, and for a line
-//! the file already draws, which is never tied to the run.
+//! [`RunLook::can_remove_bold`]. The same holds for italic. A line the file
+//! drew on its own is not this crate's to find: it is neither reported nor
+//! removed.
 
-mod decoration;
+pub(crate) mod decoration;
 pub(crate) mod sibling;
 mod synthetic;
 
+#[cfg(test)]
+mod decoration_tests;
 #[cfg(test)]
 mod tests;
 
@@ -33,15 +37,15 @@ use lopdf::{Dictionary, Document, ObjectId};
 use pdf_document::{TextRun, TextRunLook};
 
 use crate::edit::{
-    format_number, literal_string, locate_run_for_style, matrix_operator, own_scope,
-    resolve_text_run, scope_resources, scope_stream, splice,
+    format_number, literal_string, matrix_operator, own_scope, resolve_text_run, scope_resources,
+    scope_stream, splice,
 };
 use crate::encoding::fallback::Look;
 use crate::error::EditError;
-use crate::parse::interpreter::{LocatedTextRun, PageStream};
+use crate::parse::interpreter::{LocatedContent, LocatedTextRun, PageStream};
 use crate::parse::read_located_content;
 use crate::style::PaintState;
-use decoration::Lines;
+use decoration::{Found, Line};
 use sibling::Face;
 use synthetic::{FILL_AND_STROKE, ITALIC_SHEAR, SHEAR_THRESHOLD};
 
@@ -49,9 +53,8 @@ use synthetic::{FILL_AND_STROKE, ITALIC_SHEAR, SHEAR_THRESHOLD};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RunLook {
     /// Bold and italic as a reader sees them: a bold or italic face, a
-    /// stroked outline, a slanted matrix. Underline and strikethrough are
-    /// always `false` — see [`decoration`] for why a file's lines are not
-    /// read back.
+    /// stroked outline, a slanted matrix. Underline and strikethrough are the
+    /// tagged lines this crate drew under the run ([`decoration`]).
     pub look: TextRunLook,
     /// Whether a bold run can be made regular: it is stroked, or its page
     /// has a regular sibling of its face that shows its text. `true` for a
@@ -68,9 +71,23 @@ pub fn text_run_look(
     page_object: ObjectId,
     run: &TextRun,
 ) -> Result<RunLook, EditError> {
-    let located = locate_run_for_style(document, page_object, run)?;
+    let content = read_located_content(document, page_object)?;
+    // Matched the way `crate::text_run_style` matches: a run with a retype
+    // still pending shows text the file does not hold yet, so failing an
+    // exact match it is the run with the same id painted in the same font.
+    let located = match resolve_text_run(&content, run) {
+        Ok(found) => found,
+        Err(refusal) => content
+            .text_runs
+            .iter()
+            .find(|candidate| {
+                candidate.run.id == run.id
+                    && candidate.run.resource_font_name == run.resource_font_name
+            })
+            .ok_or(refusal)?,
+    };
     let resources = scope_resources(document, page_object, &located.form_path);
-    let current = Current::read(document, &resources, &located);
+    let current = Current::read(document, &resources, &content, located);
     let look = current.look();
     let possible = |to: TextRunLook| plan(&current, look, to).is_ok();
     Ok(RunLook {
@@ -90,11 +107,10 @@ pub fn text_run_look(
 
 /// Restyles `item` on `page_object` from `from` to `to`.
 ///
-/// Bold and italic are compared with what the page paints now, so a
-/// restyle whose bold and italic already hold writes nothing for them.
-/// Underline and strikethrough are compared with `from`: a line `to` adds is
-/// drawn; one `from` claims and `to` drops cannot be found in the file and is
-/// refused with [`EditError::StyleNotRemovable`].
+/// Every style is compared with what the page paints now, not with `from`
+/// (the look the reader saw when recording, kept for undo): a restyle whose
+/// styles already hold writes nothing for them, so a line is never drawn
+/// twice, and a tagged line `to` drops is taken off the page.
 ///
 /// Nothing is written unless everything can be: the rewrite and the lines
 /// are built on a copy that replaces `document` only at the end.
@@ -102,15 +118,14 @@ pub fn restyle_text_run(
     document: &mut Document,
     page_object: ObjectId,
     item: &TextRun,
-    from: TextRunLook,
+    _from: TextRunLook,
     to: TextRunLook,
 ) -> Result<(), EditError> {
-    let lines = lines_to_draw(from, to)?;
     let located = read_located_content(document, page_object)?;
     let target = resolve_text_run(&located, item)?;
     let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
     let resources = scope_resources(document, page_object, &target.form_path);
-    let current = Current::read(document, &resources, target);
+    let current = Current::read(document, &resources, &located, target);
     let plan = plan(&current, current.look(), to)?;
 
     let mut working = document.clone();
@@ -126,7 +141,19 @@ pub fn restyle_text_run(
             &replacement,
         )?;
     }
-    if lines.any() {
+    let dropped: Vec<&Found> = current
+        .lines
+        .iter()
+        .filter(|found| !wants(to, found.line))
+        .collect();
+    if !dropped.is_empty() {
+        decoration::rewrite(&mut working, page_object, &located, &dropped, None)?;
+    }
+    let added: Vec<Line> = Line::ALL
+        .into_iter()
+        .filter(|line| wants(to, *line) && !current.has(*line))
+        .collect();
+    if !added.is_empty() {
         let placement = decoration::Placement {
             correction: crate::insert::correction_matrix(&working, page_object)?,
             ctm: target.placement.ctm,
@@ -135,31 +162,22 @@ pub fn restyle_text_run(
             advance,
             fill_rgb: current.paint.fill_rgb,
         };
-        crate::insert::append_to_content(
-            &mut working,
-            page_object,
-            &decoration::operators(lines, &placement),
-        )?;
+        let operators: Vec<u8> = added
+            .into_iter()
+            .flat_map(|line| decoration::operators(line, &placement))
+            .collect();
+        crate::insert::append_to_content(&mut working, page_object, &operators)?;
     }
     *document = working;
     Ok(())
 }
 
-/// The lines `to` adds to `from`; a line `from` has and `to` drops is one
-/// the file draws, which this crate cannot find again.
-fn lines_to_draw(from: TextRunLook, to: TextRunLook) -> Result<Lines, EditError> {
-    if from.underline && !to.underline {
-        return Err(EditError::StyleNotRemovable { style: "underline" });
+/// Whether `look` asks for `line`.
+fn wants(look: TextRunLook, line: Line) -> bool {
+    match line {
+        Line::Underline => look.underline,
+        Line::Strike => look.strike,
     }
-    if from.strike && !to.strike {
-        return Err(EditError::StyleNotRemovable {
-            style: "strikethrough",
-        });
-    }
-    Ok(Lines {
-        underline: to.underline && !from.underline,
-        strike: to.strike && !from.strike,
-    })
 }
 
 /// What the page paints for a run, and the faces it could switch to.
@@ -171,10 +189,17 @@ struct Current {
     /// How far the run's text matrix leans.
     shear: f64,
     siblings: Vec<Face>,
+    /// The tagged lines under / through the run.
+    lines: Vec<Found>,
 }
 
 impl Current {
-    fn read(document: &Document, resources: &Dictionary, located: &LocatedTextRun) -> Self {
+    fn read(
+        document: &Document,
+        resources: &Dictionary,
+        content: &LocatedContent,
+        located: &LocatedTextRun,
+    ) -> Self {
         let own = &located.run.resource_font_name;
         let (face, siblings) = match sibling::own_face(document, resources, own) {
             Some((font, look)) => (
@@ -188,7 +213,15 @@ impl Current {
             paint: PaintState::read(&located.paint_state),
             shear: synthetic::shear_of(located.placement.text_matrix),
             siblings,
+            lines: decoration::of_run(&decoration::find(content), located)
+                .into_iter()
+                .cloned()
+                .collect(),
         }
+    }
+
+    fn has(&self, line: Line) -> bool {
+        self.lines.iter().any(|found| found.line == line)
     }
 
     fn stroked(&self) -> bool {
@@ -203,8 +236,8 @@ impl Current {
         TextRunLook {
             bold: self.face.bold || self.stroked(),
             italic: self.face.italic || self.slanted(),
-            underline: false,
-            strike: false,
+            underline: self.has(Line::Underline),
+            strike: self.has(Line::Strike),
         }
     }
 }

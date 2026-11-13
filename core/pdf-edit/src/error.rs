@@ -128,10 +128,8 @@ pub enum EditError {
     InvalidClip(String),
     /// A restyle asked to take a style off a run that this crate can only
     /// put on: a run painted in a bold (or italic) font with no regular
-    /// sibling on the page, or an underline or strikethrough the file
-    /// already draws. Faking the opposite is refused rather than attempted.
-    /// `style` names the one that cannot go: `bold`, `italic`, `underline`
-    /// or `strikethrough`.
+    /// sibling on the page. Faking the opposite is refused rather than
+    /// attempted. `style` names the one that cannot go: `bold` or `italic`.
     StyleNotRemovable { style: &'static str },
     /// A restyle cannot be written without changing more than the run: a
     /// slant for a run shown with `"`, which also sets the spacing for
@@ -230,7 +228,7 @@ impl fmt::Display for EditError {
             EditError::InvalidClip(msg) => write!(f, "the copied content cannot be pasted: {msg}"),
             EditError::StyleNotRemovable { style } => write!(
                 f,
-                "this text cannot be made non-{style}: its font has no plain sibling on                  this page, or the line is part of the file"
+                "this text cannot be made non-{style}: its font has no plain sibling on this page"
             ),
             EditError::TextRunNotRestylable { reason } => {
                 write!(f, "this text cannot be restyled: {reason}")

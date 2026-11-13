@@ -271,22 +271,6 @@ fn strikethrough_crosses_the_run_above_the_baseline() {
 }
 
 #[test]
-fn a_line_already_in_the_file_is_not_removable() {
-    let (mut document, page) = document_with_content(HELLO, helvetica_resources());
-    let run = first_run(&document, page);
-
-    let refused = restyle_text_run(
-        &mut document,
-        page,
-        &run,
-        underlined(),
-        TextRunLook::default(),
-    );
-
-    assert!(matches!(refused, Err(EditError::StyleNotRemovable { .. })));
-}
-
-#[test]
 fn bold_off_switches_a_natively_bold_run_to_its_regular_sibling() {
     let (mut document, page) = document_with_content(
         b"BT /F2 12 Tf 100 700 Td (Hello) Tj ET",
