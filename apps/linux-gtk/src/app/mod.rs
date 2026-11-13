@@ -22,6 +22,7 @@ mod layout;
 mod metadata;
 mod mode_bar;
 mod organize;
+mod palette;
 mod pan;
 mod print;
 mod protect;
