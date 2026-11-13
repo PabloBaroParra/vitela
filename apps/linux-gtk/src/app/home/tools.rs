@@ -35,6 +35,7 @@ use crate::app::icons::{
     build_icon, Icon, ACCENT_TINT, ANNOTATE_TINT, COMPRESS_TINT, EDIT_TINT, MUTED_TINT,
     ORGANIZE_TINT, PROTECT_TINT, SIGN_TINT,
 };
+use crate::app::shortcuts::{self, Shortcut};
 use crate::app::state::{HomeTool, Viewer};
 use crate::app::tools_panel::{property_row, ANNOTATE_PAGE, EDIT_PAGE, FILL_SIGN_PAGE};
 
@@ -362,23 +363,41 @@ impl QuickAction {
     }
 }
 
-/// The accelerators `connect_standard_shortcuts` installs, written down.
+/// The accelerators GTK has bound, written down: [`SHORTCUT_CARD`], printed
+/// through [`shortcuts::accel_label`] like the command palette's rows.
 ///
 /// A shell with no menu bar has nowhere else to show them, and the launch
 /// screen is the one place the user is reading rather than working.
 pub(crate) fn build_shortcuts_card() -> GtkBox {
     let root = card(&tr("home-shortcuts-title"));
-    for (action_key, keys) in [
-        ("home-shortcut-open", "Ctrl+O"),
-        ("home-shortcut-new", "Ctrl+N"),
-        ("home-shortcut-save", "Ctrl+S"),
-        ("home-shortcut-find", "Ctrl+F"),
-        ("home-shortcut-print", "Ctrl+P"),
-    ] {
-        property_row(&root, &tr(action_key)).set_text(keys);
+    for (label_key, shortcut) in SHORTCUT_CARD {
+        // Every entry parses (`shortcuts`' tests); the raw accelerator is a
+        // readable fallback rather than an empty cell.
+        let keys =
+            shortcuts::accel_label(shortcut.accel).unwrap_or_else(|| shortcut.accel.to_owned());
+        property_row(&root, &tr(label_key)).set_text(&keys);
     }
     root
 }
+
+/// The rows of Home's shortcut card, in order: a message id for the label
+/// and the shared [`shortcuts`] entry whose accelerator the row prints.
+///
+/// The five file and search keys the card always listed, plus Ctrl+K for
+/// the command palette (B27 T-232), which reaches everything else. Not the
+/// whole table: cut, copy, paste, undo and redo are the keys every text
+/// field already teaches, and the card sits in a 268 px side column under
+/// the tools grid and the quick actions, where eleven rows would push the
+/// card past the fold for nothing new.
+pub(crate) const SHORTCUT_CARD: [(&str, Shortcut); 6] = [
+    ("home-shortcut-open", shortcuts::OPEN),
+    ("home-shortcut-new", shortcuts::NEW),
+    ("home-shortcut-save", shortcuts::SAVE),
+    ("home-shortcut-find", shortcuts::FIND),
+    ("home-shortcut-print", shortcuts::PRINT),
+    // The palette's own title names it here as on its card.
+    ("palette-title", shortcuts::COMMAND_PALETTE),
+];
 
 /// A titled card. The three in this column share it so their padding, radius
 /// and heading weight cannot drift apart.
@@ -395,9 +414,105 @@ fn card(title: &str) -> GtkBox {
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use gtk::prelude::*;
+    use gtk::{Box as GtkBox, Label};
+
+    /// The shortcut card's rows as `(label, keys)` text, top to bottom.
+    pub(crate) fn card_rows(card: &GtkBox) -> Vec<(String, String)> {
+        let mut rows = Vec::new();
+        let mut child = card.first_child();
+        while let Some(widget) = child {
+            child = widget.next_sibling();
+            if !widget.has_css_class("property-row") {
+                continue;
+            }
+            let text = |label: Option<gtk::Widget>| {
+                label
+                    .and_downcast::<Label>()
+                    .map(|label| label.text().to_string())
+                    .expect("a property row holds two labels")
+            };
+            rows.push((text(widget.first_child()), text(widget.last_child())));
+        }
+        rows
+    }
+}
+
+#[cfg(test)]
 mod tests {
+    use super::test_support::card_rows;
     use super::*;
+    use crate::app::i18n::{has_message, tr_in, Language};
+    use crate::app::shortcuts::accel_label;
     use crate::app::ui_tests::built_ui;
+
+    /// The card prints the shared table, in order, through the formatter
+    /// the palette uses — and every key it prints is the one GTK has bound
+    /// to the action, so card, palette and registration cannot drift.
+    #[gtk::test]
+    fn gtk_ui_the_shortcut_card_prints_the_shared_table() {
+        let built = built_ui();
+        let application = built.window.application().expect("an application");
+
+        let rows = card_rows(&build_shortcuts_card());
+
+        let expected: Vec<(String, String)> = SHORTCUT_CARD
+            .iter()
+            .map(|(key, shortcut)| {
+                let keys = accel_label(shortcut.accel).expect("the table parses");
+                (tr(key), keys)
+            })
+            .collect();
+        assert_eq!(rows, expected);
+        for (_, shortcut) in SHORTCUT_CARD {
+            let bound = application.accels_for_action(&shortcut.detailed_action());
+            assert!(
+                bound.iter().any(|accel| accel == shortcut.accel),
+                "{shortcut:?} is what GTK listens for"
+            );
+        }
+
+        built.window.close();
+    }
+
+    /// The card's list, by name: the five it always had, then Ctrl+K.
+    #[test]
+    fn the_shortcut_card_lists_five_file_keys_then_the_palette() {
+        let listed: Vec<Shortcut> = SHORTCUT_CARD
+            .iter()
+            .map(|(_, shortcut)| *shortcut)
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                shortcuts::OPEN,
+                shortcuts::NEW,
+                shortcuts::SAVE,
+                shortcuts::FIND,
+                shortcuts::PRINT,
+                shortcuts::COMMAND_PALETTE,
+            ]
+        );
+    }
+
+    /// Ctrl+K's row has its own label in both languages, not an English
+    /// fallback.
+    #[gtk::test]
+    fn gtk_ui_the_palette_row_reads_in_english_and_spanish() {
+        let (key, _) = SHORTCUT_CARD
+            .iter()
+            .find(|(_, shortcut)| *shortcut == shortcuts::COMMAND_PALETTE)
+            .expect("Ctrl+K is on the card");
+        assert!(has_message(Language::English, key));
+        assert!(has_message(Language::Spanish, key));
+        assert_eq!(tr_in(Language::English, key), "Command palette");
+        assert_eq!(tr_in(Language::Spanish, key), "Paleta de comandos");
+
+        let rows = card_rows(&build_shortcuts_card());
+        let ctrl_k = accel_label(shortcuts::COMMAND_PALETTE.accel).expect("parses");
+        assert_eq!(rows.last(), Some(&(tr(key), ctrl_k)));
+    }
 
     fn tile(card: &ToolsCard, label: &str) -> Button {
         card.tiles

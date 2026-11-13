@@ -442,9 +442,33 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked
       -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1030 pasan, 0
       fallan, 1 ignorado**.
-- [ ] T-232 Tabla de atajos compartida (decisión 7): `connect_standard_shortcuts`, la
+- [x] T-232 Tabla de atajos compartida (decisión 7): `connect_standard_shortcuts`, la
       paleta y `build_shortcuts_card` leen la misma constante. La tarjeta de Home suma
       Ctrl+K. [PaletteUI]
+      **(2026-11-13 — completo.** **Formateador único:** `shortcuts::accel_label(accel)`
+      (`gtk::accelerator_parse` + `gtk::accelerator_get_label`), movido desde
+      `palette/view.rs` (`shortcut_text`, que desaparece); lo leen las filas de la paleta
+      y la tarjeta de Home. Se queda la etiqueta de GTK y no un "Ctrl+" escrito a mano:
+      es lo que imprimen los menús y ventanas de atajos de GTK, y GTK traduce los
+      nombres de modificador con su propio catálogo, según el locale del sistema (no el
+      idioma de Fluent). En C/inglés da "Ctrl+O", el texto de siempre de la tarjeta.
+      **No medido** en español: la imagen de WSL no trae el catálogo `gtk40` de `es`,
+      y con `LANGUAGE=es` sigue saliendo "Ctrl+O". **Tarjeta:** `home::tools::
+      SHORTCUT_CARD`, `[(clave, Shortcut); 6]`: Abrir, Nuevo, Guardar, Buscar, Imprimir
+      (los cinco de antes, mismo orden y mismas claves) y la paleta, con la clave
+      existente `palette-title` ("Command palette" / "Paleta de comandos"), sin claves
+      nuevas en `en.ftl`/`es.ftl`. No las once: cortar, copiar, pegar, deshacer y
+      rehacer los enseña cualquier campo de texto, y la tarjeta vive en la columna
+      lateral de 268 px debajo de la rejilla de herramientas y las acciones rápidas;
+      once filas la empujan fuera de la vista sin enseñar nada nuevo. La paleta llega
+      al resto. Layout y CSS sin cambios: misma `card` y mismo `property_row`, una fila
+      más. **Rojo → verde:** 5 tests nuevos (3 en `home/tools.rs`, 1 en
+      `palette/view.rs`, 1 en `shortcuts.rs` que sustituye al de `shortcut_text`);
+      contra la tarjeta con texto literal, 3 fallan (la tarjeta imprime la tabla y GTK
+      tiene registrado cada atajo; paleta y tarjeta escriben igual cada atajo; la fila
+      de Ctrl+K en inglés y español) y 2 pasan (la lista de la tabla, que es dato, y el
+      formateador movido); tras leer la tabla, 5/5. Ningún test de Home afirmaba
+      "Ctrl+O". Gate en WSL: `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1034 pasan, 0 fallan, 1 ignorado**.)
 
 ### Fase 3 — Pruebas y docs
 - [ ] T-233 Tests `gtk_ui_palette_*` sobre `ui_tests::built_ui()`: Ctrl+K abre en las
