@@ -378,3 +378,130 @@ fn gtk_ui_running_a_refused_signing_entry_returns_its_refusal() {
         "a refused entry must not even switch screens"
     );
 }
+
+// --- T-231: search synonyms -------------------------------------------------
+
+/// Most words a keyword list may hold: enough for the synonyms a user
+/// reaches for, short enough that it stays a list and not a paragraph.
+const MAX_KEYWORDS: usize = 10;
+
+/// Most entries a common, unspecific query may return. "pdf" and
+/// "page"/"pagina" are the words a user types about this app in general;
+/// the commands genuinely about them are the PDF and page ones (new blank
+/// PDF, add PDFs, organize, extract, split) plus the scattered subsequence
+/// hits the matcher reaches without any keyword ("Export images" holds
+/// p-a-g-e, "Campo de texto … formulario" holds p-d-f). Measured with the
+/// T-231 lists: 4-7 hits per query, the genuine ones first. Eight keeps
+/// that one entry of slack and still fails as soon as a keyword list
+/// stuffs these words into unrelated commands: out of 35 entries, a query
+/// returning more than eight has stopped narrowing anything.
+const MAX_COMMON_QUERY_HITS: usize = 8;
+
+#[test]
+fn every_keywords_key_resolves_in_english_and_spanish() {
+    for entry in catalog() {
+        let key = entry.keywords_key();
+        for language in [Language::English, Language::Spanish] {
+            assert!(
+                has_message(language, &key),
+                "{} has no {language:?} keywords {key:?}",
+                entry.id
+            );
+        }
+    }
+}
+
+#[test]
+fn keyword_lists_stay_short() {
+    for entry in catalog() {
+        for language in [Language::English, Language::Spanish] {
+            let words = tr_in(language, &entry.keywords_key())
+                .split_whitespace()
+                .count();
+            assert!(
+                (1..=MAX_KEYWORDS).contains(&words),
+                "{} has {words} {language:?} keywords",
+                entry.id
+            );
+        }
+    }
+}
+
+#[gtk::test]
+fn gtk_ui_spanish_keywords_find_their_commands() {
+    let built = window();
+    let viewer = &built.0.viewer;
+    let _spanish = speak(Language::Spanish);
+
+    let pagina = found_ids(viewer, "pagina");
+    for id in ["mode.organize", "pages.extract", "pages.split"] {
+        assert!(pagina.contains(&id), "pagina misses {id}: {pagina:?}");
+    }
+    assert_eq!(pagina.first(), Some(&"mode.organize"));
+    assert_eq!(
+        found_ids(viewer, "unir pdf").first(),
+        Some(&"pages.add-pdfs")
+    );
+    assert_eq!(
+        found_ids(viewer, "reducir").first(),
+        Some(&"document.compress")
+    );
+    let firma = found_ids(viewer, "firma");
+    assert!(
+        firma
+            .first()
+            .is_some_and(|id| id.starts_with("sign.") || *id == "mode.sign"),
+        "firma: {firma:?}"
+    );
+    assert!(firma.contains(&"sign.draw"), "firma: {firma:?}");
+}
+
+#[gtk::test]
+fn gtk_ui_english_keywords_find_their_commands() {
+    let built = window();
+    let viewer = &built.0.viewer;
+    assert_eq!(found_ids(viewer, "merge").first(), Some(&"pages.add-pdfs"));
+    assert_eq!(
+        found_ids(viewer, "shrink").first(),
+        Some(&"document.compress")
+    );
+}
+
+/// English keywords are searched in every language, like English labels.
+#[gtk::test]
+fn gtk_ui_english_keywords_match_while_speaking_spanish() {
+    let built = window();
+    let _spanish = speak(Language::Spanish);
+    assert_eq!(
+        found_ids(&built.0.viewer, "merge").first(),
+        Some(&"pages.add-pdfs")
+    );
+}
+
+/// The rule is the active language plus English: Spanish keywords are not
+/// searched while the window speaks English.
+#[gtk::test]
+fn gtk_ui_spanish_keywords_are_not_searched_in_english() {
+    let built = window();
+    assert!(!found_ids(&built.0.viewer, "fusionar").contains(&"pages.add-pdfs"));
+}
+
+#[gtk::test]
+fn gtk_ui_common_queries_stay_narrow() {
+    let built = window();
+    let viewer = &built.0.viewer;
+    for (language, query) in [
+        (Language::English, "pdf"),
+        (Language::English, "page"),
+        (Language::Spanish, "pdf"),
+        (Language::Spanish, "pagina"),
+    ] {
+        let _language = speak(language);
+        let found = found_ids(viewer, query);
+        assert!(
+            found.len() <= MAX_COMMON_QUERY_HITS,
+            "{language:?} {query:?} returns {} entries: {found:?}",
+            found.len()
+        );
+    }
+}

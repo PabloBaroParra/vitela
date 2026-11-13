@@ -134,8 +134,6 @@ pub(crate) struct PaletteEntry {
     pub(crate) id: &'static str,
     /// Message id of the label, reused from the button the entry mirrors.
     pub(crate) label_key: &'static str,
-    /// Message id of the search synonyms; `None` until T-231 writes them.
-    pub(crate) keywords_key: Option<&'static str>,
     /// Accelerator in GTK syntax, read from [`shortcuts`].
     pub(crate) shortcut: Option<&'static str>,
     pub(crate) category: Category,
@@ -165,14 +163,25 @@ impl PaletteEntry {
         Ok(())
     }
 
-    /// The texts a query is matched against: the label in the active
-    /// language, the label in English, and the synonyms when there are any.
+    /// Message id of the search synonyms, `palette-<id>-keywords` with the
+    /// id's dots as dashes (Fluent ids allow no dots). Derived, not stored,
+    /// so an entry cannot point at another entry's list.
+    pub(crate) fn keywords_key(&self) -> String {
+        format!("palette-{}-keywords", self.id.replace('.', "-"))
+    }
+
+    /// The texts a query is matched against: the label followed by its
+    /// synonyms, once in the active language and once in English. Label and
+    /// synonyms share one text so a query may mix them ("unir pdf" finds
+    /// "Añadir PDF"); English rides along in every language like the English
+    /// label, but another language's synonyms are never searched.
     fn haystacks(&self) -> Vec<String> {
-        let mut texts = vec![tr(self.label_key), tr_in(Language::English, self.label_key)];
-        if let Some(key) = self.keywords_key {
-            texts.push(tr(key));
-        }
-        texts
+        let keywords = self.keywords_key();
+        let english = |key: &str| tr_in(Language::English, key);
+        vec![
+            format!("{} {}", tr(self.label_key), tr(&keywords)),
+            format!("{} {}", english(self.label_key), english(&keywords)),
+        ]
     }
 }
 
@@ -182,7 +191,6 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
     let modes = Mode::ALL.into_iter().map(|mode| PaletteEntry {
         id: mode_id(mode),
         label_key: mode.label_key(),
-        keywords_key: None,
         shortcut: None,
         category: Category::Mode,
         target: Target::Mode(mode),
@@ -235,7 +243,6 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
     .map(|(id, action, label_key, category)| PaletteEntry {
         id,
         label_key,
-        keywords_key: None,
         shortcut: Some(action.shortcut().accel),
         category,
         target: Target::Action(action),
@@ -243,7 +250,6 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
     let tools = Tool::ALL.into_iter().map(|tool| PaletteEntry {
         id: tool_id(tool),
         label_key: tool.label_key(),
-        keywords_key: None,
         shortcut: None,
         category: Category::Annotate,
         target: Target::Annotation(tool),
@@ -251,7 +257,6 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
     let fields = FieldKind::ALL.into_iter().map(|kind| PaletteEntry {
         id: field_id(kind),
         label_key: kind.label_key(),
-        keywords_key: None,
         shortcut: None,
         category: Category::Forms,
         target: Target::FormField(kind),
@@ -261,7 +266,6 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
         PaletteEntry {
             id,
             label_key,
-            keywords_key: None,
             shortcut: None,
             category,
             target: Target::Click(tool),

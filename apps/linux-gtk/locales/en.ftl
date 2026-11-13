@@ -988,3 +988,42 @@ palette-search-placeholder = Search commands…
 palette-no-results = No command matches.
 palette-nothing-to-undo = Nothing to undo.
 palette-nothing-to-redo = Nothing to redo.
+
+## Command palette search synonyms (B27 T-231): space-separated words a
+## user might type for each command, matched alongside its label.
+
+palette-mode-home-keywords = start welcome recent files
+palette-mode-edit-keywords = change modify content text image retype
+palette-mode-annotate-keywords = comment markup review notes
+palette-mode-organize-keywords = pages reorder arrange delete move thumbnails
+palette-mode-sign-keywords = signature certificate fill forms
+palette-mode-protect-keywords = password encrypt lock security permissions
+palette-file-open-keywords = load browse document
+palette-file-new-keywords = create empty document
+palette-file-save-keywords = copy keep write download
+palette-file-print-keywords = printer paper
+palette-edit-undo-keywords = revert back cancel
+palette-edit-redo-keywords = repeat again
+palette-edit-find-keywords = search look locate text
+palette-annotate-highlight-keywords = marker mark color yellow
+palette-annotate-underline-keywords = line under mark
+palette-annotate-strikeout-keywords = strikethrough cross out line
+palette-annotate-ink-keywords = draw pen pencil freehand
+palette-annotate-note-keywords = comment sticky popup
+palette-annotate-text-box-keywords = type write free text label
+palette-annotate-shape-keywords = rectangle square circle ellipse line arrow
+palette-annotate-stamp-keywords = approved seal image
+palette-forms-text-keywords = input form field
+palette-forms-checkbox-keywords = tick check box form field
+palette-forms-radio-group-keywords = option button choice form field
+palette-forms-dropdown-keywords = list select combo choice form field
+palette-document-export-images-keywords = png jpeg jpg picture convert
+palette-document-watermark-keywords = stamp logo overlay background
+palette-document-compress-keywords = reduce shrink size smaller optimize
+palette-pages-add-pdfs-keywords = merge combine import insert
+palette-pages-extract-keywords = pages selection separate
+palette-pages-split-keywords = pages separate divide cut
+palette-sign-certificate-file-keywords = signature digital pfx p12
+palette-sign-token-keywords = signature smart card digital
+palette-sign-system-certificate-keywords = signature digital installed
+palette-sign-draw-keywords = signature handwritten initials
