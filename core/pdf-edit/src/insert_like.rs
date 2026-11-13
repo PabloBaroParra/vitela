@@ -191,6 +191,36 @@ mod tests {
         assert!((new.run.bbox.height - template.bbox.height).abs() < 1e-6);
     }
 
+    /// Fill-and-stroke text (`2 Tr`, a faked bold) keeps its outline: the
+    /// stroke colour and line width come along with the render mode, not a
+    /// default 1 pt black stroke.
+    #[test]
+    fn a_stroked_template_keeps_its_stroke_colour_and_width() {
+        let (mut document, page) = document_with_content(
+            b"0 0 1 RG 0.25 w BT /F1 12 Tf 0 0 1 rg 2 Tr 100 700 Td (Hello) Tj ET",
+            helvetica_resources(),
+        );
+        let template = template(&document, page);
+        let run = TextRun {
+            text: "World".to_string(),
+            bbox: pdf_document::Rect {
+                y: template.bbox.y - 14.0,
+                ..template.bbox
+            },
+            ..template.clone()
+        };
+
+        insert_text_run_like(&mut document, page, &run, &template).expect("insertable");
+
+        let runs = located_runs(&document, page);
+        let (old, new) = (&runs[0], &runs[1]);
+        assert_eq!(new.paint_state, old.paint_state);
+        let paint = String::from_utf8_lossy(&new.paint_state).to_string();
+        assert!(paint.contains("0 0 1 RG"), "{paint}");
+        assert!(paint.contains("0.25 w"), "{paint}");
+        assert!(paint.contains("2 Tr"), "{paint}");
+    }
+
     #[test]
     fn text_the_templates_font_cannot_show_is_refused_before_writing() {
         let (mut document, page) = document_with_content(STYLED, helvetica_resources());
