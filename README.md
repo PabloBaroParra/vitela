@@ -125,6 +125,11 @@ Space. The pointer shows a hand while Space is held and changes while dragging
 focused text field, and a left press without Space reaches the page tools as
 before.
 
+On Linux, press **Ctrl+K** to open the command palette: type part of a command's
+name or a synonym, in English or in the interface language and with or without
+accents, then press Enter to run it. Commands the open document does not allow
+stay listed, dimmed, with the reason. Esc closes the palette without moving the page.
+
 This is the full set of tools Vitela targets. The core engine (`pdf-manip`,
 `pdf-save`, `pdf-annotate`, `pdf-render`) already implements the operations
 marked **Core ready**; those become available in each platform shell as the
@@ -210,6 +215,7 @@ Legend: ✅ done & tested · 🚧 in progress · — not yet.
 | Sign | ✅ | ✅ | 🚧 | ✅ | — |
 | Draw a signature | ✅ | ✅ | 🚧 | ✅ | — |
 | Fillable forms | ✅ | 🚧 | 🚧 | ✅ | — |
+| Command palette (Ctrl+K) | 🚧 | — | — | — | — |
 
 Both Apple shells are `🚧` rather than `✅` for a specific reason. GitHub
 Actions provides development-only evidence: for macOS it builds the shell, runs
