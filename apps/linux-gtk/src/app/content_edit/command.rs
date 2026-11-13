@@ -133,6 +133,13 @@ pub(super) enum PendingText {
     /// longer holds, so there is neither an entry to amend nor anything in
     /// the base document a new command could target. Refuse.
     Unresolvable,
+    /// The run is on the page because of a pending command that adds more
+    /// than one run — a paste, or a batch — so there is no single entry a
+    /// retype can fold into. The command is still queued, though: a
+    /// checkpoint writes it into a new in-memory base, where the run is an
+    /// ordinary one (`super::checkpoint`). Refuse only where none may be
+    /// taken.
+    NeedsCheckpoint,
 }
 
 /// What `document`'s pending log says about a *further* edit of `target`.
@@ -167,6 +174,11 @@ pub(super) enum PendingText {
 /// failure aborts the save, that one bogus command would take every other
 /// queued edit down with it.
 ///
+/// A synthetic id whose entry is a paste, a line inserted like another, or a
+/// batch is [`PendingText::NeedsCheckpoint`]: the entry is live, but none of
+/// those has one run's text to amend. The core's checkpoint writes it into
+/// the base and rebinds the run there when the retype is recorded.
+///
 /// **Deliberately blind to a pending `MoveTextRun`** — `Nothing` is the
 /// answer whether or not one is queued. `text::plan_move` depends on that: it
 /// calls this same function to route a *second* move, and reaching `Nothing`
@@ -186,6 +198,13 @@ pub(super) fn pending_text_command(document: &Document, target: &TextRun) -> Pen
             Some(Command::InsertTextRun(run)) if run.page == target.page => {
                 PendingText::Amend(index)
             }
+            Some(Command::PasteContent { page, .. }) if *page == target.page => {
+                PendingText::NeedsCheckpoint
+            }
+            Some(Command::InsertTextRunLike { item, .. }) if item.page == target.page => {
+                PendingText::NeedsCheckpoint
+            }
+            Some(Command::Batch(_)) => PendingText::NeedsCheckpoint,
             _ => PendingText::Unresolvable,
         };
     }
@@ -808,6 +827,39 @@ mod tests {
         assert_eq!(
             pending_text_command(&document, &hit_tested),
             PendingText::Unresolvable
+        );
+    }
+
+    /// A run a pending paste put on the page has no `InsertTextRun` to fold
+    /// a retype into, but it is not stale either: the paste is still queued,
+    /// so a checkpoint can write it into a base a retype can target.
+    #[test]
+    fn a_pasted_run_needs_a_checkpoint_to_be_retyped() {
+        use crate::app::test_fixtures::{checkpointable_session, shown_runs};
+
+        let mut session = checkpointable_session(&["Hello world"]);
+        let line = pdf_edit::Selection {
+            runs: shown_runs(&session),
+            ..pdf_edit::Selection::default()
+        };
+        let clip = copy(&mut session, &line).expect("the line copies");
+        paste(&mut session, PageId(0), clip, 100.0, 400.0).expect("it pastes");
+        let pasted = shown_runs(&session)
+            .into_iter()
+            .find(|run| model::pending_log_index(run.id).is_some())
+            .expect("the paste shows a run");
+
+        let document = session.document_model.as_ref().expect("a model");
+        assert_eq!(
+            pending_text_command(document, &pasted),
+            PendingText::NeedsCheckpoint
+        );
+        let mut elsewhere = pasted;
+        elsewhere.page = PageId(4);
+        assert_eq!(
+            pending_text_command(document, &elsewhere),
+            PendingText::Unresolvable,
+            "a paste on another page does not describe it"
         );
     }
 

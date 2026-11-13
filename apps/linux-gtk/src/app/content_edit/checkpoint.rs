@@ -465,6 +465,44 @@ mod tests {
         assert!((run.bbox.y - 200.0).abs() < 0.05, "{:?}", run.bbox);
     }
 
+    /// A pasted run is retyped through a checkpoint that writes the paste
+    /// into the base. The run held from before it is the paste's synthetic
+    /// one; sent again, it folds into that retype rather than naming a run
+    /// no base holds. Undo steps back to the paste, then before it.
+    #[test]
+    fn a_pasted_run_is_retyped_without_a_save() {
+        use crate::app::annotations::command::step_session;
+        use crate::app::content_edit::command::{copy, paste};
+
+        let mut session = checkpointable_session(&["Hello world"]);
+        let line = pdf_edit::Selection {
+            runs: shown_runs(&session),
+            ..pdf_edit::Selection::default()
+        };
+        let clip = copy(&mut session, &line).expect("the line copies");
+        paste(&mut session, pdf_document::PageId(0), clip, 100.0, 400.0).expect("it pastes");
+        let held = shown_runs(&session)
+            .into_iter()
+            .find(|run| pdf_edit::pending_log_index(run.id).is_some())
+            .expect("the paste shows a run");
+
+        record(&mut session, retyped(&held, "Hello there")).expect("the retype checkpoints");
+        record(&mut session, retyped(&held, "Hello again")).expect("the held run folds");
+
+        assert_eq!(session.content_checkpoints.generation(), 1);
+        let mut texts = saved_texts(&session);
+        texts.sort();
+        assert_eq!(texts, ["Hello again", "Hello world"]);
+
+        assert!(
+            step_session(&mut session, true).is_some(),
+            "undo the retype"
+        );
+        assert_eq!(saved_texts(&session), ["Hello world", "Hello world"]);
+        assert!(step_session(&mut session, true).is_some(), "then the paste");
+        assert_eq!(saved_texts(&session), ["Hello world"]);
+    }
+
     /// Where the core may not checkpoint, deleting an insertion is still
     /// refused — undo takes it back — and the quick actions say so up front.
     #[test]

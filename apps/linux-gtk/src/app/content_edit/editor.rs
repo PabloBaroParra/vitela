@@ -106,17 +106,24 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
     // checkpoint: where it can, the retype is refused by the queue, written
     // into a new in-memory base with the move, and retried there
     // (`super::checkpoint`).
-    let (pending, moved) = {
+    //
+    // A pasted run is the same: its retype is written over the paste in a
+    // new in-memory base where the core can checkpoint, and refused where it
+    // cannot.
+    let (pending, moved, no_checkpoint) = {
         let state = viewer.state.borrow();
         let session = state.session.as_ref();
         let document = session.and_then(|session| session.document_model.as_ref());
         match (session, document) {
-            (Some(session), Some(document)) if block.is_empty() => (
-                pending_text_command(document, &run),
-                pending_move_index(document, &run).is_some()
-                    && !super::checkpoint::may_checkpoint(session),
-            ),
-            _ => (PendingText::Nothing, false),
+            (Some(session), Some(document)) if block.is_empty() => {
+                let pending = pending_text_command(document, &run);
+                let moved = pending_move_index(document, &run).is_some();
+                // Parses the page tree, so asked only when it decides.
+                let no_checkpoint = (moved || pending == PendingText::NeedsCheckpoint)
+                    && !super::checkpoint::may_checkpoint(session);
+                (pending, moved, no_checkpoint)
+            }
+            _ => (PendingText::Nothing, false, false),
         }
     };
     let amends = match pending {
@@ -130,12 +137,19 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // content item" — the retype and the move are not two operations
         // `pdf-edit` has a combined command for, unlike two retypes of the
         // same run.
-        PendingText::Nothing if moved => {
+        PendingText::Nothing if moved && no_checkpoint => {
             viewer.status.set_text(&tr("edit-text-moved-unsaved"));
             return;
         }
         PendingText::Nothing => None,
         PendingText::Amend(index) => Some(index),
+        // Recorded as an ordinary retype: the core refuses it against the
+        // base, checkpoints the paste into a new one and retries there.
+        PendingText::NeedsCheckpoint if !no_checkpoint => None,
+        PendingText::NeedsCheckpoint => {
+            viewer.status.set_text(&tr("edit-text-edit-unavailable"));
+            return;
+        }
         // A run the overlay showed against a log that no longer holds the
         // command behind it. There is nothing to amend and nothing in the
         // base document to target either, so opening an editor could only
@@ -1783,5 +1797,119 @@ mod tests {
 
         built.viewer.state.borrow_mut().session = None;
         built.window.close();
+    }
+
+    /// A window over one line copied and pasted below itself, unsaved — the
+    /// pasted run as the canvas hit-tests it. Closed by `Drop`, since
+    /// `#[gtk::test]` cases share one main thread.
+    struct PastedLine {
+        built: crate::app::BuiltUi,
+        pasted: TextRun,
+    }
+
+    impl PastedLine {
+        /// `checkpoint` false holds an imported PDF, which rules a
+        /// checkpoint out.
+        fn new(checkpoint: bool) -> Self {
+            use crate::app::test_fixtures::{checkpointable_session, page_slot, shown_runs};
+
+            let built = crate::app::ui_tests::built_ui();
+            built.viewer.view_stack.set_visible_child_name("editor");
+            built.window.present();
+
+            let mut session = checkpointable_session(&["Hello world"]);
+            let line = pdf_edit::Selection {
+                runs: shown_runs(&session),
+                ..pdf_edit::Selection::default()
+            };
+            let clip = command::copy(&mut session, &line).expect("the line copies");
+            command::paste(&mut session, pdf_document::PageId(0), clip, 100.0, 400.0)
+                .expect("the clip pastes");
+            let pasted = shown_runs(&session)
+                .into_iter()
+                .find(|run| model::pending_log_index(run.id).is_some())
+                .expect("the paste shows a run");
+            if !checkpoint {
+                session
+                    .imported_sources
+                    .push(crate::app::state::ImportedSource {
+                        id: pdf_document::ImportedDocumentId(0),
+                        document: (*session.save_backing.as_ref().expect("a backing").base).clone(),
+                        name: "imported.pdf".to_string(),
+                    });
+            }
+            let overlay = Overlay::new();
+            overlay.set_child(Some(&Picture::new()));
+            built.viewer.pages.append(&overlay);
+            session.pages.push(page_slot(overlay));
+            session.page_heights.push(842);
+            built.viewer.state.borrow_mut().session = Some(session);
+            built.viewer.state.borrow_mut().content_edit_mode = true;
+            pump();
+            Self { built, pasted }
+        }
+
+        fn viewer(&self) -> &Viewer {
+            &self.built.viewer
+        }
+
+        fn open_entry(&self) -> Option<Entry> {
+            let state = self.viewer().state.borrow();
+            let editor = state.session.as_ref()?.content_editor.as_ref()?;
+            match &editor.field {
+                EditorField::Line(entry) => Some(entry.clone()),
+                EditorField::Paragraph { .. } => panic!("a single run opens an entry"),
+            }
+        }
+    }
+
+    impl Drop for PastedLine {
+        fn drop(&mut self) {
+            self.built.viewer.state.borrow_mut().session = None;
+            self.built.window.close();
+        }
+    }
+
+    /// The reader's report: copy a line, paste it, and edit the paste at
+    /// once — refused with "save and reopen". Where the session may
+    /// checkpoint, the box opens and the retype is written over the paste.
+    #[gtk::test]
+    fn gtk_ui_a_pasted_run_is_retyped_without_a_save() {
+        let window = PastedLine::new(true);
+
+        open_editor(window.viewer(), 0, window.pasted.clone(), Vec::new());
+        let entry = window.open_entry().unwrap_or_else(|| {
+            panic!(
+                "the pasted run opens no box: {:?}",
+                window.viewer().status.text()
+            )
+        });
+        entry.set_text("Hello there");
+        entry.emit_activate();
+
+        assert!(window.open_entry().is_none(), "the retype commits");
+        let state = window.viewer().state.borrow();
+        let session = state.session.as_ref().expect("a session");
+        let mut texts: Vec<String> = crate::app::test_fixtures::saved_runs(session)
+            .into_iter()
+            .map(|run| run.text)
+            .collect();
+        texts.sort();
+        assert_eq!(texts, ["Hello there", "Hello world"]);
+        assert!(super::super::checkpoint::can_undo(session));
+    }
+
+    /// Where no checkpoint may be taken, the refusal and its message stand.
+    #[gtk::test]
+    fn gtk_ui_a_pasted_run_keeps_the_refusal_where_no_checkpoint_may_be_taken() {
+        let window = PastedLine::new(false);
+
+        open_editor(window.viewer(), 0, window.pasted.clone(), Vec::new());
+
+        assert!(window.open_entry().is_none());
+        assert_eq!(
+            window.viewer().status.text(),
+            tr("edit-text-edit-unavailable")
+        );
     }
 }
