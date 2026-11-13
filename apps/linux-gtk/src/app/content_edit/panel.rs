@@ -62,8 +62,8 @@ use crate::app::state::EditPanel;
 use crate::app::tools_panel::panel_heading;
 
 /// Icon edge on a tile. Sized against the label beside it, the same rule
-/// `shell::RAIL_ICON_PX` follows for the rail — these read as a list of
-/// commands, not as a launch grid of destinations like Home's 24px tiles.
+/// `mode_bar::MODE_ICON_PX` follows for the mode bar — these read as a list
+/// of commands, not as a launch grid of destinations like Home's 24px tiles.
 const EDIT_ICON_PX: i32 = 16;
 
 /// Fluent key shown while there is no document to edit. Stated rather than
@@ -630,8 +630,8 @@ mod tests {
     }
 
     /// Each card's controls wrap instead of setting the panel's minimum
-    /// width. Same property `editor_toolbar` and `tools_panel`'s tab strip
-    /// each pin for their own row — a horizontal `GtkBox` here would make the
+    /// width. Same property `editor_toolbar` and `mode_bar` each pin for
+    /// their own row — a horizontal `GtkBox` here would make the
     /// widest card the floor the canvas/tools divider cannot pass.
     #[gtk::test]
     fn gtk_ui_a_card_row_wraps_instead_of_setting_the_panels_floor() {

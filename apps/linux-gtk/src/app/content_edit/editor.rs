@@ -1070,9 +1070,9 @@ fn detach(viewer: &Viewer, editor: &ContentEditor) {
 /// with no focus widget at all.
 ///
 /// Removing the widget that has the cursor makes GTK move it on by itself, to
-/// the next focusable widget it finds — the tools panel's tab strip, here —
-/// and the canvas's viewport answers that focus change with an eased scroll
-/// of its own (its `scroll-to-focus`; turning that off stops it). That is
+/// the next focusable widget it finds, and the canvas's viewport answers
+/// that focus change with an eased scroll of its own (its `scroll-to-focus`;
+/// turning that off stops it). That is
 /// what slid a zoomed-in page sideways on every commit, click-away or
 /// Escape. With the focus cleared first there is nothing for GTK to move and
 /// nothing for the viewport to chase; the next click or Tab starts afresh.

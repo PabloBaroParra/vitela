@@ -54,7 +54,7 @@ pub(crate) struct Viewer {
     /// place that knows an open succeeded.
     pub(crate) view_stack: Stack,
     /// The right panel's Annotate/Edit/Comments/Fill & Sign pages. Held here
-    /// for the same reason `view_stack` is: three of the app rail's sections
+    /// for the same reason `view_stack` is: three of the mode bar's modes
     /// (and the matching Home tiles) navigate to a page on it, and none of
     /// them is built where `tools_panel::build_tools_panel` returned it.
     pub(crate) tools_stack: Stack,
@@ -670,9 +670,7 @@ pub(crate) struct FormFieldToolbar {
     pub(crate) delete: Button,
     /// True while the inspector is being written from the selected field's
     /// style, so the controls' own change handlers know not to treat that
-    /// write-back as a user edit and record a spurious restyle — same guard
-    /// shape `tools_panel::build_tab_switcher` uses to keep its tab strip
-    /// from driving the `Stack` it is only meant to follow.
+    /// write-back as a user edit and record a spurious restyle.
     pub(crate) syncing: Rc<Cell<bool>>,
     /// Shown instead of `fill_rows` when the open document has no form
     /// fields (or none is open) — T-142's twin of `tools_panel`'s own

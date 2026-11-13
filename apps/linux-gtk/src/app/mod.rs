@@ -192,8 +192,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     // past the screen (see `annotations::add_annotation_toolbar`).
     let (annotation_toolbar, annotation_row) = add_annotation_toolbar();
     // The content-edit controls and the page they live on, built as one unit
-    // by their own module — the tools panel's "Edit" tab, which is where the
-    // app rail's "Edit PDF" button now lands. They used to be five bare
+    // by their own module — the tools panel's "Edit" page, which is where the
+    // mode bar's "Edit" mode lands. They used to be five bare
     // buttons appended here and dropped into a "Content" section of the Tools
     // tab; `content_edit::panel` documents what that cost the user.
     //

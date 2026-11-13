@@ -10,8 +10,8 @@
 //! chooser, so "Sign" from a cold start is one gesture — pick a file, land on
 //! Fill & Sign — rather than open, hunt, click.
 //!
-//! [`apply`] is the single definition of what each tool *means*; the app rail
-//! calls it too, so the rail and the grid cannot come to disagree about what
+//! [`apply`] is the single definition of what each tool *means*; the mode bar
+//! calls it too, so the bar and the grid cannot come to disagree about what
 //! "Edit" opens.
 //!
 //! ## The third card
@@ -220,10 +220,10 @@ impl ToolsCard {
 
 /// Opens `tool`, picking a document first if there is not one already.
 ///
-/// `pub(crate)` because the app rail's Annotate/Edit/Sign buttons are the
-/// same gesture from a different place: before this existed each of them
+/// `pub(crate)` because the mode bar's modes are the same gesture from a
+/// different place. Before this existed, the app rail that preceded the bar
 /// carried its own copy of "focus this control, unless it is insensitive",
-/// and the rail's copy had already drifted — it did nothing at all with no
+/// and that copy had already drifted — it did nothing at all with no
 /// document open.
 pub(crate) fn open_tool(window: &ApplicationWindow, viewer: &Viewer, tool: HomeTool) {
     if viewer.state.borrow().session.is_some() {
@@ -445,7 +445,7 @@ mod tests {
     ///
     /// A section this shell has not built yet is shown greyed out with a
     /// tooltip, never dropped from the grid — the treatment Recent, Organize,
-    /// Protect and finally Compress each had in turn. `shell::rail_item` made
+    /// Protect and finally Compress each had in turn. The old app rail made
     /// the opposite call when its own last `false` disappeared and deleted the
     /// branch; here the branch stays, because the grid is the one place the
     /// shell still advertises what is coming. Driven through [`build_tile`] on
