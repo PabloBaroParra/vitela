@@ -382,11 +382,14 @@ pub(crate) struct ViewerState {
     ///
     /// Shell mode rather than document state, like `active_tool` and
     /// `content_edit_mode` above — but unlike them it is deliberately
-    /// *short*-lived: `home::apply_pending_tool` takes it at the end of the
-    /// next successful open, so an open the user reached some other way
-    /// (Ctrl+O, a file-manager launch) never inherits a tool armed minutes
-    /// earlier on Home. A cancelled file chooser leaves it set until the next
-    /// open, which is the behaviour the user asked for by clicking the tile.
+    /// *short*-lived: it lives only for the open it was armed for.
+    /// `home::apply_pending_tool` takes it when that open lands, and
+    /// `home::abandon_pending_tool` drops it on every way the open can end
+    /// without a document — a dismissed chooser, a file with no local path, a
+    /// failed open, a cancelled or closed password prompt. Left behind, it
+    /// would fire on the next open the user reached some other way (Recent, a
+    /// drop, Ctrl+O). An open that a newer one supersedes leaves it alone:
+    /// the newer open is the one it now belongs to.
     pub(crate) pending_tool: Option<HomeTool>,
     /// The drawn-signature flow's shell state (T-088) — see
     /// [`SignatureState`].

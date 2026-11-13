@@ -335,6 +335,16 @@ pub(crate) fn apply_pending_tool(viewer: &Viewer) {
     }
 }
 
+/// Drops the tool a Home tile or a mode armed, because the open it was armed
+/// for ended without a document — a dismissed chooser, a failed open, an
+/// abandoned password prompt.
+///
+/// The counterpart of [`apply_pending_tool`]: between them, every end of that
+/// open consumes the tool, so the next open from anywhere else starts clean.
+pub(crate) fn abandon_pending_tool(viewer: &Viewer) {
+    viewer.state.borrow_mut().pending_tool = None;
+}
+
 /// Whether `path` names a PDF, by extension.
 ///
 /// Shared by the drop zone (which refuses anything else) and the recents list
