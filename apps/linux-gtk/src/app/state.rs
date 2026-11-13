@@ -391,6 +391,11 @@ pub(crate) struct ViewerState {
     /// drop, Ctrl+O). An open that a newer one supersedes leaves it alone:
     /// the newer open is the one it now belongs to.
     pub(crate) pending_tool: Option<HomeTool>,
+    /// Whether the command palette (B27) is up. Set and cleared only by
+    /// `palette::Palette::open`/`close`, the one path every way of closing
+    /// it goes through; `content_edit::multi::update_clear_action` reads it
+    /// to keep Esc's clear action off while it is true.
+    pub(crate) palette_open: bool,
     /// The drawn-signature flow's shell state (T-088) — see
     /// [`SignatureState`].
     pub(crate) signature: SignatureState,

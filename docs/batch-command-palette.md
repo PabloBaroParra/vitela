@@ -271,9 +271,101 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       ignorado**.)
 
 ### Fase 2 — UI
-- [ ] T-230 `palette/view.rs` + `mod.rs`: overlay, `SearchEntry`, `ListView` con
+- [x] T-230 `palette/view.rs` + `mod.rs`: overlay, `SearchEntry`, `ListView` con
       etiqueta, atajo y motivo de deshabilitado; navegación por teclado; ejecutar y
       cerrar; devolver el foco. Acción `win.command-palette` con Ctrl+K. [PaletteUI]
+      **(2026-11-13 — completo.** Partido en `palette/view.rs` (widgets, CSS, filas,
+      teclas), `palette/recent.rs` (recientes, puro), `palette/mod.rs` (`Palette`:
+      abrir, cerrar, teclas, ejecutar) y `palette/tests.rs`. **Overlay:** la raíz de
+      la ventana pasa a ser un `gtk::Overlay` que envuelve el `content` de siempre;
+      un `Overlay` mide y asigna solo por su hijo principal, así que el layout de
+      debajo no cambia. Encima va una capa a pantalla completa (`palette-layer`,
+      oculta mientras la paleta está cerrada) con la tarjeta centrada arriba
+      (`SearchEntry` + lista). Un clic en la capa fuera de la tarjeta la cierra.
+      **`ListBox`, no `ListView`:** son ~35 filas que se reconstruyen enteras en cada
+      tecla; un `ListView` pide modelo, fábrica y binding por fila para un reciclado
+      que 35 filas no necesitan. Cada fila: etiqueta en el idioma activo, el atajo
+      (`gtk::accelerator_get_label` sobre la constante de `shortcuts.rs`, "Ctrl+O") y,
+      si está rechazada, el motivo debajo, la etiqueta atenuada (`palette-refused`) y
+      el estado accesible `Disabled`. Las filas rechazadas **siguen siendo
+      seleccionables** (no `set_sensitive(false)`), para que el motivo se lea. Las
+      filas no toman foco: el cursor se queda en el campo. **Teclas:** un
+      `EventControllerKey` en fase captura sobre la tarjeta: ↑/↓ mueven la selección
+      (con tope en los extremos), Esc cierra; Enter es el `activate` del campo; un clic
+      en una fila la ejecuta. Una rechazada no hace nada y la paleta queda abierta.
+      **Recientes (decisión 8):** `Recent` en memoria dentro de la propia `Palette`
+      (vive lo que la ventana, no se guarda en disco); con la consulta vacía van
+      primero, el más reciente arriba, y luego el catálogo; una entrada cuenta como
+      reciente solo si de verdad corrió. **Foco:** al abrir se guarda un `WeakRef` del
+      widget con foco y el cursor va al campo con la consulta vacía. Al cerrar, el
+      foco se mueve **antes** de ocultar la capa (ocultar el campo enfocado dejaría
+      que GTK elija, y el viewport del canvas persigue esa elección: la trampa de
+      `release_focus` en el editor de contenido): vuelve al widget anterior si sigue
+      mapeado en esta ventana, y si no, a ninguno (`set_focus(None)`, la misma
+      respuesta segura de `release_focus`); además se fijan las dos adjustments del
+      canvas alrededor del `grab_focus`, como `focus_without_scrolling`. **Ejecutar:**
+      primero se cierra la paleta (foco devuelto) y después corre la entrada, así un
+      diálogo, un selector o un cambio de pantalla arrancan desde la ventana tal como
+      estaba; si la entrada resulta rechazada en ese instante, el motivo va a la barra
+      de estado. **Buscar (decidido):** sin documento sigue rechazada con el texto
+      existente `search-open-first`; con documento y otra pantalla visible, la entrada
+      lleva antes al editor (`home::show_editor`) y luego activa `win.find`, que ya
+      encuentra su popover mapeado. **Ctrl+K:** `shortcuts::COMMAND_PALETTE`
+      (`win.command-palette`, `<Control>k`) en la tabla compartida, registrado en
+      `connect_standard_shortcuts` (que ahora recibe la `Palette`); vuelve a pulsarse
+      y cierra. **Medición de la decisión 6:** GDK no expone cómo construir un evento
+      de teclado, así que no se envió un Ctrl+K sintético; el test
+      `gtk_ui_palette_ctrl_k_is_resolved_before_a_focused_text_field` enfoca un
+      `gtk::Entry` dentro de la ventana y recorre los controladores de la ventana:
+      el atajo `win.command-palette` con disparador `<Control>k` aparece en **dos**
+      `ShortcutController` de la ventana, **ambos en fase `Capture`**. La captura
+      corre desde la ventana hacia abajo, antes que los key bindings del `GtkText`
+      enfocado, así que **Ctrl+K llega a la acción aunque un cuadro de texto tenga el
+      foco**. No se agregó manejo
+      especial. No se verificó con una pulsación real (xdotool) en la app.
+      **Esc con una selección de contenido:** Esc es también el acelerador de
+      `win.clear-content-selection` (`content_edit::multi`), que corre en la misma
+      captura antes que la paleta. `ViewerState::palette_open` lo ponen y lo quitan solo
+      `Palette::open`/`close`, y `update_clear_action` deja la acción apagada mientras
+      está en `true` (una acción deshabilitada no consume su tecla); `open` y `close`
+      la recalculan desde el estado, así que ningún cierre (Esc, Ctrl+K, clic afuera,
+      ejecutar una entrada: todos pasan por `close`) la deja apagada. El primer Esc
+      cierra la paleta y la selección queda intacta (pedido del coordinador tras la
+      primera entrega; test `gtk_ui_palette_escape_closes_it_first_and_keeps_a_content_selection`,
+      rojo antes del arreglo: 60 pasan / 1 falla con el filtro `palette`, luego 61/61). **CSS:** `PALETTE_CSS` en
+      `view.rs`, sumado a `shell::all_sheets`, solo con colores de la paleta de
+      `theme` (`@vitela_*`, `alpha(...)`), así que claro y oscuro salen solos; el test
+      `the_sheets_carry_no_hardcoded_colours` rechazó un primer `rgba()`. **Claves
+      Fluent nuevas** en `en.ftl` y `es.ftl`: `palette-title`,
+      `palette-search-placeholder` ("Search commands…"/"Buscar comandos…") y
+      `palette-no-results`. `entries` perdió su `allow(dead_code)`.
+      **Correcciones de la revisión de T-229** (hechas primero): (1) `PaletteEntry::run`
+      vuelve a consultar `availability` y, si está rechazada, no corre nada y devuelve
+      `Err(motivo)`; un único chequeo central en vez de uno por destino, porque
+      `set_active(true)` en un toggle insensible igual corre su handler y las entradas
+      de firma abrían el selector sin gate. Se corrigió el doc comment que decía que el
+      botón volvía a rechazar. (2) `Target::Action` lleva ahora un enum cerrado
+      `WindowAction` (`Open`, `New`, `Save`, `Print`, `Undo`, `Redo`, `Find`) y
+      `WindowAction::shortcut` es un `match` exhaustivo; desapareció el `unreachable!`.
+      También los doc comments de `ClickTool` (Comprimir entra por `open_tool`),
+      `invoke.rs` y `entries/mod.rs` (el cambio de pantalla previo y el
+      `is_enabled()` de deshacer/rehacer).
+      **Evidencia TDD:** parte A: 2 tests nuevos (anotación rechazada por `/P` deja la
+      herramienta sin armar; firma sin documento devuelve su motivo y no cambia de
+      pantalla), rojos contra `run` sin chequeo (filtro `palette`: 44 pasan / 2
+      fallan), verdes tras el chequeo central. Parte B: 8 tests `gtk_ui_palette_*`
+      (Ctrl+K abre con el cursor en el campo en Home, editor y Organizar; Esc devuelve
+      el foco a un botón sobre el canvas y el canvas no se mueve; widget anterior
+      desaparecido → foco en ninguno y canvas quieto; "anotar" + Enter corre Anotar y
+      cierra; rechazada muestra el motivo y Enter la deja abierta; recientes primero;
+      Buscar desde Home lleva al editor y abre la búsqueda; medición de Ctrl+K) más 4
+      de `recent`, 1 de teclas y 1 de texto de atajo. Contra `mod.rs` con cuerpos
+      vacíos: 52 pasan / 8 fallan (todos los `gtk_ui_palette_*`; el de medición no
+      por la paleta sino porque suponía un solo controlador y hay dos: se corrigió la
+      aserción, no el código); tras implementar, 60/60. Gate en
+      WSL: `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets
+      --locked -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1017
+      pasan, 0 fallan, 1 ignorado**.)
 - [ ] T-231 Claves Fluent en `en.ftl` y `es.ftl`: etiquetas que falten, sinónimos
       `palette-*-keywords` y el placeholder. Se reutilizan las claves existentes del
       hecho 5 en vez de duplicarlas. [PaletteUI]

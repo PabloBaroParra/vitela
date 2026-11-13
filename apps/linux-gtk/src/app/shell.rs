@@ -20,6 +20,7 @@ use super::content_edit::quick_actions::QUICK_ACTIONS_CSS;
 use super::home::HOME_CSS;
 use super::mode_bar::MODE_BAR_CSS;
 use super::organize::ORGANIZE_CSS;
+use super::palette::PALETTE_CSS;
 
 pub(crate) const SHELL_CSS: &str = r#"
 .vitela-shell {
@@ -225,7 +226,9 @@ pub(crate) const SHELL_CSS: &str = r#"
 /// Every stylesheet the shell installs, in cascade order. They share one
 /// palette (see `theme`) and one provider.
 pub(crate) fn all_sheets() -> String {
-    format!("{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}")
+    format!(
+        "{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}{PALETTE_CSS}"
+    )
 }
 
 pub(crate) fn install_shell_css() {

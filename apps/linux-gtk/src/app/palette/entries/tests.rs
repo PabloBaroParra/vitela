@@ -108,9 +108,9 @@ fn every_label_resolves_in_english_and_spanish() {
 #[test]
 fn action_entries_show_the_accelerator_gtk_registers() {
     for (target, shortcut) in [
-        (Target::Action(shortcuts::OPEN), shortcuts::OPEN),
-        (Target::Action(shortcuts::UNDO), shortcuts::UNDO),
-        (Target::Action(shortcuts::FIND), shortcuts::FIND),
+        (Target::Action(WindowAction::Open), shortcuts::OPEN),
+        (Target::Action(WindowAction::Undo), shortcuts::UNDO),
+        (Target::Action(WindowAction::Find), shortcuts::FIND),
     ] {
         assert_eq!(entry(target).shortcut, Some(shortcut.accel));
     }
@@ -224,9 +224,9 @@ fn gtk_ui_without_a_document_only_modes_and_document_free_commands_run() {
             "{mode:?} must stay available: open_tool picks a file first"
         );
     }
-    for shortcut in [shortcuts::OPEN, shortcuts::NEW] {
+    for action in [WindowAction::Open, WindowAction::New] {
         assert_eq!(
-            entry(Target::Action(shortcut)).availability(viewer),
+            entry(Target::Action(action)).availability(viewer),
             Availability::Available
         );
     }
@@ -235,9 +235,9 @@ fn gtk_ui_without_a_document_only_modes_and_document_free_commands_run() {
         Availability::Available
     );
     for (target, key) in [
-        (Target::Action(shortcuts::SAVE), "save-no-document"),
-        (Target::Action(shortcuts::PRINT), "print-open-first"),
-        (Target::Action(shortcuts::FIND), "search-open-first"),
+        (Target::Action(WindowAction::Save), "save-no-document"),
+        (Target::Action(WindowAction::Print), "print-open-first"),
+        (Target::Action(WindowAction::Find), "search-open-first"),
         (Target::Annotation(Tool::Highlight), "annotate-no-document"),
         (Target::FormField(FieldKind::Text), "forms-no-document"),
         (Target::Click(ClickTool::ExportImages), "export-no-document"),
@@ -259,12 +259,12 @@ fn gtk_ui_undo_follows_the_window_action() {
     open_document(viewer);
     viewer.undo_action.set_enabled(false);
     assert_eq!(
-        entry(Target::Action(shortcuts::UNDO)).availability(viewer),
+        entry(Target::Action(WindowAction::Undo)).availability(viewer),
         Availability::Refused(tr("palette-nothing-to-undo"))
     );
     viewer.undo_action.set_enabled(true);
     assert_eq!(
-        entry(Target::Action(shortcuts::UNDO)).availability(viewer),
+        entry(Target::Action(WindowAction::Undo)).availability(viewer),
         Availability::Available
     );
 }
@@ -289,7 +289,9 @@ fn gtk_ui_running_a_mode_entry_lands_where_its_button_does() {
         let clicked = screen(&ui.viewer);
 
         ui.viewer.view_stack.set_visible_child_name(HOME_PAGE);
-        entry(Target::Mode(mode)).run(&ui.window, &ui.viewer);
+        entry(Target::Mode(mode))
+            .run(&ui.window, &ui.viewer)
+            .expect("a mode is never refused");
 
         assert_eq!(screen(&ui.viewer), clicked, "{mode:?}");
     }
@@ -304,7 +306,9 @@ fn gtk_ui_running_an_annotation_entry_arms_its_tool() {
     open_document(&ui.viewer);
     crate::app::annotations::update_annotation_controls(&ui.viewer);
 
-    entry(Target::Annotation(Tool::Ink)).run(&ui.window, &ui.viewer);
+    entry(Target::Annotation(Tool::Ink))
+        .run(&ui.window, &ui.viewer)
+        .expect("annotation is allowed");
 
     assert_eq!(ui.viewer.state.borrow().active_tool, Some(Tool::Ink));
     assert_eq!(
@@ -321,7 +325,9 @@ fn gtk_ui_running_a_form_field_entry_arms_its_kind() {
     open_document(&ui.viewer);
     crate::app::forms::update_forms_controls(&ui.viewer);
 
-    entry(Target::FormField(FieldKind::Checkbox)).run(&ui.window, &ui.viewer);
+    entry(Target::FormField(FieldKind::Checkbox))
+        .run(&ui.window, &ui.viewer)
+        .expect("form fields are allowed");
 
     assert_eq!(
         ui.viewer.state.borrow().form_field_kind,
@@ -330,5 +336,45 @@ fn gtk_ui_running_a_form_field_entry_arms_its_kind() {
     assert_eq!(
         screen(&ui.viewer),
         (Some(EDITOR_PAGE.into()), Some(FILL_SIGN_PAGE.into()))
+    );
+}
+
+/// A refused entry does not run (T-229 review): the annotation toggle's
+/// handler arms its tool even while the button is insensitive, so the
+/// entry's own run path has to say no first.
+#[gtk::test]
+fn gtk_ui_running_a_refused_annotation_entry_leaves_the_tool_unarmed() {
+    let built = window();
+    let ui = &built.0;
+    open_document(&ui.viewer);
+    if let Some(session) = ui.viewer.state.borrow_mut().session.as_mut() {
+        session.annotation_access = AnnotationAccess::Forbidden;
+    }
+    crate::app::annotations::update_annotation_controls(&ui.viewer);
+    let refusal = ui
+        .viewer
+        .annotation_editing_refusal()
+        .expect("the fixture forbids annotation");
+
+    let outcome = entry(Target::Annotation(Tool::Ink)).run(&ui.window, &ui.viewer);
+
+    assert_eq!(outcome, Err(refusal));
+    assert_eq!(ui.viewer.state.borrow().active_tool, None);
+}
+
+/// The same central check covers a click tool with no gate of its own
+/// before its chooser: signing on a document without one is refused.
+#[gtk::test]
+fn gtk_ui_running_a_refused_signing_entry_returns_its_refusal() {
+    let built = window();
+    let ui = &built.0;
+
+    let outcome = entry(Target::Click(ClickTool::SignWithFile)).run(&ui.window, &ui.viewer);
+
+    assert_eq!(outcome, Err(tr("sign-no-document")));
+    assert_eq!(
+        ui.viewer.view_stack.visible_child_name().as_deref(),
+        Some(HOME_PAGE),
+        "a refused entry must not even switch screens"
     );
 }

@@ -87,6 +87,10 @@ struct BuiltUi {
     /// at it again — it follows the stacks on its own.
     #[cfg_attr(not(test), allow(dead_code))]
     mode_bar: mode_bar::ModeBar,
+    /// Read by tests only, like `mode_bar`: production reaches the palette
+    /// through `win.command-palette`.
+    #[cfg_attr(not(test), allow(dead_code))]
+    palette: palette::Palette,
 }
 
 pub fn run() -> glib::ExitCode {
@@ -380,7 +384,13 @@ fn build_ui(application: &Application) -> BuiltUi {
     content.append(&mode_bar.root);
     content.append(&main);
     content.append(&status);
-    window.set_child(Some(&content));
+    // The window's content sits in an overlay so the command palette can
+    // float over every screen without a window of its own (B27 decision 5).
+    // An overlay sizes and allocates to its main child alone, so the layout
+    // under it is unchanged.
+    let root = Overlay::new();
+    root.set_child(Some(&content));
+    window.set_child(Some(&root));
 
     // A `SimpleAction` starts enabled, and `update_annotation_controls` — the
     // one place that maintains these — returns early when no document is open.
@@ -449,6 +459,7 @@ fn build_ui(application: &Application) -> BuiltUi {
             nss_dialog: None,
             sign_picker_dialog: None,
             pending_tool: None,
+            palette_open: false,
             signature: state::SignatureState {
                 store: signature::default_store(),
                 dialog: None,
@@ -547,7 +558,8 @@ fn build_ui(application: &Application) -> BuiltUi {
         let viewer = viewer.clone();
         move |window| confirm_closing_edits(window, &viewer)
     });
-    connect_standard_shortcuts(application, &window, &viewer);
+    let palette = palette::install(&window, &viewer, &root);
+    connect_standard_shortcuts(application, &window, &viewer, &palette);
 
     open_button.connect_clicked({
         let window = window.clone();
@@ -580,6 +592,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         window,
         viewer,
         mode_bar,
+        palette,
     }
 }
 
@@ -604,6 +617,7 @@ fn connect_standard_shortcuts(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
     viewer: &Viewer,
+    palette: &palette::Palette,
 ) {
     let open = gio::SimpleAction::new(shortcuts::OPEN.action, None);
     open.connect_activate({
@@ -657,6 +671,14 @@ fn connect_standard_shortcuts(
     });
     window.add_action(&new);
     shortcuts::NEW.install(application);
+
+    let command_palette = gio::SimpleAction::new(shortcuts::COMMAND_PALETTE.action, None);
+    command_palette.connect_activate({
+        let palette = palette.clone();
+        move |_, _| palette.toggle()
+    });
+    window.add_action(&command_palette);
+    shortcuts::COMMAND_PALETTE.install(application);
 }
 
 /// Whether the Edit page's three target-gated controls are usable, and
