@@ -63,6 +63,7 @@ mod motion;
 mod views;
 
 pub(crate) use cache::Thumbnails;
+pub(crate) use command::{rotate_all_pages, rotation_refusal};
 pub(crate) use import::{import_refusal, show_chooser as show_import_chooser};
 
 const CARDS_PER_ROW: u32 = 5;

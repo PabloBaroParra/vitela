@@ -70,11 +70,18 @@ fn rotation_command(
     viewer: &Viewer,
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) -> bool {
-    if let Some(refusal) = viewer.page_assembly_refusal() {
+    if let Some(refusal) = rotation_refusal(viewer) {
         viewer.status.set_text(&refusal);
         return false;
     }
     commit(viewer, operation)
+}
+
+/// Why a page turn is refused right now, or `None` when it may run: the one
+/// gate [`rotation_command`] asks. Public so the command palette shows the
+/// rotate buttons' own refusal instead of deciding a permission itself.
+pub(crate) fn rotation_refusal(viewer: &Viewer) -> Option<String> {
+    viewer.page_assembly_refusal()
 }
 
 /// What both funnels do once their gates are clear: run `operation` against
@@ -306,6 +313,27 @@ pub(super) fn rotate_block(
         }
     }
     turned
+}
+
+/// Every page of the document turned `delta_degrees` as one undoable step —
+/// the command palette's Rotate all pages right and left.
+///
+/// Not a path of its own: the whole document is one run of pages, so this is
+/// [`rotate_block`] over `0..len` — the Documents view buttons' funnel, its
+/// single `Command::RotatePages`, its messages and its per-page thumbnail
+/// invalidation. A missing model or an empty document reaches `rotate_block`
+/// as an empty run, which it refuses without recording anything.
+pub(crate) fn rotate_all_pages(viewer: &Viewer, delta_degrees: i32) -> bool {
+    // Measured and dropped before `rotate_block` borrows the state again.
+    let count = {
+        let state = viewer.state.borrow();
+        state
+            .session
+            .as_ref()
+            .and_then(|session| session.document_model.as_ref())
+            .map_or(0, |model| model.pages.len())
+    };
+    rotate_block(viewer, 0, count, delta_degrees)
 }
 
 /// The ids of the `count` pages starting at `start`, or `None` when the model

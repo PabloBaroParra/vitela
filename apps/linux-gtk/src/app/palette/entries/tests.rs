@@ -6,7 +6,7 @@ use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
 use super::*;
 use crate::app::home::{EDITOR_PAGE, HOME_PAGE};
 use crate::app::i18n::{has_message, speak};
-use crate::app::state::AnnotationAccess;
+use crate::app::state::{AnnotationAccess, PageAssemblyAccess};
 use crate::app::test_fixtures::model_session;
 use crate::app::tools_panel::{ANNOTATE_PAGE, FILL_SIGN_PAGE};
 use crate::app::ui_tests::built_ui;
@@ -242,6 +242,14 @@ fn gtk_ui_without_a_document_only_modes_and_document_free_commands_run() {
         (Target::FormField(FieldKind::Text), "forms-no-document"),
         (Target::Click(ClickTool::ExportImages), "export-no-document"),
         (Target::Click(ClickTool::AddPdfs), "organize-no-document"),
+        (
+            Target::Click(ClickTool::RotateAllRight),
+            "organize-no-document",
+        ),
+        (
+            Target::Click(ClickTool::RotateAllLeft),
+            "organize-no-document",
+        ),
         (Target::Click(ClickTool::SignWithFile), "sign-no-document"),
     ] {
         assert_eq!(
@@ -385,17 +393,49 @@ fn gtk_ui_running_a_refused_signing_entry_returns_its_refusal() {
 /// reaches for, short enough that it stays a list and not a paragraph.
 const MAX_KEYWORDS: usize = 10;
 
-/// Most entries a common, unspecific query may return. "pdf" and
-/// "page"/"pagina" are the words a user types about this app in general;
-/// the commands genuinely about them are the PDF and page ones (new blank
-/// PDF, add PDFs, organize, extract, split) plus the scattered subsequence
-/// hits the matcher reaches without any keyword ("Export images" holds
-/// p-a-g-e, "Campo de texto … formulario" holds p-d-f). Measured with the
-/// T-231 lists: 4-7 hits per query, the genuine ones first. Eight keeps
-/// that one entry of slack and still fails as soon as a keyword list
-/// stuffs these words into unrelated commands: out of 35 entries, a query
-/// returning more than eight has stopped narrowing anything.
-const MAX_COMMON_QUERY_HITS: usize = 8;
+/// Most stray hits a common, unspecific query may return: entries that are
+/// not about the query and only match it as a scattered subsequence ("Export
+/// images" holds p-a-g-e, "Campo de texto … formulario" holds p-d-f). Replaces
+/// T-231's flat cap of eight hits, which grew with every genuine page command
+/// (rotate all pages took English "page" to nine, two of them genuine).
+const MAX_STRAY_HITS: usize = 4;
+
+/// The entries genuinely about "page"/"pagina": each one acts on pages.
+const PAGE_RELEVANT: [&str; 5] = [
+    "mode.organize",          // the page grid: reorder, delete, rotate pages
+    "pages.extract",          // copies chosen pages into a new file
+    "pages.split",            // cuts the document into page ranges
+    "pages.rotate-all-right", // turns every page
+    "pages.rotate-all-left",  // turns every page
+];
+
+/// The entries genuinely about "pdf": the ones whose result is a PDF file
+/// other than the open one. Open and Save never match "pdf" at all.
+const PDF_RELEVANT: [&str; 2] = [
+    "file.new",       // creates a new blank PDF
+    "pages.add-pdfs", // brings other PDF files into this one
+];
+
+/// Why `found` (a ranked id list) fails the narrowness rule for `relevant`,
+/// or `None` when it holds: (1) every relevant entry is returned, (2) all of
+/// them rank ahead of every stray hit, (3) at most [`MAX_STRAY_HITS`] strays.
+fn narrowness_violation(found: &[&str], relevant: &[&str]) -> Option<String> {
+    if let Some(missing) = relevant.iter().find(|id| !found.contains(id)) {
+        return Some(format!("{missing} is not returned"));
+    }
+    if let Some((position, stray)) = found
+        .iter()
+        .take(relevant.len())
+        .enumerate()
+        .find(|(_, id)| !relevant.contains(id))
+    {
+        return Some(format!(
+            "stray {stray} ranks at {position}, ahead of a relevant entry"
+        ));
+    }
+    let strays = found.len() - relevant.len();
+    (strays > MAX_STRAY_HITS).then(|| format!("{strays} stray hits"))
+}
 
 #[test]
 fn every_keywords_key_resolves_in_english_and_spanish() {
@@ -490,18 +530,187 @@ fn gtk_ui_spanish_keywords_are_not_searched_in_english() {
 fn gtk_ui_common_queries_stay_narrow() {
     let built = window();
     let viewer = &built.0.viewer;
-    for (language, query) in [
-        (Language::English, "pdf"),
-        (Language::English, "page"),
-        (Language::Spanish, "pdf"),
-        (Language::Spanish, "pagina"),
+    for (language, query, relevant) in [
+        (Language::English, "pdf", &PDF_RELEVANT[..]),
+        (Language::English, "page", &PAGE_RELEVANT[..]),
+        (Language::Spanish, "pdf", &PDF_RELEVANT[..]),
+        (Language::Spanish, "pagina", &PAGE_RELEVANT[..]),
     ] {
         let _language = speak(language);
         let found = found_ids(viewer, query);
-        assert!(
-            found.len() <= MAX_COMMON_QUERY_HITS,
-            "{language:?} {query:?} returns {} entries: {found:?}",
-            found.len()
-        );
+        if let Some(violation) = narrowness_violation(&found, relevant) {
+            panic!("{language:?} {query:?}: {violation}: {found:?}");
+        }
     }
+}
+
+/// The guard trips on a polluted catalog: an unrelated entry whose keywords
+/// gained "page" ranks with the genuine ones (rule 2), and enough scattered
+/// p-a-g-e matches exceed the stray cap (rule 3). A synthetic catalog through
+/// the real matcher, so the shipped one never has to be polluted.
+#[test]
+fn the_narrowness_guard_catches_a_polluted_catalog() {
+    let rank = |labels: &[&'static str]| -> Vec<&'static str> {
+        matcher::rank("page", labels, |label| vec![label.to_string()])
+            .into_iter()
+            .map(|(index, _)| labels[index])
+            .collect()
+    };
+    let relevant = ["Extract pages"];
+    let clean = rank(&["Highlight marker", "Extract pages", "Export images"]);
+    assert_eq!(narrowness_violation(&clean, &relevant), None, "{clean:?}");
+
+    let polluted = rank(&["Highlight marker page", "Extract pages"]);
+    assert!(
+        narrowness_violation(&polluted, &relevant).is_some_and(|v| v.contains("ranks at")),
+        "{polluted:?}"
+    );
+
+    let scattered = rank(&[
+        "Extract pages",
+        "Export images",
+        "Stamp approved image",
+        "Shape rectangle arrow line",
+        "Spread grid edges",
+        "Spare edge",
+    ]);
+    assert!(
+        narrowness_violation(&scattered, &relevant).is_some_and(|v| v.contains("stray hits")),
+        "{scattered:?}"
+    );
+}
+
+// --- Rotate all pages (added after T-234) -----------------------------------
+
+const ROTATE_ALL: [&str; 2] = ["pages.rotate-all-right", "pages.rotate-all-left"];
+
+/// A model-only document of `count` upright pages.
+fn open_pages(viewer: &Viewer, count: u32) {
+    let pages = (0..count)
+        .map(|id| {
+            Page::base(
+                PageId(id),
+                id,
+                PageSize::A4,
+                Orientation::Portrait,
+                Rotation::None,
+            )
+        })
+        .collect();
+    viewer.state.borrow_mut().session = Some(model_session(Document::with_pages(pages)));
+}
+
+/// The recorded angle of each model page, in page order.
+fn rotations(viewer: &Viewer) -> Vec<Rotation> {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.document_model.as_ref())
+        .expect("a model")
+        .pages
+        .iter()
+        .map(|page| page.rotation)
+        .collect()
+}
+
+/// The B27 criterion: "rotar pagina", typed without its accent, puts a
+/// rotate command first in Spanish.
+#[gtk::test]
+fn gtk_ui_rotar_pagina_without_an_accent_finds_rotate_all_first() {
+    let built = window();
+    let _spanish = speak(Language::Spanish);
+    let found = found_ids(&built.0.viewer, "rotar pagina");
+    assert!(
+        found.first().is_some_and(|id| ROTATE_ALL.contains(id)),
+        "rotar pagina: {found:?}"
+    );
+    for id in ROTATE_ALL {
+        assert!(found.contains(&id), "rotar pagina misses {id}: {found:?}");
+    }
+}
+
+/// "rotate" finds both entries first, in English and while speaking Spanish
+/// (the English label rides along in every language).
+#[gtk::test]
+fn gtk_ui_rotate_finds_both_rotate_all_entries_in_any_language() {
+    let built = window();
+    for language in [Language::English, Language::Spanish] {
+        let _language = speak(language);
+        let found = found_ids(&built.0.viewer, "rotate");
+        let mut first_two: Vec<&str> = found.iter().take(2).copied().collect();
+        first_two.sort_unstable();
+        let mut expected = ROTATE_ALL.to_vec();
+        expected.sort_unstable();
+        assert_eq!(first_two, expected, "{language:?} rotate: {found:?}");
+    }
+}
+
+/// Running Rotate all pages right turns every page a quarter clockwise as
+/// one undo step, through the block buttons' path (same status text), and
+/// leaves the user on the screen they ran it from.
+///
+/// The model-only fixture has no `save_backing`, so `refresh_preview` bails
+/// before its reopen here; that the reopen itself keeps the visible screen is
+/// `write::preview::view`'s own test.
+#[gtk::test]
+fn gtk_ui_rotate_all_turns_every_page_as_one_undo_step_and_stays_put() {
+    let built = window();
+    let ui = &built.0;
+    open_pages(&ui.viewer, 3);
+    ui.viewer.view_stack.set_visible_child_name(EDITOR_PAGE);
+    let before = screen(&ui.viewer);
+
+    entry(Target::Click(ClickTool::RotateAllRight))
+        .run(&ui.window, &ui.viewer)
+        .expect("assembly is allowed");
+
+    assert_eq!(rotations(&ui.viewer), [Rotation::Clockwise90; 3]);
+    assert_eq!(ui.viewer.status.text().as_str(), "Rotated 3 pages right.");
+    assert_eq!(screen(&ui.viewer), before, "no screen switch");
+
+    ui.viewer.undo_action.activate(None);
+    assert_eq!(
+        rotations(&ui.viewer),
+        [Rotation::None; 3],
+        "one undo puts every page back"
+    );
+    assert!(!ui.viewer.undo_action.is_enabled());
+
+    entry(Target::Click(ClickTool::RotateAllLeft))
+        .run(&ui.window, &ui.viewer)
+        .expect("assembly is allowed");
+    assert_eq!(rotations(&ui.viewer), [Rotation::Clockwise270; 3]);
+    assert_eq!(ui.viewer.status.text().as_str(), "Rotated 3 pages left.");
+}
+
+/// A document that forbids assembly refuses both entries with the rotate
+/// buttons' own sentence, and running one records nothing.
+#[gtk::test]
+fn gtk_ui_rotate_all_is_refused_with_the_rotate_buttons_reason() {
+    let built = window();
+    let ui = &built.0;
+    open_pages(&ui.viewer, 2);
+    if let Some(session) = ui.viewer.state.borrow_mut().session.as_mut() {
+        session.page_assembly_access = PageAssemblyAccess::Forbidden;
+    }
+    let refusal = "This document does not permit adding, removing or reordering its pages.";
+    assert_eq!(
+        crate::app::organize::rotation_refusal(&ui.viewer).as_deref(),
+        Some(refusal)
+    );
+
+    for tool in [ClickTool::RotateAllRight, ClickTool::RotateAllLeft] {
+        let rotate = entry(Target::Click(tool));
+        assert_eq!(
+            rotate.availability(&ui.viewer),
+            Availability::Refused(refusal.to_owned()),
+            "{tool:?}"
+        );
+        assert_eq!(rotate.run(&ui.window, &ui.viewer), Err(refusal.to_owned()));
+    }
+    assert_eq!(rotations(&ui.viewer), [Rotation::None; 2]);
+    let state = ui.viewer.state.borrow();
+    assert_eq!(state.session.as_ref().unwrap().edit_revision, 0);
 }
