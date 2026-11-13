@@ -173,11 +173,19 @@ pub(crate) fn connect_organize_panel(window: &ApplicationWindow, viewer: &Viewer
     grid::connect_drop(viewer);
 }
 
+/// Why the Organize screen cannot open right now, or `None` when it can: the
+/// one gate [`show`] asks. The command palette asks it too — for the Organize
+/// entry and, by user decision (2026-11-13), for Rotate all pages — so every
+/// door to a whole-document page edit refuses with this same sentence.
+pub(crate) fn open_refusal(viewer: &Viewer) -> Option<String> {
+    viewer.content_edit_refusal()
+}
+
 /// Switches to the Organize screen and populates it for the current session.
 /// Called from `home::tools::apply`'s `HomeTool::Organize` arm — which, like
 /// every other tool, only runs once a document is open.
 pub(crate) fn show(viewer: &Viewer) {
-    if let Some(refusal) = viewer.content_edit_refusal() {
+    if let Some(refusal) = open_refusal(viewer) {
         viewer.status.set_text(&refusal);
         return;
     }

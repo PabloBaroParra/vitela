@@ -6,7 +6,7 @@ use pdf_document::{Document, Orientation, Page, PageId, PageSize, Rotation};
 use super::*;
 use crate::app::home::{EDITOR_PAGE, HOME_PAGE};
 use crate::app::i18n::{has_message, speak};
-use crate::app::state::{AnnotationAccess, PageAssemblyAccess};
+use crate::app::state::{AnnotationAccess, ContentEditAccess, PageAssemblyAccess};
 use crate::app::test_fixtures::model_session;
 use crate::app::tools_panel::{ANNOTATE_PAGE, FILL_SIGN_PAGE};
 use crate::app::ui_tests::built_ui;
@@ -713,4 +713,72 @@ fn gtk_ui_rotate_all_is_refused_with_the_rotate_buttons_reason() {
     assert_eq!(rotations(&ui.viewer), [Rotation::None; 2]);
     let state = ui.viewer.state.borrow();
     assert_eq!(state.session.as_ref().unwrap().edit_revision, 0);
+}
+
+/// Parity with Organize (user decision, 2026-11-13): a document that grants
+/// assembly but forbids content editing cannot open Organize, so it cannot
+/// rotate every page from the palette either. Both entries state Organize's
+/// own refusal, and running one records nothing.
+#[gtk::test]
+fn gtk_ui_rotate_all_is_refused_where_organize_cannot_open() {
+    let built = window();
+    let ui = &built.0;
+    open_pages(&ui.viewer, 2);
+    if let Some(session) = ui.viewer.state.borrow_mut().session.as_mut() {
+        session.content_edit_access = ContentEditAccess::Forbidden;
+    }
+    assert_eq!(
+        ui.viewer.page_assembly_refusal(),
+        None,
+        "assembly is granted"
+    );
+    let refusal = ui
+        .viewer
+        .content_edit_refusal()
+        .expect("the fixture forbids content editing");
+    assert_eq!(
+        entry(Target::Mode(Mode::Organize)).availability(&ui.viewer),
+        Availability::Refused(refusal.clone()),
+        "the Organize entry is refused with this same text"
+    );
+
+    for tool in [ClickTool::RotateAllRight, ClickTool::RotateAllLeft] {
+        let rotate = entry(Target::Click(tool));
+        assert_eq!(
+            rotate.availability(&ui.viewer),
+            Availability::Refused(refusal.clone()),
+            "{tool:?}"
+        );
+        assert_eq!(rotate.run(&ui.window, &ui.viewer), Err(refusal.clone()));
+    }
+    assert!(
+        !crate::app::organize::rotate_all_pages(&ui.viewer, 90),
+        "the function refuses on its own too"
+    );
+    assert_eq!(ui.viewer.status.text().as_str(), refusal);
+    assert_eq!(rotations(&ui.viewer), [Rotation::None; 2]);
+    assert!(!ui.viewer.undo_action.is_enabled());
+    let state = ui.viewer.state.borrow();
+    assert_eq!(state.session.as_ref().unwrap().edit_revision, 0);
+}
+
+/// A turn that passes availability but records nothing is not reported as
+/// run: with the editable model gone, `rotate_all_pages` refuses the empty
+/// run, and `run` hands back the sentence it left on the status line.
+#[gtk::test]
+fn gtk_ui_a_rotate_all_that_records_nothing_is_not_reported_as_run() {
+    let built = window();
+    let ui = &built.0;
+    open_pages(&ui.viewer, 2);
+    if let Some(session) = ui.viewer.state.borrow_mut().session.as_mut() {
+        session.document_model = None;
+    }
+    let rotate = entry(Target::Click(ClickTool::RotateAllRight));
+    assert_eq!(rotate.availability(&ui.viewer), Availability::Available);
+
+    assert_eq!(
+        rotate.run(&ui.window, &ui.viewer),
+        Err(tr("organize-pages-gone"))
+    );
+    assert!(!ui.viewer.undo_action.is_enabled());
 }
