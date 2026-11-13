@@ -145,6 +145,16 @@ impl From<pdf_manip::ManipError> for FfiError {
     }
 }
 
+impl From<pdf_document::PagePositionOutOfRange> for FfiError {
+    fn from(err: pdf_document::PagePositionOutOfRange) -> Self {
+        // Every position this boundary hands the core arrived as a `u32`, so
+        // the one the core names back fits in one.
+        FfiError::PageIndexOutOfBounds {
+            index: u32::try_from(err.position).unwrap_or(u32::MAX),
+        }
+    }
+}
+
 impl From<pdf_render::RenderError> for FfiError {
     fn from(err: pdf_render::RenderError) -> Self {
         use pdf_render::RenderError as E;
@@ -155,6 +165,30 @@ impl From<pdf_render::RenderError> for FfiError {
             E::DocumentNotFound => FfiError::DocumentNotFound,
             other => FfiError::RenderFailed {
                 detail: other.to_string(),
+            },
+        }
+    }
+}
+
+impl From<pdf_save::EditRefusal> for FfiError {
+    fn from(refusal: pdf_save::EditRefusal) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: refusal.to_string(),
+        }
+    }
+}
+
+impl From<pdf_save::ImportError> for FfiError {
+    fn from(err: pdf_save::ImportError) -> Self {
+        use pdf_save::ImportError as E;
+        match err {
+            E::IndexOutOfRange { index } => FfiError::PageIndexOutOfBounds {
+                // The position arrived across this boundary as a `u32`.
+                index: u32::try_from(index).unwrap_or(u32::MAX),
+            },
+            E::Source(err) => err.into(),
+            refused => FfiError::UnsupportedOperation {
+                detail: refused.to_string(),
             },
         }
     }

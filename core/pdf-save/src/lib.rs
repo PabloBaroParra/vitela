@@ -16,6 +16,8 @@
 //! - [`rewrite`]: whether an encrypted document could be fully rewritten at
 //!   all — the question a shell asks before letting an edit be recorded
 //!   (batch PDF assembly section 5).
+//! - [`edit_gate`] (B26 T-223): the permission and rewrite questions asked
+//!   before any edit is recorded, in the order every boundary asks them.
 //! - [`clock`] (T-036): injectable clock + trailer-`/ID` generator hooks.
 //! - [`content`] (T-156): replays page-content edits (Batch 21) at save
 //!   time, and reports whether the rewrite invalidates existing signatures.
@@ -34,9 +36,13 @@
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
 //! - [`imported_sources`]: session-lifetime registry of imported PDFs,
 //!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
+//! - [`import`] (B26 T-223): adding other PDFs' pages as one undo step —
+//!   the destination's gates, the id cursors, and registering the sources.
 //! - [`origin`]: which document and object hold a model page's bytes — the
 //!   read path's answer to a `PageId` that is no longer a position (batch PDF
 //!   assembly §6).
+//! - [`preview`] (B26 T-223): the bytes a boundary reopens in pdfium to
+//!   show unsaved edits, minus the session's own annotations.
 //! - [`error`]: [`SaveError`], the shared error type across this crate.
 
 pub mod annotations;
@@ -46,12 +52,15 @@ pub mod clipboard;
 pub mod clock;
 pub mod compress;
 pub mod content;
+pub mod edit_gate;
 pub mod error;
 pub mod export;
 pub mod forms;
+pub mod import;
 pub mod imported_sources;
 pub mod metadata;
 pub mod origin;
+pub mod preview;
 pub mod record;
 pub mod rewrite;
 pub mod security;
@@ -79,6 +88,7 @@ pub use content::{
     has_content_edits, replay_content_edits, validate_content_command,
     validate_content_command_after_pending,
 };
+pub use edit_gate::{check_edit, EditClass, EditRefusal};
 pub use error::SaveError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use export::export_page_as_image;
@@ -87,12 +97,14 @@ pub use export::{
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
 pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};
+pub use import::{import_refusal, import_sources, ImportError, ImportOutcome, ImportRefusal};
 pub use imported_sources::ImportedSourceRegistry;
 pub use metadata::{apply_document_info, pending_document_info};
 pub use origin::{
     page_backing, page_font_families_of, read_page_content_of, read_pending_page_content_of,
     retype_text_block_of, text_run_font_program_of, text_run_style_of, PageBacking,
 };
+pub use preview::session_preview;
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};

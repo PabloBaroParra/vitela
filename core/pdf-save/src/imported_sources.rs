@@ -58,7 +58,9 @@ impl ImportedSourceRegistry {
         if !pdf_manip::text_extraction_is_allowed(security) {
             return Err(SaveError::SourceForbidsImport);
         }
-        let id = self.next_id();
+        let id = self.next_id().ok_or(SaveError::InvalidSaveRequest(
+            "imported document id space is exhausted",
+        ))?;
         self.sources.push((id, document));
         Ok(id)
     }
@@ -66,13 +68,31 @@ impl ImportedSourceRegistry {
     /// One past the highest id already registered, or `0` for an empty
     /// registry — same convention as this codebase's other id allocators
     /// (e.g. the Linux shell's `next_form_field_id`), so a fresh registry
-    /// only ever grows.
-    fn next_id(&self) -> ImportedDocumentId {
+    /// only ever grows. `None` once the id space is exhausted.
+    ///
+    /// Never an id freed by an undo: the registry keeps every source for the
+    /// session's life, because a redo needs it back under the same id.
+    pub fn next_id(&self) -> Option<ImportedDocumentId> {
         self.sources
             .iter()
             .map(|(id, _)| id.0)
             .max()
-            .map_or(ImportedDocumentId(0), |max| ImportedDocumentId(max + 1))
+            .map_or(Some(0), |max| max.checked_add(1))
+            .map(ImportedDocumentId)
+    }
+
+    /// Keeps `document` under `id`, which [`Self::next_id`] handed out.
+    ///
+    /// For [`crate::import::import_sources`] only: its sources were opened
+    /// through `pdf_manip::open_import_source_from_bytes`, which already
+    /// asked each one's copy permission, and it registers a whole batch only
+    /// once the batch applied.
+    pub(crate) fn insert(&mut self, id: ImportedDocumentId, document: LopdfDocument) {
+        debug_assert!(
+            self.sources.iter().all(|(taken, _)| *taken != id),
+            "an imported document id is handed out once"
+        );
+        self.sources.push((id, document));
     }
 
     /// Every registered source as `(id, &document)` pairs, ready for the

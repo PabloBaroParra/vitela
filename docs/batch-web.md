@@ -1,7 +1,8 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 en curso: T-217 ✓ (#560), T-218 ✓ (#561), T-219 ✓ (#569), T-220 hecha, T-221 hecha.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso desde
+> T-223.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -347,6 +348,111 @@ Lo que condiciona lo que sigue:
   local:** los `wasm-bindgen-test` en Chrome headless (no hay chromedriver en esta
   máquina); hay uno nuevo (texto en página girada) y otra aserción en el de búsqueda,
   que verifica el job `wasm32` de `core.yml`.
+- **Nota posterior:** el hueco de la contraseña de usuario vacía se cerró en el core
+  (0874a94, "keep the permissions of PDFs with an empty user password on open").
+
+### Fase 2 — tareas
+
+Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
+
+- `pdf-save` ya compila a wasm32 (solo `export_page_as_image` queda fuera). `pdf-wasm`
+  ya tiene por documento el `pdf_document::Document` (con su `EditLog`), el lopdf base
+  y las rotaciones de apertura, pero **no** aplica ediciones, no deshace, no guarda y
+  no conserva los bytes originales (`SaveInput.original_bytes` los necesita).
+- La lógica de las ediciones de página ya está en el core (`Command::MovePages`,
+  `RotatePages`, `remove_pages`, `EditLog`, `pdf_save::checkpoint`, `derive_blocks`),
+  pero varias reglas viven **solo en `pdf-ffi`**: los gates de `apply_edit` (permiso de
+  ensamblado, de anotación y `full_rewrite_blocker` para ediciones de estructura, con
+  copias propias de `is_document_assembly_command` / `is_page_structure_command`), los
+  límites de página de `MovePages`/`RotatePages`, la orquestación de `import_prepared`
+  (ids de documento importado, cursor de `PageId`, "elegido dos veces"/"ya importado",
+  fuentes importadas en una lista propia en vez de `pdf_save::ImportedSourceRegistry`)
+  y los pasos de `refresh_preview` (clonar, quitar anotaciones de sesión, guardar,
+  reabrir en pdfium).
+- Miniaturas: ningún shell tiene una función aparte; todos llaman a `render_page` a un
+  DPI bajo calculado en el shell. En la web el documento de pdfium sale de los bytes
+  originales, así que sin un `refreshPreview` las miniaturas quedarían obsoletas tras
+  mover, borrar o importar.
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-223** ✓ | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
+| **T-224** | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
+| **T-225** | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
+| **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
+| **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
+
+T-223 bloquea T-224 y T-227. T-225 depende de `saveToBytes` (T-224). T-226 depende de
+T-224 y T-225.
+
+### T-223 — resultado
+
+Cuatro commits `refactor(core)`, uno por pieza; `pdf-ffi` delega en todas y los tests
+de fachada de `pdf-ffi` (`page_positions`, `document_blocks`, `import`, `import_batch`,
+`smoke`…) siguen sin tocar, como prueba de que el cableado no cambió.
+
+- **Límites de mover/rotar → `pdf-document`.** `Command::move_pages` y
+  `Command::rotate_pages` (módulo nuevo `page_range.rs`, no en `edit_log.rs`, que ya
+  pasa de 3900 líneas) devuelven `PagePositionOutOfRange { position }` con la misma
+  posición que nombraba `pdf-ffi` (origen primero, después destino; rotación vacía →
+  origen). Aritmética `checked_add`, así que en wasm32 (`usize` de 32 bits) no hay
+  desbordamiento. `pdf-ffi` lo traduce a `PageIndexOutOfBounds`.
+- **Gates de `apply_edit` → `pdf_save::check_edit` (`edit_gate.rs`).** Mismo orden
+  (anotación, ensamblado, formulario estructural, contenido, reescritura completa) y
+  mismas palabras; `EditRefusal` se traduce a `UnsupportedOperation { detail }`.
+  `pdf-save` y no `pdf-manip` porque es quien tiene `full_rewrite_blocker`.
+  **Lo que no cambió y por qué:** el gate recibe un `EditClass` (qué tipo de edición
+  es), no el `Command`, porque `pdf-ffi` lo pregunta **antes** de construir el comando
+  — construirlo acuña ids de página y de anotación y puede fallar por posición, y un
+  documento que prohíbe la edición tiene que decirlo aunque la posición también esté
+  mal. Por eso `pdf-ffi` conserva sus predicados sobre `FfiEditCommand`.
+  `EditClass::of(&Command)` clasifica con `is_document_assembly_edit` /
+  `is_page_structure_edit` / `is_content_edit` / `is_form_field_edit`, y un test fija
+  que ambas clasificaciones coinciden sobre el comando construido.
+  **Diferencia entre los predicados:** ninguna sobre lo que `pdf-ffi` construye. Los
+  del core son más anchos solo en variantes a las que ningún `FfiEditCommand` llega
+  (`ImportPages`, `InsertPages`, `MovePage`, `RemoveImportedPages`), y todas caen en
+  la misma clase.
+- **Import → `pdf_save::import_sources` + `import_refusal` (`import.rs`), sobre
+  `ImportedSourceRegistry`.** El registro pasa a ser el dueño de las fuentes del
+  handle (gana un `next_id` comprobado y un `insert` interno al crate); el core hace
+  los gates del destino, "nada que importar", la posición, "ya importado", los
+  cursores de id de documento y de `PageId`, el único `ImportPages` y registra cada
+  fuente solo si el paso se aplicó. Las fuentes llegan como `&mut Option<_>`, así que
+  un error deja todo como estaba. Las palabras de `rewrite_refusal` viven ahora en
+  `ImportRefusal` (sus dos tests se movieron con ellas). **Se queda en `pdf-ffi`:** el
+  "elegido dos veces" (identidad de `Arc<PreparedImport>`; en el core dos `&mut` no
+  pueden ser la misma fuente) y el orden global de bloqueo de los mutex. Se pregunta
+  antes que "nada que importar", que es equivalente: una elección vacía no repite
+  nada. **No es `register`:** las fuentes ya pasaron el permiso de copia en
+  `open_import_source_from_bytes`, y los ids se reservan antes de saber si el paso se
+  aplica.
+- **`refresh_preview` → `pdf_save::session_preview` (`preview.rs`).** Clona, vacía las
+  anotaciones de la sesión y guarda con `save_document` (firmas reconocidas en
+  silencio); reabrir en pdfium se queda en la fachada. **No se cambió a
+  `save_preview`:** ese no recorre `/Annots`, este sí (con el conjunto vacío), así que
+  los bytes de una actualización incremental pueden diferir y uno puede rechazar un
+  `/Annots` malformado que el otro no lee. Cambiarlo sería un cambio de comportamiento
+  para los shells FFI.
+
+Lo que condiciona T-224: `pdf-wasm` tiene que guardar un `ImportedSourceRegistry` por
+documento (no una lista propia) y los bytes originales, llamar a `check_edit` antes de
+construir cada comando (con `EditClass::of` si construye primero, pero entonces el
+orden de errores frente a "fuera de rango" difiere del de `pdf-ffi`), usar
+`Command::move_pages`/`rotate_pages`/`remove_pages`, y `session_preview` para
+`refreshPreview`. Cambios mínimos fuera del alcance literal: `register` ahora devuelve
+`InvalidSaveRequest` al agotar los ids en vez de desbordar (ningún shell lo llama), y
+`import_prepared` toma los mutex de las fuentes antes de comprobar la posición (antes,
+después); el resultado es el mismo.
+
+**Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy
+--workspace --all-targets --locked -- -D warnings` (sin `linux-gtk`, que no compila en
+Windows); `cargo test --workspace --locked -- --skip gtk_ui_` con pdfium vendorizado
+(2005 pasados, 0 fallos, 10 ignorados); `cargo check --locked --target
+wasm32-unknown-unknown -p pdf-wasm`; `cargo clippy --locked --target
+wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings`. **No corrido en
+local:** clippy y tests de `linux-gtk` (CI Linux) y los `wasm-bindgen-test` (sin
+chromedriver); este cambio no toca ninguno de los dos.
 
 ## Verificación
 

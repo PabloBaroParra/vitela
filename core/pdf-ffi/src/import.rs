@@ -43,7 +43,6 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use pdf_document::{ImportedDocumentId, PageId};
 use pdf_manip::LopdfDocument;
 
 use crate::document::{DocumentHandle, DocumentState};
@@ -183,11 +182,11 @@ pub fn import_prepared(
     if let Some(detail) = refusal(&state) {
         return Err(FfiError::UnsupportedOperation { detail });
     }
-    if sources.is_empty() {
-        return Err(unsupported("there is no PDF to import"));
-    }
     // Checked before any lock is taken: locking one source's mutex twice
-    // would deadlock this thread.
+    // would deadlock this thread. Only this boundary can be handed the same
+    // source twice — the core takes each as a distinct `&mut` slot. Asked
+    // ahead of the core's own "no source" check, which it cannot disagree
+    // with: an empty pick names no source twice.
     for (position, source) in sources.iter().enumerate() {
         if sources[..position]
             .iter()
@@ -195,9 +194,6 @@ pub fn import_prepared(
         {
             return Err(unsupported("the same PDF was picked twice"));
         }
-    }
-    if index as usize > state.document().pages.len() {
-        return Err(FfiError::PageIndexOutOfBounds { index });
     }
 
     // Different handles can race to consume overlapping batches. Acquire the
@@ -214,55 +210,16 @@ pub fn import_prepared(
         })
         .collect();
     held.sort_unstable_by_key(|(position, _)| *position);
-    let mut held: Vec<_> = held.into_iter().map(|(_, source)| source).collect();
-    if held.iter().any(|source| source.is_none()) {
-        return Err(unsupported("one of these PDFs has already been imported"));
-    }
+    let mut slots: Vec<&mut Option<LopdfDocument>> =
+        held.iter_mut().map(|(_, source)| &mut **source).collect();
 
-    let first_id = state.next_imported_id()?;
-    // The document's own cursor, never one past the highest id it holds: see
-    // `Document::next_page_id` for the delete that makes those two differ.
-    let mut next_page_id = state
-        .document()
-        .next_page_id()
-        .ok_or_else(|| unsupported("this document cannot hold any more pages"))?;
-    let mut ids = Vec::with_capacity(held.len());
-    let mut pages = Vec::new();
-    for (offset, source) in held.iter().enumerate() {
-        let id = first_id
-            .0
-            .checked_add(offset as u64)
-            .map(ImportedDocumentId)
-            .ok_or_else(|| unsupported("this document cannot import any more PDFs"))?;
-        let source = source
-            .as_ref()
-            .expect("checked above: every source is unspent");
-        let imported = pdf_save::imported_pages_from_lopdf(source, id, next_page_id)?;
-        next_page_id = u32::try_from(imported.len())
-            .ok()
-            .and_then(|count| next_page_id.0.checked_add(count))
-            .map(PageId)
-            .ok_or_else(|| unsupported("this document cannot hold any more pages"))?;
-        ids.push(id);
-        pages.extend(imported);
-    }
-    let page_count =
-        u32::try_from(pages.len()).map_err(|_| unsupported("these PDFs have too many pages"))?;
-
-    state.import_pages(index as usize, pages, || {
-        ids.iter()
-            .copied()
-            .zip(held.iter_mut().map(|source| {
-                source
-                    .take()
-                    .expect("checked above: every source is unspent")
-            }))
-            .collect()
-    })?;
-
+    // The rest — no source, the position, a spent source, the id cursors,
+    // the one `ImportPages` and keeping the sources — is the core's
+    // (`pdf_save::import`), and so are its words.
+    let outcome = state.import_sources(index as usize, &mut slots)?;
     Ok(FfiBatchImportReport {
-        page_count,
-        source_ids: ids.iter().map(|id| id.0).collect(),
+        page_count: outcome.page_count,
+        source_ids: outcome.ids.iter().map(|id| id.0).collect(),
     })
 }
 
@@ -303,58 +260,14 @@ pub fn import_pdf(
     })
 }
 
-/// The three gates in the module docs, in that order.
+/// The three gates in the module docs, in that order — the core's
+/// `pdf_save::import_refusal`, in its words.
 fn refusal(state: &DocumentState) -> Option<String> {
-    let security = state.document().security.as_ref();
-    if !pdf_manip::content_editing_is_allowed(security) {
-        return Some("this document does not permit changing its content".to_string());
-    }
-    if !pdf_manip::document_assembly_is_allowed(security) {
-        return Some(
-            "this document does not permit inserting, removing or rotating its pages".to_string(),
-        );
-    }
-    state
-        .full_rewrite_blocker()
-        .map(|blocker| rewrite_refusal(blocker).to_string())
+    pdf_save::import_refusal(state.document().security.as_ref()).map(|refusal| refusal.to_string())
 }
 
 fn unsupported(detail: &str) -> FfiError {
     FfiError::UnsupportedOperation {
         detail: detail.to_string(),
-    }
-}
-
-/// The reader-facing words for a [`pdf_save::RewriteBlocker`] met by an
-/// import — the same split between a log reason and a shell message the
-/// extract module's own `rewrite_refusal` makes.
-fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> &'static str {
-    match blocker {
-        pdf_save::RewriteBlocker::IncompleteCredentials => {
-            "Adding pages rewrites the whole file, which needs both this document's user and \
-             owner passwords. Reopen it with both to continue."
-        }
-        _ => {
-            "This document's encryption cannot yet be reproduced when the file is rewritten, \
-             so pages cannot be added to it."
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_incomplete_credentials_blocker_names_both_passwords() {
-        let message = rewrite_refusal(pdf_save::RewriteBlocker::IncompleteCredentials);
-        assert!(message.contains("user"));
-        assert!(message.contains("owner"));
-    }
-
-    #[test]
-    fn an_unsupported_handler_blocker_names_no_password_at_all() {
-        let message = rewrite_refusal(pdf_save::RewriteBlocker::UnsupportedHandler);
-        assert!(!message.contains("password"));
     }
 }
