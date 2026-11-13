@@ -544,7 +544,7 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       mismos mensajes ("Rotated 3 pages right.") y la misma invalidación de miniaturas por
       página. No se reescribió `rotate_block`; los botones no cambian. **Permiso:** el gate
       de `rotation_command` pasó a ser una función con nombre, `organize::rotation_refusal`
-      (`page_assembly_refusal`, solo el bit de ensamblado: ver la cabecera de
+      (`page_assembly_refusal`, concede el ensamblado el bit 11 de `/P` o el de modificar contenido: ver la cabecera de
       `organize/command.rs`), y la paleta la pide para la disponibilidad, así el texto de
       rechazo es el del botón. Sin documento: `organize-no-document`. Documento sin
       modelo o vacío: `rotate_block` lo rechaza como run vacío, sin registrar nada. Sin
@@ -582,6 +582,29 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       las relevantes. Gate en WSL: `cargo fmt --all -- --check` y `cargo clippy -p
       linux-gtk --all-targets --locked -- -D warnings` en verde; `cargo test -p
       linux-gtk --locked`: **1043 pasan, 0 fallan, 1 ignorado**.
+      **Corrección posterior (2026-11-13).** El recuento de tests de arriba está mal: son
+      **8**, no 6 (5 en `palette/entries/tests.rs`, contando el de catálogo
+      contaminado, y 3 en `organize/tests/rotation/all.rs`). **Paridad con Organize
+      (decisión del usuario, 2026-11-13):** girar todas las páginas pide lo mismo que
+      abrir Organize, además del permiso de ensamblado, porque es una edición de
+      página del documento entero y no debe estar disponible desde la paleta en un
+      documento donde Organize no se abre (lo señaló la revisión: `organize::show` y la
+      entrada Organizar rechazaban sin permiso de modificar contenido y estas dos
+      entradas no). Una sola función, `organize::open_refusal`, la llaman
+      `organize::show`, la disponibilidad de la entrada Organizar, la de las dos
+      entradas de girar (antes de `rotation_refusal`) y `rotate_all_pages` (antes de
+      `rotate_block`), así la disponibilidad y la función coinciden en gates y en
+      orden; el texto es el de Organize. Además, `PaletteEntry::run` ya no da por
+      ejecutado un giro que no registró nada: `invoke::run` devuelve `Result` y el
+      giro devuelve `Err` con el texto que dejó en la barra de estado (no cuenta como
+      reciente). **Rojo → verde:** test nuevo de un documento con ensamblado permitido
+      y contenido prohibido (las dos entradas rechazadas con el texto de Organize,
+      ejecutar no deja paso de deshacer): 1 falla / 158 pasan en el filtro; tras el
+      cambio, verde. El test de "giro que no registra nada no cuenta como ejecutado" se
+      escribió junto con el cambio, no antes. Gate en WSL: `cargo fmt --all --
+      --check` y `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` en
+      verde; `cargo test -p linux-gtk --locked`: **1045 pasan, 0 fallan, 1
+      ignorado**.
 
 ## Criterios de aceptación
 

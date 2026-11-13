@@ -155,7 +155,9 @@ impl PaletteEntry {
     }
 
     /// Runs the entry through its existing door, unless [`availability`]
-    /// refuses it now — then nothing runs and the refusal comes back.
+    /// refuses it now — then nothing runs and the refusal comes back. A door
+    /// that ran and reported a failure (only Rotate all pages answers) comes
+    /// back as `Err` with the text it put on the status line.
     ///
     /// Checked here, once for every target, because the doors do not all
     /// refuse on their own: `set_active(true)` on an insensitive annotation
@@ -167,8 +169,7 @@ impl PaletteEntry {
         if let Availability::Refused(reason) = self.availability(viewer) {
             return Err(reason);
         }
-        invoke::run(self.target, window, viewer);
-        Ok(())
+        invoke::run(self.target, window, viewer)
     }
 
     /// Message id of the search synonyms, `palette-<id>-keywords` with the

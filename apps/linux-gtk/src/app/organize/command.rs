@@ -323,7 +323,16 @@ pub(super) fn rotate_block(
 /// single `Command::RotatePages`, its messages and its per-page thumbnail
 /// invalidation. A missing model or an empty document reaches `rotate_block`
 /// as an empty run, which it refuses without recording anything.
+///
+/// Asks [`super::open_refusal`] first, before `rotate_block`'s own assembly
+/// gate: by user decision (2026-11-13) turning the whole document needs what
+/// opening Organize needs, as if the user had gone there to do it. The
+/// palette's availability asks the same two gates in the same order.
 pub(crate) fn rotate_all_pages(viewer: &Viewer, delta_degrees: i32) -> bool {
+    if let Some(refusal) = super::open_refusal(viewer) {
+        viewer.status.set_text(&refusal);
+        return false;
+    }
     // Measured and dropped before `rotate_block` borrows the state again.
     let count = {
         let state = viewer.state.borrow();

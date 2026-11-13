@@ -43,7 +43,14 @@ pub(super) fn availability(target: Target, viewer: &Viewer) -> Availability {
     }
 }
 
-pub(super) fn run(target: Target, window: &ApplicationWindow, viewer: &Viewer) {
+/// `Err` with the status line's text when the door ran and reported a
+/// failure; only the whole-document turns can, since they are the only doors
+/// here that answer whether they did anything.
+pub(super) fn run(
+    target: Target,
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+) -> Result<(), String> {
     match target {
         Target::Mode(mode) => mode.open(window, viewer),
         Target::Action(action) => {
@@ -59,8 +66,9 @@ pub(super) fn run(target: Target, window: &ApplicationWindow, viewer: &Viewer) {
         }
         Target::Annotation(tool) => arm_annotation(viewer, tool),
         Target::FormField(kind) => arm_form_field(viewer, kind),
-        Target::Click(tool) => run_click(tool, window, viewer),
+        Target::Click(tool) => return run_click(tool, window, viewer),
     }
+    Ok(())
 }
 
 /// With no document, `no_document`'s message; otherwise whatever `gate` says.
@@ -85,7 +93,7 @@ fn mode_refusal(mode: Mode, viewer: &Viewer, has_document: bool) -> Option<Strin
         return None;
     }
     match mode {
-        Mode::Organize => viewer.content_edit_refusal(),
+        Mode::Organize => crate::app::organize::open_refusal(viewer),
         Mode::Protect => crate::app::protect::protection_refusal(viewer),
         Mode::Home | Mode::Edit | Mode::Annotate | Mode::Sign => None,
     }
@@ -129,11 +137,13 @@ fn click_refusal(tool: ClickTool, viewer: &Viewer, has_document: bool) -> Option
         ClickTool::Split => document_then(has_document, "split-no-document", || {
             extraction_refusal(viewer)
         }),
-        // The rotate buttons' own gate, not Organize's: a turn needs the
-        // assembly permission alone (see `organize::command`'s header).
+        // What opening Organize asks, then the rotate buttons' own gate —
+        // the order `organize::rotate_all_pages` asks them in (parity with
+        // Organize, user decision 2026-11-13).
         ClickTool::RotateAllRight | ClickTool::RotateAllLeft => {
             document_then(has_document, "organize-no-document", || {
-                crate::app::organize::rotation_refusal(viewer)
+                crate::app::organize::open_refusal(viewer)
+                    .or_else(|| crate::app::organize::rotation_refusal(viewer))
             })
         }
         ClickTool::SignWithFile
@@ -189,7 +199,7 @@ fn arm_form_field(viewer: &Viewer, kind: FieldKind) {
     }
 }
 
-fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) {
+fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) -> Result<(), String> {
     match tool {
         ClickTool::ExportImages => crate::app::export::begin_export(viewer),
         ClickTool::Watermark => crate::app::content_edit::watermark::begin_watermark(viewer),
@@ -210,12 +220,8 @@ fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) {
         ClickTool::Split => crate::app::write::begin_split(window, viewer),
         // No screen switch: the turn runs where the user is, and the preview
         // refresh behind it puts the visible screen back after its reopen.
-        ClickTool::RotateAllRight => {
-            crate::app::organize::rotate_all_pages(viewer, QUARTER_TURN_DEGREES);
-        }
-        ClickTool::RotateAllLeft => {
-            crate::app::organize::rotate_all_pages(viewer, -QUARTER_TURN_DEGREES);
-        }
+        ClickTool::RotateAllRight => return rotate_all(viewer, QUARTER_TURN_DEGREES),
+        ClickTool::RotateAllLeft => return rotate_all(viewer, -QUARTER_TURN_DEGREES),
         // The signing buttons live on Fill & Sign, and a drawn signature is
         // released as soon as that page is left (`signature::connect_signature`),
         // so all four start from there.
@@ -235,5 +241,17 @@ fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) {
             show_tools_page(viewer, FILL_SIGN_PAGE);
             crate::app::signature::draw_signature(viewer);
         }
+    }
+    Ok(())
+}
+
+/// Turns every page, and reports a refusal or failure as `Err` with the
+/// sentence `rotate_all_pages` left on the status line, so the palette does
+/// not count a turn that recorded nothing as a recent command.
+fn rotate_all(viewer: &Viewer, delta_degrees: i32) -> Result<(), String> {
+    if crate::app::organize::rotate_all_pages(viewer, delta_degrees) {
+        Ok(())
+    } else {
+        Err(viewer.status.text().into())
     }
 }
