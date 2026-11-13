@@ -12,9 +12,11 @@
 //! (decision 3), so a refused entry states the button's own reason; undo and
 //! redo follow their action's `is_enabled()`.
 //!
-//! Page rotation is not in the catalog: its buttons turn the page or block
-//! of one Organize card, and there is no document-level rotate for the
-//! palette to call.
+//! Page rotation is in the catalog as two whole-document entries, Rotate
+//! all pages right and left (added after T-234). They walk through
+//! `organize::rotate_all_pages`, which is the Documents view's block turn
+//! (`rotate_block`) over every page: same permission gate, same single
+//! `Command::RotatePages` undo step, same thumbnail invalidation.
 
 mod invoke;
 
@@ -49,7 +51,7 @@ pub(crate) enum Category {
     Forms,
     /// Whole-document tools: export images, watermark, compress.
     Document,
-    /// Organize's page tools: add PDFs, extract, split.
+    /// Organize's page tools: add PDFs, extract, split, rotate all pages.
     Pages,
     /// Signing.
     Sign,
@@ -58,7 +60,9 @@ pub(crate) enum Category {
 /// The click-only tools: commands whose only door before the palette was a
 /// button's `connect_clicked`. Each names the function that button calls —
 /// except Compress, a Home tool, which goes through `open_tool` like its
-/// Home card.
+/// Home card, and the two whole-document turns, which call
+/// `organize::rotate_all_pages`: the Documents view's block-turn function
+/// over every page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClickTool {
     ExportImages,
@@ -67,6 +71,8 @@ pub(crate) enum ClickTool {
     AddPdfs,
     Extract,
     Split,
+    RotateAllRight,
+    RotateAllLeft,
     SignWithFile,
     SignWithToken,
     SignWithSystemCertificate,
@@ -74,13 +80,15 @@ pub(crate) enum ClickTool {
 }
 
 impl ClickTool {
-    const ALL: [ClickTool; 10] = [
+    const ALL: [ClickTool; 12] = [
         ClickTool::ExportImages,
         ClickTool::Watermark,
         ClickTool::Compress,
         ClickTool::AddPdfs,
         ClickTool::Extract,
         ClickTool::Split,
+        ClickTool::RotateAllRight,
+        ClickTool::RotateAllLeft,
         ClickTool::SignWithFile,
         ClickTool::SignWithToken,
         ClickTool::SignWithSystemCertificate,
@@ -344,6 +352,16 @@ fn click_meta(tool: ClickTool) -> (&'static str, &'static str, Category) {
         ClickTool::AddPdfs => ("pages.add-pdfs", "organize-add-pdfs", Category::Pages),
         ClickTool::Extract => ("pages.extract", "organize-extract", Category::Pages),
         ClickTool::Split => ("pages.split", "organize-split", Category::Pages),
+        ClickTool::RotateAllRight => (
+            "pages.rotate-all-right",
+            "palette-rotate-all-right",
+            Category::Pages,
+        ),
+        ClickTool::RotateAllLeft => (
+            "pages.rotate-all-left",
+            "palette-rotate-all-left",
+            Category::Pages,
+        ),
         ClickTool::SignWithFile => ("sign.certificate-file", "sign-choose-pfx", Category::Sign),
         ClickTool::SignWithToken => ("sign.token", "sign-use-token", Category::Sign),
         ClickTool::SignWithSystemCertificate => {

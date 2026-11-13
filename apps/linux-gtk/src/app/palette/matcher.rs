@@ -60,6 +60,24 @@ const CONTIGUOUS: u32 = 4;
 /// Extra points when a term's first character is the candidate's first.
 const PREFIX: u32 = 12;
 
+/// The whole-run bonus, per character of the term and once per term: a term
+/// that matches as a whole word or a word prefix (it starts at a word start
+/// and every character follows the previous one) earns
+/// `RUN_PER_CHAR * len + RUN_BASE` on top of its per-character points.
+///
+/// Derived so such a run always beats any other alignment of the same term.
+/// For a term of `n` characters, the best other alignment scores at most
+/// `(MATCH + WORD_START + PREFIX) + (n - 1) * (MATCH + WORD_START + CONTIGUOUS)`
+/// = `21 + 13(n - 1)` = `13n + 8` (a later character can be both a word start
+/// and contiguous only when the term holds a separator, but the bound allows
+/// it). The run scores at least `(MATCH + WORD_START) + (n - 1) * (MATCH +
+/// CONTIGUOUS)` = `5n + 4` before the bonus, so the bonus must exceed
+/// `8n + 4`: `8n + 5`. Without it "pdf" scored "Campo de texto formulario"
+/// (p-d-f, d and f at word starts) the same 19 as "Añadir PDF", and the tie
+/// went to catalog order.
+const RUN_PER_CHAR: u32 = 8;
+const RUN_BASE: u32 = 5;
+
 /// Scores `candidate` against `query`; `None` when it does not match.
 ///
 /// The query is split on whitespace into terms, and **every** term must
@@ -123,6 +141,8 @@ fn score_terms(terms: &[Vec<char>], candidate: &str) -> Option<u32> {
 /// by [`next_position`]. Not an exhaustive alignment search, but it finds the
 /// word-start or prefix alignment a user typing a label expects — "ep" puts
 /// its `p` at "pages" in "Export pages", not inside "Export".
+/// An alignment that is one whole-word or word-prefix run also earns
+/// [`run_bonus`].
 fn score_term(term: &[char], candidate: &[char]) -> Option<u32> {
     let (&first, rest) = term.split_first()?;
     candidate
@@ -131,11 +151,16 @@ fn score_term(term: &[char], candidate: &[char]) -> Option<u32> {
         .filter(|&(_, &c)| c == first)
         .filter_map(|(start, _)| {
             let mut total = char_score(candidate, start, None);
+            let mut whole_run = starts_word(candidate, start);
             let mut previous = start;
             for (index, &wanted) in rest.iter().enumerate() {
                 let at = next_position(candidate, previous, wanted, &rest[index + 1..])?;
                 total += char_score(candidate, at, Some(previous));
+                whole_run &= at == previous + 1;
                 previous = at;
+            }
+            if whole_run {
+                total += run_bonus(term.len());
             }
             Some(total)
         })
@@ -169,6 +194,15 @@ fn next_position(
             && is_subsequence(remaining, &candidate[at + 1..])
     });
     Some(word_start.unwrap_or(earliest))
+}
+
+/// [`RUN_PER_CHAR`]/[`RUN_BASE`]'s bonus for a whole-word or word-prefix run
+/// of `len` characters.
+fn run_bonus(len: usize) -> u32 {
+    u32::try_from(len)
+        .unwrap_or(u32::MAX)
+        .saturating_mul(RUN_PER_CHAR)
+        .saturating_add(RUN_BASE)
 }
 
 fn is_subsequence(needle: &[char], haystack: &[char]) -> bool {
@@ -289,8 +323,20 @@ mod tests {
         // "rot" stays the prefix run of "Rotate", not 'r' + the 'o' of "options".
         assert_eq!(
             s("rot", "Rotate options"),
-            (MATCH + WORD_START + PREFIX) + 2 * (MATCH + CONTIGUOUS)
+            (MATCH + WORD_START + PREFIX) + 2 * (MATCH + CONTIGUOUS) + run_bonus(3)
         );
+    }
+
+    #[test]
+    fn a_whole_word_run_beats_any_scattered_alignment() {
+        // "PDF" as a word against p, d and f each at a word start but apart
+        // (the first even the candidate's prefix): before the run bonus the
+        // scattered one scored 39 against the word's 19, and the palette's
+        // "pdf" put "Campo de texto formulario" level with "Añadir PDF".
+        assert!(s("pdf", "Añadir PDF") > s("pdf", "pon de formulario"));
+        assert!(s("pdf", "Añadir PDF") > s("pdf", "Campo de texto formulario"));
+        // A word prefix counts as well as a whole word.
+        assert!(s("pag", "Rotate pages") > s("pag", "Pon a grid"));
     }
 
     #[test]

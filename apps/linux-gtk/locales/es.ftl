@@ -935,6 +935,8 @@ palette-search-placeholder = Buscar comandos…
 palette-no-results = Ningún comando coincide.
 palette-nothing-to-undo = No hay nada que deshacer.
 palette-nothing-to-redo = No hay nada que rehacer.
+palette-rotate-all-right = Girar todas las páginas a la derecha
+palette-rotate-all-left = Girar todas las páginas a la izquierda
 
 ## Command palette search synonyms (B27 T-231): space-separated words a
 ## user might type for each command, matched alongside its label.
@@ -970,6 +972,8 @@ palette-document-compress-keywords = reducir tamaño comprimir achicar optimizar
 palette-pages-add-pdfs-keywords = unir combinar fusionar importar insertar
 palette-pages-extract-keywords = páginas página extraer separar selección
 palette-pages-split-keywords = páginas página separar partir cortar
+palette-pages-rotate-all-right-keywords = rotar girar página horario orientación horizontal vertical
+palette-pages-rotate-all-left-keywords = rotar girar página antihorario orientación horizontal vertical
 palette-sign-certificate-file-keywords = firma firmar digital pfx p12
 palette-sign-token-keywords = firma firmar tarjeta inteligente digital
 palette-sign-system-certificate-keywords = firma firmar digital instalado

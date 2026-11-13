@@ -1,9 +1,10 @@
 # Ficha de batch B27 — Paleta de comandos (Ctrl+K) en Linux
 
 > Documentado 2026-11-13, a pedido explícito del usuario. Mismo formato de ficha que
-> B24 (compresión) y B26 (web). **T-228…T-234 cerradas (#578–#583 y el PR de cierre).** Quedan abiertos
-> dos criterios de aceptación: "rotar pagina" y la revisión visual en la app (ver
-> "Criterios de aceptación").
+> B24 (compresión) y B26 (web). **T-228…T-234 cerradas (#578–#583 y el PR de cierre).** Queda abierto
+> un criterio de aceptación: la revisión visual en la app (ver "Criterios de
+> aceptación"). "rotar pagina" se cerró después con dos entradas de rotar todas las
+> páginas (ver "Añadido posterior — rotar todas las páginas", tras T-234).
 >
 > Origen del scope: en el roadmap de funciones de Vitela, "Ctrl+K para buscar comandos —
 > acceso rápido a cualquier función" quedó con prioridad Alta. Se arranca por el shell
@@ -170,6 +171,19 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y
       `cargo test -p linux-gtk --locked palette::` en verde; la suite completa de
       `linux-gtk`: **974 pasan, 0 fallan, 1 ignorado**.)
+      **Corrección posterior (añadido rotar todas las páginas, 2026-11-13).** Bonus de
+      corrida entera: un término que coincide como palabra entera o prefijo de palabra
+      (empieza en inicio de palabra y todos sus caracteres son consecutivos) suma
+      `8·n + 5` (`RUN_PER_CHAR`, `RUN_BASE`). Derivado: cualquier otra alineación de un
+      término de `n` caracteres da como mucho `21 + 13(n−1) = 13n + 8`; la corrida da
+      al menos `9 + 5(n−1) = 5n + 4`, así que el bonus tiene que superar `8n + 4`. Sin
+      él "pdf" puntuaba igual (19) "Añadir PDF" que "Campo de texto formulario" y el
+      empate iba por orden de catálogo. Rojo → verde: test nuevo
+      `a_whole_word_run_beats_any_scattered_alignment` (1 falla / 20 pasan; luego
+      21/21). Cambia una expectativa existente:
+      `a_contiguous_run_is_not_broken_for_a_word_start` fijaba el valor exacto de "rot"
+      en "Rotate options", que ahora suma `run_bonus(3)` porque "rot" es prefijo de
+      "Rotate"; lo que el test protege (la corrida no se rompe) no cambia.
 - [x] T-229 `palette/entries.rs`: `PaletteEntry { id, label_key, keywords_key,
       shortcut, category, availability, run }` y el catálogo de la v1:
       - modos de `Mode::ALL` (vía `apply` / `open_tool`);
@@ -225,6 +239,9 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       tarjeta de Organize; no hay rotación a nivel de documento a la que llamar, e
       inventar "girar la página actual" sería un camino propio (decisión 2). El
       criterio de aceptación "rotar pagina" queda pendiente de esa decisión.
+      *(Añadido posterior, 2026-11-13: ya hay rotar en la paleta, como "rotar todas las
+      páginas" sobre el mismo camino que los botones de bloque; ver "Añadido posterior —
+      rotar todas las páginas", tras T-234.)*
       **Decisiones que la ficha no fijaba:** (1) Las anotaciones y los campos de
       formulario se ejecutan llevando el editor a su página (Anotar / Rellenar y
       firmar) y haciendo `set_active(true)` en su toggle, que dispara el mismo
@@ -444,6 +461,9 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked
       -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1030 pasan, 0
       fallan, 1 ignorado**.
+      *(Añadido posterior, 2026-11-13: la guarda anti-ruido de tope fijo (8) se
+      sustituyó por una regla por consulta, por decisión del usuario; ver "Añadido
+      posterior — rotar todas las páginas".)*
 - [x] T-232 Tabla de atajos compartida (decisión 7): `connect_standard_shortcuts`, la
       paleta y `build_shortcuts_card` leen la misma constante. La tarjeta de Home suma
       Ctrl+K. [PaletteUI]
@@ -511,6 +531,58 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       la app: ni su aspecto en claro y oscuro, ni una pulsación real de Ctrl+K. Pasa a ✅
       cuando alguien la use en la app.)
 
+### Añadido posterior — rotar todas las páginas
+- [x] Dos entradas en la categoría Páginas: **Girar todas las páginas a la derecha** /
+      **a la izquierda** (`pages.rotate-all-right` / `pages.rotate-all-left`, +90 / −90,
+      los mismos deltas que los botones de Organize). Cierra el criterio "rotar pagina".
+      **Sin comando de núcleo nuevo**, por decisión del usuario (2026-11-13): se usa el
+      `Command::RotatePages` existente. [Palette]
+      **(2026-11-13.)** **Camino compartido (decisión 2):** `organize::rotate_all_pages(viewer,
+      delta)` en `organize/command.rs` es `rotate_block(viewer, 0, len, delta)`, la misma
+      función de los dos botones de giro de la vista Documentos: mismo embudo
+      `rotation_command`, un único `Command::RotatePages` (un solo paso de deshacer), los
+      mismos mensajes ("Rotated 3 pages right.") y la misma invalidación de miniaturas por
+      página. No se reescribió `rotate_block`; los botones no cambian. **Permiso:** el gate
+      de `rotation_command` pasó a ser una función con nombre, `organize::rotation_refusal`
+      (`page_assembly_refusal`, solo el bit de ensamblado: ver la cabecera de
+      `organize/command.rs`), y la paleta la pide para la disponibilidad, así el texto de
+      rechazo es el del botón. Sin documento: `organize-no-document`. Documento sin
+      modelo o vacío: `rotate_block` lo rechaza como run vacío, sin registrar nada. Sin
+      cambio de pantalla: corre donde está el usuario y `refresh_preview` restaura la
+      pantalla visible tras su reapertura; desde Organize, cada tarjeta vuelve a
+      placeholder y pierde su caché (a los dos tamaños), y la reapertura las renderiza de
+      nuevo. Etiquetas nuevas `palette-rotate-all-{right,left}` y sinónimos
+      `palette-pages-rotate-all-{right,left}-keywords` en `en.ftl` y `es.ftl` (rotate,
+      turn, orientation, landscape, portrait / rotar, girar, página, orientación,
+      horizontal, vertical). Medido: "rotar pagina" (es) → las dos entradas primero;
+      "rotate" → las dos primero en inglés y con la ventana en español.
+      **Rojo → verde:** 6 tests nuevos (3 en `palette/entries/tests.rs`, 3 en
+      `organize/tests/rotation/all.rs`) más dos filas en el test de "sin documento".
+      Contra el esqueleto (entradas y textos ya en el catálogo, función y
+      disponibilidad vacías): 7 fallan (los 3 de `all.rs`, el de deshacer, el de
+      rechazo, el de "sin documento" y la guarda anti-ruido) y los 2 de búsqueda pasan
+      (dependen solo del catálogo y los textos). Tras la implementación,
+      los nuevos pasan; la guarda anti-ruido de tope fijo dio rojo: con 37
+      entradas, "page" (en) devolvía 9 (> 8), dos de ellas las nuevas. **Guarda
+      reescrita (decisión del usuario, 2026-11-13), sin subir el umbral:** por consulta
+      se declaran las entradas que de verdad tratan de ella ("page"/"pagina":
+      organizar, extraer, dividir y las dos de rotar; "pdf": nuevo PDF en blanco y
+      añadir PDF) y se exige (1) que salgan todas, (2) que vayan todas por delante de
+      cualquier coincidencia ajena y (3) como mucho 4 ajenas. Un test aparte
+      (`the_narrowness_guard_catches_a_polluted_catalog`) pasa por el matcher real un
+      catálogo sintético: limpio pasa; con "page" en una entrada ajena falla la regla 2;
+      con 5 coincidencias dispersas, la 3. **Medido:** "page" (en) 4 ajenas, "pagina"
+      (es) 3, "pdf" (en) 2, todas detrás de las relevantes; "pdf" (es) incumplía la regla 2:
+      "Añadir PDF" empataba (19) con "Campo de texto", "Grupo de opciones" y "Lista
+      desplegable" y el empate iba por orden de catálogo. **Corregido en el matcher**
+      (decisión del usuario, no en el orden del catálogo): bonus de corrida entera
+      `8·n + 5` para un término que coincide como palabra o prefijo de palabra (ver la
+      corrección posterior en T-228). **Medido tras el arreglo:** ajenas por consulta
+      "page" (en) 4, "pagina" (es) 3, "pdf" (en) 2, "pdf" (es) 4, siempre detrás de
+      las relevantes. Gate en WSL: `cargo fmt --all -- --check` y `cargo clippy -p
+      linux-gtk --all-targets --locked -- -D warnings` en verde; `cargo test -p
+      linux-gtk --locked`: **1043 pasan, 0 fallan, 1 ignorado**.
+
 ## Criterios de aceptación
 
 - Ctrl+K abre la paleta desde Home, el editor y Organize, con el foco en el campo.
@@ -525,10 +597,11 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
 
 **Estado al cerrar (2026-11-13).** Cumplidos y cubiertos por tests: el primero, el
 segundo (modos y herramientas de anotación, por el mismo camino que su botón), el tercero,
-el quinto y el sexto. **Abiertos:**
-- "rotar pagina": no hay un rotar de documento entero al que llamar, solo los botones de
-  cada tarjeta de Organize (nota de T-229). Lo cierra un comando de núcleo "rotar todas
-  las páginas" que la paleta invoque como un botón más.
+el cuarto, el quinto y el sexto. El cuarto ("rotar pagina") se cerró después del cierre
+del batch: dos entradas, Girar todas las páginas a la derecha / a la izquierda, sobre el
+`Command::RotatePages` existente a través de `rotate_block` (el camino de los botones de
+giro de bloque), sin comando de núcleo nuevo, por decisión del usuario (2026-11-13); ver
+"Añadido posterior — rotar todas las páginas". **Abierto:**
 - Revisión visual en la app que corre: aspecto en claro y oscuro y una pulsación real de
   Ctrl+K, también con un campo de texto enfocado (nota de T-234).
 

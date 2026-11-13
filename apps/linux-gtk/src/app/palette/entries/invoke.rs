@@ -20,6 +20,10 @@ use crate::app::organize::ORGANIZE_PAGE;
 use crate::app::state::{FieldKind, HomeTool, Tool, Viewer};
 use crate::app::tools_panel::{ANNOTATE_PAGE, FILL_SIGN_PAGE};
 
+/// A quarter-turn clockwise, the delta the Organize rotate buttons record;
+/// its negation is their anticlockwise turn.
+const QUARTER_TURN_DEGREES: i32 = 90;
+
 pub(super) fn availability(target: Target, viewer: &Viewer) -> Availability {
     let has_document = viewer.state.borrow().session.is_some();
     let refusal = match target {
@@ -125,6 +129,13 @@ fn click_refusal(tool: ClickTool, viewer: &Viewer, has_document: bool) -> Option
         ClickTool::Split => document_then(has_document, "split-no-document", || {
             extraction_refusal(viewer)
         }),
+        // The rotate buttons' own gate, not Organize's: a turn needs the
+        // assembly permission alone (see `organize::command`'s header).
+        ClickTool::RotateAllRight | ClickTool::RotateAllLeft => {
+            document_then(has_document, "organize-no-document", || {
+                crate::app::organize::rotation_refusal(viewer)
+            })
+        }
         ClickTool::SignWithFile
         | ClickTool::SignWithToken
         | ClickTool::SignWithSystemCertificate => {
@@ -197,6 +208,14 @@ fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) {
         }
         ClickTool::Extract => crate::app::write::begin_extract(window, viewer),
         ClickTool::Split => crate::app::write::begin_split(window, viewer),
+        // No screen switch: the turn runs where the user is, and the preview
+        // refresh behind it puts the visible screen back after its reopen.
+        ClickTool::RotateAllRight => {
+            crate::app::organize::rotate_all_pages(viewer, QUARTER_TURN_DEGREES);
+        }
+        ClickTool::RotateAllLeft => {
+            crate::app::organize::rotate_all_pages(viewer, -QUARTER_TURN_DEGREES);
+        }
         // The signing buttons live on Fill & Sign, and a drawn signature is
         // released as soon as that page is left (`signature::connect_signature`),
         // so all four start from there.

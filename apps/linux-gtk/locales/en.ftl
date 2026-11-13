@@ -988,6 +988,8 @@ palette-search-placeholder = Search commands…
 palette-no-results = No command matches.
 palette-nothing-to-undo = Nothing to undo.
 palette-nothing-to-redo = Nothing to redo.
+palette-rotate-all-right = Rotate all pages right
+palette-rotate-all-left = Rotate all pages left
 
 ## Command palette search synonyms (B27 T-231): space-separated words a
 ## user might type for each command, matched alongside its label.
@@ -1023,6 +1025,8 @@ palette-document-compress-keywords = reduce shrink size smaller optimize
 palette-pages-add-pdfs-keywords = merge combine import insert
 palette-pages-extract-keywords = pages selection separate
 palette-pages-split-keywords = pages separate divide cut
+palette-pages-rotate-all-right-keywords = rotate turn clockwise orientation landscape portrait
+palette-pages-rotate-all-left-keywords = rotate turn anticlockwise counterclockwise orientation landscape portrait
 palette-sign-certificate-file-keywords = signature digital pfx p12
 palette-sign-token-keywords = signature smart card digital
 palette-sign-system-certificate-keywords = signature digital installed

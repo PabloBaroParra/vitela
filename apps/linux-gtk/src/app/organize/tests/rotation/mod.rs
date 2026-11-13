@@ -20,6 +20,7 @@
 use super::*;
 use pdf_document::Rotation;
 
+mod all;
 mod block;
 mod page;
 
