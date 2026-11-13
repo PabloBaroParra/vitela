@@ -248,7 +248,7 @@ impl RecentsSection {
 
     /// Puts the keyboard on the newest card still on screen, if there is one.
     ///
-    /// What the app rail's Recent button does after switching to Home:
+    /// What removing a card does to keep the keyboard in the list:
     /// focusing a real card both answers "where was I" and lets the list be
     /// walked with the arrow keys — and GTK scrolls the focused widget into
     /// view, so the list comes to the user rather than the other way round.

@@ -50,7 +50,7 @@ const FIND_ENTRY_CHARS: i32 = 14;
 /// Undo and Redo are built and appended like the rest but are absent here on
 /// purpose: they are bound to `win.undo`/`win.redo` inside this module, so no
 /// caller downstream ever needs to address them again (the same reasoning as
-/// `shell::AppRail`'s omitted rail items).
+/// the mode bar never handing its buttons back).
 pub(crate) struct EditorToolbar {
     /// The bar itself, for `build_ui` to place.
     pub(crate) root: FlowBox,

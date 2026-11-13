@@ -10,11 +10,11 @@
 //!
 //! Home is one page of the window's view `Stack` ([`HOME_PAGE`]); the editor —
 //! toolbar plus the three-column canvas — is the other ([`EDITOR_PAGE`]). The
-//! app rail and the status bar sit *outside* the stack and stay on screen for
+//! mode bar and the status bar sit *outside* the stack and stay on screen for
 //! both, so switching views never moves the navigation or drops a message.
 //!
 //! Opening a document switches to the editor (`document::show_document`);
-//! the rail's Home button switches back. Neither closes anything: coming back
+//! the mode bar's Home switches back. Neither closes anything: coming back
 //! to Home leaves the open document exactly as it was.
 //!
 //! ## Split
@@ -242,9 +242,6 @@ pub(crate) const HOME_CSS: &str = r#"
 pub(crate) struct Home {
     /// The page `build_ui` adds to the view stack.
     pub(crate) root: GtkBox,
-    /// Kept so the app rail's Recent button can put the keyboard in the list
-    /// rather than just showing the page it happens to be on.
-    pub(crate) recents: recents::RecentsSection,
 }
 
 pub(crate) fn build_home(window: &ApplicationWindow, viewer: &Viewer) -> Home {
@@ -313,7 +310,7 @@ pub(crate) fn build_home(window: &ApplicationWindow, viewer: &Viewer) -> Home {
     root.append(&header.root);
     root.append(&scroll);
 
-    Home { root, recents }
+    Home { root }
 }
 
 pub(crate) fn show_home(viewer: &Viewer) {

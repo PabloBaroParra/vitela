@@ -1,6 +1,6 @@
 //! The application mark: the isotype shown in the page area while no document
 //! is on screen, mirroring the empty state of the WinUI shell, and the brand
-//! lockup (isotype + wordmark) the Home view's header and the app rail carry.
+//! lockup (isotype + wordmark) the Home view's header and the mode bar carry.
 
 use gtk::prelude::*;
 use gtk::{Box as GtkBox, Label, Orientation, Picture, Settings};
@@ -48,7 +48,7 @@ pub(crate) fn build_app_mark() -> Picture {
 
 /// The brand lockup: the isotype and the "Vitela" wordmark as one unit, for
 /// the places that identify the *application* rather than stand in for a
-/// missing document — the Home view's header and the app rail.
+/// missing document — the Home view's header and the mode bar.
 ///
 /// One widget rather than each caller pairing a `Picture` with a `Label`, so
 /// the mark and the word cannot drift apart in spacing or alignment between
@@ -127,7 +127,7 @@ mod tests {
     use super::*;
 
     /// The lockup is the one place the mark and the wordmark appear together,
-    /// and the Home header and the app rail both take it as a unit — so the
+    /// and the Home header and the mode bar both take it as a unit — so the
     /// pair, and the single accessible name covering them, is the contract.
     #[gtk::test]
     fn gtk_ui_the_brand_lockup_pairs_the_mark_with_the_wordmark() {

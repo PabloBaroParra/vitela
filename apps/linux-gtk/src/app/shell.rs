@@ -1,10 +1,6 @@
-//! The chrome around both views: the shell-wide CSS and the left app rail.
-//!
-//! The rail is split into two groups. The first navigates — Home, Recent,
-//! My files — and is what the Home view added; the second acts on the open
-//! document — Edit, Annotate, Sign, Organize pages, Protect. The rail itself
-//! sits outside the window's view `Stack`, so it stays on screen for Home and
-//! the editor alike.
+//! The shell-wide CSS, gathered from every feature module into one
+//! stylesheet. The navigation chrome that used to live here — the left app
+//! rail — is now the top mode bar (`mode_bar`).
 //!
 //! **No icon-theme lookups, here or anywhere in `app/`** — no
 //! `Button::from_icon_name`/`Image::from_icon_name` call exists in this
@@ -14,25 +10,16 @@
 //! error anyone sees.
 //!
 //! That rule is about the *source* of an icon, not about having none. The
-//! rail's icons come from `icons`, which ships its own SVGs inside the
+//! mode bar's icons come from `icons`, which ships its own SVGs inside the
 //! binary and rasterises them through librsvg — the same pipeline `brand`
 //! uses for the application mark. Nothing here asks the desktop for a
 //! picture.
 
-use gtk::prelude::*;
-use gtk::{Box as GtkBox, Button, Label, Orientation, Separator};
-
-use super::brand::build_brand_lockup;
 use super::content_edit::panel::EDIT_CSS;
 use super::content_edit::quick_actions::QUICK_ACTIONS_CSS;
 use super::home::HOME_CSS;
-use super::i18n::tr;
-use super::icons::{build_icon, Icon, NEUTRAL_TINT};
+use super::mode_bar::MODE_BAR_CSS;
 use super::organize::ORGANIZE_CSS;
-
-/// Icon edge on a rail item. Sized against the label beside it, like the
-/// brand lockup's mark above them both.
-const RAIL_ICON_PX: i32 = 16;
 
 pub(crate) const SHELL_CSS: &str = r#"
 .vitela-shell {
@@ -52,8 +39,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 
 .page-navigation button,
-.tools-panel button,
-.app-rail-item {
+.tools-panel button {
   min-height: 30px;
   transition: background-color 120ms ease, color 120ms ease;
 }
@@ -134,42 +120,10 @@ pub(crate) const SHELL_CSS: &str = r#"
   background: @vitela_recessed;
 }
 
-.app-rail,
 .navigation-panel,
 .tools-panel {
   background: @vitela_surface;
   padding: 12px;
-}
-
-.app-rail {
-  border-right: 1px solid @vitela_border;
-}
-
-.app-rail .brand-lockup {
-  padding: 2px;
-  margin-bottom: 8px;
-}
-
-/* Between the rail's navigate group and its act-on-the-document group. */
-.app-rail-separator {
-  background-color: @vitela_border;
-  margin: 6px 2px;
-}
-
-.app-rail-item {
-  color: @vitela_text_secondary;
-  border-radius: 6px;
-}
-
-.app-rail-item:hover,
-.app-rail-item:focus-visible {
-  background: @vitela_accent_soft;
-}
-
-.app-rail-item.app-rail-active {
-  background: @vitela_accent_soft;
-  color: @vitela_accent;
-  font-weight: 700;
 }
 
 .navigation-panel {
@@ -214,33 +168,6 @@ pub(crate) const SHELL_CSS: &str = r#"
 .zoom-indicator {
   color: @vitela_text_secondary;
   font-weight: 600;
-}
-
-.tools-tab-switcher {
-  border-bottom: 1px solid @vitela_border;
-  padding-bottom: 8px;
-}
-
-.tools-tab-switcher button {
-  min-height: 26px;
-  padding: 5px 10px;
-  border-radius: 6px;
-  transition: background-color 120ms ease, color 120ms ease;
-}
-
-.tools-tab-switcher button:hover,
-.tools-tab-switcher button:focus-visible {
-  background: @vitela_accent_soft;
-}
-
-/* The open page's own tab — same treatment as `.editor-toolbar button:checked`
-   and `.app-rail-item.app-rail-active`, so which of the four pages is showing
-   reads at a glance instead of relying on the default GTK theme's `:checked`
-   (or lack of one) to say so. */
-.tools-tab-switcher button:checked {
-  background: @vitela_checked;
-  color: @vitela_accent;
-  font-weight: 700;
 }
 
 /* Every reflowing row in this shell is a `FlowBox` — the top editor toolbar
@@ -295,304 +222,12 @@ pub(crate) const SHELL_CSS: &str = r#"
 }
 "#;
 
-/// The app rail buttons `build_ui` wires up after construction.
-pub(crate) struct AppRail {
-    /// Switches the window's view `Stack` back to the Home page. Navigation
-    /// only — the open document, if any, stays open behind it.
-    pub(crate) home: Button,
-    /// Home, with the keyboard already in the recents list. Its own button
-    /// rather than a second `home`, because "where was I" and "what is this
-    /// app" are different questions the user arrives with.
-    pub(crate) recent: Button,
-    /// Wired to `win.open`, set directly on the widget — the same command as
-    /// the toolbar's Open PDF button, just reachable from the rail.
-    pub(crate) files: Button,
-    /// Wired by the caller once a [`super::state::Viewer`] exists — see
-    /// `build_ui`.
-    pub(crate) annotate: Button,
-    /// Wired by the caller once a [`super::state::Viewer`] exists — see
-    /// `build_ui`.
-    pub(crate) edit_pdf: Button,
-    /// Wired by the caller once a [`super::state::Viewer`] exists — see
-    /// `build_ui`. Batch B23 Fase 5 (T-186): switches the tools panel to its
-    /// "Fill & Sign" page, the same navigation gesture `annotate`/`edit_pdf`
-    /// already perform for their own pages.
-    pub(crate) sign: Button,
-    /// Wired by the caller once a [`super::state::Viewer`] exists — see
-    /// `build_ui`. Switches `view_stack` to `organize::ORGANIZE_PAGE`, the
-    /// same navigation gesture `annotate`/`edit_pdf`/`sign` perform for
-    /// theirs, just landing on a different top-level page instead of a tab
-    /// inside the editor.
-    pub(crate) organize: Button,
-    /// Wired by the caller once a [`super::state::Viewer`] exists — see
-    /// `build_ui`. The one rail item that opens a dialog rather than
-    /// revealing a control: protection is decided once, with two passwords,
-    /// and then written (see `super::protect`).
-    pub(crate) protect: Button,
-}
-
-/// Builds the rail widget. Callers wire `files` to `win.open` themselves
-/// (a plain `set_action_name`, no closure needed) and connect `annotate`/
-/// `edit_pdf`/`sign` once a `Viewer` exists to open onto — see `build_ui`.
-pub(crate) fn build_app_rail() -> (AppRail, GtkBox) {
-    let rail = GtkBox::new(Orientation::Vertical, 4);
-    rail.add_css_class("app-rail");
-    // Icon-rail width, always — never a pane a resize should be able to
-    // grow, unlike its neighbors in `build_ui`'s two `Paned`s.
-    rail.set_hexpand(false);
-    rail.set_width_request(112);
-    rail.update_property(&[gtk::accessible::Property::Label(&tr("rail-sections"))]);
-
-    // The real mark, not a coloured word. This is now the *only* place the
-    // shell identifies itself: Home's header carried a second lockup for one
-    // revision, and two "Vitela" marks a centimetre apart read as a bug. The
-    // rail keeps it because the rail is on screen for both views.
-    rail.append(&build_brand_lockup());
-
-    // Navigate. `home` starts marked active because the window opens on Home.
-    let home = rail_item(&rail, &tr("rail-home"), Icon::Home);
-    home.add_css_class("app-rail-active");
-    let recent = rail_item(&rail, &tr("rail-recent"), Icon::Recent);
-    let files = rail_item(&rail, &tr("rail-files"), Icon::Files);
-
-    let separator = Separator::new(Orientation::Horizontal);
-    separator.add_css_class("app-rail-separator");
-    rail.append(&separator);
-
-    // Act on the open document. Same order as Home's Tools card
-    // (`home::tools`) and the Windows rail, so a section sits in the
-    // same slot whichever screen or device the user is looking at.
-    let edit_pdf = rail_item(&rail, &tr("rail-edit"), Icon::Edit);
-    let annotate = rail_item(&rail, &tr("rail-annotate"), Icon::Annotate);
-    // T-186: Batch B23's signing flow (Fases 1-4) is wired end to end, so
-    // this is no longer a "nothing behind it yet" section like its Protect
-    // neighbor.
-    let sign = rail_item(&rail, &tr("rail-sign"), Icon::Sign);
-    let organize = rail_item(&rail, &tr("rail-organize"), Icon::Organize);
-    let protect = rail_item(&rail, &tr("rail-protect"), Icon::Protect);
-
-    (
-        AppRail {
-            home,
-            recent,
-            files,
-            annotate,
-            edit_pdf,
-            sign,
-            organize,
-            protect,
-        },
-        rail,
-    )
-}
-
-/// Marks `active` as the current rail section and clears every other one.
-///
-/// The rail is not a `Stack` switcher — its items go to four different places
-/// (a view page, a file chooser, a tools tab, a toggle) — so the highlight
-/// has to be maintained rather than derived. One function doing it for the
-/// whole rail is what stops two items from claiming to be current at once.
-pub(crate) fn mark_active(rail: &GtkBox, active: &Button) {
-    for item in std::iter::successors(rail.first_child(), |child| child.next_sibling())
-        .filter_map(|child| child.downcast::<Button>().ok())
-    {
-        if &item == active {
-            item.add_css_class("app-rail-active");
-        } else {
-            item.remove_css_class("app-rail-active");
-        }
-    }
-}
-
-/// Appends one nav button to `rail` and returns it.
-///
-/// This used to take an `enabled` flag, `false` for sections the shell had no
-/// feature behind yet — Recent, then Organize pages, then Protect, each
-/// disabled with a "Not available yet" tooltip rather than left clickable and
-/// silently doing nothing. Protect was the last of them, so the flag lost its
-/// only `false` and the branch behind it stopped being reachable. The
-/// treatment itself is not gone: Home's tool grid still has tiles with no
-/// feature behind them and still does exactly this to them
-/// (`home::tools::build_tools_card`). A rail section that needs it again
-/// brings the flag back, with its own test.
-fn rail_item(rail: &GtkBox, label: &str, icon: Icon) -> Button {
-    // An icon and a left-aligned label, so the rail reads as a column of
-    // destinations rather than a stack of centred buttons. The icons are
-    // ours (`icons`), never the desktop's — see this module's header for why
-    // that is not negotiable here.
-    let content = GtkBox::new(Orientation::Horizontal, 8);
-    content.append(&build_icon(icon, RAIL_ICON_PX, NEUTRAL_TINT));
-    let caption = Label::new(Some(label));
-    caption.set_xalign(0.0);
-    caption.set_hexpand(true);
-    content.append(&caption);
-
-    let button = Button::new();
-    button.set_child(Some(&content));
-    button.set_halign(gtk::Align::Fill);
-    button.add_css_class("app-rail-item");
-    // A `Button` given a custom child has no label of its own for the
-    // accessibility layer to fall back on, so it is stated rather than
-    // inferred from whichever descendant happens to hold text.
-    button.update_property(&[gtk::accessible::Property::Label(label)]);
-    rail.append(&button);
-    button
-}
-
 /// Every stylesheet the shell installs, in cascade order. They share one
 /// palette (see `theme`) and one provider.
 pub(crate) fn all_sheets() -> String {
-    format!("{SHELL_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}")
+    format!("{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}")
 }
 
 pub(crate) fn install_shell_css() {
     super::theme::install(all_sheets());
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[gtk::test]
-    fn gtk_ui_rail_shows_spanish_sections_in_the_same_order() {
-        let _spanish = crate::app::i18n::speak(crate::app::i18n::Language::Spanish);
-        let (_, rail) = build_app_rail();
-        let labels: Vec<_> =
-            std::iter::successors(rail.first_child(), |child| child.next_sibling())
-                .filter_map(|child| child.downcast::<Button>().ok())
-                .filter_map(|button| rail_label(&button))
-                .collect();
-        assert_eq!(
-            labels,
-            [
-                "Inicio",
-                "Recientes",
-                "Mis archivos",
-                "Editar PDF",
-                "Anotar",
-                "Firmar",
-                "Organizar páginas",
-                "Proteger"
-            ]
-        );
-    }
-
-    /// T-186's own regression lock: a disabled "Sign" section is what
-    /// this batch changes to `true` — a silent revert back to `false` would
-    /// otherwise only show up as a manual-QA finding, not a test failure.
-    #[gtk::test]
-    fn gtk_ui_the_sign_rail_button_is_enabled() {
-        let (app_rail, _rail_box) = build_app_rail();
-
-        assert_eq!(rail_label(&app_rail.sign).as_deref(), Some("Sign"));
-        assert!(app_rail.sign.is_sensitive());
-        assert!(app_rail.sign.tooltip_text().is_none());
-    }
-
-    /// The same regression lock as `gtk_ui_the_sign_rail_button_is_enabled`,
-    /// for the Organize-pages feature this change adds.
-    #[gtk::test]
-    fn gtk_ui_the_organize_rail_button_is_enabled() {
-        let (app_rail, _rail_box) = build_app_rail();
-
-        assert_eq!(
-            rail_label(&app_rail.organize).as_deref(),
-            Some("Organize pages")
-        );
-        assert!(app_rail.organize.is_sensitive());
-        assert!(app_rail.organize.tooltip_text().is_none());
-    }
-
-    /// A rail item's visible text. `rail_item` gives each button an icon and
-    /// a label in a box, so `Button::label` — which only answers for the
-    /// plain-`Label` child `Button::with_label` builds — returns `None`.
-    fn rail_label(button: &Button) -> Option<String> {
-        let content = button.child()?.downcast::<GtkBox>().ok()?;
-        std::iter::successors(content.first_child(), |child| child.next_sibling())
-            .filter_map(|child| child.downcast::<Label>().ok())
-            .map(|label| label.text().to_string())
-            .next()
-    }
-
-    fn rail_button(rail: &GtkBox, label: &str) -> Button {
-        std::iter::successors(rail.first_child(), |child| child.next_sibling())
-            .filter_map(|child| child.downcast::<Button>().ok())
-            .find(|button| rail_label(button).as_deref() == Some(label))
-            .unwrap_or_else(|| panic!("the rail must offer a {label} button"))
-    }
-
-    /// The rail lists its sections in the same order as Home's Tools card,
-    /// and as the Windows rail does: Annotate once sat first here
-    /// and second on Home, so the same tool moved slot between screens.
-    #[gtk::test]
-    fn gtk_ui_the_rail_orders_sections_like_home_tools() {
-        let (_app_rail, rail_box) = build_app_rail();
-
-        let labels: Vec<String> =
-            std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
-                .filter_map(|child| child.downcast::<Button>().ok())
-                .filter_map(|button| rail_label(&button))
-                .collect();
-
-        assert_eq!(
-            labels,
-            [
-                "Home",
-                "Recent",
-                "My files",
-                "Edit PDF",
-                "Annotate",
-                "Sign",
-                "Organize pages",
-                "Protect",
-            ]
-        );
-    }
-
-    /// The same regression lock as its Sign and Organize neighbours, for the
-    /// Protect feature this change adds — and the reason the rail no longer
-    /// has a disabled-section test: Protect was the last section without a
-    /// feature behind it, so there is nothing left for such a test to be
-    /// about. Home's tool grid keeps that contract, and its own test
-    /// (`home::tools::gtk_ui_tools_without_a_feature_are_disabled_not_missing`)
-    /// still holds it over the Compress tile.
-    #[gtk::test]
-    fn gtk_ui_the_protect_rail_button_is_enabled() {
-        let (app_rail, rail_box) = build_app_rail();
-
-        assert_eq!(rail_label(&app_rail.protect).as_deref(), Some("Protect"));
-        assert_eq!(app_rail.protect, rail_button(&rail_box, "Protect"));
-        assert!(app_rail.protect.is_sensitive());
-        assert!(app_rail.protect.tooltip_text().is_none());
-    }
-
-    /// Recent's own regression lock, the twin of the Sign one above: the Home
-    /// view gave it a feature, so a silent revert to a disabled section must
-    /// fail here rather than only in manual QA.
-    #[gtk::test]
-    fn gtk_ui_the_recent_rail_button_is_enabled() {
-        let (app_rail, _rail_box) = build_app_rail();
-
-        assert!(app_rail.recent.is_sensitive());
-        assert!(app_rail.recent.tooltip_text().is_none());
-    }
-
-    /// The window opens on Home, so Home is the section marked current before
-    /// anything is clicked — and exactly one section is ever marked.
-    #[gtk::test]
-    fn gtk_ui_the_rail_marks_one_active_section_starting_with_home() {
-        let (app_rail, rail_box) = build_app_rail();
-
-        assert!(app_rail.home.has_css_class("app-rail-active"));
-
-        mark_active(&rail_box, &app_rail.annotate);
-
-        assert!(app_rail.annotate.has_css_class("app-rail-active"));
-        assert!(!app_rail.home.has_css_class("app-rail-active"));
-        let marked = std::iter::successors(rail_box.first_child(), |child| child.next_sibling())
-            .filter_map(|child| child.downcast::<Button>().ok())
-            .filter(|button| button.has_css_class("app-rail-active"))
-            .count();
-        assert_eq!(marked, 1);
-    }
 }

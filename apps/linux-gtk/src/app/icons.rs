@@ -76,7 +76,6 @@ pub(crate) const MUTED_TINT: &str = "#a49fb3";
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Icon {
     Home,
-    Recent,
     Files,
     Edit,
     Annotate,
@@ -111,7 +110,6 @@ pub(crate) enum Icon {
     Previous,
     Next,
     Search,
-    Comments,
     /// The Organize "Documents" view's keyboard path for reordering a block
     /// — the same two slots its drag offers, without a pointer.
     MoveUp,
@@ -126,9 +124,8 @@ pub(crate) enum Icon {
 /// Every icon, for the test that checks the whole set at once rather than
 /// whichever one someone remembered to add a case for.
 #[cfg(test)]
-const ALL_ICONS: [Icon; 33] = [
+const ALL_ICONS: [Icon; 31] = [
     Icon::Home,
-    Icon::Recent,
     Icon::Files,
     Icon::Edit,
     Icon::Annotate,
@@ -155,7 +152,6 @@ const ALL_ICONS: [Icon; 33] = [
     Icon::Previous,
     Icon::Next,
     Icon::Search,
-    Icon::Comments,
     Icon::MoveUp,
     Icon::MoveDown,
     Icon::RotateLeft,
@@ -176,7 +172,6 @@ impl Icon {
     fn source(self) -> &'static str {
         match self {
             Icon::Home => icon_source!("home.svg"),
-            Icon::Recent => icon_source!("recent.svg"),
             Icon::Files => icon_source!("files.svg"),
             Icon::Edit => icon_source!("edit.svg"),
             Icon::Annotate => icon_source!("annotate.svg"),
@@ -203,7 +198,6 @@ impl Icon {
             Icon::Previous => icon_source!("previous.svg"),
             Icon::Next => icon_source!("next.svg"),
             Icon::Search => icon_source!("search.svg"),
-            Icon::Comments => icon_source!("comments.svg"),
             Icon::MoveUp => icon_source!("move-up.svg"),
             Icon::MoveDown => icon_source!("move-down.svg"),
             Icon::RotateLeft => icon_source!("rotate-left.svg"),
@@ -599,7 +593,6 @@ mod tests {
     fn gtk_ui_every_icon_is_drawn_on_the_same_optical_grid() {
         for icon in [
             Icon::Home,
-            Icon::Recent,
             Icon::Files,
             Icon::Edit,
             Icon::Annotate,
