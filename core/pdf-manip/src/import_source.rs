@@ -15,31 +15,34 @@ use pdf_document::SecurityContext;
 
 use crate::document::LopdfDocument;
 use crate::error::ManipError;
-use crate::open::{open_document_from_bytes, read_security_context_from_bytes};
+use crate::open::open_document_from_bytes_admitted;
 use crate::security::text_extraction_is_allowed;
 
 /// Opens `bytes` as an import source, refusing a document whose `/P` forbids
 /// copying or extracting its content.
 ///
-/// Returns the decrypted document together with the security context the
-/// *probe* read, which is the honest one: a document whose user password is
-/// empty is decrypted in place by lopdf's unauthenticated load, so it looks
-/// unencrypted to [`open_document_from_bytes`] while still carrying real
-/// permissions (see `open::security_from_probe`). Gating on what that load
-/// reports would wave through the most common restricted PDF there is.
+/// Returns the decrypted document together with the security context its
+/// open resolved — including for a document whose user password is empty,
+/// which opens without a prompt yet still carries real permissions (see
+/// `open::security_from_probe`). The bytes are parsed once for the security
+/// context and, only when that admits the import and the document is still
+/// encrypted, once more to decrypt it: a refused source never reaches the
+/// decrypting load.
 ///
-/// A missing or wrong password is reported as
-/// [`ManipError::PasswordRequired`] / [`ManipError::WrongPassword`] and never
-/// folded into the permission refusal: a shell prompts on the first and gives
-/// up on the second, and they are not the same answer.
+/// A missing or wrong password is reported as [`ManipError::WrongPassword`]
+/// (the open probes a missing one as the empty password, which only an
+/// unlocked document matches) and never folded into the permission refusal:
+/// a shell prompts for a password, and that is not the same answer as "this
+/// PDF forbids it".
 pub fn open_import_source_from_bytes(
     bytes: &[u8],
     credential: Option<&str>,
 ) -> Result<(LopdfDocument, Option<SecurityContext>), ManipError> {
-    let security = read_security_context_from_bytes(bytes, credential)?;
-    if !text_extraction_is_allowed(security.as_ref()) {
-        return Err(ManipError::SourceForbidsCopying);
-    }
-    let (document, _) = open_document_from_bytes(bytes, credential)?;
-    Ok((document, security))
+    open_document_from_bytes_admitted(bytes, credential, |security| {
+        if text_extraction_is_allowed(security) {
+            Ok(())
+        } else {
+            Err(ManipError::SourceForbidsCopying)
+        }
+    })
 }

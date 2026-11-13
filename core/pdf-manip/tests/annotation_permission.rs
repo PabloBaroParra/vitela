@@ -55,39 +55,31 @@ fn the_owner_of_a_no_annotate_document_may_still_edit() {
 ///
 /// A document whose **user password is empty** opens with no prompt, so
 /// lopdf's unauthenticated load already decrypts it in place and drops
-/// `/Encrypt` from the trailer. `open_document` checks `is_encrypted()` and
-/// therefore reports **no** `SecurityContext` at all for it — while the
-/// document still forbids annotating. A gate fed from the open path would read
-/// `None`, conclude "unencrypted, everything permitted", and hand the user a
-/// full annotation toolbar on a document that denies it.
+/// `/Encrypt` from the trailer. The open path used to check only
+/// `is_encrypted()` and report **no** `SecurityContext` for it — while the
+/// document still forbids annotating — so a gate fed from the open read
+/// "unencrypted, everything permitted".
 ///
-/// `read_security_context` recovers the permissions from lopdf's decoded
-/// `EncryptionState` instead, which is why every permission gate has to source
-/// its context from the probe and never from the open.
+/// Both the open and the probe now recover the permissions from lopdf's
+/// decoded `EncryptionState`, and must agree.
 #[test]
-fn an_empty_user_password_document_keeps_its_restrictions_through_the_probe() {
+fn an_empty_user_password_document_keeps_its_restrictions_through_open_and_probe() {
     let bytes = no_annotate_pdf("");
 
     let (_doc, opened) =
         pdf_manip::open_document_from_bytes(&bytes, None).expect("opens with no password");
-    assert!(
-        opened.is_none(),
-        "the open path drops the security context for this shape — if this ever \
-         starts reporting one, the probe-only rule below can be revisited"
-    );
-    assert!(
-        annotation_editing_is_allowed(opened.as_ref()),
-        "which is exactly why gating on the open path's context is unsafe"
-    );
-
     let probed = read_security_context_from_bytes(&bytes, None)
-        .expect("an empty user password must probe without a credential")
-        .expect("the restrictions survive in the decoded encryption state");
+        .expect("an empty user password must probe without a credential");
 
-    assert_eq!(probed.credential, Credential::User);
+    assert_eq!(
+        opened, probed,
+        "the open and the probe gate on the same facts"
+    );
+    let security = opened.expect("the restrictions survive in the decoded encryption state");
+    assert_eq!(security.credential, Credential::User);
     assert!(
-        !annotation_editing_is_allowed(Some(&probed)),
-        "the probe must refuse what the open path waved through"
+        !annotation_editing_is_allowed(Some(&security)),
+        "a document that forbids annotating must not be waved through"
     );
 }
 

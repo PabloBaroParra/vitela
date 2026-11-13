@@ -249,6 +249,29 @@ async fn the_user_password_renders_but_withholds_text() {
 }
 
 #[wasm_bindgen_test]
+async fn a_promptless_document_renders_but_withholds_text() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(pdfs::promptless_restricted_document(), None)
+        .expect("an empty user password opens without a prompt");
+
+    let mut page = engine.render_page(doc, 0, 72, false).unwrap();
+    assert!(inked_pixels(&page.take_rgba()) > 0);
+    assert!(!engine.text_extraction_allowed(doc).unwrap());
+    let refusals = [
+        engine.text_runs(doc, 0).err(),
+        engine.page_characters(doc, 0).err(),
+        engine.search(doc, "Hello".into()).err(),
+    ];
+    for refusal in refusals {
+        assert_eq!(
+            error_name(refusal.expect("refused")),
+            "TextExtractionDenied"
+        );
+    }
+}
+
+#[wasm_bindgen_test]
 async fn both_passwords_open_as_owner_with_text() {
     let mut engine = engine().await;
     let doc = engine
