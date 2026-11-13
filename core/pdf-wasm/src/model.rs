@@ -9,8 +9,9 @@
 
 use pdf_document::{Document, Rotation};
 use pdf_manip::{LopdfDocument, OpenCredentials, OpenedRotations};
+use pdf_save::ImportedSourceRegistry;
 
-use crate::error::EngineError;
+use crate::error::{EngineError, ErrorKind};
 
 /// One page's layout size in PDF points and the clockwise turn it is drawn
 /// at.
@@ -21,10 +22,18 @@ pub struct PageSize {
     pub rotation_degrees: u32,
 }
 
-/// The model side of one open document.
+/// The model side of one open document, and its edit session (see
+/// [`edit`]).
 pub struct DocumentModel {
     document: Document,
     base: LopdfDocument,
+    /// The bytes `base` was parsed from: every save and preview is computed
+    /// from them plus the queued edits, as in `pdf-ffi`.
+    original_bytes: Vec<u8>,
+    /// The PDFs this session imported pages from, which a save resolves
+    /// imported pages through. Empty until import lands (T-227), but held
+    /// now so every save goes through the same registry `pdf-ffi` uses.
+    imported: ImportedSourceRegistry,
     opened_rotations: OpenedRotations,
 }
 
@@ -35,13 +44,18 @@ impl DocumentModel {
     pub fn open(bytes: &[u8], credentials: &OpenCredentials) -> Result<Self, EngineError> {
         let (base, security) =
             pdf_manip::open_document_with_credentials_from_bytes(bytes, credentials)?;
-        let document = pdf_save::document_from_lopdf(&base, security)?;
+        // Building the model of a document lopdf has already parsed: a
+        // failure here means the bytes are not a PDF this core can edit.
+        let document = pdf_save::document_from_lopdf(&base, security)
+            .map_err(|err| EngineError::new(ErrorKind::InvalidDocument, err.to_string()))?;
         // Read before any edit exists: at open every page sits at its own
         // base index.
         let opened_rotations = OpenedRotations::capture(&document);
         Ok(DocumentModel {
             document,
             base,
+            original_bytes: bytes.to_vec(),
+            imported: ImportedSourceRegistry::new(),
             opened_rotations,
         })
     }
@@ -92,6 +106,10 @@ fn degrees(rotation: Rotation) -> u32 {
         Rotation::Clockwise270 => 270,
     }
 }
+
+mod edit;
+
+pub use edit::PageEdit;
 
 // Declared at file level, not inside `mod tests`: there the path would be
 // resolved through `src/model/tests/`, a directory that does not exist, which

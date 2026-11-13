@@ -1,8 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso desde
-> T-223.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -377,7 +376,7 @@ Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
 | **T-223** ✓ | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
-| **T-224** | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
+| **T-224** ✓ | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
 | **T-225** | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
 | **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
 | **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
@@ -453,6 +452,51 @@ wasm32-unknown-unknown -p pdf-wasm`; `cargo clippy --locked --target
 wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings`. **No corrido en
 local:** clippy y tests de `linux-gtk` (CI Linux) y los `wasm-bindgen-test` (sin
 chromedriver); este cambio no toca ninguno de los dos.
+
+### T-224 — resultado
+
+API nueva de `Engine` en JS: `EditCommand.movePages(from, count, to)`,
+`EditCommand.rotatePages(from, count, deltaDegrees)`,
+`EditCommand.removePages(index, count)`, `applyEdit(doc, edit)`, `undo`/`redo`/
+`canUndo`/`canRedo(doc)`, `saveToBytes(doc, invalidateSignatures)` y
+`refreshPreview(doc)`. Errores nuevos: `EditNotPermitted`, `UnsupportedOperation`,
+`SignaturesWouldBeInvalidated`, `SaveFailed`; la posición fuera de rango reutiliza
+`PageIndexOutOfBounds`.
+
+- **Módulos.** `model/edit.rs` (reglas: `PageEdit`, su `EditClass`, construir el
+  comando, deshacer/rehacer, guardar, bytes de la vista previa) y `engine/edit.rs`
+  (frontera JS). El modelo guarda los bytes originales y un `ImportedSourceRegistry`
+  (vacío hasta T-227), como pedía T-223.
+- **Mismo orden que `pdf-ffi`:** `check_edit` con `PageEdit::class()` antes de
+  construir el comando, luego fuera de rango, luego el rechazo del modelo. Un test
+  fija que cada variante de `PageEdit` se clasifica igual que `EditClass::of` sobre el
+  comando que construye (era la sugerencia abierta de T-223).
+- **Diferencias con `pdf-ffi`:** el permiso que falta es `EditNotPermitted` (en
+  `pdf-ffi`, `UnsupportedOperation`; mismas palabras); guardar solo con la intención
+  por defecto; deshacer/rehacer sobre el `EditLog` sin checkpoints (con solo páginas no
+  hay). Como en `pdf-ffi`, `pageCount`/`pageDimensions` cambian al editar pero píxeles,
+  texto y búsqueda solo tras `refreshPreview`.
+- **Bug encontrado por los tests de navegador:** `SystemTime::now()` hace panic en
+  `wasm32-unknown-unknown`, así que **todo guardado** desde la web abortaba
+  (`pdf_save::SystemClock` / `RandomIdGenerator`). `clock.rs` lee `js_sys::Date::now()`
+  en wasm32 (`js-sys` solo para ese target). Ni `cargo check` ni clippy lo ven.
+- **Trampa de tests:** `lopdf::extract_text` en un módulo de test wasm32 en debug no
+  carga ("too many locals"); el helper lee el operador de texto de cada página.
+
+**Revisión 4R** (947 líneas): sin bloqueantes. Queda abierto: (1) entre una edición y
+`refreshPreview` la vista va desfasada y JS no puede saberlo (`search` puede devolver
+una página que ya no existe) — T-226 tiene que refrescar tras cada paso; (2) memoria en
+wasm32: una copia más de los bytes originales y picos en el refresco, y quedarse sin
+memoria tumba el módulo; (3) en wasm el `/ID` usa milisegundos, dos guardados en el
+mismo milisegundo pueden coincidir; (4) el ayudante que avanza el `EditLog` está en tres
+sitios (`pdf-ffi`, `pdf-save`, `pdf-wasm`); su sitio sería `pdf-document`; (5) acotar
+el `cfg` del reloj con `target_os = "unknown"`; (6) el modelo acepta rotar 45° (también
+en `pdf-ffi`, previo).
+
+**Verificado en local (Windows):** `cargo fmt --all -- --check`; clippy de `pdf-wasm`
+en wasm32 y nativo y de `pdf-save`, `-D warnings`; `cargo test --locked -p pdf-save
+-p pdf-wasm` con pdfium vendorizado (todo en verde); `wasm-bindgen-test` en Chrome
+headless con chromedriver 157 de Chrome for Testing: **15 pasados, 0 fallos**.
 
 ## Verificación
 

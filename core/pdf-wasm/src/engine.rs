@@ -9,6 +9,9 @@
 //! lopdf model (credentials, permissions, page sizes) and the pdfium handle
 //! (pixels, text). The model is opened first, so a bad password is refused
 //! by the core's own rule before pdfium is asked.
+//!
+//! The edit surface (`applyEdit`, undo/redo, `saveToBytes`,
+//! `refreshPreview`) is in [`edit`].
 
 use std::collections::HashMap;
 
@@ -21,9 +24,17 @@ use crate::dto::{PageCharacters, PageDimensions, RenderedPage, SearchMatch, Text
 use crate::error::EngineError;
 use crate::model::DocumentModel;
 
+mod edit;
+
+pub use edit::EditCommand;
+
 struct OpenDocument {
     model: DocumentModel,
     render: DocumentHandle,
+    /// The password pdfium needs to reopen a snapshot of this document in
+    /// `refreshPreview` — the one it was opened with, as `pdf-ffi` keeps it.
+    /// Never leaves the engine.
+    render_password: Option<String>,
 }
 
 /// The web shell's core engine. Construct it after pdfium is bound (see the
@@ -178,7 +189,14 @@ impl Engine {
             .open_document_from_bytes(bytes, credentials.render_password())?;
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
-        self.documents.insert(id, OpenDocument { model, render });
+        self.documents.insert(
+            id,
+            OpenDocument {
+                model,
+                render,
+                render_password: credentials.into_render_password(),
+            },
+        );
         Ok(id)
     }
 
@@ -186,6 +204,31 @@ impl Engine {
         self.documents
             .get(&doc)
             .ok_or_else(|| EngineError::document_not_found(doc))
+    }
+
+    fn document_mut(&mut self, doc: u32) -> Result<&mut OpenDocument, EngineError> {
+        self.documents
+            .get_mut(&doc)
+            .ok_or_else(|| EngineError::document_not_found(doc))
+    }
+
+    /// Replaces `doc`'s render side with pdfium's open of the model's
+    /// preview snapshot (`pdf_save::session_preview`), closing the old one.
+    /// On failure the old render side stays.
+    fn reopen_render(&mut self, doc: u32) -> Result<(), EngineError> {
+        // Borrowed field by field: the renderer and the document map are
+        // used together.
+        let open = self
+            .documents
+            .get_mut(&doc)
+            .ok_or_else(|| EngineError::document_not_found(doc))?;
+        let bytes = open.model.preview_bytes()?;
+        let refreshed = self
+            .renderer
+            .open_document_from_bytes(bytes, open.render_password.as_deref())?;
+        let stale = std::mem::replace(&mut open.render, refreshed);
+        self.renderer.close_document(stale);
+        Ok(())
     }
 
     fn page_handle(&self, doc: u32, page_index: u32) -> Result<DocumentHandle, EngineError> {
