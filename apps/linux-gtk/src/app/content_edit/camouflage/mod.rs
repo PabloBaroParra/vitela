@@ -400,7 +400,7 @@ pub(crate) fn look_for(
         .unwrap_or(background::PAPER);
 
     EditorLook {
-        font: fonts::choose(&read.base_font, read.family),
+        font: fonts::choose(&read.base_font, read.family, read.hints),
         size_pt: read.size_pt.unwrap_or(first.bbox.height),
         colour: read.colour,
         letter_spacing_pt: read.letter_spacing_pt,

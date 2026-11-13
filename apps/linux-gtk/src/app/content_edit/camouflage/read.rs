@@ -28,6 +28,9 @@ pub(super) struct ReadStyle {
     pub(super) size_pt: Option<f64>,
     pub(super) colour: [f64; 3],
     pub(super) letter_spacing_pt: f64,
+    /// The weight, slant and render mode the core read; none when it could
+    /// not read the run, leaving the font's name to say.
+    pub(super) hints: fonts::FaceHints,
 }
 
 pub(super) fn read_style(
@@ -41,6 +44,7 @@ pub(super) fn read_style(
         size_pt: None,
         colour: [0.0; 3],
         letter_spacing_pt: 0.0,
+        hints: fonts::FaceHints::default(),
     };
     let (Some(document), Some(backing)) = (
         session.document_model.as_ref(),
@@ -61,6 +65,11 @@ pub(super) fn read_style(
             read.size_pt = Some(style.font_size);
             read.colour = style.fill_rgb;
             read.letter_spacing_pt = style.char_spacing;
+            read.hints = fonts::FaceHints {
+                bold: style.bold,
+                italic: style.italic,
+                render_mode: style.render_mode,
+            };
         }
         _ => {
             read.base_font =
