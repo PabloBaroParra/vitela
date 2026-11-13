@@ -129,6 +129,9 @@ pub(crate) struct Viewer {
     /// The floating bar beside a content-edit selection, on the canvas
     /// overlay — see `content_edit::quick_actions`.
     pub(crate) content_quick_actions: crate::app::content_edit::quick_actions::QuickActions,
+    /// Bold / italic / underline on the Edit page's text card; state and
+    /// sensitivity are owned by `content_edit::style_toggles::update`.
+    pub(crate) style_toggles: crate::app::content_edit::style_toggles::StyleToggles,
     /// The forms toolbar (T-141): the mode toggle, the four placement
     /// toggles, and the style inspector for the selected field.
     pub(crate) forms: FormFieldToolbar,

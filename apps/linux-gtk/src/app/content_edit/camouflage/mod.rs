@@ -335,6 +335,28 @@ impl Camouflage {
     }
 }
 
+impl Camouflage {
+    /// The provider and the stylesheet that draw the editor bold and / or
+    /// italic after a style toggle (`content_edit::style_toggles`), when its
+    /// face changed. Loaded by the caller once it holds no borrow of the
+    /// session, as [`Self::restyle_at`]'s are.
+    pub(crate) fn restyle_face(
+        &mut self,
+        bold: bool,
+        italic: bool,
+    ) -> Option<(CssProvider, String)> {
+        if self.look.font.bold == bold && self.look.font.italic == italic {
+            return None;
+        }
+        self.look.font.bold = bold;
+        self.look.font.italic = italic;
+        Some((
+            self.provider.clone(),
+            self.look.css(&self.class, self.scale.get()),
+        ))
+    }
+}
+
 impl Drop for Camouflage {
     fn drop(&mut self) {
         gtk::style_context_remove_provider_for_display(&self.display, &self.provider);

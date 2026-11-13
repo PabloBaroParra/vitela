@@ -84,6 +84,7 @@ pub(crate) mod panel;
 mod paragraph_editor;
 pub(crate) mod path;
 pub(crate) mod quick_actions;
+pub(crate) mod style_toggles;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) mod text;
