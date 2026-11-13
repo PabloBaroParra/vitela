@@ -412,9 +412,36 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       6/6. No verificado con una pulsación real (xdotool) en la app. Gate en WSL:
       `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked
       -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1023 pasan, 0 fallan, 1 ignorado**.
-- [ ] T-231 Claves Fluent en `en.ftl` y `es.ftl`: etiquetas que falten, sinónimos
+- [x] T-231 Claves Fluent en `en.ftl` y `es.ftl`: etiquetas que falten, sinónimos
       `palette-*-keywords` y el placeholder. Se reutilizan las claves existentes del
       hecho 5 en vez de duplicarlas. [PaletteUI]
+      **(2026-11-13 — completo.)** Las 35 entradas tienen sinónimos en los dos
+      idiomas: `palette-<id>-keywords`, con los puntos del id cambiados por guiones
+      (Fluent no admite puntos). La clave ya no es un campo opcional: la deriva
+      `PaletteEntry::keywords_key()` del id, así una entrada no puede apuntar a la
+      lista de otra. Cada valor es una lista de palabras separadas por espacios, de
+      1 a 10 (test `keyword_lists_stay_short`). **Regla de idioma:** se buscan los
+      sinónimos del idioma activo y los ingleses, igual que las etiquetas; los de otro
+      idioma no ("fusionar" no encuentra Añadir PDF con la ventana en inglés). La
+      etiqueta y sus sinónimos van en un mismo texto por idioma, así una consulta
+      puede mezclarlos: "unir pdf" encuentra "Añadir PDF". Ejemplos: "pagina" →
+      Organizar primero, luego Extraer y Dividir; "reducir" → Comprimir; "firma" →
+      las entradas de firma; "merge" → Añadir PDF en los dos idiomas. **Guarda
+      anti-ruido:** "pdf" y "page" en inglés, "pdf" y "pagina" en español devuelven
+      como mucho 8 de 35 entradas. Medido: entre 4 y 7, con las legítimas primero;
+      el resto son coincidencias dispersas que el matcher ya encontraba sin sinónimos
+      ("Export images" contiene p-a-g-e). Ocho deja una entrada de margen y falla en
+      cuanto una lista meta esas palabras en comandos ajenos. El placeholder y el
+      texto sin resultados ya los había puesto T-230 (`palette-search-placeholder`,
+      `palette-no-results`); no faltaba ninguna etiqueta. **Criterio "rotar pagina"
+      sigue abierto:** el catálogo no tiene entrada de rotar (ver T-229) y aquí no se
+      inventa una. Se cerraría con un comando de núcleo "rotar todas las páginas" que
+      la paleta llame igual que un botón. **Rojo → verde:** 7 tests nuevos; contra el
+      código sin sinónimos, 5 fallan y 2 pasan (la guarda anti-ruido y la regla de
+      idioma, que sin sinónimos se cumplen solas); tras ellos, 7/7. Gate en WSL:
+      `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked
+      -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1030 pasan, 0
+      fallan, 1 ignorado**.
 - [ ] T-232 Tabla de atajos compartida (decisión 7): `connect_standard_shortcuts`, la
       paleta y `build_shortcuts_card` leen la misma constante. La tarjeta de Home suma
       Ctrl+K. [PaletteUI]

@@ -935,3 +935,42 @@ palette-search-placeholder = Buscar comandos…
 palette-no-results = Ningún comando coincide.
 palette-nothing-to-undo = No hay nada que deshacer.
 palette-nothing-to-redo = No hay nada que rehacer.
+
+## Command palette search synonyms (B27 T-231): space-separated words a
+## user might type for each command, matched alongside its label.
+
+palette-mode-home-keywords = inicio portada recientes archivos
+palette-mode-edit-keywords = cambiar modificar contenido texto imagen
+palette-mode-annotate-keywords = comentar comentario revisar notas marcar
+palette-mode-organize-keywords = páginas página ordenar reordenar borrar eliminar mover miniaturas
+palette-mode-sign-keywords = firma certificado rellenar formulario
+palette-mode-protect-keywords = contraseña cifrar encriptar bloquear seguridad permisos
+palette-file-open-keywords = cargar documento examinar
+palette-file-new-keywords = crear vacío documento
+palette-file-save-keywords = guardar copia conservar descargar
+palette-file-print-keywords = impresora papel
+palette-edit-undo-keywords = revertir volver atrás cancelar
+palette-edit-redo-keywords = repetir
+palette-edit-find-keywords = buscar búsqueda localizar encontrar texto
+palette-annotate-highlight-keywords = resaltar marcador marcar color amarillo
+palette-annotate-underline-keywords = subrayar línea marcar
+palette-annotate-strikeout-keywords = tachar línea
+palette-annotate-ink-keywords = dibujar lápiz bolígrafo mano alzada
+palette-annotate-note-keywords = comentario comentar adhesiva
+palette-annotate-text-box-keywords = escribir texto libre etiqueta
+palette-annotate-shape-keywords = rectángulo cuadrado círculo elipse línea flecha
+palette-annotate-stamp-keywords = aprobado timbre imagen
+palette-forms-text-keywords = formulario campo entrada
+palette-forms-checkbox-keywords = marcar tilde formulario campo
+palette-forms-radio-group-keywords = opción botón elegir formulario campo
+palette-forms-dropdown-keywords = lista seleccionar desplegable formulario campo opciones
+palette-document-export-images-keywords = exportar imagen imágenes png jpeg foto convertir
+palette-document-watermark-keywords = marca agua sello logo fondo
+palette-document-compress-keywords = reducir tamaño comprimir achicar optimizar
+palette-pages-add-pdfs-keywords = unir combinar fusionar importar insertar
+palette-pages-extract-keywords = páginas página extraer separar selección
+palette-pages-split-keywords = páginas página separar partir cortar
+palette-sign-certificate-file-keywords = firma firmar digital pfx p12
+palette-sign-token-keywords = firma firmar tarjeta inteligente digital
+palette-sign-system-certificate-keywords = firma firmar digital instalado
+palette-sign-draw-keywords = firma firmar manuscrita rúbrica iniciales
