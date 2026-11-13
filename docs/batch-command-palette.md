@@ -1,7 +1,9 @@
 # Ficha de batch B27 — Paleta de comandos (Ctrl+K) en Linux
 
 > Documentado 2026-11-13, a pedido explícito del usuario. Mismo formato de ficha que
-> B24 (compresión) y B26 (web). **No hay código todavía.**
+> B24 (compresión) y B26 (web). **T-228…T-234 cerradas (#578–#583 y el PR de cierre).** Quedan abiertos
+> dos criterios de aceptación: "rotar pagina" y la revisión visual en la app (ver
+> "Criterios de aceptación").
 >
 > Origen del scope: en el roadmap de funciones de Vitela, "Ctrl+K para buscar comandos —
 > acceso rápido a cualquier función" quedó con prioridad Alta. Se arranca por el shell
@@ -471,12 +473,43 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       "Ctrl+O". Gate en WSL: `cargo fmt --all -- --check`, `cargo clippy -p linux-gtk --all-targets --locked -- -D warnings` y `cargo test -p linux-gtk --locked` en verde: **1034 pasan, 0 fallan, 1 ignorado**.)
 
 ### Fase 3 — Pruebas y docs
-- [ ] T-233 Tests `gtk_ui_palette_*` sobre `ui_tests::built_ui()`: Ctrl+K abre en las
+- [x] T-233 Tests `gtk_ui_palette_*` sobre `ui_tests::built_ui()`: Ctrl+K abre en las
       tres pantallas; Esc cierra y el foco vuelve; Enter ejecuta un modo; una entrada
       rechazada por `/P` aparece deshabilitada con el motivo y Enter no hace nada; una
       búsqueda en español sin tildes encuentra su comando. Más la medición de la
       decisión 6. [Palette]
-- [ ] T-234 README: fila de la paleta en la tabla de Linux. [Docs]
+      **(2026-11-13 — cerrada sin código nuevo.** Cada caso llegó con la tarea que lo
+      necesitaba, con TDD, así que esta tarea queda como el mapa de dónde vive cada uno:
+      - Ctrl+K abre en Home, editor y Organize con el foco en el campo:
+        `palette/tests.rs` `gtk_ui_palette_ctrl_k_opens_with_the_cursor_in_the_search_field_on_every_screen`.
+      - Esc cierra, el foco vuelve y el canvas no se mueve:
+        `gtk_ui_palette_escape_hands_the_cursor_back_and_leaves_the_canvas_where_it_was`,
+        `gtk_ui_palette_closing_after_the_previous_widget_left_parks_the_cursor_nowhere`,
+        `gtk_ui_palette_escape_closes_it_first_and_keeps_a_content_selection`.
+      - Enter ejecuta y cierra: `gtk_ui_palette_typing_a_command_and_pressing_enter_runs_it_and_closes`;
+        un modo cae donde cae su botón: `entries/tests.rs` `gtk_ui_running_a_mode_entry_lands_where_its_button_does`.
+      - Rechazo por `/P` visible y Enter sin efecto:
+        `gtk_ui_palette_a_refused_command_shows_why_and_enter_leaves_it_open`,
+        `gtk_ui_an_annotation_refusal_reaches_every_annotation_entry`,
+        `gtk_ui_running_a_refused_annotation_entry_leaves_the_tool_unarmed`,
+        `gtk_ui_running_a_refused_signing_entry_returns_its_refusal`.
+      - Español sin tildes: `gtk_ui_spanish_without_accents_finds_its_commands` y los tests
+        de sinónimos de T-231.
+      - Decisión 6 (Ctrl+K con un campo de texto enfocado):
+        `gtk_ui_palette_ctrl_k_is_resolved_before_a_focused_text_field`. **Es una
+        prueba estructural** (los controladores de atajos de la ventana corren en fase de
+        captura), no una pulsación real; la revisión de T-230 señaló que pasaría aun sin
+        el `Entry` enfocado. Lo que prueba es el orden de fases de GTK, no el foco.
+      - Atajos de portapapeles y deshacer en la paleta y en Buscar: los cinco tests de
+        `shortcuts.rs` de la corrección posterior a T-230.
+      Total de la suite al cerrar: **1034 pasan, 0 fallan, 1 ignorado** (gate de T-232).)
+- [x] T-234 README: fila de la paleta en la tabla de Linux. [Docs]
+      **(2026-11-13 — fila "Command palette (Ctrl+K)" con Linux en 🚧, no ✅**, más un
+      párrafo en "Tools & features". La leyenda del README define ✅ como "hecho y
+      probado", y en este repo eso ha significado usarlo en la app que corre (Android
+      exigió el pase en emulador). La paleta tiene la suite verde, pero nadie la abrió en
+      la app: ni su aspecto en claro y oscuro, ni una pulsación real de Ctrl+K. Pasa a ✅
+      cuando alguien la use en la app.)
 
 ## Criterios de aceptación
 
@@ -489,6 +522,15 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
 - Esc cierra la paleta sin cambiar nada y el canvas no se desplaza.
 - La tarjeta de atajos de Home y la paleta muestran el mismo texto de atajo que el
   registrado en GTK.
+
+**Estado al cerrar (2026-11-13).** Cumplidos y cubiertos por tests: el primero, el
+segundo (modos y herramientas de anotación, por el mismo camino que su botón), el tercero,
+el quinto y el sexto. **Abiertos:**
+- "rotar pagina": no hay un rotar de documento entero al que llamar, solo los botones de
+  cada tarjeta de Organize (nota de T-229). Lo cierra un comando de núcleo "rotar todas
+  las páginas" que la paleta invoque como un botón más.
+- Revisión visual en la app que corre: aspecto en claro y oscuro y una pulsación real de
+  Ctrl+K, también con un campo de texto enfocado (nota de T-234).
 
 ## Fuera de scope (v1)
 
