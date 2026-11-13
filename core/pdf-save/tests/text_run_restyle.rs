@@ -563,3 +563,37 @@ fn a_moved_underlined_run_keeps_one_line_under_it() {
     assert!(saved.look("Hello").underline, "the line went with the run");
     assert_eq!(line_count(&saved), 1);
 }
+
+#[test]
+fn a_selection_holding_an_underlined_run_and_its_line_moves_and_deletes() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    let plain = look(false, false, false);
+    let run = session.run("Hello");
+    session
+        .record(restyle(run, plain, look(false, false, true)))
+        .unwrap();
+    let saved = session.saved();
+    let selection = pdf_edit::Selection {
+        runs: vec![saved.run("Hello")],
+        paths: pdf_save::read_page_content(&saved.base, PageId(0))
+            .unwrap()
+            .paths,
+        ..pdf_edit::Selection::default()
+    };
+    let record = |batch| {
+        let mut session = Session::open(saved.bytes.clone());
+        pdf_save::record_content_batch(
+            &mut session.document,
+            &session.base,
+            ImportedSources::none(),
+            batch,
+        )
+        .map(|()| session.saved())
+    };
+
+    let moved = record(pdf_edit::move_selection(&selection, 30.0, -100.0).unwrap()).unwrap();
+    assert!(moved.look("Hello").underline, "one line, under the run");
+    assert_eq!(line_count(&moved), 1);
+    let removed = record(pdf_edit::remove_selection(&selection).unwrap()).unwrap();
+    assert_eq!(line_count(&removed), 0);
+}
