@@ -1031,6 +1031,16 @@ pub(crate) fn cancel(viewer: &Viewer) {
 /// then the editor may already be gone (committed by a canvas click, which
 /// then dropped the cursor here) or replaced by another one, so it only
 /// commits while `field` is still the open editor's.
+///
+/// A window that stops being the active one fires the same leave, with the
+/// cursor still in the box: GTK keeps the window's focus widget and only
+/// clears its focused state. In the app that commit is load-bearing — the
+/// Save As and Open choosers deactivate the window, and the edit has to be
+/// in the model before they snapshot or replace it. Under test it is noise:
+/// `#[gtk::test]` windows share one desktop, and the compositor (WSLg's,
+/// above all) hands activation between them on its own schedule, closing an
+/// editor a test had just opened. So test builds commit only once the
+/// cursor really is somewhere else.
 pub(super) fn commit_on_focus_leave(viewer: &Viewer, field: glib::WeakRef<gtk::Widget>) {
     let viewer = viewer.clone();
     glib::idle_add_local_full(glib::Priority::HIGH, move || {
@@ -1043,11 +1053,22 @@ pub(super) fn commit_on_focus_leave(viewer: &Viewer, field: glib::WeakRef<gtk::W
                 .and_then(|session| session.content_editor.as_ref())
                 .is_some_and(|editor| editor.field.focus_widget() == field)
         });
-        if open {
+        if open && !(cfg!(test) && holds_the_cursor(&field)) {
             commit(&viewer);
         }
         glib::ControlFlow::Break
     });
+}
+
+/// Whether the window's focus widget is still `field` or inside it — what a
+/// leave leaves behind when it only deactivated the window.
+fn holds_the_cursor(field: &glib::WeakRef<gtk::Widget>) -> bool {
+    field.upgrade().is_some_and(|field| {
+        field
+            .root()
+            .and_then(|root| root.focus())
+            .is_some_and(|focused| focused == field || focused.is_ancestor(&field))
+    })
 }
 
 /// Takes the editor box off the page.
@@ -1628,6 +1649,41 @@ mod tests {
         entry.set_text("Cantidad y mucho texto");
         let after = font_size();
         assert!((after / before - 0.5).abs() < 0.05, "{before} -> {after}");
+    }
+
+    /// Under test, a focus leave that leaves the cursor in the box — what the
+    /// compositor moving activation to another test window sends — does not
+    /// close the editor; a leave that took the cursor elsewhere still does.
+    #[gtk::test]
+    fn gtk_ui_a_leave_that_keeps_the_cursor_in_the_box_keeps_the_box_open() {
+        let fixture = crate::app::content_edit::test_support::Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        viewer.state.borrow_mut().preview_refresh_in_flight = true;
+        open_editor(viewer, 0, fixture.runs[0].clone(), Vec::new());
+        pump();
+        let open_field = || {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .map(|editor| editor.field.focus_widget())
+        };
+        let field = open_field().expect("the editor opened");
+        let weak = field.downgrade();
+        assert!(holds_the_cursor(&weak), "the cursor starts in the box");
+
+        // The leave a deactivation delivers: the focus widget is unchanged.
+        commit_on_focus_leave(viewer, weak.clone());
+        pump();
+        assert_eq!(open_field(), Some(field.clone()), "the box stays open");
+
+        // The cursor really leaves: now the leave commits.
+        gtk::prelude::RootExt::set_focus(&fixture.built.window, None::<&gtk::Widget>);
+        commit_on_focus_leave(viewer, weak);
+        pump();
+        assert_eq!(open_field(), None, "the box closed");
     }
 
     /// Runs the loop dry, for the settling that is not about one widget's size.
