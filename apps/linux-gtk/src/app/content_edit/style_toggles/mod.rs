@@ -162,8 +162,8 @@ struct Target {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Scope {
-    /// A selected block or a multi-selection; no editor is open.
-    Selected,
+    /// A selected block or a multi-selection on the page; no editor is open.
+    CanvasSelection,
     /// Every run of the open editor.
     Editor,
     /// Some of the open editor's runs: the ones its selection covers.
@@ -171,6 +171,13 @@ enum Scope {
     /// The open editor's selection covers no run whole. `runs` are all of
     /// the editor's, for the buttons to show; a press is refused.
     NoWholeRun,
+}
+
+impl Scope {
+    /// Whether the target is the open editor's text, or some of it.
+    fn is_editor(self) -> bool {
+        self != Scope::CanvasSelection
+    }
 }
 
 /// The runs a toggle acts on: the open editor's (those its selection
@@ -206,13 +213,13 @@ fn target_runs(session: &DocumentSession) -> Option<Target> {
     if let Some(selected) = session.selected_text_block.as_ref() {
         return Some(Target {
             runs: runs_of(&selected.run, &selected.block),
-            scope: Scope::Selected,
+            scope: Scope::CanvasSelection,
         });
     }
     let runs = &session.content_selection.as_ref()?.members.runs;
     (!runs.is_empty()).then(|| Target {
         runs: runs.clone(),
-        scope: Scope::Selected,
+        scope: Scope::CanvasSelection,
     })
 }
 
@@ -239,7 +246,7 @@ pub(crate) fn update(viewer: &Viewer) {
             // state, and a read parses the page, which this runs on every
             // selection change. A press reads them all (`record`).
             let states = model::run_states(session, &target.runs[..1])?;
-            Some((model::toggles(&states)?, target.scope != Scope::Selected))
+            Some((model::toggles(&states)?, target.scope.is_editor()))
         });
         match found {
             Some((toggles, editing)) => (Some(toggles), editing),
@@ -319,7 +326,7 @@ fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRe
         return Ok(None);
     };
     if scope == Scope::NoWholeRun {
-        return Err(tr("edit-style-select-whole-words"));
+        return Err(tr("edit-style-select-whole-run"));
     }
     let states = model::run_states(session, &runs).ok_or_else(|| tr("edit-style-unavailable"))?;
     let Some(command) = model::command(&states, style).map_err(tr)? else {

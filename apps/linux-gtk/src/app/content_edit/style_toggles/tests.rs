@@ -209,7 +209,7 @@ fn gtk_ui_a_selection_inside_a_run_is_refused_and_records_nothing() {
     toggle(viewer, Style::Bold);
 
     assert!(entries(viewer).is_empty());
-    assert_eq!(viewer.status.text(), tr("edit-style-select-whole-words"));
+    assert_eq!(viewer.status.text(), tr("edit-style-select-whole-run"));
     crate::app::content_edit::editor::cancel(viewer);
 }
 
