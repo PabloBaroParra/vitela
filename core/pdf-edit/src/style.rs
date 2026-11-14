@@ -171,11 +171,12 @@ fn style_of(located: &LocatedTextRun, base_font: String, look: Look) -> TextRunS
 }
 
 /// What a run's `paint_state` operators set.
-struct PaintState {
-    fill_rgb: [f64; 3],
-    char_spacing: f64,
-    horizontal_scale: f64,
-    render_mode: u8,
+pub(crate) struct PaintState {
+    pub(crate) fill_rgb: [f64; 3],
+    pub(crate) char_spacing: f64,
+    pub(crate) word_spacing: f64,
+    pub(crate) horizontal_scale: f64,
+    pub(crate) render_mode: u8,
 }
 
 impl PaintState {
@@ -183,10 +184,11 @@ impl PaintState {
     /// optional `cs`, one colour operator, then the text state — so a
     /// tokenizer failure can only mean an empty or unusual state, which
     /// reads as the initial one.
-    fn read(paint_state: &[u8]) -> Self {
+    pub(crate) fn read(paint_state: &[u8]) -> Self {
         let mut state = PaintState {
             fill_rgb: [0.0; 3],
             char_spacing: 0.0,
+            word_spacing: 0.0,
             horizontal_scale: 1.0,
             render_mode: 0,
         };
@@ -229,6 +231,7 @@ impl PaintState {
                     }
                 }
                 "Tc" => state.char_spacing = numbers.first().copied().unwrap_or(0.0),
+                "Tw" => state.word_spacing = numbers.first().copied().unwrap_or(0.0),
                 "Tz" => state.horizontal_scale = numbers.first().copied().unwrap_or(100.0) / 100.0,
                 "Tr" => {
                     state.render_mode = numbers

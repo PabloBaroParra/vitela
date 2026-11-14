@@ -645,6 +645,11 @@ fn map_targets(command: Command, map: &mut dyn FnMut(Item) -> Item) -> Command {
             }
         }
         Command::RemoveTextRun(item) => Command::RemoveTextRun(run(item, map)),
+        Command::RestyleTextRun { item, from, to } => Command::RestyleTextRun {
+            item: run(item, map),
+            from,
+            to,
+        },
         Command::MoveTextRun { item, to } => {
             let held = item.bbox;
             let item = run(item, map);
@@ -746,7 +751,8 @@ fn targets(command: &Command) -> Vec<Target<'_>> {
         Command::ReplaceTextRunContent { item, .. }
         | Command::ReplaceTextRunWithInsertedFont { item, .. }
         | Command::RemoveTextRun(item)
-        | Command::MoveTextRun { item, .. } => vec![Target::Run(item)],
+        | Command::MoveTextRun { item, .. }
+        | Command::RestyleTextRun { item, .. } => vec![Target::Run(item)],
         // The run it is styled after; the run it adds is not in any base yet.
         Command::InsertTextRunLike { template, .. } => vec![Target::Run(template)],
         Command::RemoveImage { item, .. }

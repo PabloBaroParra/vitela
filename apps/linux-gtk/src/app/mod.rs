@@ -216,6 +216,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         replace_image: replace_image_button,
         delete_path: delete_path_button,
         add_watermark: add_watermark_button,
+        style_toggles,
         panel: edit_panel,
     } = edit_controls;
 
@@ -433,6 +434,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         add_watermark_button,
         edit_panel,
         content_quick_actions,
+        style_toggles,
         forms: form_field_toolbar,
         choose_signing_certificate,
         choose_pkcs11_certificate,
@@ -520,6 +522,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     annotations::connect_delete_shortcut(application, &window, &viewer);
     content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
     content_edit::block::connect_retype_shortcut(application, &window, &viewer);
+    content_edit::style_toggles::connect(application, &window, &viewer);
     content_edit::clipboard::connect_cut_shortcut(application, &window, &viewer);
     annotations::connect_history_shortcuts(application, &window, &viewer);
     zoom_out.connect_clicked({
@@ -781,6 +784,7 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     content_edit::clipboard::update_cut_action(viewer);
     content_edit::multi::update_clear_action(viewer);
     content_edit::block::update_retype_action(viewer);
+    content_edit::style_toggles::update(viewer);
     // The floating bar offers the same doors, so it follows the same
     // refresh — an inline editor opening or closing reaches only this.
     content_edit::quick_actions::sync(viewer);

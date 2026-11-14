@@ -535,7 +535,45 @@ fn encoded_width(
 /// matrix exactly as far as the deleted glyphs did — without it, everything
 /// after the deletion on that line would slide left, which is reflow, and
 /// reflow is out of scope by decision.
+///
+/// An underline or strikethrough this crate drew under the run goes with it
+/// (see `crate::restyle`).
 pub fn remove_text_run(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &TextRun,
+) -> Result<(), EditError> {
+    with_run_lines(document, page_object, item, None, |document| {
+        remove_run(document, page_object, item)
+    })
+}
+
+/// Applies `edit` to `item`'s run, then takes the run's tagged lines off the
+/// page (`shift` `None`) or moves them by `shift` in page space — all on a
+/// copy that replaces `document` only once everything is written.
+fn with_run_lines(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &TextRun,
+    shift: Option<(f64, f64)>,
+    edit: impl FnOnce(&mut Document) -> Result<(), EditError>,
+) -> Result<(), EditError> {
+    use crate::restyle::decoration;
+    let located = read_located_content(document, page_object)?;
+    let target = resolve_text_run(&located, item)?;
+    let found = decoration::find(&located);
+    let lines = decoration::of_run(&found, target);
+    if lines.is_empty() {
+        return edit(document);
+    }
+    let mut working = document.clone();
+    edit(&mut working)?;
+    decoration::rewrite(&mut working, page_object, &located, &lines, shift)?;
+    *document = working;
+    Ok(())
+}
+
+fn remove_run(
     document: &mut Document,
     page_object: ObjectId,
     item: &TextRun,
@@ -577,7 +615,7 @@ fn removal(target: &crate::parse::interpreter::LocatedTextRun) -> Vec<u8> {
 
 /// Copies only the targeted stream occurrence before editing. `/Contents`
 /// streams can be shared by pages, or repeated within one page's array.
-fn own_page_stream(
+pub(crate) fn own_page_stream(
     document: &mut Document,
     page_object: ObjectId,
     stream_index: usize,
@@ -643,7 +681,22 @@ fn own_page_stream(
 /// (see that variant's own doc), and with [`EditError::MalformedContent`]
 /// when a matrix in the run's own placement collapses to zero area and
 /// cannot be inverted.
+///
+/// An underline or strikethrough this crate drew under the run moves with it
+/// (see `crate::restyle`).
 pub fn move_text_run(
+    document: &mut Document,
+    page_object: ObjectId,
+    item: &TextRun,
+    to: Rect,
+) -> Result<(), EditError> {
+    let shift = (to.x - item.bbox.x, to.y - item.bbox.y);
+    with_run_lines(document, page_object, item, Some(shift), |document| {
+        move_run(document, page_object, item, to)
+    })
+}
+
+fn move_run(
     document: &mut Document,
     page_object: ObjectId,
     item: &TextRun,
@@ -782,7 +835,7 @@ fn bring_run_to_front(
 }
 
 /// `a b c d e f Tm `, trailing space included so operands never run together.
-fn matrix_operator(matrix: Matrix) -> Vec<u8> {
+pub(crate) fn matrix_operator(matrix: Matrix) -> Vec<u8> {
     format!(
         "{} {} {} {} {} {} Tm ",
         format_number(matrix.a),

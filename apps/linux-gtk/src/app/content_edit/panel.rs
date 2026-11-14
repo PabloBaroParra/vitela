@@ -221,6 +221,8 @@ pub(crate) struct EditContent {
     pub(crate) replace_image: Button,
     pub(crate) delete_path: Button,
     pub(crate) add_watermark: Button,
+    /// Bold / italic / underline for the text being edited or selected.
+    pub(crate) style_toggles: super::style_toggles::StyleToggles,
     pub(crate) panel: EditPanel,
 }
 
@@ -286,6 +288,8 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
     text_row.append(&mode);
     text_row.append(&insert_text);
     text_row.append(&delete_text);
+    let (style_toggles, style_row) = super::style_toggles::build();
+    text_row.append(&style_row);
     let text_hint = hint(&tr(NO_TEXT_SELECTED));
     text_card.append(&text_hint);
     root.append(&text_card);
@@ -362,6 +366,7 @@ pub(crate) fn build_edit_content() -> (EditContent, GtkBox) {
             replace_image,
             delete_path,
             add_watermark,
+            style_toggles,
             panel: EditPanel {
                 availability,
                 image_hint,

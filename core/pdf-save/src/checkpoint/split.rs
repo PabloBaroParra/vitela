@@ -60,6 +60,18 @@ fn spread(
             }
             None => vec![Command::ReplaceTextRunContent { item, after }],
         },
+        // Every stretch of the line takes the look the held run asked for.
+        Command::RestyleTextRun { item, from, to } => match line_of(&item) {
+            Some(line) => line
+                .into_iter()
+                .map(|run| Command::RestyleTextRun {
+                    item: run,
+                    from,
+                    to,
+                })
+                .collect(),
+            None => vec![Command::RestyleTextRun { item, from, to }],
+        },
         Command::RemoveTextRun(item) => match line_of(&item) {
             Some(line) => line.into_iter().map(Command::RemoveTextRun).collect(),
             None => vec![Command::RemoveTextRun(item)],

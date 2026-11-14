@@ -71,6 +71,21 @@ pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
     accel: "<Control>k",
 };
 
+/// Bold, italic and underline for the text content-edit mode is on
+/// (`content_edit::style_toggles`).
+pub(crate) const BOLD: Shortcut = Shortcut {
+    action: "content-bold",
+    accel: "<Control>b",
+};
+pub(crate) const ITALIC: Shortcut = Shortcut {
+    action: "content-italic",
+    accel: "<Control>i",
+};
+pub(crate) const UNDERLINE: Shortcut = Shortcut {
+    action: "content-underline",
+    accel: "<Control>u",
+};
+
 impl Shortcut {
     /// The action's detailed name, `win.<action>`.
     pub(crate) fn detailed_action(self) -> String {
@@ -183,7 +198,7 @@ fn sync_search_field_handoff(
 mod tests {
     use super::*;
 
-    const ALL: [Shortcut; 11] = [
+    const ALL: [Shortcut; 14] = [
         OPEN,
         SAVE,
         PRINT,
@@ -195,6 +210,9 @@ mod tests {
         COPY,
         PASTE,
         COMMAND_PALETTE,
+        BOLD,
+        ITALIC,
+        UNDERLINE,
     ];
 
     #[test]

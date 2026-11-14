@@ -42,6 +42,11 @@ impl Selection {
 
 /// Moves every member by `(dx, dy)` points, as one undo step. Each member
 /// keeps its size: only the origin of its destination changes.
+///
+/// Paths go first: a run carries the underline it was given (see
+/// `crate::restyle`), so once the line has moved as a member of its own the
+/// run no longer finds one to carry, and nothing is moved twice — or looked
+/// for where it no longer is. [`remove_selection`] orders them the same way.
 pub fn move_selection(selection: &Selection, dx: f64, dy: f64) -> Option<Command> {
     let shift = |bbox: Rect| Rect {
         x: bbox.x + dx,
@@ -60,7 +65,7 @@ pub fn move_selection(selection: &Selection, dx: f64, dy: f64) -> Option<Command
         item: path.clone(),
         to: shift(path.bbox),
     });
-    batch(runs.chain(images).chain(paths).collect())
+    batch(paths.chain(runs).chain(images).collect())
 }
 
 /// Removes every member, as one undo step.
@@ -71,7 +76,7 @@ pub fn remove_selection(selection: &Selection) -> Option<Command> {
         source: None,
     });
     let paths = selection.paths.iter().cloned().map(Command::RemovePath);
-    batch(runs.chain(images).chain(paths).collect())
+    batch(paths.chain(runs).chain(images).collect())
 }
 
 fn batch(children: Vec<Command>) -> Option<Command> {
@@ -136,6 +141,10 @@ mod tests {
         assert_eq!(
             children,
             [
+                Command::MovePath {
+                    item: path(3),
+                    to: rect(12.0, 12.0),
+                },
                 Command::MoveTextRun {
                     item: run(1, 0),
                     to: rect(17.0, 17.0),
@@ -143,10 +152,6 @@ mod tests {
                 Command::MoveImage {
                     item: image(2),
                     to: rect(107.0, 197.0),
-                },
-                Command::MovePath {
-                    item: path(3),
-                    to: rect(12.0, 12.0),
                 },
             ]
         );
@@ -167,12 +172,12 @@ mod tests {
         assert_eq!(
             children,
             [
+                Command::RemovePath(path(3)),
                 Command::RemoveTextRun(run(1, 0)),
                 Command::RemoveImage {
                     item: image(2),
                     source: None,
                 },
-                Command::RemovePath(path(3)),
             ]
         );
         assert!(children.iter().all(Command::is_batchable));
