@@ -3,6 +3,8 @@
 //! viewer's coalesced render queue — from a snapshot that carries the
 //! annotations the canvas only ever overlays.
 
+use std::sync::Arc;
+
 use crate::app::i18n::{tr, tr_args};
 use gtk::gdk::prelude::GdkCairoContextExt;
 use gtk::prelude::*;
@@ -10,8 +12,10 @@ use gtk::{
     gdk_pixbuf, gio, glib, ApplicationWindow, PrintContext, PrintOperation, PrintOperationAction,
     PrintOperationResult,
 };
+use pdf_manip::LopdfDocument;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderOptions};
 
+use super::content_edit::editor::commit_open_retype;
 use super::document::close_document_in_background;
 use super::render::{raster_dimensions, render_result};
 use super::state::Viewer;
@@ -30,31 +34,31 @@ const PRINT_DPI: u32 = 300;
 /// instead, built on a worker thread before the dialog opens and closed once
 /// the job is done.
 pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
+    if !commit_open_retype(viewer) {
+        return;
+    }
     let source = {
         let state = viewer.state.borrow();
-        state
-            .session
-            .as_ref()
-            .map(|session| (state.generation, OutputSource::of(session)))
+        state.session.as_ref().map(OutputSource::of)
     };
 
     match source {
         None => viewer.status.set_text(&tr("print-open-first")),
-        Some((
-            _,
-            OutputSource::Live {
-                document,
-                page_sizes,
-            },
-        )) => run_print(window, viewer, document, page_sizes),
-        Some((
-            generation,
-            OutputSource::Model {
-                document,
-                backing,
-                sources,
-            },
-        )) => {
+        Some(OutputSource::Live {
+            document,
+            page_sizes,
+        }) => run_print(window, viewer, document, page_sizes),
+        Some(OutputSource::Model {
+            document,
+            backing,
+            sources,
+        }) => {
+            // Which document this print is of: the backing a preview
+            // refresh keeps and an open, a save or a checkpoint replaces.
+            // Not the session generation, which the refresh after the
+            // commit above also bumps, and which would then drop the very
+            // print it was committed for, without a word.
+            let base = Arc::clone(&backing.base);
             viewer.status.set_text(&tr("print-preparing"));
             glib::spawn_future_local({
                 let window = window.clone();
@@ -69,19 +73,19 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
                             // A document opened (or closed) while the
                             // snapshot was being built is not the one the
                             // user asked to print.
-                            if viewer.session_is_generation(generation) {
+                            if prints_the_open_document(&viewer, &base) {
                                 viewer.status.set_text("");
                                 run_print(&window, &viewer, snapshot.document, snapshot.page_sizes);
                             }
                             close_document_in_background(snapshot.document);
                         }
-                        Ok(Err(error)) if viewer.session_is_generation(generation) => {
+                        Ok(Err(error)) if prints_the_open_document(&viewer, &base) => {
                             viewer.status.set_text(&tr_args(
                                 "print-prepare-failed",
                                 &[("error", error.to_string().into())],
                             ))
                         }
-                        Err(_) if viewer.session_is_generation(generation) => {
+                        Err(_) if prints_the_open_document(&viewer, &base) => {
                             viewer.status.set_text(&tr("print-prepare-stopped"))
                         }
                         _ => {}
@@ -90,6 +94,18 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
             });
         }
     }
+}
+
+/// Whether the open session still stands on `base`, the backing a print was
+/// snapshotted from.
+fn prints_the_open_document(viewer: &Viewer, base: &Arc<LopdfDocument>) -> bool {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.save_backing.as_ref())
+        .is_some_and(|backing| Arc::ptr_eq(&backing.base, base))
 }
 
 /// Runs the print dialog over `document`, one page per entry of
@@ -187,4 +203,27 @@ fn draw_print_page(
     cairo.set_source_pixbuf(&pixbuf, 0.0, 0.0);
     let _ = cairo.paint();
     let _ = cairo.restore();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::print_document;
+    use crate::app::content_edit::test_support::OpenRetype;
+    use crate::app::i18n::tr;
+
+    /// Print snapshots the model before any dialog opens, so no focus leave
+    /// ever committed the box for it: the typed text is in the model, and the
+    /// print goes ahead with it.
+    #[gtk::test]
+    fn gtk_ui_print_commits_the_open_retype_before_the_snapshot() {
+        let window = OpenRetype::new();
+        assert!(window.box_open(), "the fixture must leave the box open");
+
+        print_document(window.window(), window.viewer());
+        let status = window.viewer().status.text();
+
+        assert!(!window.box_open(), "the print commits the box");
+        assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);
+        assert_eq!(status, tr("print-preparing"));
+    }
 }

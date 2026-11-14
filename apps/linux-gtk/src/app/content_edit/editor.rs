@@ -913,6 +913,40 @@ pub(crate) fn commit(viewer: &Viewer) {
     }
 }
 
+/// Commits the open retype box, if there is one, ahead of a flow that
+/// snapshots the document (save, print, export, sign, protect, compress,
+/// extract, split) or replaces it (open, close). Returns whether the box is
+/// closed afterwards.
+///
+/// Those flows used to get this commit only by accident: their dialog
+/// deactivated the window, GTK sent the box a focus leave, and
+/// [`commit_on_focus_leave`] recorded the text. Print snapshots before any
+/// dialog, so it never got it at all. Calling this first means none of them
+/// depends on window activation to keep what was typed.
+///
+/// `false` is a retype the core refused: the box stays open holding the
+/// text, and the status line already says why. A write should stop there
+/// rather than write the document without it.
+///
+/// A no-op with no box open — deliberately not [`commit`] then, which would
+/// put a refusal on the status line of a document that may not be edited.
+pub(crate) fn commit_open_retype(viewer: &Viewer) -> bool {
+    if !retype_open(viewer) {
+        return true;
+    }
+    commit(viewer);
+    !retype_open(viewer)
+}
+
+fn retype_open(viewer: &Viewer) -> bool {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .is_some_and(|session| session.content_editor.is_some())
+}
+
 /// Why a run that only exists as an unsaved insertion cannot be deleted
 /// from here, said in terms of what to do instead — only where the session
 /// may not checkpoint (see [`removable`]).

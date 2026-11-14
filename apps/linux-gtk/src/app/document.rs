@@ -202,7 +202,7 @@ fn confirm_replacing_edits(
     viewer: &Viewer,
     proceed: impl Fn() + 'static,
 ) {
-    if !has_unsaved_changes(viewer) {
+    if !has_unsaved_changes_after_commit(viewer) {
         proceed();
         return;
     }
@@ -219,7 +219,7 @@ pub(crate) fn confirm_closing_edits(
     window: &ApplicationWindow,
     viewer: &Viewer,
 ) -> glib::Propagation {
-    if !has_unsaved_changes(viewer) {
+    if !has_unsaved_changes_after_commit(viewer) {
         return glib::Propagation::Proceed;
     }
 
@@ -836,6 +836,17 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
     super::home::apply_pending_tool(viewer);
 }
 
+/// [`has_unsaved_changes`], once an open retype box has been committed.
+///
+/// The box is work too, but it is not in the model until it is committed,
+/// so `unsaved_to_disk` alone cannot see it. Committed first, it counts like
+/// any other edit. One the core refuses stays open with its text and counts
+/// as unsaved by itself: the prompt is what stops that text going with the
+/// document, and only Discard gives it up.
+fn has_unsaved_changes_after_commit(viewer: &Viewer) -> bool {
+    !crate::app::content_edit::editor::commit_open_retype(viewer) || has_unsaved_changes(viewer)
+}
+
 /// Whether the open document carries changes that have not been written to
 /// disk. Read before the session is replaced — see [`show_document`].
 ///
@@ -993,11 +1004,12 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
 #[cfg(test)]
 mod tests {
     use super::{
-        begin_loading, go_to_page, next_form_field_id, open_chosen_file, open_failed, open_initial,
-        page_overlay, prompt_for_password, rendered_field_values, source_name, unsaved_decision,
-        UnsavedDecision, AES128_SAMPLE_PDF, SAMPLE_PDF, UNSAVED_DETAIL_CLOSING,
-        UNSAVED_DETAIL_OPENING,
+        begin_loading, confirm_closing_edits, go_to_page, next_form_field_id, open_chosen_file,
+        open_failed, open_initial, page_overlay, prompt_for_password, rendered_field_values,
+        source_name, unsaved_decision, UnsavedDecision, AES128_SAMPLE_PDF, SAMPLE_PDF,
+        UNSAVED_DETAIL_CLOSING, UNSAVED_DETAIL_OPENING,
     };
+    use crate::app::content_edit::test_support::OpenRetype;
     use crate::app::i18n::{speak, tr, Language};
     use crate::app::state::DocumentSource;
     use crate::app::state::HomeTool;
@@ -1336,6 +1348,62 @@ mod tests {
         );
         let dialog = built.viewer.state.borrow().password_dialog.clone();
         dialog.expect("the prompt is tracked")
+    }
+
+    /// An open box is work the open would replace. It is committed, and the
+    /// commit is what makes the unsaved-changes prompt fire: before, a clean
+    /// document with a box open was replaced without a word unless a dialog
+    /// had already taken the window's activation away.
+    #[gtk::test]
+    fn gtk_ui_opening_another_document_commits_the_open_retype_and_asks() {
+        let window = OpenRetype::new();
+        assert!(window.box_open(), "the fixture must leave the box open");
+        assert!(!window.unsaved_to_disk(), "only the box holds unsaved work");
+
+        open_initial(
+            window.window(),
+            window.viewer(),
+            DocumentSource::Embedded(SAMPLE_PDF),
+        );
+        let status = window.viewer().status.text();
+        window.settle();
+
+        assert!(!window.box_open(), "the open commits the box");
+        assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);
+        assert_ne!(status, tr("open-busy"), "the open must wait on the prompt");
+        assert_eq!(window.dialogs().len(), 1, "the unsaved-changes prompt");
+    }
+
+    /// Closing the window: the same commit, and the close is held for the
+    /// prompt.
+    #[gtk::test]
+    fn gtk_ui_closing_the_window_commits_the_open_retype_and_asks() {
+        let window = OpenRetype::new();
+        assert!(!window.unsaved_to_disk(), "only the box holds unsaved work");
+
+        let propagation = confirm_closing_edits(window.window(), window.viewer());
+        window.settle();
+
+        assert_eq!(propagation, glib::Propagation::Stop);
+        assert!(!window.box_open(), "the close commits the box");
+        assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);
+        assert_eq!(window.dialogs().len(), 1, "the unsaved-changes prompt");
+    }
+
+    /// A box the core refuses cannot be committed, and nothing else marks
+    /// the document dirty — the box itself is the unsaved work, so the close
+    /// still asks rather than dropping the text.
+    #[gtk::test]
+    fn gtk_ui_closing_over_a_refused_retype_still_asks() {
+        let window = OpenRetype::typing("Kőszeg");
+
+        let propagation = confirm_closing_edits(window.window(), window.viewer());
+        window.settle();
+
+        assert_eq!(propagation, glib::Propagation::Stop);
+        assert!(window.box_open(), "the refused box stays open");
+        assert!(!window.unsaved_to_disk());
+        assert_eq!(window.dialogs().len(), 1, "the unsaved-changes prompt");
     }
 
     /// A chooser the user dismissed is the open the tool was armed for ending

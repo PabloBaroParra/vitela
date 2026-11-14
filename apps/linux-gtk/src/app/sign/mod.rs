@@ -997,6 +997,11 @@ fn begin_sign_from_picker(
     if let Some(refusal) = signing_refusal(viewer) {
         return Err(refusal);
     }
+    // Committed so the unsaved check below sees what the box holds: signing
+    // writes `original_bytes`, and would otherwise drop it without asking.
+    if !crate::app::content_edit::editor::commit_open_retype(viewer) {
+        return Err(viewer.status.text().to_string());
+    }
     let request = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {

@@ -103,6 +103,9 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
     let Some(window) = viewer.window() else {
         return;
     };
+    if !crate::app::content_edit::editor::commit_open_retype(viewer) {
+        return;
+    }
     let Some(request) = snapshot(viewer) else {
         return;
     };

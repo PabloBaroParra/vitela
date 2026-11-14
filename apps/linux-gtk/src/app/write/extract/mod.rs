@@ -84,6 +84,9 @@ struct ExtractRequest {
 
 /// Opens the Extract dialog, or says why it cannot.
 pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
+    if !crate::app::content_edit::editor::commit_open_retype(viewer) {
+        return;
+    }
     if let Some(refusal) = viewer.text_extraction_refusal() {
         viewer.status.set_text(&refusal);
         return;
