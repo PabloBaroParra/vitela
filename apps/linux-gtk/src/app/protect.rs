@@ -94,6 +94,9 @@ pub(crate) fn begin_protect(viewer: &Viewer) {
     let Some(window) = viewer.window() else {
         return;
     };
+    if !crate::app::content_edit::editor::commit_open_retype(viewer) {
+        return;
+    }
     if let Some(refusal) = protection_refusal(viewer) {
         viewer.status.set_text(&refusal);
         return;

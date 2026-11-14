@@ -74,6 +74,9 @@ pub(crate) fn begin_export(viewer: &Viewer) {
     let Some(window) = viewer.window() else {
         return;
     };
+    if !crate::app::content_edit::editor::commit_open_retype(viewer) {
+        return;
+    }
     if let Some(refusal) = viewer.text_extraction_refusal() {
         viewer.status.set_text(&refusal);
         return;
@@ -165,6 +168,22 @@ mod tests {
     use crate::app::test_fixtures::model_session;
     use crate::app::ui_tests::built_ui;
     use pdf_document::Document;
+
+    /// The export dialog snapshots nothing itself, but the model it is
+    /// confirmed against must already hold what an open box was showing.
+    #[gtk::test]
+    fn gtk_ui_export_commits_the_open_retype_before_its_dialog() {
+        let window = crate::app::content_edit::test_support::OpenRetype::new();
+        assert!(window.box_open(), "the fixture must leave the box open");
+
+        begin_export(window.viewer());
+
+        assert!(!window.box_open(), "the export commits the box");
+        assert_eq!(
+            window.saved_texts(),
+            [crate::app::content_edit::test_support::OpenRetype::TYPED]
+        );
+    }
 
     /// The gate a cold start hits. The button is insensitive with no document
     /// open, but the accelerator-free path through `begin_export` must still

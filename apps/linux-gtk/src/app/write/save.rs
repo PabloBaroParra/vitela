@@ -19,6 +19,7 @@ use super::super::state::{
 use super::chooser::{choose_destination, confirm_signature_loss};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{imported_sources, SAVE};
+use crate::app::content_edit::editor::commit_open_retype;
 use crate::app::i18n::tr;
 
 /// Lets the user choose a destination, then persists a snapshot of the current
@@ -35,6 +36,9 @@ pub(crate) fn show_save_chooser_then(
     viewer: &Viewer,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
+    if !commit_open_retype(viewer) {
+        return;
+    }
     choose_destination(
         window,
         viewer,
@@ -183,4 +187,44 @@ fn save_snapshot_and_reopen(
         backing.password.as_deref(),
     )
     .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::show_save_chooser;
+    use crate::app::content_edit::test_support::OpenRetype;
+
+    /// Ctrl+S, the toolbar's Save and the unsaved-changes prompt's Save all
+    /// start here. The text in an open box is in the model before the chooser
+    /// is even raised, rather than only once its dialog happens to take the
+    /// window's activation away.
+    #[gtk::test]
+    fn gtk_ui_save_commits_the_open_retype_before_the_chooser() {
+        let window = OpenRetype::new();
+        assert!(window.box_open(), "the fixture must leave the box open");
+
+        show_save_chooser(window.window(), window.viewer());
+
+        assert!(!window.box_open(), "the save commits the box");
+        assert!(window.unsaved_to_disk());
+        assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);
+    }
+
+    /// A retype the core refuses stays open with its text, and the save stops
+    /// there: writing the document without it would lose what was typed.
+    #[gtk::test]
+    fn gtk_ui_save_stops_at_a_refused_retype() {
+        let window = OpenRetype::typing("Kőszeg");
+
+        show_save_chooser(window.window(), window.viewer());
+        let status = window.viewer().status.text();
+        window.settle();
+
+        assert!(window.box_open(), "the refused box stays open");
+        assert!(
+            status.contains("cannot represent"),
+            "the refusal is said: {status:?}"
+        );
+        assert!(window.dialogs().is_empty(), "no chooser was raised");
+    }
 }
