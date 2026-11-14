@@ -308,3 +308,37 @@ fn gtk_ui_a_refresh_after_another_edit_does_not_bring_the_block_back() {
         .selected_text_block
         .is_none());
 }
+
+#[gtk::test]
+fn gtk_ui_a_partial_selection_of_edited_text_asks_for_the_edit_to_be_committed() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    {
+        let state = viewer.state.borrow();
+        let editor = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .expect("the editor is open");
+        let crate::app::state::EditorField::Paragraph { view, .. } = &editor.field else {
+            panic!("the fixture's block is a paragraph");
+        };
+        let buffer = view.buffer();
+        buffer.insert(&mut buffer.start_iter(), "X");
+    }
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    assert!(entries(viewer).is_empty(), "nothing restyled");
+    assert_eq!(viewer.status.text(), tr("edit-style-commit-edit-first"));
+    crate::app::content_edit::editor::cancel(viewer);
+}

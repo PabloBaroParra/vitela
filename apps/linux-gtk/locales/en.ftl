@@ -216,6 +216,7 @@ edit-style-bold-fixed = This text's font is bold and the page has no regular ver
 edit-style-italic-fixed = This text's font is italic and the page has no upright version of it, so it cannot be made upright
 edit-style-unavailable = The style of this text cannot be read — save the document before restyling it.
 edit-style-select-whole-run = The selection splits text that is styled as one piece. Select all of that piece to restyle it.
+edit-style-commit-edit-first = The text was changed. Commit the edit first, then select the part to restyle.
 edit-text-restyled = Text style changed.
 edit-insert-image = Insert image
 edit-insert-image-tooltip = Click the page to insert a picture

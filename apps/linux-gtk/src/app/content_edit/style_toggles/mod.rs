@@ -12,7 +12,9 @@
 //! With text selected in the open editor, only the runs the selection
 //! covers whole are restyled (`selection`): the core restyles whole runs,
 //! so a selection inside a run is refused rather than rounded out. A caret
-//! alone, or the whole text selected, restyles every run.
+//! alone, or the whole text selected, restyles every run. Once the reader
+//! has typed in the editor its runs can no longer be found in its text, so
+//! a selection of part of it is refused until the edit is committed.
 //!
 //! While the editor is open a press keeps it open — the buttons refuse the
 //! focus a click would give them, like "Delete text". When every run was
@@ -171,6 +173,10 @@ enum Scope {
     /// The open editor's selection covers no run whole. `runs` are all of
     /// the editor's, for the buttons to show; a press is refused.
     NoWholeRun,
+    /// Part of the open editor's text is selected, but the reader has typed
+    /// in it, so the runs under the selection cannot be told; `runs` as
+    /// for `NoWholeRun`.
+    TextEdited,
 }
 
 impl Scope {
@@ -190,8 +196,12 @@ fn target_runs(session: &DocumentSession) -> Option<Target> {
         }
         let runs = runs_of(&editor.run, &editor.block);
         let texts: Vec<&str> = runs.iter().map(|run| run.text.as_str()).collect();
-        let selected =
-            selection::selected_runs(&editor.field.text(), &texts, editor.field.selection());
+        let selected = selection::selected_runs(
+            &editor.field.text(),
+            &editor.run.text,
+            &texts,
+            editor.field.selection(),
+        );
         return Some(match selected {
             selection::Selected::Whole => Target {
                 runs,
@@ -207,6 +217,10 @@ fn target_runs(session: &DocumentSession) -> Option<Target> {
             selection::Selected::NoWholeRun => Target {
                 runs,
                 scope: Scope::NoWholeRun,
+            },
+            selection::Selected::TextEdited => Target {
+                runs,
+                scope: Scope::TextEdited,
             },
         });
     }
@@ -325,8 +339,10 @@ fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRe
     let Some(Target { runs, scope }) = target_runs(session) else {
         return Ok(None);
     };
-    if scope == Scope::NoWholeRun {
-        return Err(tr("edit-style-select-whole-run"));
+    match scope {
+        Scope::NoWholeRun => return Err(tr("edit-style-select-whole-run")),
+        Scope::TextEdited => return Err(tr("edit-style-commit-edit-first")),
+        _ => {}
     }
     let states = model::run_states(session, &runs).ok_or_else(|| tr("edit-style-unavailable"))?;
     let Some(command) = model::command(&states, style).map_err(tr)? else {

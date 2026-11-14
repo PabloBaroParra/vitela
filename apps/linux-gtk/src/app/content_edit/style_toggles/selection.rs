@@ -9,6 +9,12 @@
 //! text in turn, where the previous one ended or after the whitespace that
 //! follows it.
 //!
+//! Runs are found by position, so that only holds for the text the editor
+//! opened with. Once the reader has typed, a run's text can stand anywhere
+//! — or twice — and nothing says which characters were the run's: a
+//! selection of part of edited text is refused until the edit is
+//! committed, and only a caret or the whole text still means every run.
+//!
 //! A run counts only when the selection covers all of it. Whitespace at
 //! either end of the selection or of a run does not count, so "Referencia:"
 //! selected with or without the line break after it is the same selection.
@@ -24,16 +30,20 @@ pub(crate) enum Selected {
     Runs(Vec<usize>),
     /// A selection that covers no run whole.
     NoWholeRun,
+    /// A selection of part of a text the reader has edited.
+    TextEdited,
 }
 
 /// The runs of `runs` (their texts, in the block's order) that `selection`
-/// covers in `text`, the editor's text. `selection` is a pair of character
-/// offsets, in either order; `None` or an empty pair is a caret.
+/// covers in `text`, the editor's text; `original` is the text it opened
+/// with, the runs as the core joined them. `selection` is a pair of
+/// character offsets, in either order; `None` or an empty pair is a caret.
 ///
-/// A run that cannot be found where it should be — the reader retyped it —
-/// and every run after it count as not covered.
+/// A run that cannot be found where it should be, and every run after it,
+/// count as not covered.
 pub(crate) fn selected_runs(
     text: &str,
+    original: &str,
     runs: &[&str],
     selection: Option<(usize, usize)>,
 ) -> Selected {
@@ -49,6 +59,9 @@ pub(crate) fn selected_runs(
     };
     if trim(&chars, (0, chars.len())).is_some_and(|all| contains(selected, all)) {
         return Selected::Whole;
+    }
+    if text != original {
+        return Selected::TextEdited;
     }
     let covered: Vec<usize> = locate(&chars, runs)
         .into_iter()
@@ -129,11 +142,11 @@ mod tests {
     #[test]
     fn a_caret_or_no_selection_is_the_whole_block() {
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, None),
+            selected_runs(PARAGRAPH, PARAGRAPH, &PARAGRAPH_RUNS, None),
             Selected::Whole
         );
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, Some((5, 5))),
+            selected_runs(PARAGRAPH, PARAGRAPH, &PARAGRAPH_RUNS, Some((5, 5))),
             Selected::Whole
         );
     }
@@ -142,11 +155,11 @@ mod tests {
     fn the_whole_text_selected_is_the_whole_block() {
         let all = PARAGRAPH.chars().count();
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, Some((0, all))),
+            selected_runs(PARAGRAPH, PARAGRAPH, &PARAGRAPH_RUNS, Some((0, all))),
             Selected::Whole
         );
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, Some((all, 0))),
+            selected_runs(PARAGRAPH, PARAGRAPH, &PARAGRAPH_RUNS, Some((all, 0))),
             Selected::Whole,
             "selected backwards"
         );
@@ -157,11 +170,11 @@ mod tests {
         let text = "Hello world";
         let runs = ["Hello", "world"];
         assert_eq!(
-            selected_runs(text, &runs, Some(span_of(text, "world"))),
+            selected_runs(text, text, &runs, Some(span_of(text, "world"))),
             Selected::Runs(vec![1])
         );
         assert_eq!(
-            selected_runs(text, &runs, Some(span_of(text, "Hello"))),
+            selected_runs(text, text, &runs, Some(span_of(text, "Hello"))),
             Selected::Runs(vec![0])
         );
     }
@@ -171,6 +184,7 @@ mod tests {
         assert_eq!(
             selected_runs(
                 PARAGRAPH,
+                PARAGRAPH,
                 &PARAGRAPH_RUNS,
                 Some(span_of(PARAGRAPH, "Referencia:"))
             ),
@@ -178,6 +192,7 @@ mod tests {
         );
         assert_eq!(
             selected_runs(
+                PARAGRAPH,
                 PARAGRAPH,
                 &PARAGRAPH_RUNS,
                 Some(span_of(PARAGRAPH, "PRESUPUESTO Nº 3.725/1"))
@@ -191,7 +206,12 @@ mod tests {
     fn whitespace_around_the_selection_does_not_count() {
         let (start, end) = span_of(PARAGRAPH, "Referencia:");
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, Some((start - 1, end))),
+            selected_runs(
+                PARAGRAPH,
+                PARAGRAPH,
+                &PARAGRAPH_RUNS,
+                Some((start - 1, end))
+            ),
             Selected::Runs(vec![2]),
             "with the line break before it"
         );
@@ -199,12 +219,12 @@ mod tests {
         let runs = ["Referencia: ", "next"];
         let (start, end) = span_of(text, "Referencia:");
         assert_eq!(
-            selected_runs(text, &runs, Some((start, end + 2))),
+            selected_runs(text, text, &runs, Some((start, end + 2))),
             Selected::Runs(vec![0]),
             "with the trailing space and line break"
         );
         assert_eq!(
-            selected_runs(text, &runs, Some((start, end))),
+            selected_runs(text, text, &runs, Some((start, end))),
             Selected::Runs(vec![0]),
             "without the run's own trailing space"
         );
@@ -215,13 +235,19 @@ mod tests {
         assert_eq!(
             selected_runs(
                 PARAGRAPH,
+                PARAGRAPH,
                 &PARAGRAPH_RUNS,
                 Some(span_of(PARAGRAPH, "Refer"))
             ),
             Selected::NoWholeRun
         );
         assert_eq!(
-            selected_runs(PARAGRAPH, &PARAGRAPH_RUNS, Some(span_of(PARAGRAPH, "\n"))),
+            selected_runs(
+                PARAGRAPH,
+                PARAGRAPH,
+                &PARAGRAPH_RUNS,
+                Some(span_of(PARAGRAPH, "\n"))
+            ),
             Selected::NoWholeRun,
             "only whitespace"
         );
@@ -232,6 +258,7 @@ mod tests {
         assert_eq!(
             selected_runs(
                 PARAGRAPH,
+                PARAGRAPH,
                 &PARAGRAPH_RUNS,
                 Some(span_of(PARAGRAPH, "3.725/1\nRefer"))
             ),
@@ -240,15 +267,62 @@ mod tests {
     }
 
     #[test]
-    fn a_retyped_run_and_the_runs_after_it_are_not_covered() {
-        let text = "PRESUPUESTO Nº 9/1\nReferencia:";
+    fn a_partial_selection_of_edited_text_is_refused() {
+        // "B" stands where the original "B" no longer is: the reader typed
+        // a letter in front of it, so no run can be told apart by its text.
         assert_eq!(
-            selected_runs(text, &PARAGRAPH_RUNS, Some(span_of(text, "Referencia:"))),
-            Selected::NoWholeRun
+            selected_runs("AB B", "A B", &["A", "B"], Some((1, 2))),
+            Selected::TextEdited
+        );
+        let text = "PRESUPUESTO Nº 9/1
+Referencia:";
+        assert_eq!(
+            selected_runs(
+                text,
+                PARAGRAPH,
+                &PARAGRAPH_RUNS,
+                Some(span_of(text, "PRESUPUESTO Nº"))
+            ),
+            Selected::TextEdited,
+            "even a run the edit left alone"
+        );
+    }
+
+    #[test]
+    fn edited_text_with_a_caret_or_all_of_it_selected_is_the_whole_block() {
+        assert_eq!(
+            selected_runs("AB B", "A B", &["A", "B"], Some((2, 2))),
+            Selected::Whole
         );
         assert_eq!(
-            selected_runs(text, &PARAGRAPH_RUNS, Some(span_of(text, "PRESUPUESTO Nº"))),
+            selected_runs("AB B", "A B", &["A", "B"], Some((0, 4))),
+            Selected::Whole
+        );
+    }
+
+    #[test]
+    fn repeated_run_texts_are_told_apart_by_position() {
+        let spaced = "B B";
+        assert_eq!(
+            selected_runs(spaced, spaced, &["B", "B"], Some((2, 3))),
+            Selected::Runs(vec![1])
+        );
+        assert_eq!(
+            selected_runs(spaced, spaced, &["B", "B"], Some((0, 1))),
             Selected::Runs(vec![0])
+        );
+        let joined = "BB";
+        assert_eq!(
+            selected_runs(joined, joined, &["B", "B"], Some((1, 2))),
+            Selected::Runs(vec![1])
+        );
+        let lines = "B
+B
+B";
+        assert_eq!(
+            selected_runs(lines, lines, &["B", "B", "B"], Some((2, 3))),
+            Selected::Runs(vec![1]),
+            "the middle line of three"
         );
     }
 }
