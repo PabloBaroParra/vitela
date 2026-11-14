@@ -248,6 +248,8 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
             focus_without_scrolling(&viewer.scroll, view);
         }
     }
+    // What the toggles show narrows to the runs the selection covers.
+    super::style_toggles::follow_editor_selection(viewer, &field);
     // The Edit page's "Delete text" is gated on exactly this editor being
     // open over an existing run, so the page learns about it here — the
     // image card's controls are refreshed the same way from every

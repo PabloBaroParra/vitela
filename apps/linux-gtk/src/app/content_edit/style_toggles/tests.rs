@@ -342,3 +342,48 @@ fn gtk_ui_a_partial_selection_of_edited_text_asks_for_the_edit_to_be_committed()
     assert_eq!(viewer.status.text(), tr("edit-style-commit-edit-first"));
     crate::app::content_edit::editor::cancel(viewer);
 }
+
+#[gtk::test]
+fn gtk_ui_moving_the_editor_selection_refreshes_the_buttons() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    let first = fixture.runs[0].clone();
+    let italic = pdf_document::TextRunLook {
+        italic: true,
+        ..pdf_document::TextRunLook::default()
+    };
+    {
+        let mut state = viewer.state.borrow_mut();
+        let session = state.session.as_mut().expect("a session");
+        super::command::record(
+            session,
+            Command::RestyleTextRun {
+                item: first,
+                from: pdf_document::TextRunLook::default(),
+                to: italic,
+            },
+        )
+        .expect("the first line is made italic");
+    }
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    update(viewer);
+    assert!(
+        viewer.style_toggles.italic.is_active(),
+        "the whole block shows its first line, which is italic"
+    );
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+
+    select_in_editor(viewer, &second.text);
+
+    assert!(
+        !viewer.style_toggles.italic.is_active(),
+        "the selected second line is not italic"
+    );
+    crate::app::content_edit::editor::cancel(viewer);
+}

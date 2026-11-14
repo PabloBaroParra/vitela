@@ -28,6 +28,7 @@
 //! the page, cannot be taken off: the button stays pressed and insensitive,
 //! with a tooltip saying why, rather than faking a regular face.
 
+mod follow;
 mod model;
 mod reselect;
 mod selection;
@@ -39,10 +40,11 @@ use pdf_document::TextRun;
 use crate::app::annotations;
 use crate::app::i18n::tr;
 use crate::app::shortcuts::{self, Shortcut};
-use crate::app::state::{DocumentSession, Viewer};
+use crate::app::state::{DocumentSession, Viewer, ViewerState};
 use crate::app::write::refresh_preview;
 
 use super::{command, editor};
+pub(crate) use follow::wire as follow_editor_selection;
 pub(crate) use model::Style;
 pub(crate) use reselect::restore as restore_selection;
 
@@ -54,6 +56,9 @@ pub(crate) struct StyleToggles {
     pub(crate) underline: ToggleButton,
     /// The selected block to select again once a toggle's refresh lands.
     reselect: reselect::Pending,
+    /// What the buttons were last drawn for (`update`), so a moved editor
+    /// selection redraws them only when it changes the target (`follow`).
+    shown: follow::Shown,
 }
 
 impl StyleToggles {
@@ -124,6 +129,7 @@ pub(crate) fn build() -> (StyleToggles, GtkBox) {
             &tr("edit-style-underline-tooltip"),
         ),
         reselect: reselect::Pending::default(),
+        shown: follow::Shown::default(),
     };
     (toggles, row)
 }
@@ -237,6 +243,15 @@ fn target_runs(session: &DocumentSession) -> Option<Target> {
     })
 }
 
+/// The target the buttons show, when content-edit mode may restyle at all.
+fn shown_target(state: &ViewerState) -> Option<Target> {
+    let session = state.session.as_ref()?;
+    if !state.content_edit_mode || session.content_edit_access.refusal().is_some() {
+        return None;
+    }
+    target_runs(session)
+}
+
 /// A block's runs, or the run standing alone.
 fn runs_of(run: &TextRun, block: &[TextRun]) -> Vec<TextRun> {
     if block.is_empty() {
@@ -251,11 +266,13 @@ fn runs_of(run: &TextRun, block: &[TextRun]) -> Vec<TextRun> {
 pub(crate) fn update(viewer: &Viewer) {
     let (toggles, editing) = {
         let state = viewer.state.borrow();
-        let found = state.session.as_ref().and_then(|session| {
-            if !state.content_edit_mode || session.content_edit_access.refusal().is_some() {
-                return None;
-            }
-            let target = target_runs(session)?;
+        let target = shown_target(&state);
+        viewer
+            .style_toggles
+            .shown
+            .set(target.as_ref().map(follow::key));
+        let found = target.and_then(|target| {
+            let session = state.session.as_ref()?;
             // The first targeted run only: what the buttons show is its
             // state, and a read parses the page, which this runs on every
             // selection change. A press reads them all (`record`).
