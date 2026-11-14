@@ -193,12 +193,14 @@ pub(crate) fn open_at(paned: &Paned, column: Column, width: i32) {
             if let Some(id) = handler.take() {
                 paned.disconnect(id);
             }
-            // Deferred: this notify fires from inside the `Paned`'s own size
-            // allocation, and moving its divider there re-enters it.
-            let paned = paned.clone();
-            gtk::glib::idle_add_local_once(move || {
-                paned.set_position(column.position_for(width, paned.width()));
-            });
+            // Not deferred. This notify fires inside the `Paned`'s first
+            // allocation, after it has measured but before it hands its
+            // children their widths — so setting the divider here lands in
+            // that same allocation. An idle would let one layout go out at
+            // the wrong split and then move the divider under it: the canvas
+            // refits, and anything already placed on a page (an open retype
+            // box) is left at the old scale.
+            paned.set_position(column.position_for(width, paned.width()));
         }
     });
     handler.set(Some(id));
