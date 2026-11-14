@@ -44,11 +44,20 @@ pub(super) fn key(target: &Target) -> Key {
 /// The key the buttons were last drawn for; `None` when they show no
 /// target. Shared by every clone of the toggles.
 #[derive(Clone, Default)]
-pub(crate) struct Shown(Rc<Cell<Option<Key>>>);
+pub(crate) struct Shown {
+    key: Rc<Cell<Option<Key>>>,
+    /// Whether a look once the state's borrow is over is already queued.
+    retry: Rc<Cell<bool>>,
+}
 
 impl Shown {
     pub(super) fn set(&self, key: Option<Key>) {
-        self.0.set(key);
+        self.key.set(key);
+    }
+
+    #[cfg(test)]
+    pub(super) fn retry_pending(&self) -> bool {
+        self.retry.get()
     }
 }
 
@@ -66,7 +75,8 @@ pub(crate) fn wire(viewer: &Viewer, field: &EditorField) {
             });
         }
         EditorField::Paragraph { view, .. } => {
-            view.buffer().connect_mark_set({
+            let buffer = view.buffer();
+            buffer.connect_mark_set({
                 let viewer = viewer.clone();
                 move |buffer, _, mark| {
                     if *mark == buffer.get_insert() || *mark == buffer.selection_bound() {
@@ -74,22 +84,37 @@ pub(crate) fn wire(viewer: &Viewer, field: &EditorField) {
                     }
                 }
             });
+            // Typing carries the caret along without setting a mark, and
+            // the first character typed turns a partial selection into
+            // `Scope::TextEdited`.
+            buffer.connect_changed({
+                let viewer = viewer.clone();
+                move |_| selection_moved(&viewer)
+            });
         }
     }
 }
 
 /// Redraws the buttons when the target they would show is not the one they
 /// show. A move made while the state is borrowed for writing (the editor
-/// being set up or torn down) is looked at once that borrow is over.
+/// being set up or torn down) is looked at once that borrow is over: one
+/// look for however many moves were made meanwhile — a caret move alone
+/// notifies twice, the caret and the selection bound.
 fn selection_moved(viewer: &Viewer) {
     let Ok(state) = viewer.state.try_borrow() else {
-        let viewer = viewer.clone();
-        glib::idle_add_local_once(move || selection_moved(&viewer));
+        let retry = &viewer.style_toggles.shown.retry;
+        if !retry.replace(true) {
+            let viewer = viewer.clone();
+            glib::idle_add_local_once(move || {
+                viewer.style_toggles.shown.retry.set(false);
+                selection_moved(&viewer);
+            });
+        }
         return;
     };
     let now = super::shown_target(&state).as_ref().map(key);
     drop(state);
-    if now != viewer.style_toggles.shown.0.get() {
+    if now != viewer.style_toggles.shown.key.get() {
         super::update(viewer);
     }
 }
