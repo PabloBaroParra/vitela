@@ -16,13 +16,17 @@
 //! has typed in the editor its runs can no longer be found in its text, so
 //! a selection of part of it is refused until the edit is committed.
 //!
-//! While the editor is open a press keeps it open — the buttons refuse the
-//! focus a click would give them, like "Delete text". When every run was
-//! restyled the editor is redrawn in the new weight and slant, so the reader
-//! sees what they typed in the face it will be saved in. When only some
-//! were, it keeps its face: the camouflage draws the whole field in one face
-//! (a stylesheet, not a per-character tag), and slanting all of it would
-//! show a restyle that is not the one recorded.
+//! When every run of the open editor was restyled it stays open — the
+//! buttons refuse the focus a click would give them, like "Delete text" —
+//! and is redrawn in the new weight and slant, so the reader sees what they
+//! typed in the face it will be saved in. When only some were, it closes
+//! and leaves its block selected. It could not show that restyle (the
+//! camouflage draws the whole field in one face, a stylesheet and not a
+//! per-character tag), and a retype committed from it afterwards would drop
+//! it: the core rewrites a retyped block line by line in each line's first
+//! font (`pdf_edit::retype_block`). Its text is unchanged by then — a
+//! partial selection of edited text is refused — so closing it loses
+//! nothing.
 //!
 //! A bold (or italic) that is the run's own font, with no regular sibling on
 //! the page, cannot be taken off: the button stays pressed and insensitive,
@@ -43,7 +47,7 @@ use crate::app::shortcuts::{self, Shortcut};
 use crate::app::state::{DocumentSession, Viewer, ViewerState};
 use crate::app::write::refresh_preview;
 
-use super::{command, editor};
+use super::{block, command, editor};
 pub(crate) use follow::wire as follow_editor_selection;
 pub(crate) use model::Style;
 pub(crate) use reselect::restore as restore_selection;
@@ -312,9 +316,9 @@ pub(crate) fn update(viewer: &Viewer) {
     }
 }
 
-/// Turns `style` on or off for the target, recording the restyle; the open
-/// editor, if any, stays open, and is redrawn in the new face when every
-/// one of its runs was restyled.
+/// Turns `style` on or off for the target, recording the restyle. An open
+/// editor whose every run was restyled stays open, redrawn in the new face;
+/// one with only some restyled closes, leaving its block selected.
 pub(crate) fn toggle(viewer: &Viewer, style: Style) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(&refusal);
@@ -329,13 +333,23 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
         record(session, style)
     };
     match outcome {
-        Ok(Some(restyled)) => {
+        Ok(Some(Recorded { restyle, close })) => {
+            // Its text is the text it opened with, so the commit `select`
+            // starts with closes it without recording anything.
+            if let Some(Close {
+                page_index,
+                run,
+                block,
+            }) = close
+            {
+                block::select(viewer, page_index, run, block);
+            }
             // The refresh drops the selected block; it is selected again
             // when the refresh lands, so the next toggle stacks on this one.
             if let Some(session) = viewer.state.borrow().session.as_ref() {
                 viewer.style_toggles.reselect.remember(session);
             }
-            if let Some((provider, css)) = restyled {
+            if let Some((provider, css)) = restyle {
                 provider.load_from_data(&css);
                 editor::refit(viewer);
             }
@@ -351,8 +365,22 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
 /// changed.
 type EditorRestyle = Option<(gtk::CssProvider, String)>;
 
+/// The open editor a restyle of only some of its runs closes, and the block
+/// left selected in its place.
+struct Close {
+    page_index: usize,
+    run: TextRun,
+    block: Vec<TextRun>,
+}
+
+/// What a recorded press leaves for the widgets to do.
+struct Recorded {
+    restyle: EditorRestyle,
+    close: Option<Close>,
+}
+
 /// Records the press on `session`: `Ok(None)` when there was nothing to do.
-fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRestyle>, String> {
+fn record(session: &mut DocumentSession, style: Style) -> Result<Option<Recorded>, String> {
     let Some(Target { runs, scope }) = target_runs(session) else {
         return Ok(None);
     };
@@ -382,7 +410,15 @@ fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRe
                 .restyle_face(face.bold, face.italic)
         })
         .flatten();
-    Ok(Some(restyle))
+    let close = (scope == Scope::EditorSelection)
+        .then_some(session.content_editor.as_ref())
+        .flatten()
+        .map(|editor| Close {
+            page_index: editor.page_index,
+            run: editor.run.clone(),
+            block: editor.block.clone(),
+        });
+    Ok(Some(Recorded { restyle, close }))
 }
 
 #[cfg(test)]

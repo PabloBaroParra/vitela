@@ -182,19 +182,52 @@ fn gtk_ui_a_press_while_retyping_restyles_only_the_selected_line() {
     };
     assert_eq!(restyled_ids(step), [second.id], "only the second line");
     assert!(restyles(step).iter().all(|(_, to)| to.italic));
-    let state = viewer.state.borrow();
-    let editor = state
-        .session
-        .as_ref()
-        .and_then(|session| session.content_editor.as_ref())
-        .expect("the editor is still open");
-    let look = &editor.camouflage.as_ref().expect("camouflaged").look;
+}
+
+#[gtk::test]
+fn gtk_ui_a_partial_restyle_closes_the_editor_and_keeps_the_block_selected() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    {
+        let state = viewer.state.borrow();
+        let session = state.session.as_ref().expect("a session");
+        assert!(
+            session.content_editor.is_none(),
+            "closed, so no later retype of the block can drop the restyle"
+        );
+        let selected = session
+            .selected_text_block
+            .as_ref()
+            .expect("the block stays selected");
+        assert_eq!(selected.block.len(), fixture.runs.len());
+    }
+    assert_eq!(entries(viewer).len(), 1, "the restyle and nothing else");
+
+    land_refresh(viewer);
+
     assert!(
-        !look.font.italic,
-        "the editor keeps one face, so it is not slanted for part of its text"
+        viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("a session")
+            .selected_text_block
+            .is_some(),
+        "selected again once the refresh lands"
     );
-    drop(state);
-    crate::app::content_edit::editor::cancel(viewer);
 }
 
 #[gtk::test]
