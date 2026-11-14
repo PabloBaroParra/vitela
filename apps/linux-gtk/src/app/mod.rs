@@ -77,6 +77,9 @@ const APPLICATION_ID: &str = "org.vitela.Pdf";
 /// Vertical gap between stacked page widgets. Shared by the page box in
 /// [`build_ui`] and the geometry walks in `layout` that must mirror it.
 pub(crate) const PAGE_GAP: i32 = 12;
+/// How wide the tools column opens, in logical pixels. Never forced: a panel
+/// whose controls need more still gets it, since a narrower column folds.
+const TOOLS_PANEL_WIDTH: i32 = 360;
 
 /// Private construction result shared by production startup and crate-local GTK tests.
 #[derive(Clone)]
@@ -330,7 +333,9 @@ fn build_ui(application: &Application) -> BuiltUi {
     // `side_panel::connect` explains why `shrink_*_child` must stay `true`.
     canvas_tools_paned.set_resize_start_child(true);
     canvas_tools_paned.set_resize_end_child(false);
-    canvas_tools_paned.set_position(500);
+    // The tools column's opening width, from its own (right) edge — a start
+    // position here would scale the panel with the window instead of the page.
+    side_panel::open_at(&canvas_tools_paned, Column::End, TOOLS_PANEL_WIDTH);
 
     let nav_paned = Paned::new(Orientation::Horizontal);
     nav_paned.set_wide_handle(true);

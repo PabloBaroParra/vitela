@@ -171,6 +171,41 @@ pub(crate) fn connect(paned: &Paned, column: Column, slot: &Stack, toggle: &Togg
     });
 }
 
+/// Opens `column` at `width` pixels — measured from its own edge — once the
+/// `Paned` has a real width to measure against.
+///
+/// A plain `set_position` before the first allocation cannot say this for an
+/// end column: the position counts from the *start* edge, so a number picked
+/// for one window size hands the end column every pixel a wider window adds.
+/// That is how the tools panel opened at ~1500px on a maximized window while
+/// the page it works on was squeezed into 500.
+///
+/// Runs once, on the first allocation only. After that the divider belongs to
+/// the user, and `resize_*_child` keeps whatever width they leave it at.
+pub(crate) fn open_at(paned: &Paned, column: Column, width: i32) {
+    let handler = Rc::new(Cell::new(None));
+    let id = paned.connect_max_position_notify({
+        let handler = handler.clone();
+        move |paned| {
+            if paned.width() <= 0 {
+                return;
+            }
+            if let Some(id) = handler.take() {
+                paned.disconnect(id);
+            }
+            // Not deferred. This notify fires inside the `Paned`'s first
+            // allocation, after it has measured but before it hands its
+            // children their widths — so setting the divider here lands in
+            // that same allocation. An idle would let one layout go out at
+            // the wrong split and then move the divider under it: the canvas
+            // refits, and anything already placed on a page (an open retype
+            // box) is left at the old scale.
+            paned.set_position(column.position_for(width, paned.width()));
+        }
+    });
+    handler.set(Some(id));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,6 +370,34 @@ mod tests {
             "dragging back in must reopen the column"
         );
         assert_eq!(slot.visible_child_name().as_deref(), Some(OPEN));
+
+        window.close();
+    }
+
+    /// The bug the user saw on a maximized window: a start-edge position
+    /// picked up front left the end column with every extra pixel. The width
+    /// asked for must be the width the end column opens at, whatever the
+    /// window size.
+    #[gtk::test]
+    fn gtk_ui_end_column_opens_at_its_own_width_on_a_wide_window() {
+        let canvas = GtkBox::new(Orientation::Vertical, 0);
+        canvas.set_hexpand(true);
+        let paned = Paned::new(Orientation::Horizontal);
+        paned.set_start_child(Some(&canvas));
+        paned.set_end_child(Some(&collapsible(&column_panel())));
+        paned.set_resize_start_child(true);
+        paned.set_resize_end_child(false);
+        open_at(&paned, Column::End, 300);
+
+        let window = gtk::Window::new();
+        window.set_default_size(1600, 600);
+        window.set_child(Some(&paned));
+        window.present();
+        settle_until(|| {
+            paned.width() > 0 && Column::End.width(paned.position(), paned.width()) == 300
+        });
+
+        assert_eq!(Column::End.width(paned.position(), paned.width()), 300);
 
         window.close();
     }
