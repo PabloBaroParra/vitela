@@ -126,6 +126,93 @@ fn gtk_ui_a_press_while_retyping_keeps_the_editor_and_redraws_its_face() {
     crate::app::content_edit::editor::cancel(viewer);
 }
 
+/// Selects `needle` in the open editor's text.
+fn select_in_editor(viewer: &Viewer, needle: &str) {
+    let state = viewer.state.borrow();
+    let editor = state
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .expect("the editor is open");
+    let crate::app::state::EditorField::Paragraph { view, .. } = &editor.field else {
+        panic!("the fixture's block is a paragraph");
+    };
+    let text = editor.field.text();
+    let byte = text.find(needle).expect("the needle is in the editor");
+    let start = text[..byte].chars().count() as i32;
+    let end = start + needle.chars().count() as i32;
+    let buffer = view.buffer();
+    buffer.select_range(&buffer.iter_at_offset(start), &buffer.iter_at_offset(end));
+}
+
+/// The ids of the runs every restyle in `step` targets.
+fn restyled_ids(step: &Command) -> Vec<pdf_document::ContentItemId> {
+    let children = match step {
+        Command::Batch(children) => children.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    children
+        .iter()
+        .map(|child| match child {
+            Command::RestyleTextRun { item, .. } => item.id,
+            other => panic!("not a restyle: {other:?}"),
+        })
+        .collect()
+}
+
+#[gtk::test]
+fn gtk_ui_a_press_while_retyping_restyles_only_the_selected_line() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    let queued = entries(viewer);
+    let [step] = queued.as_slice() else {
+        panic!("one step: {queued:?}");
+    };
+    assert_eq!(restyled_ids(step), [second.id], "only the second line");
+    assert!(restyles(step).iter().all(|(_, to)| to.italic));
+    let state = viewer.state.borrow();
+    let editor = state
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .expect("the editor is still open");
+    let look = &editor.camouflage.as_ref().expect("camouflaged").look;
+    assert!(
+        !look.font.italic,
+        "the editor keeps one face, so it is not slanted for part of its text"
+    );
+    drop(state);
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_a_selection_inside_a_run_is_refused_and_records_nothing() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    select_in_editor(viewer, "Seco");
+
+    toggle(viewer, Style::Bold);
+
+    assert!(entries(viewer).is_empty());
+    assert_eq!(viewer.status.text(), tr("edit-style-select-whole-words"));
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
 #[gtk::test]
 fn gtk_ui_a_multi_selection_is_restyled_as_one_step() {
     let fixture = Fixture::new(PageRotation::None);

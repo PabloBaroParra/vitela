@@ -1075,6 +1075,19 @@ impl EditorField {
         }
     }
 
+    /// The selected text's bounds, as character offsets into [`Self::text`];
+    /// `None` when there is only a caret.
+    pub(crate) fn selection(&self) -> Option<(usize, usize)> {
+        let (start, end) = match self {
+            Self::Line(entry) => entry.selection_bounds()?,
+            Self::Paragraph { view, .. } => {
+                let (start, end) = view.buffer().selection_bounds()?;
+                (start.offset(), end.offset())
+            }
+        };
+        Some((usize::try_from(start).ok()?, usize::try_from(end).ok()?))
+    }
+
     /// The widget that takes the keyboard.
     pub(crate) fn focus_widget(&self) -> gtk::Widget {
         match self {

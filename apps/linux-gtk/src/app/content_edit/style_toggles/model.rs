@@ -1,8 +1,9 @@
 //! What the bold / italic / underline toggles show, and the command a press
 //! records — kept free of widgets so it can be tested without a display.
 //!
-//! A toggle acts on every run of its target (the open editor's block, the
-//! selected block, or a multi-selection) and shows the first run's state:
+//! A toggle acts on every run of its target (the open editor's block or the
+//! runs its selection covers, the selected block, or a multi-selection) and
+//! shows the first targeted run's state:
 //! pressing it turns the style on for all of them when the first run lacks
 //! it, and off for all of them when it has it. A run already in the wanted
 //! state is left out of the command, so a mixed selection is evened out

@@ -205,6 +205,7 @@ edit-style-underline-tooltip = Subraya el texto seleccionado o el que estás ree
 edit-style-bold-fixed = La fuente de este texto es negrita y la página no tiene su versión normal, así que no se puede quitar la negrita
 edit-style-italic-fixed = La fuente de este texto es cursiva y la página no tiene su versión recta, así que no se puede quitar la cursiva
 edit-style-unavailable = No se puede leer el estilo de este texto: guarda el documento antes de cambiarlo.
+edit-style-select-whole-words = Selecciona palabras completas del texto para cambiarles el estilo
 edit-text-restyled = Estilo del texto cambiado.
 edit-insert-image = Insertar imagen
 edit-insert-image-tooltip = Haz clic en la página para insertar una imagen
