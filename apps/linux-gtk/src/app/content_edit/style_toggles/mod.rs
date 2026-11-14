@@ -9,17 +9,33 @@
 //! (a sibling face, a stroked outline, a slant, a line) is the core's call:
 //! see `pdf_edit::restyle`.
 //!
-//! While the editor is open a press keeps it open — the buttons refuse the
-//! focus a click would give them, like "Delete text" — and redraws it in the
-//! new weight and slant, so the reader sees what they typed in the face it
-//! will be saved in.
+//! With text selected in the open editor, only the runs the selection
+//! covers whole are restyled (`selection`): the core restyles whole runs,
+//! so a selection inside a run is refused rather than rounded out. A caret
+//! alone, or the whole text selected, restyles every run. Once the reader
+//! has typed in the editor its runs can no longer be found in its text, so
+//! a selection of part of it is refused until the edit is committed.
+//!
+//! When every run of the open editor was restyled it stays open — the
+//! buttons refuse the focus a click would give them, like "Delete text" —
+//! and is redrawn in the new weight and slant, so the reader sees what they
+//! typed in the face it will be saved in. When only some were, it closes
+//! and leaves its block selected. It could not show that restyle (the
+//! camouflage draws the whole field in one face, a stylesheet and not a
+//! per-character tag), and a retype committed from it afterwards would drop
+//! it: the core rewrites a retyped block line by line in each line's first
+//! font (`pdf_edit::retype_block`). Its text is unchanged by then — a
+//! partial selection of edited text is refused — so closing it loses
+//! nothing.
 //!
 //! A bold (or italic) that is the run's own font, with no regular sibling on
 //! the page, cannot be taken off: the button stays pressed and insensitive,
 //! with a tooltip saying why, rather than faking a regular face.
 
+mod follow;
 mod model;
 mod reselect;
+mod selection;
 
 use gtk::prelude::*;
 use gtk::{gio, Box as GtkBox, Label, Orientation, ToggleButton};
@@ -28,10 +44,11 @@ use pdf_document::TextRun;
 use crate::app::annotations;
 use crate::app::i18n::tr;
 use crate::app::shortcuts::{self, Shortcut};
-use crate::app::state::{DocumentSession, Viewer};
+use crate::app::state::{DocumentSession, Viewer, ViewerState};
 use crate::app::write::refresh_preview;
 
-use super::{command, editor};
+use super::{block, command, editor};
+pub(crate) use follow::wire as follow_editor_selection;
 pub(crate) use model::Style;
 pub(crate) use reselect::restore as restore_selection;
 
@@ -43,6 +60,9 @@ pub(crate) struct StyleToggles {
     pub(crate) underline: ToggleButton,
     /// The selected block to select again once a toggle's refresh lands.
     reselect: reselect::Pending,
+    /// What the buttons were last drawn for (`update`), so a moved editor
+    /// selection redraws them only when it changes the target (`follow`).
+    shown: follow::Shown,
 }
 
 impl StyleToggles {
@@ -113,6 +133,7 @@ pub(crate) fn build() -> (StyleToggles, GtkBox) {
             &tr("edit-style-underline-tooltip"),
         ),
         reselect: reselect::Pending::default(),
+        shown: follow::Shown::default(),
     };
     (toggles, row)
 }
@@ -145,20 +166,94 @@ pub(crate) fn connect(
     });
 }
 
-/// The runs a toggle acts on: the open editor's, else the selected block's,
-/// else a multi-selection's. An editor composing an insertion has none.
-fn target_runs(session: &DocumentSession) -> Option<(Vec<TextRun>, bool)> {
+/// The runs a toggle acts on, and where they come from.
+struct Target {
+    runs: Vec<TextRun>,
+    scope: Scope,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scope {
+    /// A selected block or a multi-selection on the page; no editor is open.
+    CanvasSelection,
+    /// Every run of the open editor.
+    Editor,
+    /// Some of the open editor's runs: the ones its selection covers.
+    EditorSelection,
+    /// The open editor's selection covers no run whole. `runs` are all of
+    /// the editor's, for the buttons to show; a press is refused.
+    NoWholeRun,
+    /// Part of the open editor's text is selected, but the reader has typed
+    /// in it, so the runs under the selection cannot be told; `runs` as
+    /// for `NoWholeRun`.
+    TextEdited,
+}
+
+impl Scope {
+    /// Whether the target is the open editor's text, or some of it.
+    fn is_editor(self) -> bool {
+        self != Scope::CanvasSelection
+    }
+}
+
+/// The runs a toggle acts on: the open editor's (those its selection
+/// covers, when text is selected), else the selected block's, else a
+/// multi-selection's. An editor composing an insertion has none.
+fn target_runs(session: &DocumentSession) -> Option<Target> {
     if let Some(editor) = session.content_editor.as_ref() {
         if editor.is_insertion {
             return None;
         }
-        return Some((runs_of(&editor.run, &editor.block), true));
+        let runs = runs_of(&editor.run, &editor.block);
+        let texts: Vec<&str> = runs.iter().map(|run| run.text.as_str()).collect();
+        let selected = selection::selected_runs(
+            &editor.field.text(),
+            &editor.run.text,
+            &texts,
+            editor.field.selection(),
+        );
+        return Some(match selected {
+            selection::Selected::Whole => Target {
+                runs,
+                scope: Scope::Editor,
+            },
+            selection::Selected::Runs(indices) => Target {
+                runs: indices
+                    .into_iter()
+                    .map(|index| runs[index].clone())
+                    .collect(),
+                scope: Scope::EditorSelection,
+            },
+            selection::Selected::NoWholeRun => Target {
+                runs,
+                scope: Scope::NoWholeRun,
+            },
+            selection::Selected::TextEdited => Target {
+                runs,
+                scope: Scope::TextEdited,
+            },
+        });
     }
     if let Some(selected) = session.selected_text_block.as_ref() {
-        return Some((runs_of(&selected.run, &selected.block), false));
+        return Some(Target {
+            runs: runs_of(&selected.run, &selected.block),
+            scope: Scope::CanvasSelection,
+        });
     }
     let runs = &session.content_selection.as_ref()?.members.runs;
-    (!runs.is_empty()).then(|| (runs.clone(), false))
+    (!runs.is_empty()).then(|| Target {
+        runs: runs.clone(),
+        scope: Scope::CanvasSelection,
+    })
+}
+
+/// The target the buttons show, when content-edit mode may restyle at all.
+fn shown_target(state: &ViewerState) -> Option<Target> {
+    let session = state.session.as_ref()?;
+    if !state.content_edit_mode || session.content_edit_access.refusal().is_some() {
+        return None;
+    }
+    target_runs(session)
 }
 
 /// A block's runs, or the run standing alone.
@@ -175,16 +270,18 @@ fn runs_of(run: &TextRun, block: &[TextRun]) -> Vec<TextRun> {
 pub(crate) fn update(viewer: &Viewer) {
     let (toggles, editing) = {
         let state = viewer.state.borrow();
-        let found = state.session.as_ref().and_then(|session| {
-            if !state.content_edit_mode || session.content_edit_access.refusal().is_some() {
-                return None;
-            }
-            let (runs, editing) = target_runs(session)?;
-            // The first run only: what the buttons show is its state, and a
-            // read parses the page, which this runs on every selection
-            // change. A press reads them all (`record`).
-            let states = model::run_states(session, &runs[..1])?;
-            Some((model::toggles(&states)?, editing))
+        let target = shown_target(&state);
+        viewer
+            .style_toggles
+            .shown
+            .set(target.as_ref().map(follow::key));
+        let found = target.and_then(|target| {
+            let session = state.session.as_ref()?;
+            // The first targeted run only: what the buttons show is its
+            // state, and a read parses the page, which this runs on every
+            // selection change. A press reads them all (`record`).
+            let states = model::run_states(session, &target.runs[..1])?;
+            Some((model::toggles(&states)?, target.scope.is_editor()))
         });
         match found {
             Some((toggles, editing)) => (Some(toggles), editing),
@@ -219,8 +316,9 @@ pub(crate) fn update(viewer: &Viewer) {
     }
 }
 
-/// Turns `style` on or off for the target, recording the restyle; the open
-/// editor, if any, is redrawn in the new face and stays open.
+/// Turns `style` on or off for the target, recording the restyle. An open
+/// editor whose every run was restyled stays open, redrawn in the new face;
+/// one with only some restyled closes, leaving its block selected.
 pub(crate) fn toggle(viewer: &Viewer, style: Style) {
     if let Some(refusal) = viewer.content_edit_refusal() {
         viewer.status.set_text(&refusal);
@@ -235,13 +333,23 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
         record(session, style)
     };
     match outcome {
-        Ok(Some(restyled)) => {
+        Ok(Some(Recorded { restyle, close })) => {
+            // Its text is the text it opened with, so the commit `select`
+            // starts with closes it without recording anything.
+            if let Some(Close {
+                page_index,
+                run,
+                block,
+            }) = close
+            {
+                block::select(viewer, page_index, run, block);
+            }
             // The refresh drops the selected block; it is selected again
             // when the refresh lands, so the next toggle stacks on this one.
             if let Some(session) = viewer.state.borrow().session.as_ref() {
                 viewer.style_toggles.reselect.remember(session);
             }
-            if let Some((provider, css)) = restyled {
+            if let Some((provider, css)) = restyle {
                 provider.load_from_data(&css);
                 editor::refit(viewer);
             }
@@ -257,11 +365,30 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
 /// changed.
 type EditorRestyle = Option<(gtk::CssProvider, String)>;
 
+/// The open editor a restyle of only some of its runs closes, and the block
+/// left selected in its place.
+struct Close {
+    page_index: usize,
+    run: TextRun,
+    block: Vec<TextRun>,
+}
+
+/// What a recorded press leaves for the widgets to do.
+struct Recorded {
+    restyle: EditorRestyle,
+    close: Option<Close>,
+}
+
 /// Records the press on `session`: `Ok(None)` when there was nothing to do.
-fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRestyle>, String> {
-    let Some((runs, editing)) = target_runs(session) else {
+fn record(session: &mut DocumentSession, style: Style) -> Result<Option<Recorded>, String> {
+    let Some(Target { runs, scope }) = target_runs(session) else {
         return Ok(None);
     };
+    match scope {
+        Scope::NoWholeRun => return Err(tr("edit-style-select-whole-run")),
+        Scope::TextEdited => return Err(tr("edit-style-commit-edit-first")),
+        _ => {}
+    }
     let states = model::run_states(session, &runs).ok_or_else(|| tr("edit-style-unavailable"))?;
     let Some(command) = model::command(&states, style).map_err(tr)? else {
         return Ok(None);
@@ -272,7 +399,8 @@ fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRe
     } else {
         command::record(session, command)?;
     }
-    let restyle = editing
+    // Only a restyle of every run changes the face the editor shows.
+    let restyle = (scope == Scope::Editor)
         .then(|| {
             session
                 .content_editor
@@ -282,7 +410,15 @@ fn record(session: &mut DocumentSession, style: Style) -> Result<Option<EditorRe
                 .restyle_face(face.bold, face.italic)
         })
         .flatten();
-    Ok(Some(restyle))
+    let close = (scope == Scope::EditorSelection)
+        .then_some(session.content_editor.as_ref())
+        .flatten()
+        .map(|editor| Close {
+            page_index: editor.page_index,
+            run: editor.run.clone(),
+            block: editor.block.clone(),
+        });
+    Ok(Some(Recorded { restyle, close }))
 }
 
 #[cfg(test)]

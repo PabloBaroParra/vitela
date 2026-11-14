@@ -126,6 +126,128 @@ fn gtk_ui_a_press_while_retyping_keeps_the_editor_and_redraws_its_face() {
     crate::app::content_edit::editor::cancel(viewer);
 }
 
+/// Selects `needle` in the open editor's text.
+fn select_in_editor(viewer: &Viewer, needle: &str) {
+    let state = viewer.state.borrow();
+    let editor = state
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .expect("the editor is open");
+    let text = editor.field.text();
+    let byte = text.find(needle).expect("the needle is in the editor");
+    let start = text[..byte].chars().count() as i32;
+    let end = start + needle.chars().count() as i32;
+    match &editor.field {
+        crate::app::state::EditorField::Line(entry) => entry.select_region(start, end),
+        crate::app::state::EditorField::Paragraph { view, .. } => {
+            let buffer = view.buffer();
+            buffer.select_range(&buffer.iter_at_offset(start), &buffer.iter_at_offset(end));
+        }
+    }
+}
+
+/// The ids of the runs every restyle in `step` targets.
+fn restyled_ids(step: &Command) -> Vec<pdf_document::ContentItemId> {
+    let children = match step {
+        Command::Batch(children) => children.as_slice(),
+        single => std::slice::from_ref(single),
+    };
+    children
+        .iter()
+        .map(|child| match child {
+            Command::RestyleTextRun { item, .. } => item.id,
+            other => panic!("not a restyle: {other:?}"),
+        })
+        .collect()
+}
+
+#[gtk::test]
+fn gtk_ui_a_press_while_retyping_restyles_only_the_selected_line() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    let queued = entries(viewer);
+    let [step] = queued.as_slice() else {
+        panic!("one step: {queued:?}");
+    };
+    assert_eq!(restyled_ids(step), [second.id], "only the second line");
+    assert!(restyles(step).iter().all(|(_, to)| to.italic));
+}
+
+#[gtk::test]
+fn gtk_ui_a_partial_restyle_closes_the_editor_and_keeps_the_block_selected() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    {
+        let state = viewer.state.borrow();
+        let session = state.session.as_ref().expect("a session");
+        assert!(
+            session.content_editor.is_none(),
+            "closed, so no later retype of the block can drop the restyle"
+        );
+        let selected = session
+            .selected_text_block
+            .as_ref()
+            .expect("the block stays selected");
+        assert_eq!(selected.block.len(), fixture.runs.len());
+    }
+    assert_eq!(entries(viewer).len(), 1, "the restyle and nothing else");
+
+    land_refresh(viewer);
+
+    assert!(
+        viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("a session")
+            .selected_text_block
+            .is_some(),
+        "selected again once the refresh lands"
+    );
+}
+
+#[gtk::test]
+fn gtk_ui_a_selection_inside_a_run_is_refused_and_records_nothing() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    select_in_editor(viewer, "Seco");
+
+    toggle(viewer, Style::Bold);
+
+    assert!(entries(viewer).is_empty());
+    assert_eq!(viewer.status.text(), tr("edit-style-select-whole-run"));
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
 #[gtk::test]
 fn gtk_ui_a_multi_selection_is_restyled_as_one_step() {
     let fixture = Fixture::new(PageRotation::None);
@@ -220,4 +342,252 @@ fn gtk_ui_a_refresh_after_another_edit_does_not_bring_the_block_back() {
         .expect("a session")
         .selected_text_block
         .is_none());
+}
+
+#[gtk::test]
+fn gtk_ui_a_partial_selection_of_edited_text_asks_for_the_edit_to_be_committed() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    {
+        let state = viewer.state.borrow();
+        let editor = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .expect("the editor is open");
+        let crate::app::state::EditorField::Paragraph { view, .. } = &editor.field else {
+            panic!("the fixture's block is a paragraph");
+        };
+        let buffer = view.buffer();
+        buffer.insert(&mut buffer.start_iter(), "X");
+    }
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+
+    toggle(viewer, Style::Italic);
+
+    assert!(entries(viewer).is_empty(), "nothing restyled");
+    assert_eq!(viewer.status.text(), tr("edit-style-commit-edit-first"));
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_moving_the_editor_selection_refreshes_the_buttons() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    let first = fixture.runs[0].clone();
+    let italic = pdf_document::TextRunLook {
+        italic: true,
+        ..pdf_document::TextRunLook::default()
+    };
+    {
+        let mut state = viewer.state.borrow_mut();
+        let session = state.session.as_mut().expect("a session");
+        super::command::record(
+            session,
+            Command::RestyleTextRun {
+                item: first,
+                from: pdf_document::TextRunLook::default(),
+                to: italic,
+            },
+        )
+        .expect("the first line is made italic");
+    }
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    update(viewer);
+    assert!(
+        viewer.style_toggles.italic.is_active(),
+        "the whole block shows its first line, which is italic"
+    );
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+
+    select_in_editor(viewer, &second.text);
+
+    assert!(
+        !viewer.style_toggles.italic.is_active(),
+        "the selected second line is not italic"
+    );
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+/// Makes `run` italic, queued, before any editor opens.
+fn make_italic(viewer: &Viewer, run: &pdf_document::TextRun) {
+    let mut state = viewer.state.borrow_mut();
+    let session = state.session.as_mut().expect("a session");
+    super::command::record(
+        session,
+        Command::RestyleTextRun {
+            item: run.clone(),
+            from: pdf_document::TextRunLook::default(),
+            to: pdf_document::TextRunLook {
+                italic: true,
+                ..pdf_document::TextRunLook::default()
+            },
+        },
+    )
+    .expect("the run is made italic");
+}
+
+/// The open paragraph editor's buffer.
+fn paragraph_buffer(viewer: &Viewer) -> gtk::TextBuffer {
+    let state = viewer.state.borrow();
+    let editor = state
+        .session
+        .as_ref()
+        .and_then(|session| session.content_editor.as_ref())
+        .expect("the editor is open");
+    let crate::app::state::EditorField::Paragraph { view, .. } = &editor.field else {
+        panic!("the fixture's block is a paragraph");
+    };
+    view.buffer()
+}
+
+#[gtk::test]
+fn gtk_ui_typing_in_the_paragraph_editor_refreshes_the_buttons() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    make_italic(viewer, &fixture.runs[0]);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    select_in_editor(viewer, &second.text);
+    assert!(
+        !viewer.style_toggles.italic.is_active(),
+        "the selected second line is not italic"
+    );
+
+    // Typed at the caret: no mark is set and the selection stays on the
+    // second line, but the text is edited, so the buttons show the
+    // block's first line again.
+    paragraph_buffer(viewer).insert_at_cursor("X");
+
+    assert!(
+        viewer.style_toggles.italic.is_active(),
+        "the edited text shows its first line, which is italic"
+    );
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_a_selection_move_while_the_state_is_borrowed_is_caught_up_once() {
+    let fixture = Fixture::new(PageRotation::None);
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    make_italic(viewer, &fixture.runs[0]);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    update(viewer);
+    assert!(viewer.style_toggles.italic.is_active());
+    let second = fixture
+        .runs
+        .iter()
+        .find(|run| run.text.contains("Second"))
+        .expect("the fixture's second line");
+    let buffer = paragraph_buffer(viewer);
+    let text = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
+    let byte = text.find(second.text.as_str()).expect("the second line");
+    let start = text[..byte].chars().count() as i32;
+    let end = start + second.text.chars().count() as i32;
+
+    {
+        let _held = viewer.state.borrow_mut();
+        buffer.select_range(&buffer.iter_at_offset(start), &buffer.iter_at_offset(end));
+        buffer.select_range(&buffer.iter_at_offset(end), &buffer.iter_at_offset(start));
+        assert!(
+            viewer.style_toggles.shown.retry_pending(),
+            "the moves wait for the borrow"
+        );
+    }
+    let context = gtk::glib::MainContext::default();
+    while context.iteration(false) {}
+
+    assert!(!viewer.style_toggles.shown.retry_pending());
+    assert!(
+        !viewer.style_toggles.italic.is_active(),
+        "caught up with the second line once the borrow is over"
+    );
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_moving_the_selection_in_a_one_line_editor_refreshes_the_buttons() {
+    let fixture = Fixture::one_line();
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    assert_eq!(fixture.runs.len(), 2, "two runs: {:?}", fixture.runs);
+    make_italic(viewer, &fixture.runs[0]);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    assert!(
+        matches!(
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .and_then(|session| session.content_editor.as_ref())
+                .map(|editor| &editor.field),
+            Some(crate::app::state::EditorField::Line(_))
+        ),
+        "a one-line block opens an entry"
+    );
+    update(viewer);
+    assert!(viewer.style_toggles.italic.is_active());
+
+    select_in_editor(viewer, "world");
+
+    assert!(
+        !viewer.style_toggles.italic.is_active(),
+        "the selected second run is not italic"
+    );
+    crate::app::content_edit::editor::cancel(viewer);
+}
+
+#[gtk::test]
+fn gtk_ui_a_partial_restyle_closes_a_one_line_editor() {
+    let fixture = Fixture::one_line();
+    let viewer = fixture.viewer();
+    hold_refresh(viewer);
+    select_first_block(&fixture);
+    block::retype_selected(viewer);
+    let world = fixture
+        .runs
+        .iter()
+        .find(|run| run.text == "world")
+        .expect("the fixture's second run");
+    select_in_editor(viewer, "world");
+
+    toggle(viewer, Style::Bold);
+
+    let queued = entries(viewer);
+    let [step] = queued.as_slice() else {
+        panic!("one step: {queued:?}");
+    };
+    assert_eq!(restyled_ids(step), [world.id], "only the selected run");
+    let state = viewer.state.borrow();
+    let session = state.session.as_ref().expect("a session");
+    assert!(session.content_editor.is_none(), "the entry closed");
+    let selected = session
+        .selected_text_block
+        .as_ref()
+        .expect("the block stays selected");
+    assert_eq!(selected.block.len(), 2);
 }

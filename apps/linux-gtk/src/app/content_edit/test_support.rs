@@ -23,11 +23,28 @@ impl Fixture {
     /// One A4 page holding two lines, shown at `rotation`, its content
     /// already parsed the way `load_visible_page_content` leaves it.
     pub(crate) fn new(rotation: PageRotation) -> Self {
+        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
+        Self::over(base, rotation)
+    }
+
+    /// One A4 page holding one line painted as two touching runs, "Hello "
+    /// and "world": a one-line block, which retypes in a one-line entry.
+    pub(crate) fn one_line() -> Self {
+        let mut base = gen_fixtures::build_multi_line_page_document(&["Hello world"]);
+        let page = *base.get_pages().get(&1).expect("the fixture's page");
+        base.change_page_content(
+            page,
+            b"BT /F1 24 Tf 100 700 Td (Hello ) Tj (world) Tj ET".to_vec(),
+        )
+        .expect("the page takes the new content");
+        Self::over(base, PageRotation::None)
+    }
+
+    fn over(base: lopdf::Document, rotation: PageRotation) -> Self {
         let built = built_ui();
         built.viewer.view_stack.set_visible_child_name("editor");
         built.window.present();
 
-        let base = gen_fixtures::build_multi_line_page_document(&["First line", "Second line"]);
         let content = pdf_edit::read_page_content(&base, PageId(0)).expect("the fixture parses");
         let runs = content.text_runs.clone();
         let mut session = crate::app::test_fixtures::backed_session(base);
