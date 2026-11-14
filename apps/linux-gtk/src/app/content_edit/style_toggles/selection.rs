@@ -39,8 +39,10 @@ pub(crate) enum Selected {
 /// with, the runs as the core joined them. `selection` is a pair of
 /// character offsets, in either order; `None` or an empty pair is a caret.
 ///
-/// A run that cannot be found where it should be, and every run after it,
-/// count as not covered.
+/// Runs are only looked for in unedited text: once `text` differs from
+/// `original`, any selection short of the whole text — whitespace alone
+/// included — is `TextEdited`. Should a run still not be where the
+/// grouping put it, it and every run after it count as not covered.
 pub(crate) fn selected_runs(
     text: &str,
     original: &str,
@@ -54,15 +56,21 @@ pub(crate) fn selected_runs(
     else {
         return Selected::Whole;
     };
-    let Some(selected) = trim(&chars, (start, end)) else {
-        return Selected::NoWholeRun;
-    };
-    if trim(&chars, (0, chars.len())).is_some_and(|all| contains(selected, all)) {
+    let selected = trim(&chars, (start, end));
+    if selected
+        .zip(trim(&chars, (0, chars.len())))
+        .is_some_and(|(selected, all)| contains(selected, all))
+    {
         return Selected::Whole;
     }
+    // Before the whitespace test: in edited text even a selected space
+    // cannot be placed against the runs.
     if text != original {
         return Selected::TextEdited;
     }
+    let Some(selected) = selected else {
+        return Selected::NoWholeRun;
+    };
     let covered: Vec<usize> = locate(&chars, runs)
         .into_iter()
         .enumerate()
@@ -274,8 +282,7 @@ mod tests {
             selected_runs("AB B", "A B", &["A", "B"], Some((1, 2))),
             Selected::TextEdited
         );
-        let text = "PRESUPUESTO Nº 9/1
-Referencia:";
+        let text = "PRESUPUESTO Nº 9/1\nReferencia:";
         assert_eq!(
             selected_runs(
                 text,
@@ -285,6 +292,14 @@ Referencia:";
             ),
             Selected::TextEdited,
             "even a run the edit left alone"
+        );
+    }
+
+    #[test]
+    fn only_whitespace_selected_in_edited_text_asks_for_the_commit() {
+        assert_eq!(
+            selected_runs("AB B", "A B", &["A", "B"], Some((2, 3))),
+            Selected::TextEdited
         );
     }
 
@@ -316,9 +331,7 @@ Referencia:";
             selected_runs(joined, joined, &["B", "B"], Some((1, 2))),
             Selected::Runs(vec![1])
         );
-        let lines = "B
-B
-B";
+        let lines = "B\nB\nB";
         assert_eq!(
             selected_runs(lines, lines, &["B", "B", "B"], Some((2, 3))),
             Selected::Runs(vec![1]),
