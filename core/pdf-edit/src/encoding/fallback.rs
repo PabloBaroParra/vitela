@@ -56,13 +56,14 @@ pub struct Segment {
     pub codes: Vec<u8>,
 }
 
-/// What a font looks like, as far as picking a standard-14 face goes.
+/// What a font looks like, as far as picking a standard-14 face — or a
+/// shell's editor weight and slant ([`crate::TextRunStyle`]) — goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-struct Look {
-    fixed: bool,
-    serif: bool,
-    bold: bool,
-    italic: bool,
+pub(crate) struct Look {
+    pub(crate) fixed: bool,
+    pub(crate) serif: bool,
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
 }
 
 /// The standard-14 face closest to the font `font_dict` describes. A
@@ -75,6 +76,13 @@ pub(crate) fn closest_standard_font(document: &Document, font_dict: &Dictionary)
     {
         return standard;
     }
+    face_for(font_look(document, font_dict))
+}
+
+/// The look `font_dict` declares, through its `/BaseFont` name and its
+/// `/FontDescriptor` (`/Flags`, `/FontWeight`, `/ItalicAngle`).
+pub(crate) fn font_look(document: &Document, font_dict: &Dictionary) -> Look {
+    let base_font = resolved_name(document, font_dict, b"BaseFont").unwrap_or_default();
     let descriptor = descriptor(document, font_dict);
     let number = |key: &[u8]| {
         descriptor
@@ -82,13 +90,12 @@ pub(crate) fn closest_standard_font(document: &Document, font_dict: &Dictionary)
             .and_then(|descriptor| descriptor.get(key).ok())
             .and_then(|value| super::number(super::resolve(document, value)))
     };
-    let look = look_of(
+    look_of(
         &base_font,
         number(b"Flags").map(|flags| flags as i64),
         number(b"FontWeight"),
         number(b"ItalicAngle"),
-    );
-    face_for(look)
+    )
 }
 
 fn descriptor(document: &Document, font_dict: &Dictionary) -> Option<Dictionary> {

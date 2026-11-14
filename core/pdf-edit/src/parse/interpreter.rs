@@ -751,30 +751,13 @@ fn verbatim(operation: &SpannedOperation, context: &Context<'_>) -> Vec<u8> {
 }
 
 /// The operators that reproduce `state`'s look — see
-/// [`LocatedTextRun::paint_state`]. The fill colour is always set, `0 g`
-/// when the stream never changed it, because the place this is replayed
-/// may have.
+/// [`LocatedTextRun::paint_state`]: everything a path keeps
+/// ([`path_paint_state`]) — a render mode that strokes (`2 Tr`, a faked
+/// bold) needs the stroke colour and line width as much as an outline
+/// does — then the text state. Colours are always set, `0 g`/`0 G` when the
+/// stream never changed them, because the place this is replayed may have.
 fn paint_state(state: &State) -> Vec<u8> {
-    let mut out = Vec::new();
-    for gs in &state.ext_gstates {
-        out.extend_from_slice(gs);
-        out.push(b' ');
-    }
-    match (&state.fill_space, &state.fill_color) {
-        (Some(space), color) => {
-            out.extend_from_slice(space);
-            out.push(b' ');
-            if let Some(color) = color {
-                out.extend_from_slice(color);
-                out.push(b' ');
-            }
-        }
-        (None, Some(color)) => {
-            out.extend_from_slice(color);
-            out.push(b' ');
-        }
-        (None, None) => out.extend_from_slice(b"0 g "),
-    }
+    let mut out = path_paint_state(state);
     out.extend_from_slice(
         format!(
             "{} Tc {} Tw {} Tz {} Ts {} Tr ",

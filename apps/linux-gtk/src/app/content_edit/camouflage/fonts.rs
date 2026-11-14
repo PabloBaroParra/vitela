@@ -39,8 +39,8 @@ thread_local! {
     static REGISTERED: RefCell<HashMap<[u8; 32], Option<String>>> = RefCell::new(HashMap::new());
 }
 
-/// The family the editor asks Pango for, and the weight and slant the name
-/// implies.
+/// The family the editor asks Pango for, and the weight and slant the run
+/// is drawn with.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FontChoice {
     /// A Pango/CSS family list, most wanted first: the registered program's
@@ -50,26 +50,43 @@ pub(crate) struct FontChoice {
     pub(crate) italic: bool,
 }
 
+/// What the core read of a run's look beyond its font's name
+/// (`pdf_edit::TextRunStyle`): the weight and slant its font descriptor
+/// declares, and its text render mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct FaceHints {
+    pub(crate) bold: bool,
+    pub(crate) italic: bool,
+    /// `Tr`: `2` fills and strokes, which is how a bold face is faked.
+    pub(crate) render_mode: u8,
+}
+
+/// `Tr` modes that stroke the glyphs' outlines (PDF 32000-1 §9.3.6). A
+/// stroke over a fill thickens the text: the usual faked bold.
+const STROKING_RENDER_MODES: [u8; 4] = [1, 2, 5, 6];
+
 /// The font to draw a run whose font is `base_font` in: `registered`, the
 /// family its embedded program loaded as, when there is one; otherwise the
 /// system family the name suggests.
-pub(crate) fn choose(base_font: &str, registered: Option<String>) -> FontChoice {
+///
+/// The weight and slant are asked for either way. A registered family does
+/// not pin a face: Word embeds a regular and a bold subset that both call
+/// themselves "Arial", and only the weight tells fontconfig which of them
+/// to draw. Nor does asking for bold embolden a bold program twice —
+/// fontconfig synthesizes bold only when the face it matched is lighter
+/// than asked. GTK draws no stroke, so a stroking render mode is asked for
+/// as bold too: the closest it can get.
+pub(crate) fn choose(base_font: &str, registered: Option<String>, hints: FaceHints) -> FontChoice {
     let name = without_subset_tag(base_font);
     let lower = name.to_ascii_lowercase();
-    let bold = ["bold", "black", "heavy", "semibold", "demi"]
-        .iter()
-        .any(|word| lower.contains(word));
-    let italic = lower.contains("italic") || lower.contains("oblique");
+    let bold = hints.bold
+        || STROKING_RENDER_MODES.contains(&hints.render_mode)
+        || ["bold", "black", "heavy", "semibold", "demi"]
+            .iter()
+            .any(|word| lower.contains(word));
+    let italic = hints.italic || lower.contains("italic") || lower.contains("oblique");
     let families = match registered {
-        // The program carries its own weight and slant: asking for bold on
-        // top of a bold program would embolden it a second time.
-        Some(family) => {
-            return FontChoice {
-                families: vec![family],
-                bold: false,
-                italic: false,
-            }
-        }
+        Some(family) => vec![family],
         None => fallback_families(name),
     };
     FontChoice {
@@ -328,40 +345,110 @@ pub(crate) fn remove_font_files() {
 mod tests {
     use super::*;
 
+    const PLAIN: FaceHints = FaceHints {
+        bold: false,
+        italic: false,
+        render_mode: 0,
+    };
+
+    /// Word embeds a regular and a bold subset that both call themselves
+    /// "Arial": the family alone cannot tell them apart, so the weight and
+    /// slant still have to be asked for. Fontconfig only synthesizes bold
+    /// when the face it matched is lighter than asked, so a bold program
+    /// asked for at 700 is not emboldened twice.
     #[test]
-    fn a_registered_program_is_the_family_whatever_the_name_says() {
-        let choice = choose("ABCDEF+Vera-Bold", Some("Vera Embedded".to_string()));
-        assert_eq!(choice.families, ["Vera Embedded"]);
-        assert!(!choice.bold, "the program is already bold");
+    fn a_registered_program_keeps_the_weight_and_slant_it_was_named_with() {
+        let choice = choose(
+            "ABCDEF+Arial-BoldItalicMT",
+            Some("Arial".to_string()),
+            PLAIN,
+        );
+        assert_eq!(choice.families, ["Arial"]);
+        assert!(choice.bold && choice.italic);
+
+        let regular = choose("ABCDEF+ArialMT", Some("Arial".to_string()), PLAIN);
+        assert!(!regular.bold && !regular.italic);
+    }
+
+    /// A subset named `ABCDEF+F1` says nothing; its descriptor still does.
+    #[test]
+    fn the_cores_reading_of_the_descriptor_makes_it_bold_or_italic() {
+        let bold = choose(
+            "ABCDEF+F1",
+            Some("F1".to_string()),
+            FaceHints {
+                bold: true,
+                ..PLAIN
+            },
+        );
+        assert!(bold.bold && !bold.italic);
+
+        let italic = choose(
+            "ABCDEF+F1",
+            None,
+            FaceHints {
+                italic: true,
+                ..PLAIN
+            },
+        );
+        assert!(italic.italic && !italic.bold);
+    }
+
+    /// Text that is stroked as well as filled (`2 Tr`) is a faked bold;
+    /// GTK draws no stroke, so a bold weight is the closest it gets.
+    #[test]
+    fn a_stroking_render_mode_reads_as_bold() {
+        for mode in [1, 2, 5, 6] {
+            let choice = choose(
+                "ArialMT",
+                None,
+                FaceHints {
+                    render_mode: mode,
+                    ..PLAIN
+                },
+            );
+            assert!(choice.bold, "Tr {mode}");
+        }
+        for mode in [0, 3, 4, 7] {
+            let choice = choose(
+                "ArialMT",
+                None,
+                FaceHints {
+                    render_mode: mode,
+                    ..PLAIN
+                },
+            );
+            assert!(!choice.bold, "Tr {mode}");
+        }
     }
 
     #[test]
     fn standard_names_fall_back_to_their_generic_family() {
-        let helvetica = choose("Helvetica", None);
+        let helvetica = choose("Helvetica", None, PLAIN);
         assert_eq!(helvetica.families, ["Helvetica", "sans-serif"]);
         assert!(!helvetica.bold && !helvetica.italic);
 
-        let times = choose("Times-BoldItalic", None);
+        let times = choose("Times-BoldItalic", None, PLAIN);
         assert_eq!(times.families, ["Times", "serif"]);
         assert!(times.bold && times.italic);
 
-        let courier = choose("Courier-Oblique", None);
+        let courier = choose("Courier-Oblique", None, PLAIN);
         assert_eq!(courier.families, ["Courier", "monospace"]);
         assert!(courier.italic);
 
-        let arial = choose("Arial,Bold", None);
+        let arial = choose("Arial,Bold", None, PLAIN);
         assert_eq!(arial.families, ["Arial", "sans-serif"]);
         assert!(arial.bold);
     }
 
     #[test]
     fn the_subset_tag_is_not_part_of_the_family() {
-        let choice = choose("QWERTY+DejaVuSans-Oblique", None);
+        let choice = choose("QWERTY+DejaVuSans-Oblique", None, PLAIN);
         assert_eq!(choice.families, ["DejaVuSans", "sans-serif"]);
         assert!(choice.italic);
         // Not six capitals: not a tag.
         assert_eq!(
-            choose("Ab+Thing", None).families,
+            choose("Ab+Thing", None, PLAIN).families,
             ["Ab+Thing", "sans-serif"]
         );
     }
