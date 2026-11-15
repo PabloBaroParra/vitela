@@ -12,7 +12,7 @@ import type { SaveOutcome } from './outcome';
 
 /** The name a copy of `name` is saved under: "report.pdf" -> "report (copy).pdf". */
 export function copyName(name: string): string {
-  return `${name.replace(/.pdf$/i, '')} (copy).pdf`;
+  return `${name.replace(/\.pdf$/i, '')} (copy).pdf`;
 }
 
 interface SaveCopyRequest {

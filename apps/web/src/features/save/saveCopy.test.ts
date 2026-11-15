@@ -14,6 +14,11 @@ describe('copyName', () => {
     expect(copyName('Report.PDF')).toBe('Report (copy).pdf');
   });
 
+  it('strips only a real ".pdf" extension', () => {
+    expect(copyName('mypdf')).toBe('mypdf (copy).pdf');
+    expect(copyName('report.xpdf')).toBe('report.xpdf (copy).pdf');
+  });
+
   it('gives a name without the extension one', () => {
     expect(copyName('report')).toBe('report (copy).pdf');
   });
