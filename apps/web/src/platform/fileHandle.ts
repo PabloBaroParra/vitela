@@ -10,6 +10,8 @@ export interface WritableFileHandle {
   createWritable(): Promise<{
     write(data: Uint8Array): Promise<void>;
     close(): Promise<void>;
+    /** Drops the swap file without replacing the original. */
+    abort?(reason?: unknown): Promise<void>;
   }>;
   queryPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;
   requestPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;

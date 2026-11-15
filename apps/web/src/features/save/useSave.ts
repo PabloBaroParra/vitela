@@ -1,17 +1,19 @@
-// Saving the open document: asks the engine for the bytes, asks the user
-// before a save that would break a signature, and delivers the bytes (over
-// the opened file or as a download). Container logic only, no markup.
+// Saving the open document: asks the user for what a save needs while the
+// click is fresh, asks the engine for the bytes, asks again before a save that
+// would break a signature, and delivers the bytes (over the opened file, as a
+// new copy, or as a download). Container logic only, no markup.
 //
 // `dirty` is the "unsaved edits" flag. Nothing edits a document yet (Organize
 // is T-226): the editing screens call `markDirty()` after each applied edit,
-// and a successful save clears it.
+// and a successful save clears it. The state belongs to one document: opening
+// another starts clean.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '../../core/errors';
 import type { Engine } from '../../core/types';
 import type { OpenDocument } from '../document/useDocument';
-import type { WritableFileHandle } from '../../platform/fileHandle';
-import { saveBytes, type SaveOutcome } from './saveBytes';
+import { browserDelivery, type Delivery, type SaveIntent } from './delivery';
+import type { SaveOutcome } from './outcome';
 
 export type SaveActivity =
   | { readonly kind: 'idle' }
@@ -21,33 +23,55 @@ export type SaveActivity =
   | { readonly kind: 'done'; readonly outcome: SaveOutcome }
   | { readonly kind: 'failed'; readonly message: string };
 
-type Deliver = (request: {
-  bytes: Uint8Array;
-  name: string;
-  handle: WritableFileHandle | undefined;
-}) => Promise<SaveOutcome>;
-
 const IDLE: SaveActivity = { kind: 'idle' };
 
-export function useSave(engine: Engine, document: OpenDocument | null, deliver: Deliver = saveBytes) {
+export type SaveSession = ReturnType<typeof useSave>;
+
+export function useSave(engine: Engine, document: OpenDocument | null, delivery: Delivery = browserDelivery) {
+  const generation = document?.generation;
   const [activity, setActivity] = useState<SaveActivity>(IDLE);
   const [dirty, setDirty] = useState(false);
+  const [forGeneration, setForGeneration] = useState(generation);
   const running = useRef(false);
   /** Counts edits, so a save does not clear the mark of an edit made while it ran. */
   const edits = useRef(0);
+  /** The document on screen: a save that outlives its document reports nothing. */
+  const shown = useRef(generation);
+
+  // A new document starts with a clean slate (adjusting state while rendering
+  // is React's way to reset state when an input changes).
+  if (forGeneration !== generation) {
+    setForGeneration(generation);
+    setActivity(IDLE);
+    setDirty(false);
+  }
+  useEffect(() => {
+    shown.current = generation;
+    edits.current = 0;
+  }, [generation]);
 
   const run = useCallback(
-    async (invalidateSignatures: boolean) => {
+    async (intent: SaveIntent, invalidateSignatures: boolean) => {
       if (!document || running.current) return;
       running.current = true;
+      const saving = document.generation;
       const editsAtStart = edits.current;
+      const current = () => shown.current === saving;
       setActivity({ kind: 'saving' });
       try {
+        // First, while the click is fresh: the permission prompt or save dialog.
+        const destination = await delivery.prepare(intent, document);
+        if (!destination) {
+          if (current()) setActivity({ kind: 'done', outcome: { how: 'cancelled' } });
+          return;
+        }
         const bytes = await engine.saveToBytes(document.handle, invalidateSignatures);
-        const outcome = await deliver({ bytes, name: document.name, handle: document.fileHandle });
+        const outcome = await delivery.deliver({ bytes, name: document.name, destination });
+        if (!current()) return;
         if (edits.current === editsAtStart) setDirty(false);
         setActivity({ kind: 'done', outcome });
       } catch (error) {
+        if (!current()) return;
         setActivity(
           errorKind(error) === SIGNATURES_WOULD_BE_INVALIDATED
             ? { kind: 'confirmSignatures' }
@@ -57,16 +81,21 @@ export function useSave(engine: Engine, document: OpenDocument | null, deliver: 
         running.current = false;
       }
     },
-    [engine, document, deliver],
+    [engine, document, delivery],
   );
 
-  const save = useCallback(() => void run(false), [run]);
-  const confirmSignatures = useCallback(() => void run(true), [run]);
+  const save = useCallback(() => void run('overwrite', false), [run]);
+  /** "Save anyway": over the opened file, breaking its signature. */
+  const confirmSignatures = useCallback(() => void run('overwrite', true), [run]);
+  /** "Save a copy": the acknowledged bytes go to a new file, the opened one stays as it is. */
+  const saveSignedCopy = useCallback(() => void run('copy', true), [run]);
   const cancelSignatures = useCallback(() => setActivity(IDLE), []);
   const markDirty = useCallback(() => {
     edits.current++;
     setDirty(true);
+    // "Saved over x" no longer describes the document.
+    setActivity((a) => (a.kind === 'done' ? IDLE : a));
   }, []);
 
-  return { activity, dirty, save, confirmSignatures, cancelSignatures, markDirty };
+  return { activity, dirty, save, confirmSignatures, saveSignedCopy, cancelSignatures, markDirty };
 }

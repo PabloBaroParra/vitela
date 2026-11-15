@@ -1,5 +1,6 @@
-// Asks whether to save a signed document anyway. Presentational: it reports
-// the answer. A native modal <dialog> keeps focus inside it and makes the
+// Asks what to do about saving a signed document: cancel, save a copy (the
+// opened file stays as it is), or save over it anyway. Presentational: it
+// reports the answer. A native modal <dialog> keeps focus inside it and makes the
 // rest of the page inert; Escape fires `cancel`. The wording follows the
 // other shells' `write-signature-*` strings, shortened to one statement and
 // one hint.
@@ -7,11 +8,14 @@
 import { useEffect, useId, useRef } from 'react';
 
 interface SignatureDialogProps {
-  readonly onProceed: () => void;
+  /** Save over the opened file, breaking the signature. */
+  readonly onSaveAnyway: () => void;
+  /** Save to a new file; the opened one, and its signature, are untouched. */
+  readonly onSaveCopy: () => void;
   readonly onCancel: () => void;
 }
 
-export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
+export function SignatureDialog({ onSaveAnyway, onSaveCopy, onCancel }: SignatureDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const bodyId = useId();
@@ -46,14 +50,17 @@ export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
           Saving rewrites the file, so the signature no longer matches it. The signature is not removed: PDF readers
           will report it as invalid.
         </p>
-        <p className="dialog__hint">To keep a copy that still verifies, cancel and save to a different file.</p>
+        <p className="dialog__hint">Save a copy to leave the original file, and its valid signature, untouched.</p>
       </div>
       <div className="dialog__actions">
         {/* Cancel takes the focus: the safe answer is the default one. */}
         <button type="button" autoFocus onClick={onCancel}>
           Cancel
         </button>
-        <button type="button" className="button--primary" onClick={onProceed}>
+        <button type="button" onClick={onSaveCopy}>
+          Save a copy
+        </button>
+        <button type="button" className="button--primary" onClick={onSaveAnyway}>
           Save anyway
         </button>
       </div>

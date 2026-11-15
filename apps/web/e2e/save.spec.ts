@@ -53,6 +53,21 @@ test.describe('download', () => {
     await expect(page.getByText('again.pdf — 1 page')).toBeVisible();
   });
 
+  test('keyboard focus stays on Save while it runs and after it settles', async ({ page }) => {
+    await loadApp(page);
+    await openFixture(page, THREE_PAGES);
+    const save = saveButton(page);
+    await save.focus();
+    await expect(save).toBeFocused();
+
+    const [download] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Enter')]);
+    await download.path();
+    await expect(page.getByText('Downloaded vector_only.pdf.')).toBeVisible();
+    // A disabled button would have dropped the focus to the page.
+    await expect(save).toBeFocused();
+    await expect(save).toHaveAttribute('aria-disabled', 'false');
+  });
+
   test('an encrypted document saves still encrypted: the same password reopens it', async ({ page }) => {
     await loadApp(page);
     await page.getByLabel('Open PDF').setInputFiles({
@@ -200,5 +215,68 @@ test.describe('File System Access (Chromium)', () => {
     await expect(
       page.getByText('Could not write over the opened file, so locked-down.pdf was downloaded instead.'),
     ).toBeVisible();
+  });
+
+  test('says the permission was refused, and downloads, when the browser will not grant the write', async ({ page }) => {
+    await loadApp(page);
+    await stageHandle(page, 'refused.pdf', fixtureBytes(THREE_PAGES));
+    await page.evaluate(() => {
+      const w = window as unknown as { __staged: Record<string, unknown>; showOpenFilePicker: () => Promise<unknown[]> };
+      // Stand in for the browser's prompt, answered "no".
+      w.__staged.queryPermission = async () => 'prompt';
+      w.__staged.requestPermission = async () => 'denied';
+      w.showOpenFilePicker = async () => [w.__staged];
+    });
+
+    await page.locator('.file-picker').click();
+    await expectOpened(page, 'refused.pdf');
+    const { download } = await saveAsDownload(page);
+    expect(download.suggestedFilename()).toBe('refused.pdf');
+    await expect(
+      page.getByText('Permission to write over the opened file was refused, so refused.pdf was downloaded instead.'),
+    ).toBeVisible();
+  });
+
+  test('a dropped file whose handle belongs to another file is saved by download, not over that file', async ({ page }) => {
+    await loadApp(page);
+    await stageHandle(page, 'someone-else.pdf', fixtureBytes(THREE_PAGES));
+    await page.evaluate(() => {
+      const staged = (window as unknown as { __staged: FileSystemFileHandle }).__staged;
+      (DataTransferItem.prototype as unknown as { getAsFileSystemHandle: () => Promise<unknown> }).getAsFileSystemHandle =
+        async () => staged;
+    });
+    await dropFile(page, 'dropped.pdf', fixtureBytes('forms/reportlab_acroform.pdf'));
+    await expectOpened(page, 'dropped.pdf');
+
+    const { download } = await saveAsDownload(page);
+    expect(download.suggestedFilename()).toBe('dropped.pdf');
+    await expect(page.getByText('Downloaded dropped.pdf.')).toBeVisible();
+    // The other file was never touched.
+    expect(Buffer.from(await stagedBytes(page)).equals(fixtureBytes(THREE_PAGES))).toBe(true);
+  });
+
+  test('a failing browser picker opens the native dialog for that click only, then the picker is used again', async ({
+    page,
+  }) => {
+    await loadApp(page);
+    await page.evaluate(() => {
+      const w = window as unknown as { __calls: number; showOpenFilePicker: () => Promise<unknown[]> };
+      w.__calls = 0;
+      w.showOpenFilePicker = async () => {
+        w.__calls++;
+        throw new DOMException('blocked', 'SecurityError');
+      };
+    });
+    const calls = () => page.evaluate(() => (window as unknown as { __calls: number }).__calls);
+
+    const [first] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.file-picker').click()]);
+    await first.setFiles({ name: 'native.pdf', mimeType: 'application/pdf', buffer: fixtureBytes(THREE_PAGES) });
+    await expectOpened(page, 'native.pdf');
+
+    const [second] = await Promise.all([page.waitForEvent('filechooser'), page.locator('.file-picker').click()]);
+    await second.setFiles({ name: 'again.pdf', mimeType: 'application/pdf', buffer: fixtureBytes(THREE_PAGES) });
+    await expectOpened(page, 'again.pdf');
+    // The picker was tried on both clicks: one failure did not switch it off.
+    expect(await calls()).toBe(2);
   });
 });

@@ -41,12 +41,16 @@ export function FilePicker({ label, accept, disabled = false, onPick, pick }: Fi
         // The user dismissed the picker: nothing to do.
         if (error instanceof DOMException && error.name === 'AbortError') return;
         // The picker failed (blocked, say): open the native dialog for this
-        // click only. The user's activation outlives the failed call, and the
-        // picker stays in use for the next click.
-        letThrough.current = true;
-        input.current?.click();
-        // The click is dispatched synchronously; never leave the pass armed.
-        letThrough.current = false;
+        // click only; the picker stays in use for the next one. A rejection
+        // can land while the original click is still being dispatched, and a
+        // click() during dispatch is ignored: so wait a tick. The user's
+        // activation outlives it.
+        setTimeout(() => {
+          letThrough.current = true;
+          input.current?.click();
+          // The click is dispatched synchronously; never leave the pass armed.
+          letThrough.current = false;
+        }, 0);
       },
     );
   };

@@ -1,31 +1,38 @@
 // The Save button, what the last save did, and the signature question.
-// Container: the state lives in `useSave`.
+// Presentational: the state lives in `useSave`, owned by the workspace.
 
-import type { Engine } from '../../core/types';
+import { useEffect, useRef } from 'react';
 import { StatusLine } from '../../ui/StatusLine';
-import type { OpenDocument } from '../document/useDocument';
+import type { SaveOutcome } from './outcome';
 import { SignatureDialog } from './SignatureDialog';
-import { useSave, type SaveActivity } from './useSave';
+import type { SaveActivity, SaveSession } from './useSave';
 
 interface SaveControlsProps {
-  readonly engine: Engine;
-  readonly document: OpenDocument;
-  /** Replaces the delivery of the bytes; for tests. */
-  readonly deliver?: Parameters<typeof useSave>[2];
+  readonly session: SaveSession;
+  readonly documentName: string;
 }
 
-export function SaveControls({ engine, document, deliver }: SaveControlsProps) {
-  const { activity, dirty, save, confirmSignatures, cancelSignatures } = useSave(engine, document, deliver);
+export function SaveControls({ session, documentName }: SaveControlsProps) {
+  const { activity, dirty, save, confirmSignatures, saveSignedCopy, cancelSignatures } = session;
   const busy = activity.kind === 'saving' || activity.kind === 'confirmSignatures';
+  const button = useRef<HTMLButtonElement>(null);
+  const asking = activity.kind === 'confirmSignatures';
+
+  // The question gives the focus back when it goes away, whatever the answer.
+  const wasAsking = useRef(false);
+  useEffect(() => {
+    if (wasAsking.current && !asking) button.current?.focus();
+    wasAsking.current = asking;
+  }, [asking]);
+
   return (
     <>
-      <button type="button" onClick={save} disabled={busy}>
+      {/* Not `disabled`: a disabled button drops the keyboard focus to the page. */}
+      <button ref={button} type="button" onClick={busy ? undefined : save} aria-disabled={busy}>
         Save
       </button>
-      <SaveStatus activity={activity} documentName={document.name} dirty={dirty} />
-      {activity.kind === 'confirmSignatures' && (
-        <SignatureDialog onProceed={confirmSignatures} onCancel={cancelSignatures} />
-      )}
+      <SaveStatus activity={activity} documentName={documentName} dirty={dirty} />
+      {asking && <SignatureDialog onSaveAnyway={confirmSignatures} onSaveCopy={saveSignedCopy} onCancel={cancelSignatures} />}
     </>
   );
 }
@@ -42,18 +49,29 @@ function SaveStatus({ activity, documentName, dirty }: SaveStatusProps) {
       return <StatusLine>Saving…</StatusLine>;
     case 'failed':
       return <StatusLine tone="error">{`Could not save ${documentName}: ${activity.message}`}</StatusLine>;
-    case 'done': {
-      const { outcome } = activity;
-      if (outcome.how === 'wrote') return <StatusLine>{`Saved over ${outcome.name}.`}</StatusLine>;
-      return (
-        <StatusLine>
-          {outcome.fellBack
-            ? `Could not write over the opened file, so ${outcome.name} was downloaded instead.`
-            : `Downloaded ${outcome.name}.`}
-        </StatusLine>
-      );
-    }
+    case 'done':
+      return <StatusLine>{outcomeText(activity.outcome)}</StatusLine>;
     default:
       return dirty ? <StatusLine>Unsaved changes.</StatusLine> : null;
+  }
+}
+
+function outcomeText(outcome: SaveOutcome): string {
+  switch (outcome.how) {
+    case 'wrote':
+      return `Saved over ${outcome.name}.`;
+    case 'copied':
+      return `Saved a copy as ${outcome.name}. The opened file was not changed.`;
+    case 'cancelled':
+      return 'Save cancelled.';
+    case 'downloaded':
+      switch (outcome.fellBack) {
+        case 'permission':
+          return `Permission to write over the opened file was refused, so ${outcome.name} was downloaded instead.`;
+        case 'write':
+          return `Could not write over the opened file, so ${outcome.name} was downloaded instead.`;
+        case null:
+          return `Downloaded ${outcome.name}.`;
+      }
   }
 }

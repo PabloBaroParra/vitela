@@ -2,10 +2,11 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { EngineError } from '../../core/errors';
 import type { Engine } from '../../core/types';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
-import type { WritableFileHandle } from '../../platform/fileHandle';
-import type { SaveOutcome } from './saveBytes';
+import type { DeliverRequest, Delivery, Destination, SaveIntent } from './delivery';
+import type { SaveOutcome } from './outcome';
 import { useSave } from './useSave';
 
 const document: OpenDocument = {
@@ -17,11 +18,15 @@ const document: OpenDocument = {
 
 const bytes = new Uint8Array([37, 80, 68, 70]);
 
+/** Everything the save did, in order, across the engine and the delivery. */
+type Log = string[];
+
 /** An engine that saves `bytes`, recording each acknowledgement, unless `fail` throws. */
-function savingEngine(fail?: (invalidate: boolean) => Error | undefined) {
+function savingEngine(log: Log = [], fail?: (invalidate: boolean) => Error | undefined) {
   const asked: [number, boolean][] = [];
   const engine: Engine = fakeEngine({
     saveToBytes: async (handle, invalidate) => {
+      log.push('engine');
       asked.push([handle, invalidate]);
       const error = fail?.(invalidate);
       if (error) throw error;
@@ -31,10 +36,20 @@ function savingEngine(fail?: (invalidate: boolean) => Error | undefined) {
   return { engine, asked };
 }
 
-function deliveries() {
-  const calls: { bytes: Uint8Array; name: string; handle: WritableFileHandle | undefined }[] = [];
-  const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: false };
-  return { calls, deliver: async (request: (typeof calls)[number]) => (calls.push(request), outcome), outcome };
+const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: null };
+
+function deliveries(log: Log = [], destination: Destination | null = { kind: 'overwrite', handle: undefined, permission: 'granted' }) {
+  const prepared: { intent: SaveIntent; name: string; fileHandle: WritableFileHandle | undefined }[] = [];
+  const calls: DeliverRequest[] = [];
+  const delivery: Delivery = {
+    prepare: async (intent, source) => {
+      log.push(`prepare ${intent}`);
+      prepared.push({ intent, name: source.name, fileHandle: source.fileHandle });
+      return destination;
+    },
+    deliver: async (request) => (log.push('deliver'), calls.push(request), outcome),
+  };
+  return { prepared, calls, delivery };
 }
 
 const signed = (invalidate: boolean) =>
@@ -47,24 +62,41 @@ describe('useSave', () => {
     expect(result.current.dirty).toBe(false);
   });
 
-  it('saves the open document and hands the bytes, name and file handle over', async () => {
-    const { engine, asked } = savingEngine();
-    const { calls, deliver, outcome } = deliveries();
+  it('prepares the destination BEFORE the engine saves, then hands over the bytes, name and destination', async () => {
+    const log: Log = [];
+    const { engine, asked } = savingEngine(log);
+    const destination: Destination = { kind: 'overwrite', handle: undefined, permission: 'denied' };
+    const { prepared, calls, delivery } = deliveries(log, destination);
     const fileHandle = { name: 'a.pdf' } as WritableFileHandle;
-    const { result } = renderHook(() => useSave(engine, { ...document, fileHandle }, deliver));
+    const { result } = renderHook(() => useSave(engine, { ...document, fileHandle }, delivery));
 
     act(() => result.current.save());
     expect(result.current.activity).toEqual({ kind: 'saving' });
     await waitFor(() => expect(result.current.activity).toEqual({ kind: 'done', outcome }));
 
+    expect(log).toEqual(['prepare overwrite', 'engine', 'deliver']);
+    expect(prepared).toEqual([{ intent: 'overwrite', name: 'a.pdf', fileHandle }]);
     expect(asked).toEqual([[7, false]]);
-    expect(calls).toEqual([{ bytes, name: 'a.pdf', handle: fileHandle }]);
+    expect(calls).toEqual([{ bytes, name: 'a.pdf', destination }]);
+  });
+
+  it('saves nothing, and keeps the edits marked, when the user dismisses a dialog', async () => {
+    const log: Log = [];
+    const { engine } = savingEngine(log);
+    const { delivery } = deliveries(log, null);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.markDirty());
+
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'done', outcome: { how: 'cancelled' } }));
+    expect(log).toEqual(['prepare overwrite']);
+    expect(result.current.dirty).toBe(true);
   });
 
   it('ignores a second Save while one is running', async () => {
     const { engine, asked } = savingEngine();
-    const { deliver } = deliveries();
-    const { result } = renderHook(() => useSave(engine, document, deliver));
+    const { delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
     act(() => {
       result.current.save();
       result.current.save();
@@ -73,10 +105,10 @@ describe('useSave', () => {
     expect(asked).toHaveLength(1);
   });
 
-  it('asks before breaking a signature, and saves only once the user agrees', async () => {
-    const { engine, asked } = savingEngine(signed);
-    const { calls, deliver } = deliveries();
-    const { result } = renderHook(() => useSave(engine, document, deliver));
+  it('asks before breaking a signature, and saves over the file only once the user agrees', async () => {
+    const { engine, asked } = savingEngine([], signed);
+    const { calls, delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
 
     act(() => result.current.save());
     await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmSignatures' }));
@@ -91,10 +123,29 @@ describe('useSave', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('"save a copy" from the signature question prepares a COPY first, then saves with the acknowledgement', async () => {
+    const log: Log = [];
+    const { engine, asked } = savingEngine(log, signed);
+    const copy: Destination = { kind: 'copy', handle: undefined };
+    const { prepared, calls, delivery } = deliveries(log, copy);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity.kind).toBe('confirmSignatures'));
+    log.length = 0;
+
+    act(() => result.current.saveSignedCopy());
+    await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+
+    expect(log).toEqual(['prepare copy', 'engine', 'deliver']);
+    expect(prepared.at(-1)?.intent).toBe('copy');
+    expect(asked.at(-1)).toEqual([7, true]);
+    expect(calls).toEqual([{ bytes, name: 'a.pdf', destination: copy }]);
+  });
+
   it('cancelling the signature question saves nothing', async () => {
-    const { engine, asked } = savingEngine(signed);
-    const { calls, deliver } = deliveries();
-    const { result } = renderHook(() => useSave(engine, document, deliver));
+    const { engine, asked } = savingEngine([], signed);
+    const { calls, delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
     act(() => result.current.save());
     await waitFor(() => expect(result.current.activity.kind).toBe('confirmSignatures'));
 
@@ -105,9 +156,9 @@ describe('useSave', () => {
   });
 
   it('reports another engine failure with its message and delivers nothing', async () => {
-    const { engine } = savingEngine(() => new EngineError('SaveFailed', 'the document could not be written'));
-    const { calls, deliver } = deliveries();
-    const { result } = renderHook(() => useSave(engine, document, deliver));
+    const { engine } = savingEngine([], () => new EngineError('SaveFailed', 'the document could not be written'));
+    const { calls, delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
     act(() => result.current.save());
     await waitFor(() =>
       expect(result.current.activity).toEqual({ kind: 'failed', message: 'the document could not be written' }),
@@ -117,20 +168,22 @@ describe('useSave', () => {
 
   it('reports a delivery failure', async () => {
     const { engine } = savingEngine();
-    const { result } = renderHook(() =>
-      useSave(engine, document, async () => {
+    const failing: Delivery = {
+      ...deliveries().delivery,
+      deliver: async () => {
         throw new Error('no room left');
-      }),
-    );
+      },
+    };
+    const { result } = renderHook(() => useSave(engine, document, failing));
     act(() => result.current.save());
     await waitFor(() => expect(result.current.activity).toEqual({ kind: 'failed', message: 'no room left' }));
   });
 
   it('keeps the dirty mark of unsaved edits until a save succeeds', async () => {
     let failing = true;
-    const { engine } = savingEngine(() => (failing ? new EngineError('SaveFailed', 'nope') : undefined));
-    const { deliver } = deliveries();
-    const { result } = renderHook(() => useSave(engine, document, deliver));
+    const { engine } = savingEngine([], () => (failing ? new EngineError('SaveFailed', 'nope') : undefined));
+    const { delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
 
     act(() => result.current.markDirty());
     expect(result.current.dirty).toBe(true);
@@ -143,5 +196,37 @@ describe('useSave', () => {
     act(() => result.current.save());
     await waitFor(() => expect(result.current.activity.kind).toBe('done'));
     expect(result.current.dirty).toBe(false);
+  });
+
+  it('an edit after a successful save replaces "saved" with unsaved changes', async () => {
+    const { engine } = savingEngine();
+    const { delivery } = deliveries();
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+
+    act(() => result.current.markDirty());
+    expect(result.current.dirty).toBe(true);
+    expect(result.current.activity).toEqual({ kind: 'idle' });
+  });
+
+  it('starts clean for the next document, and a save that outlives its document reports nothing', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const engine: Engine = fakeEngine({ saveToBytes: async () => (await gate, bytes) });
+    const { delivery } = deliveries();
+    const { result, rerender } = renderHook(({ doc }) => useSave(engine, doc, delivery), {
+      initialProps: { doc: document },
+    });
+    act(() => result.current.markDirty());
+    act(() => result.current.save());
+    expect(result.current.activity.kind).toBe('saving');
+
+    rerender({ doc: { ...document, generation: 2, handle: 8 } });
+    expect(result.current.activity).toEqual({ kind: 'idle' });
+    expect(result.current.dirty).toBe(false);
+
+    await act(async () => release());
+    expect(result.current.activity).toEqual({ kind: 'idle' });
   });
 });

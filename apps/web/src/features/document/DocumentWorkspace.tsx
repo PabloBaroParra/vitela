@@ -4,7 +4,9 @@
 import type { Engine } from '../../core/types';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
+import { MarkDirtyContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
+import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
 import { DocumentViewer } from '../viewer/DocumentViewer';
 import { PasswordDialog } from './PasswordDialog';
@@ -20,6 +22,8 @@ export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
   const { document, activity } = state;
   const busy = activity.kind === 'opening' || activity.kind === 'password';
   const dragging = useFileDrop(open, !busy);
+  // Owned here, above the viewer, so editing screens inside it can flag edits.
+  const save = useSave(engine, document);
 
   return (
     <div className="workspace">
@@ -35,10 +39,14 @@ export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
         {activity.kind === 'idle' && document && (
           <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
         )}
-        {document && <SaveControls key={document.generation} engine={engine} document={document} />}
+        {document && <SaveControls session={save} documentName={document.name} />}
         {activity.kind === 'idle' && !document && <StatusLine>Open a PDF or drop one anywhere on this window.</StatusLine>}
       </div>
-      {document && <DocumentViewer key={document.generation} engine={engine} document={document} />}
+      {document && (
+        <MarkDirtyContext.Provider value={save.markDirty}>
+          <DocumentViewer key={document.generation} engine={engine} document={document} />
+        </MarkDirtyContext.Provider>
+      )}
       {activity.kind === 'password' && (
         <PasswordDialog
           name={activity.name}

@@ -5,21 +5,17 @@ import { saveBytes } from './saveBytes';
 const bytes = new Uint8Array([37, 80, 68, 70]);
 
 /** A handle that records what is written and when it is committed. */
-function fakeHandle(options: { permission?: PermissionState; granted?: PermissionState; failWrite?: boolean } = {}) {
+function fakeHandle(options: { failWrite?: boolean } = {}) {
   const log: string[] = [];
   const handle: WritableFileHandle = {
     name: 'report.pdf',
-    queryPermission: async () => options.permission ?? 'granted',
-    requestPermission: async () => {
-      log.push('request');
-      return options.granted ?? 'granted';
-    },
     createWritable: async () => ({
       write: async (data) => {
         if (options.failWrite) throw new Error('disk full');
         log.push(`write ${[...data].join(',')}`);
       },
       close: async () => void log.push('close'),
+      abort: async () => void log.push('abort'),
     }),
   };
   return { handle, log };
@@ -33,41 +29,35 @@ function downloads() {
 describe('saveBytes', () => {
   it('downloads when there is no file handle', async () => {
     const { calls, download } = downloads();
-    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle: undefined, download });
-    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: false });
+    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle: undefined, permission: 'granted', download });
+    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: null });
     expect(calls).toEqual([[bytes, 'a.pdf']]);
   });
 
   it('writes over the opened file and commits it', async () => {
     const { handle, log } = fakeHandle();
     const { calls, download } = downloads();
-    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, download });
+    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, permission: 'granted', download });
     expect(outcome).toEqual({ how: 'wrote', name: 'report.pdf' });
     expect(log).toEqual(['write 37,80,68,70', 'close']);
     expect(calls).toEqual([]);
   });
 
-  it('asks for write permission when the handle has not been granted it', async () => {
-    const { handle, log } = fakeHandle({ permission: 'prompt' });
-    const { download } = downloads();
-    expect(await saveBytes({ bytes, name: 'a.pdf', handle, download })).toMatchObject({ how: 'wrote' });
-    expect(log[0]).toBe('request');
-  });
-
-  it('downloads instead, and says so, when write permission is refused', async () => {
-    const { handle, log } = fakeHandle({ permission: 'prompt', granted: 'denied' });
+  it.each(['denied', 'prompt'] as const)('downloads, saying the permission was refused, when it is %s', async (permission) => {
+    const { handle, log } = fakeHandle();
     const { calls, download } = downloads();
-    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, download });
-    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: true });
-    expect(log).toEqual(['request']);
+    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, permission, download });
+    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: 'permission' });
+    expect(log).toEqual([]);
     expect(calls).toHaveLength(1);
   });
 
-  it('downloads instead when the write fails', async () => {
-    const { handle } = fakeHandle({ failWrite: true });
+  it('aborts the write and downloads instead when the write fails', async () => {
+    const { handle, log } = fakeHandle({ failWrite: true });
     const { calls, download } = downloads();
-    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, download });
-    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: true });
+    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, permission: 'granted', download });
+    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: 'write' });
+    expect(log).toEqual(['abort']);
     expect(calls).toHaveLength(1);
   });
 });
