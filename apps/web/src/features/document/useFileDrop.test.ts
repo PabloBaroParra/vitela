@@ -70,4 +70,51 @@ describe('useFileDrop', () => {
     await act(async () => {});
     expect(opened).toEqual([[pdf, undefined]]);
   });
+
+  describe('a handle that arrives after the drop', () => {
+    const handleOf = (name: string) =>
+      ({ kind: 'file', name, createWritable: async () => ({}) }) as unknown as WritableFileHandle;
+    const second = new File([new Uint8Array([37])], 'second.pdf', { type: 'application/pdf' });
+
+    /** An item whose handle only arrives when `release` is called. */
+    function slowItem(handle: WritableFileHandle | null) {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      return { item: { kind: 'file', getAsFileSystemHandle: async () => (await gate, handle) }, release };
+    }
+
+    it('ignores a drop that became disabled while its handle was pending', async () => {
+      const opened: File[] = [];
+      const { rerender } = renderHook(({ enabled }) => useFileDrop((file) => opened.push(file), enabled), {
+        initialProps: { enabled: true },
+      });
+      const slow = slowItem(handleOf('dropped.pdf'));
+      drag('drop', [pdf], [slow.item]);
+      // Another open started meanwhile (the busy check passed before the await).
+      rerender({ enabled: false });
+      slow.release();
+      await act(async () => {});
+      expect(opened).toEqual([]);
+    });
+
+    it('lets only the latest drop win', async () => {
+      const opened: File[] = [];
+      renderHook(() => useFileDrop((file) => opened.push(file), true));
+      const slow = slowItem(handleOf('dropped.pdf'));
+      drag('drop', [pdf], [slow.item]);
+      drag('drop', [second], [{ kind: 'file', getAsFileSystemHandle: async () => handleOf('second.pdf') }]);
+      await act(async () => {});
+      slow.release();
+      await act(async () => {});
+      expect(opened).toEqual([second]);
+    });
+
+    it('opens without the handle when it belongs to another file, so Save downloads', async () => {
+      const opened: [File, WritableFileHandle | undefined][] = [];
+      renderHook(() => useFileDrop((file, fileHandle) => opened.push([file, fileHandle]), true));
+      drag('drop', [pdf], [{ kind: 'file', getAsFileSystemHandle: async () => handleOf('other.pdf') }]);
+      await act(async () => {});
+      expect(opened).toEqual([[pdf, undefined]]);
+    });
+  });
 });
