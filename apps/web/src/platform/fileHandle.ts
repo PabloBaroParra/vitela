@@ -13,6 +13,8 @@ export interface WritableFileHandle {
     /** Drops the swap file without replacing the original. */
     abort?(reason?: unknown): Promise<void>;
   }>;
+  /** The file as it is on disk now; its modified time and size tell whether someone else changed it. */
+  getFile?(): Promise<{ readonly lastModified: number; readonly size: number }>;
   queryPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;
   requestPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;
 }
@@ -24,7 +26,7 @@ export interface PickedFile {
 }
 
 interface OpenPickerWindow {
-  showOpenFilePicker?: (options: unknown) => Promise<(WritableFileHandle & { getFile(): Promise<File>; kind: string })[]>;
+  showOpenFilePicker?: (options: unknown) => Promise<(Omit<WritableFileHandle, 'getFile'> & { getFile(): Promise<File>; kind: string })[]>;
 }
 
 interface HandleItem {

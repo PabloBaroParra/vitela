@@ -556,9 +556,32 @@ lo que sigue:
 - **Dirty:** `useSave` vive en `DocumentWorkspace` (un estado por documento: abrir otro
   empieza limpio, y un guardado que sobrevive a su documento no informa) y entrega
   `markDirty()` por `MarkDirtyContext`: las pantallas de edición de T-226 llaman a
-  `useMarkDirty()` (falla en voz alta fuera del workspace). Un guardado correcto limpia el
-  flag, salvo que haya entrado una edición mientras guardaba, y una edición posterior a un
-  guardado sustituye "Saved over…" por "Unsaved changes.". Nadie lo marca todavía.
+  `useMarkDirty()` (falla en voz alta fuera del workspace). **Solo un guardado que escribió
+  sobre el archivo abierto** (`outcome.how === 'wrote'`) limpia el flag, y solo si no entró
+  una edición mientras guardaba (contador de ediciones capturado al empezar): una descarga
+  (también la de respaldo) o un "Save a copy" dejan el archivo abierto sin las ediciones, así
+  que el documento sigue sucio y la línea de estado lo dice ("Downloaded x.pdf. The opened
+  file still has unsaved changes."). Si se editó durante un guardado que sí escribió, la línea
+  dice "Saved over x.pdf, but edits made while saving are not in it. Unsaved changes." en vez
+  de dar todo por guardado. Una edición posterior a un guardado sustituye el mensaje por
+  "Unsaved changes.". Nadie lo marca todavía.
+- **Archivo cambiado en disco:** al abrir un documento con handle, `platform/fileStamp.ts`
+  anota `lastModified` y `size` (`handle.getFile()`, una promesa por handle para que una
+  comprobación inmediata la espere). `prepare` —lo primero del clic de Save, antes del motor y
+  antes de pedir el permiso de escritura— los vuelve a leer: si difieren **no se escribe** y
+  `useSave` pasa a `confirmChangedOnDisk`, que abre `ChangedOnDiskDialog` (mismo estilo que
+  `SignatureDialog`, ambos sobre `WarningDialog`: `dialog dialog--warning`, icono, **Cancel**
+  enfocado) con **Cancel**, **Save a copy** (descarga; no toca el archivo) y **Overwrite**
+  (intención `overwriteAnyway`: adopta el archivo tal como está ahora como nueva referencia y
+  sigue el camino normal de permiso). Si la comprobación no puede hacerse (`getFile` falla, o
+  falló al abrir) el estado es *desconocido*: no se escribe, se descarga y la línea dice "Could
+  not check whether the opened file changed on disk, so x.pdf was downloaded instead.". Tras
+  una escritura correcta `writeToHandle` re-anota el archivo, para que el siguiente guardado
+  no dé falsa alarma. Un handle sin `getFile` (dobles de test) no se comprueba. **Límites:**
+  `lastModified`+`size` no detecta un cambio que conserve ambos; y entre la comprobación y el
+  `close()` del `writable` queda una ventana de milisegundos (el navegador no ofrece un
+  compare-and-swap). **No se maneja un worker del motor colgado:** exigiría reiniciar el worker
+  y reabrir el documento; queda fuera de alcance.
 - **Foco:** Save se queda enfocable mientras guarda (`aria-disabled` + guarda en el
   manejador; un `disabled` real tira el foco a la página) y recupera el foco al cerrarse
   la pregunta de la firma.
@@ -567,9 +590,12 @@ lo que sigue:
   sistema de archivos privado del origen** (`navigator.storage.getDirectory()`) entregados
   por `showOpenFilePicker` y por `getAsFileSystemHandle` (Playwright no maneja el diálogo
   nativo), incluidos el respaldo a descarga, el permiso denegado, un drop cuyo handle es de otro archivo
-  y un selector que falla. Antes de guardar, el test pisa el archivo con un
-  marcador: un guardado sin ediciones puede reproducir los bytes originales y, sin eso, no
-  se distinguiría "escrito" de "intacto". El zero-network ahora también guarda (la descarga
+  y un selector que falla. Los tests de escritura cuentan las llamadas a `createWritable`: un
+  guardado sin ediciones puede reproducir los bytes originales y, sin eso, no se
+  distinguiría "escrito" de "intacto". Cuatro más cubren el archivo cambiado en disco
+  (modificado desde fuera tras abrir: aparece el diálogo con Cancel enfocado y Cancel lo deja
+  como está; Overwrite escribe y el siguiente guardado no vuelve a preguntar; Save a copy
+  descarga sin tocarlo; `getFile` que falla descarga y lo dice). El zero-network ahora también guarda (la descarga
   es una Blob URL, no una petición) y sigue en verde. **No cubierto:** Save a copy de punta a punta (necesita una edición, T-226), el aviso de
   permiso del propio navegador (los E2E lo sustituyen por un handle que responde "denied"), un handle sobre el disco real, y Firefox/WebKit no tienen
   File System Access (solo descarga).

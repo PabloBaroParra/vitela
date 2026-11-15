@@ -143,6 +143,13 @@ one of three ways:
   the status line says the permission was the reason. Chromium writes to a swap
   file and replaces the original on `close()`; a failed `write()`/`close()`
   calls `abort()` first, so a failed write leaves the user's file as it was.
+  **If the file changed on disk since it was opened** (its `lastModified` or
+  `size` differs from what `platform/fileStamp.ts` recorded at open), nothing is
+  written: a dialog (`ChangedOnDiskDialog`, Cancel focused) offers **Cancel**,
+  **Save a copy** (a download; the file is not touched) and **Overwrite**. The
+  check is part of `prepare`, before the engine. If it cannot be made (`getFile`
+  fails) the document is downloaded and the status says why. After a successful
+  write the recorded state is refreshed, so the next save does not false-alarm.
 - **As a copy** (`saveCopy.ts`), only from the signature question: always a
   download named `name (copy).pdf`. It deliberately does not use
   `showSaveFilePicker`: Chromium truncates an existing file picked there before
@@ -161,8 +168,12 @@ keeps its encryption (the core's default save intent).
 
 The save state (`useSave`) lives in `DocumentWorkspace`, one per open document.
 It holds a `dirty` flag: editing screens (Organize, T-226) call `useMarkDirty()`
-after each applied edit, a successful save clears it, and an edit after a save
-turns "Saved over…" into "Unsaved changes."; nothing sets it yet. The Save
+after each applied edit. Only a save that **wrote over the opened file** clears
+it, and only if no edit came in while it ran; a download or a copy leaves the
+opened file without the edits, so the status says it still has unsaved changes.
+An edit after a save turns "Saved over…" into "Unsaved changes."; nothing sets
+it yet. A hung engine worker is not handled (it would need a worker restart and
+a reopen). The Save
 button uses `aria-disabled` while it runs, so the keyboard focus stays on it.
 
 The file-handle adapter (`fileHandle`, `fileWrite`, `saveTarget`) lives in

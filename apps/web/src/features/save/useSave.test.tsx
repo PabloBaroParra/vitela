@@ -37,8 +37,13 @@ function savingEngine(log: Log = [], fail?: (invalidate: boolean) => Error | und
 }
 
 const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: null };
+const wrote: SaveOutcome = { how: 'wrote', name: 'a.pdf' };
 
-function deliveries(log: Log = [], destination: Destination | null = { kind: 'overwrite', handle: undefined, permission: 'granted' }) {
+function deliveries(
+  log: Log = [],
+  destination: Destination | null = { kind: 'overwrite', handle: undefined, permission: 'granted' },
+  result: SaveOutcome = outcome,
+) {
   const prepared: { intent: SaveIntent; name: string; fileHandle: WritableFileHandle | undefined }[] = [];
   const calls: DeliverRequest[] = [];
   const delivery: Delivery = {
@@ -47,7 +52,7 @@ function deliveries(log: Log = [], destination: Destination | null = { kind: 'ov
       prepared.push({ intent, name: source.name, fileHandle: source.fileHandle });
       return destination;
     },
-    deliver: async (request) => (log.push('deliver'), calls.push(request), outcome),
+    deliver: async (request) => (log.push('deliver'), calls.push(request), result),
   };
   return { prepared, calls, delivery };
 }
@@ -182,7 +187,7 @@ describe('useSave', () => {
   it('keeps the dirty mark of unsaved edits until a save succeeds', async () => {
     let failing = true;
     const { engine } = savingEngine([], () => (failing ? new EngineError('SaveFailed', 'nope') : undefined));
-    const { delivery } = deliveries();
+    const { delivery } = deliveries(undefined, undefined, wrote);
     const { result } = renderHook(() => useSave(engine, document, delivery));
 
     act(() => result.current.markDirty());
@@ -255,5 +260,126 @@ describe('useSave', () => {
     await act(async () => release());
     expect(calls.map((c) => c.name)).toEqual(['b.pdf']);
     expect(result.current.activity.kind).toBe('done');
+  });
+
+  describe('what a save leaves unsaved', () => {
+    it.each([
+      ['a download', outcome],
+      ['a download that fell back', { how: 'downloaded', name: 'a.pdf', fellBack: 'write' } as SaveOutcome],
+      ['a copy', { how: 'copied', name: 'a (copy).pdf' } as SaveOutcome],
+    ])('%s does not clear the unsaved changes: the opened file lacks the edits', async (_label, delivered) => {
+      const { engine } = savingEngine();
+      const { delivery } = deliveries(undefined, undefined, delivered);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.markDirty());
+
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity).toEqual({ kind: 'done', outcome: delivered }));
+      expect(result.current.dirty).toBe(true);
+    });
+
+    it('writing over the opened file clears them', async () => {
+      const { engine } = savingEngine();
+      const { delivery } = deliveries(undefined, undefined, wrote);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.markDirty());
+
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+      expect(result.current.dirty).toBe(false);
+    });
+
+    it('an edit made while the save runs stays unsaved even when the save wrote the file', async () => {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      const engine: Engine = fakeEngine({ saveToBytes: async () => (await gate, bytes) });
+      const { delivery } = deliveries(undefined, undefined, wrote);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.markDirty());
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('saving'));
+
+      act(() => result.current.markDirty());
+      await act(async () => release());
+
+      await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+      expect(result.current.dirty).toBe(true);
+    });
+  });
+
+  describe('the opened file changed on disk', () => {
+    const changed: Destination = { kind: 'changedOnDisk' };
+    const copy: Destination = { kind: 'copy' };
+    const overwrite: Destination = { kind: 'overwrite', handle: undefined, permission: 'granted' };
+
+    /** A delivery that answers "changed" to a plain overwrite and settles every other intent. */
+    function changedDelivery(log: Log) {
+      const { prepared, calls, delivery } = deliveries(log);
+      const answering: Delivery = {
+        ...delivery,
+        prepare: async (intent, source) => {
+          await delivery.prepare(intent, source);
+          return intent === 'overwrite' ? changed : intent === 'copy' ? copy : overwrite;
+        },
+      };
+      return { prepared, calls, delivery: answering };
+    }
+
+    it('asks, and neither runs the engine nor delivers, when prepare reports a change', async () => {
+      const log: Log = [];
+      const { engine, asked } = savingEngine(log);
+      const { calls, delivery } = changedDelivery(log);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.markDirty());
+
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmChangedOnDisk' }));
+      expect(log).toEqual(['prepare overwrite']);
+      expect(asked).toEqual([]);
+      expect(calls).toEqual([]);
+      expect(result.current.dirty).toBe(true);
+    });
+
+    it('"overwrite" prepares an acknowledged overwrite, then saves', async () => {
+      const log: Log = [];
+      const { engine, asked } = savingEngine(log);
+      const { prepared, calls, delivery } = changedDelivery(log);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('confirmChangedOnDisk'));
+
+      act(() => result.current.overwriteChanged());
+      await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+      expect(prepared.map((p) => p.intent)).toEqual(['overwrite', 'overwriteAnyway']);
+      expect(asked).toEqual([[7, false]]);
+      expect(calls).toEqual([{ bytes, name: 'a.pdf', destination: overwrite }]);
+    });
+
+    it('"save a copy" prepares a copy and saves it, without touching the file', async () => {
+      const log: Log = [];
+      const { engine, asked } = savingEngine(log);
+      const { prepared, calls, delivery } = changedDelivery(log);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('confirmChangedOnDisk'));
+
+      act(() => result.current.saveChangedCopy());
+      await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+      expect(prepared.map((p) => p.intent)).toEqual(['overwrite', 'copy']);
+      expect(asked).toEqual([[7, false]]);
+      expect(calls).toEqual([{ bytes, name: 'a.pdf', destination: copy }]);
+    });
+
+    it('cancelling saves nothing and goes back to idle', async () => {
+      const { engine, asked } = savingEngine();
+      const { delivery } = changedDelivery([]);
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('confirmChangedOnDisk'));
+
+      act(() => result.current.cancelChanged());
+      expect(result.current.activity).toEqual({ kind: 'idle' });
+      expect(asked).toEqual([]);
+    });
   });
 });

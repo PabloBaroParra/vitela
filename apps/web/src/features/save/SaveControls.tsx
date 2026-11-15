@@ -1,8 +1,10 @@
-// The Save button, what the last save did, and the signature question.
+// The Save button, what the last save did, and the questions a save can ask
+// (a signature it would break, a file that changed on disk).
 // Presentational: the state lives in `useSave`, owned by the workspace.
 
 import { useEffect, useRef } from 'react';
 import { StatusLine } from '../../ui/StatusLine';
+import { ChangedOnDiskDialog } from './ChangedOnDiskDialog';
 import type { SaveOutcome } from './outcome';
 import { SignatureDialog } from './SignatureDialog';
 import type { SaveActivity, SaveSession } from './useSave';
@@ -14,9 +16,10 @@ interface SaveControlsProps {
 
 export function SaveControls({ session, documentName }: SaveControlsProps) {
   const { activity, dirty, save, confirmSignatures, saveSignedCopy, cancelSignatures } = session;
-  const busy = activity.kind === 'saving' || activity.kind === 'confirmSignatures';
+  const { overwriteChanged, saveChangedCopy, cancelChanged } = session;
+  const asking = activity.kind === 'confirmSignatures' || activity.kind === 'confirmChangedOnDisk';
+  const busy = activity.kind === 'saving' || asking;
   const button = useRef<HTMLButtonElement>(null);
-  const asking = activity.kind === 'confirmSignatures';
 
   // The question gives the focus back when it goes away, whatever the answer.
   const wasAsking = useRef(false);
@@ -32,7 +35,12 @@ export function SaveControls({ session, documentName }: SaveControlsProps) {
         Save
       </button>
       <SaveStatus activity={activity} documentName={documentName} dirty={dirty} />
-      {asking && <SignatureDialog onSaveAnyway={confirmSignatures} onSaveCopy={saveSignedCopy} onCancel={cancelSignatures} />}
+      {activity.kind === 'confirmSignatures' && (
+        <SignatureDialog onSaveAnyway={confirmSignatures} onSaveCopy={saveSignedCopy} onCancel={cancelSignatures} />
+      )}
+      {activity.kind === 'confirmChangedOnDisk' && (
+        <ChangedOnDiskDialog onOverwrite={overwriteChanged} onSaveCopy={saveChangedCopy} onCancel={cancelChanged} />
+      )}
     </>
   );
 }
@@ -50,28 +58,40 @@ function SaveStatus({ activity, documentName, dirty }: SaveStatusProps) {
     case 'failed':
       return <StatusLine tone="error">{`Could not save ${documentName}: ${activity.message}`}</StatusLine>;
     case 'done':
-      return <StatusLine>{outcomeText(activity.outcome)}</StatusLine>;
+      return <StatusLine>{outcomeText(activity.outcome, dirty)}</StatusLine>;
     default:
       return dirty ? <StatusLine>Unsaved changes.</StatusLine> : null;
   }
 }
 
-function outcomeText(outcome: SaveOutcome): string {
+/**
+ * What the save did. `dirty` here means edits the written file does not have:
+ * a download or copy never puts the edits in the opened file, and a write
+ * can miss an edit made while it ran.
+ */
+function outcomeText(outcome: SaveOutcome, dirty: boolean): string {
+  const rest = dirty ? ' The opened file still has unsaved changes.' : '';
   switch (outcome.how) {
     case 'wrote':
-      return `Saved over ${outcome.name}.`;
+      return dirty
+        ? `Saved over ${outcome.name}, but edits made while saving are not in it. Unsaved changes.`
+        : `Saved over ${outcome.name}.`;
     case 'copied':
-      return `Downloaded a copy as ${outcome.name}. The opened file was not changed.`;
+      return dirty
+        ? `Downloaded a copy as ${outcome.name}. The opened file was not changed and still has unsaved changes.`
+        : `Downloaded a copy as ${outcome.name}. The opened file was not changed.`;
     case 'cancelled':
       return 'Save cancelled.';
     case 'downloaded':
       switch (outcome.fellBack) {
         case 'permission':
-          return `Permission to write over the opened file was refused, so ${outcome.name} was downloaded instead.`;
+          return `Permission to write over the opened file was refused, so ${outcome.name} was downloaded instead.${rest}`;
         case 'write':
-          return `Could not write over the opened file, so ${outcome.name} was downloaded instead.`;
+          return `Could not write over the opened file, so ${outcome.name} was downloaded instead.${rest}`;
+        case 'unverified':
+          return `Could not check whether the opened file changed on disk, so ${outcome.name} was downloaded instead.${rest}`;
         case null:
-          return `Downloaded ${outcome.name}.`;
+          return `Downloaded ${outcome.name}.${rest}`;
       }
   }
 }

@@ -124,18 +124,32 @@ test.describe('File System Access (Chromium)', () => {
   }
 
   /**
-   * Replaces the staged file's content with a marker, once the app has read
-   * it. An unedited save can reproduce the original bytes, so without this a
-   * test could not tell "written over" from "left alone".
+   * Counts the writes the app makes to the staged file. An unedited save can
+   * reproduce the original bytes, so without this a test could not tell
+   * "written over" from "left alone".
    */
-  async function clobber(page: Page): Promise<void> {
+  async function countWrites(page: Page): Promise<() => Promise<number>> {
+    await page.evaluate(() => {
+      const w = window as unknown as { __staged: FileSystemFileHandle; __writes: number };
+      w.__writes = 0;
+      const create = w.__staged.createWritable.bind(w.__staged);
+      w.__staged.createWritable = async (options) => {
+        w.__writes++;
+        return create(options);
+      };
+    });
+    return () => page.evaluate(() => (window as unknown as { __writes: number }).__writes);
+  }
+
+  /** Changes the staged file the way another program would: new content behind the app's back. */
+  async function changeOnDisk(page: Page): Promise<void> {
     await page.evaluate(async () => {
       const handle = (window as unknown as { __staged: FileSystemFileHandle }).__staged;
       const writable = await handle.createWritable();
-      await writable.write('stale');
+      await writable.write('changed elsewhere');
       await writable.close();
     });
-    expect(Buffer.from(await stagedBytes(page)).toString('latin1')).toBe('stale');
+    expect(Buffer.from(await stagedBytes(page)).toString('latin1')).toBe('changed elsewhere');
   }
 
   /** What the staged file holds now. */
@@ -159,9 +173,10 @@ test.describe('File System Access (Chromium)', () => {
 
     await page.locator('.file-picker').click();
     await expectOpened(page, 'picked.pdf');
-    await clobber(page);
+    const writes = await countWrites(page);
     await saveButton(page).click();
     await expect(page.getByText('Saved over picked.pdf.')).toBeVisible();
+    expect(await writes()).toBe(1);
 
     const written = Buffer.from(await stagedBytes(page));
     expect(written.subarray(0, 5).toString('latin1')).toBe('%PDF-');
@@ -186,9 +201,10 @@ test.describe('File System Access (Chromium)', () => {
 
     await dropFile(page, 'dropped.pdf', fixtureBytes('forms/reportlab_acroform.pdf'));
     await expectOpened(page, 'dropped.pdf');
-    await clobber(page);
+    const writes = await countWrites(page);
     await saveButton(page).click();
     await expect(page.getByText('Saved over dropped.pdf.')).toBeVisible();
+    expect(await writes()).toBe(1);
 
     const written = Buffer.from(await stagedBytes(page));
     expect(written.subarray(0, 5).toString('latin1')).toBe('%PDF-');
@@ -253,6 +269,100 @@ test.describe('File System Access (Chromium)', () => {
     await expect(page.getByText('Downloaded dropped.pdf.')).toBeVisible();
     // The other file was never touched.
     expect(Buffer.from(await stagedBytes(page)).equals(fixtureBytes(THREE_PAGES))).toBe(true);
+  });
+
+  test.describe('the file changed on disk since it was opened', () => {
+    const CHANGED_TITLE = 'This file changed on disk since you opened it';
+    const changedDialog = (page: Page) => page.getByRole('dialog', { name: CHANGED_TITLE });
+
+    /** Opens a staged file through the browser picker, then changes it behind the app's back. */
+    async function openThenChange(page: Page, name: string): Promise<() => Promise<number>> {
+      await loadApp(page);
+      await stageHandle(page, name, fixtureBytes(THREE_PAGES));
+      await page.evaluate(() => {
+        const w = window as unknown as { __staged: FileSystemFileHandle; showOpenFilePicker: () => Promise<unknown[]> };
+        w.showOpenFilePicker = async () => [w.__staged];
+      });
+      await page.locator('.file-picker').click();
+      await expectOpened(page, name);
+      await changeOnDisk(page);
+      // Counted from here on, so the other program's write is not the app's.
+      return countWrites(page);
+    }
+
+    test('asks first, with Cancel focused, and Cancel leaves the changed file exactly as it is', async ({ page }) => {
+      const writes = await openThenChange(page, 'edited-elsewhere.pdf');
+      let downloads = 0;
+      page.on('download', () => downloads++);
+
+      await saveButton(page).click();
+      const dialog = changedDialog(page);
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await expect(dialog.getByRole('button')).toHaveText(['Cancel', 'Save a copy', 'Overwrite']);
+
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(saveButton(page)).toBeFocused();
+      expect(Buffer.from(await stagedBytes(page)).toString('latin1')).toBe('changed elsewhere');
+      expect(await writes()).toBe(0);
+      expect(downloads).toBe(0);
+    });
+
+    test('Overwrite writes over the file, and the next save does not ask again', async ({ page }) => {
+      const writes = await openThenChange(page, 'overwrite-me.pdf');
+
+      await saveButton(page).click();
+      await changedDialog(page).getByRole('button', { name: 'Overwrite' }).click();
+      await expect(page.getByText('Saved over overwrite-me.pdf.')).toBeVisible();
+      const written = Buffer.from(await stagedBytes(page));
+      expect(written.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+      expect(await writes()).toBe(1);
+
+      // Our own write moved the file's modified time: it must not look like someone else's.
+      await saveButton(page).click();
+      await expect.poll(writes).toBe(2);
+      await expect(changedDialog(page)).toHaveCount(0);
+    });
+
+    test('Save a copy downloads and never touches the file', async ({ page }) => {
+      const writes = await openThenChange(page, 'keep-me.pdf');
+
+      await saveButton(page).click();
+      const [download] = await Promise.all([
+        page.waitForEvent('download'),
+        changedDialog(page).getByRole('button', { name: 'Save a copy' }).click(),
+      ]);
+      expect(download.suggestedFilename()).toBe('keep-me (copy).pdf');
+      await expect(page.getByText('Downloaded a copy as keep-me (copy).pdf. The opened file was not changed.')).toBeVisible();
+      expect(Buffer.from(await stagedBytes(page)).toString('latin1')).toBe('changed elsewhere');
+      expect(await writes()).toBe(0);
+    });
+
+    test('downloads, and says so, when the file cannot be checked', async ({ page }) => {
+      await loadApp(page);
+      await stageHandle(page, 'unreadable.pdf', fixtureBytes(THREE_PAGES));
+      await page.evaluate(() => {
+        const w = window as unknown as { __staged: FileSystemFileHandle; showOpenFilePicker: () => Promise<unknown[]> };
+        w.showOpenFilePicker = async () => [w.__staged];
+      });
+      await page.locator('.file-picker').click();
+      await expectOpened(page, 'unreadable.pdf');
+      const writes = await countWrites(page);
+      await page.evaluate(() => {
+        const w = window as unknown as { __staged: FileSystemFileHandle };
+        w.__staged.getFile = async () => {
+          throw new DOMException('gone', 'NotFoundError');
+        };
+      });
+
+      const { download } = await saveAsDownload(page);
+      expect(download.suggestedFilename()).toBe('unreadable.pdf');
+      await expect(
+        page.getByText('Could not check whether the opened file changed on disk, so unreadable.pdf was downloaded instead.'),
+      ).toBeVisible();
+      expect(await writes()).toBe(0);
+    });
   });
 
   test('a failing browser picker opens the native dialog for that click only, then the picker is used again', async ({

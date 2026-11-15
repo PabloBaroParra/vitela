@@ -60,4 +60,13 @@ describe('saveBytes', () => {
     expect(log).toEqual(['abort']);
     expect(calls).toHaveLength(1);
   });
+
+  it('downloads, saying the file could not be checked, and never writes when the destination is unverified', async () => {
+    const { handle, log } = fakeHandle();
+    const { calls, download } = downloads();
+    const outcome = await saveBytes({ bytes, name: 'a.pdf', handle, permission: 'granted', unverified: true, download });
+    expect(outcome).toEqual({ how: 'downloaded', name: 'a.pdf', fellBack: 'unverified' });
+    expect(log).toEqual([]);
+    expect(calls).toEqual([[bytes, 'a.pdf']]);
+  });
 });

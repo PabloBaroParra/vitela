@@ -4,6 +4,7 @@ import { EngineError } from '../../core/errors';
 import type { DocumentInfo, Engine, OpenedDocument } from '../../core/types';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { WritableFileHandle } from '../../platform/fileHandle';
+import { checkFileStamp } from '../../platform/fileStamp';
 import { useDocument } from './useDocument';
 
 function file(name: string, bytes = [37, 80, 68, 70]): File {
@@ -262,5 +263,22 @@ describe('useDocument', () => {
     act(() => result.current.open(file('second.pdf')));
     await waitFor(() => expect(result.current.state.document?.name).toBe('second.pdf'));
     expect(result.current.state.document?.fileHandle).toBeUndefined();
+  });
+
+  it('records the opened file as it is on disk, so a later save can tell it changed', async () => {
+    const disk = { lastModified: 1000, size: 4 };
+    const fileHandle: WritableFileHandle = {
+      name: 'a.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      getFile: async () => ({ ...disk }),
+    };
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf'), fileHandle));
+    await waitFor(() => expect(result.current.state.document?.name).toBe('a.pdf'));
+
+    expect(await checkFileStamp(fileHandle)).toBe('unchanged');
+    disk.lastModified = 2000;
+    expect(await checkFileStamp(fileHandle)).toBe('changed');
   });
 });

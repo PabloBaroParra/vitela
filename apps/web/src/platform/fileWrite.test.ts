@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WritableFileHandle } from './fileHandle';
+import { checkFileStamp, recordFileStamp } from './fileStamp';
 import { ensureWritePermission, writeToHandle } from './fileWrite';
 
 const bytes = new Uint8Array([1, 2, 3]);
@@ -87,5 +88,27 @@ describe('writeToHandle', () => {
     const { handle, log } = handleWith({ failAt: 'create' });
     expect(await writeToHandle(handle, bytes)).toBe(false);
     expect(log).toEqual([]);
+  });
+
+  it('takes the written file as the new baseline, so the next save is not a false alarm', async () => {
+    const disk = { lastModified: 1000, size: 50 };
+    const { handle } = handleWith({ getFile: async () => ({ ...disk }) });
+    recordFileStamp(handle);
+    // The write itself moves the file's modified time and size.
+    disk.lastModified = 2000;
+    disk.size = 80;
+    expect(await checkFileStamp(handle)).toBe('changed');
+
+    expect(await writeToHandle(handle, bytes)).toBe(true);
+    expect(await checkFileStamp(handle)).toBe('unchanged');
+  });
+
+  it('does not touch the baseline when the write failed', async () => {
+    const disk = { lastModified: 1000, size: 50 };
+    const { handle } = handleWith({ failAt: 'write', getFile: async () => ({ ...disk }) });
+    recordFileStamp(handle);
+    disk.lastModified = 2000;
+    expect(await writeToHandle(handle, bytes)).toBe(false);
+    expect(await checkFileStamp(handle)).toBe('changed');
   });
 });

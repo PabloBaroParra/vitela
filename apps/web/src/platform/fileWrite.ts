@@ -2,6 +2,7 @@
 // itself. Both report failure as a value so a caller can fall back.
 
 import type { WritableFileHandle } from './fileHandle';
+import { adoptCurrentFile } from './fileStamp';
 
 const READWRITE = { mode: 'readwrite' } as const;
 
@@ -29,7 +30,6 @@ export async function writeToHandle(handle: WritableFileHandle, bytes: Uint8Arra
     writable = await handle.createWritable();
     await writable.write(bytes);
     await writable.close();
-    return true;
   } catch {
     // Release the swap file instead of leaving it locked until the page goes.
     try {
@@ -39,4 +39,8 @@ export async function writeToHandle(handle: WritableFileHandle, bytes: Uint8Arra
     }
     return false;
   }
+  // Our own write moved the file's modified time: take it as the baseline, so
+  // the next save does not mistake it for somebody else's change.
+  await adoptCurrentFile(handle);
+  return true;
 }

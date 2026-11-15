@@ -6,6 +6,7 @@ import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '../../core/errors';
 import type { DocumentHandle, DocumentInfo, Engine } from '../../core/types';
 import type { WritableFileHandle } from '../../platform/fileHandle';
+import { recordFileStamp } from '../../platform/fileStamp';
 
 export interface OpenDocument {
   readonly name: string;
@@ -98,6 +99,8 @@ export function useDocument(engine: Engine) {
     (file: File, fileHandle?: WritableFileHandle) => {
       const attemptId = ++latest.current;
       locked.current = null;
+      // The file as the user opened it, to notice a change made behind our back before a save.
+      if (fileHandle) recordFileStamp(fileHandle);
       setState((s) => ({ ...s, activity: { kind: 'opening', name: file.name } }));
       attempt(file, fileHandle, attemptId, undefined);
     },

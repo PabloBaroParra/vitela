@@ -17,6 +17,7 @@ const document: OpenDocument = {
 };
 
 const SIGNATURE_TITLE = "Saving will break this document's signature";
+const CHANGED_TITLE = 'This file changed on disk since you opened it';
 
 // jsdom has no modal <dialog>: model just enough of it for the component.
 beforeAll(() => {
@@ -209,5 +210,123 @@ describe('SaveControls', () => {
     act(() => session?.markDirty());
     expect(await screen.findByText('Unsaved changes.')).toBeTruthy();
     expect(screen.queryByText('Saved over a.pdf.')).toBeNull();
+  });
+
+  describe('unsaved changes after a save', () => {
+    it('a download leaves the document dirty, and the status says the opened file still has the changes', async () => {
+      let session: SaveSession | undefined;
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(downloaded), (s) => (session = s));
+      act(() => session?.markDirty());
+      fireEvent.click(saveButton());
+      expect(await screen.findByText('Downloaded a.pdf. The opened file still has unsaved changes.')).toBeTruthy();
+    });
+
+    it('a copy of a dirty document says the opened file keeps its unsaved changes', async () => {
+      let session: SaveSession | undefined;
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery({ how: 'copied', name: 'a (copy).pdf' }), (s) => (session = s));
+      act(() => session?.markDirty());
+      fireEvent.click(saveButton());
+      expect(
+        await screen.findByText('Downloaded a copy as a (copy).pdf. The opened file was not changed and still has unsaved changes.'),
+      ).toBeTruthy();
+    });
+
+    it('a fallback download of a dirty document says so too', async () => {
+      let session: SaveSession | undefined;
+      const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: 'write' };
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(outcome), (s) => (session = s));
+      act(() => session?.markDirty());
+      fireEvent.click(saveButton());
+      expect(
+        await screen.findByText(
+          'Could not write over the opened file, so a.pdf was downloaded instead. The opened file still has unsaved changes.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('an edit made while the save runs is not reported as saved', async () => {
+      let release: () => void = () => {};
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let session: SaveSession | undefined;
+      renderControls(
+        fakeEngine({ saveToBytes: async () => (await gate, bytes) }),
+        delivery({ how: 'wrote', name: 'a.pdf' }),
+        (s) => (session = s),
+      );
+      fireEvent.click(saveButton());
+      await screen.findByText('Saving…');
+      act(() => session?.markDirty());
+      await act(async () => release());
+
+      expect(await screen.findByText('Saved over a.pdf, but edits made while saving are not in it. Unsaved changes.')).toBeTruthy();
+      expect(screen.queryByText('Saved over a.pdf.')).toBeNull();
+    });
+  });
+
+  describe('the file changed on disk', () => {
+    /** Answers "changed" to a plain overwrite; settles `outcome` for anything else. */
+    function changedDelivery(outcome: SaveOutcome, intents: SaveIntent[] = []): Delivery {
+      return {
+        prepare: async (intent) => {
+          intents.push(intent);
+          return intent === 'overwrite' ? { kind: 'changedOnDisk' } : intent === 'copy' ? { kind: 'copy' } : { kind: 'overwrite', handle: undefined, permission: 'granted' };
+        },
+        deliver: async () => outcome,
+      };
+    }
+
+    it('shows the question with the three answers, the safe one first', async () => {
+      const asked: boolean[] = [];
+      renderControls(signedEngine(asked), changedDelivery(downloaded));
+      fireEvent.click(saveButton());
+
+      const dialog = await screen.findByRole('dialog', { name: CHANGED_TITLE });
+      expect(dialog.classList.contains('dialog--warning')).toBe(true);
+      expect([...dialog.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Cancel', 'Save a copy', 'Overwrite']);
+      expect(asked).toEqual([]);
+    });
+
+    it('Overwrite saves over the file the user acknowledged', async () => {
+      const intents: SaveIntent[] = [];
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), changedDelivery({ how: 'wrote', name: 'a.pdf' }, intents));
+      fireEvent.click(saveButton());
+      await screen.findByRole('dialog', { name: CHANGED_TITLE });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Overwrite' }));
+      expect(await screen.findByText('Saved over a.pdf.')).toBeTruthy();
+      expect(intents).toEqual(['overwrite', 'overwriteAnyway']);
+    });
+
+    it('Save a copy downloads a copy and leaves the file alone', async () => {
+      const intents: SaveIntent[] = [];
+      renderControls(
+        fakeEngine({ saveToBytes: async () => bytes }),
+        changedDelivery({ how: 'copied', name: 'a (copy).pdf' }, intents),
+      );
+      fireEvent.click(saveButton());
+      await screen.findByRole('dialog', { name: CHANGED_TITLE });
+
+      fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
+      expect(await screen.findByText('Downloaded a copy as a (copy).pdf. The opened file was not changed.')).toBeTruthy();
+      expect(intents).toEqual(['overwrite', 'copy']);
+    });
+
+    it.each(['Cancel', 'Save a copy', 'Overwrite'])('returns to Save when the question closes with %s', async (answer) => {
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), changedDelivery(downloaded));
+      fireEvent.click(saveButton());
+      await screen.findByRole('dialog', { name: CHANGED_TITLE });
+      fireEvent.click(screen.getByRole('button', { name: answer }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await waitFor(() => expect(globalThis.document.activeElement).toBe(saveButton()));
+    });
+
+    it('says the file could not be checked when the download replaced the overwrite', async () => {
+      const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: 'unverified' };
+      renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(outcome));
+      fireEvent.click(saveButton());
+      expect(
+        await screen.findByText('Could not check whether the opened file changed on disk, so a.pdf was downloaded instead.'),
+      ).toBeTruthy();
+    });
   });
 });
