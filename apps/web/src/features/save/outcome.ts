@@ -1,7 +1,7 @@
 // What a save did, for the status line.
 
 /** Why a save that had a file to write over was downloaded instead. */
-export type FallbackReason = 'permission' | 'write';
+export type FallbackReason = 'permission' | 'write' | 'copy';
 
 export type SaveOutcome =
   /** Written over the file the document was opened from. */

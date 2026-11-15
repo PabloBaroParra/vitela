@@ -5,7 +5,7 @@ import type { Engine } from '../../core/types';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
-import type { DeliverRequest, Delivery, Destination, SaveIntent } from './delivery';
+import { browserDelivery, type DeliverRequest, type Delivery, type Destination, type SaveIntent } from './delivery';
 import type { SaveOutcome } from './outcome';
 import { useSave } from './useSave';
 
@@ -228,5 +228,56 @@ describe('useSave', () => {
 
     await act(async () => release());
     expect(result.current.activity).toEqual({ kind: 'idle' });
+  });
+
+  it('a save still pending for an old document does not block Save on the new one', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const log: Log = [];
+    const asked: number[] = [];
+    const engine: Engine = fakeEngine({
+      saveToBytes: async (handle) => {
+        asked.push(handle);
+        if (handle === 7) await gate;
+        return bytes;
+      },
+    });
+    const { delivery, calls } = deliveries(log);
+    const { result, rerender } = renderHook(({ doc }) => useSave(engine, doc, delivery), { initialProps: { doc: document } });
+    act(() => result.current.save());
+    rerender({ doc: { ...document, generation: 2, handle: 8, name: 'b.pdf' } });
+
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+    expect(asked).toEqual([7, 8]);
+
+    // The stale save finishes: it delivers nothing and changes nothing.
+    await act(async () => release());
+    expect(calls.map((c) => c.name)).toEqual(['b.pdf']);
+    expect(result.current.activity.kind).toBe('done');
+  });
+
+  it('a failed engine save after the copy target was picked writes nothing to that file', async () => {
+    const created: string[] = [];
+    const target = {
+      kind: 'file',
+      name: 'chosen.pdf',
+      createWritable: async () => (created.push('createWritable'), { write: async () => {}, close: async () => {} }),
+    } as unknown as WritableFileHandle;
+    const win = window as unknown as { showSaveFilePicker?: unknown };
+    win.showSaveFilePicker = async () => target;
+    try {
+      const engine = fakeEngine({
+        saveToBytes: async () => {
+          throw new EngineError('Internal', 'boom');
+        },
+      });
+      const { result } = renderHook(() => useSave(engine, document, browserDelivery));
+      act(() => result.current.saveSignedCopy());
+      await waitFor(() => expect(result.current.activity.kind).toBe('failed'));
+      expect(created).toEqual([]);
+    } finally {
+      delete win.showSaveFilePicker;
+    }
   });
 });

@@ -32,7 +32,8 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
   const [activity, setActivity] = useState<SaveActivity>(IDLE);
   const [dirty, setDirty] = useState(false);
   const [forGeneration, setForGeneration] = useState(generation);
-  const running = useRef(false);
+  /** The document whose save is in flight: a save for an old document never blocks the new one. */
+  const running = useRef<number | undefined>(undefined);
   /** Counts edits, so a save does not clear the mark of an edit made while it ran. */
   const edits = useRef(0);
   /** The document on screen: a save that outlives its document reports nothing. */
@@ -52,9 +53,9 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
 
   const run = useCallback(
     async (intent: SaveIntent, invalidateSignatures: boolean) => {
-      if (!document || running.current) return;
-      running.current = true;
+      if (!document || running.current === document.generation) return;
       const saving = document.generation;
+      running.current = saving;
       const editsAtStart = edits.current;
       const current = () => shown.current === saving;
       setActivity({ kind: 'saving' });
@@ -66,6 +67,8 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
           return;
         }
         const bytes = await engine.saveToBytes(document.handle, invalidateSignatures);
+        // The document was closed while the engine worked: deliver nothing.
+        if (!current()) return;
         const outcome = await delivery.deliver({ bytes, name: document.name, destination });
         if (!current()) return;
         if (edits.current === editsAtStart) setDirty(false);
@@ -78,7 +81,7 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
             : { kind: 'failed', message: errorMessage(error) },
         );
       } finally {
-        running.current = false;
+        if (running.current === saving) running.current = undefined;
       }
     },
     [engine, document, delivery],

@@ -49,18 +49,32 @@ export interface Delivery {
   readonly deliver: Deliver;
 }
 
+const SAME_FILE = 'A copy must go to a different file than the opened one. Nothing was written.';
+
 async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destination | null> {
   if (intent === 'overwrite') {
     const { fileHandle } = source;
     return { kind: 'overwrite', handle: fileHandle, permission: fileHandle ? await ensureWritePermission(fileHandle) : 'granted' };
   }
   if (!canPickSaveTarget()) return { kind: 'copy', handle: undefined };
+  let handle: WritableFileHandle | null;
   try {
-    const handle = await pickSaveTarget(copyName(source.name));
-    return handle ? { kind: 'copy', handle } : null;
+    handle = await pickSaveTarget(copyName(source.name));
   } catch {
     // The save dialog itself failed (blocked, say): the copy still arrives, as a download.
     return { kind: 'copy', handle: undefined };
+  }
+  if (!handle) return null;
+  // Picking the opened file in the dialog would overwrite it (and its signature).
+  if (source.fileHandle && (await isSameFile(handle, source.fileHandle))) throw new Error(SAME_FILE);
+  return { kind: 'copy', handle };
+}
+
+async function isSameFile(a: WritableFileHandle, b: WritableFileHandle): Promise<boolean> {
+  try {
+    return (await a.isSameEntry?.(b)) === true;
+  } catch {
+    return false;
   }
 }
 

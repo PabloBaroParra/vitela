@@ -54,4 +54,20 @@ describe('browserDelivery.prepare', () => {
     });
     expect(await browserDelivery.prepare('copy', { name: 'a.pdf' })).toEqual({ kind: 'copy', handle: undefined });
   });
+
+  it('refuses a copy aimed at the opened file itself, before anything is written', async () => {
+    const opened = { name: 'a.pdf' } as WritableFileHandle;
+    const same = { ...picked, isSameEntry: async (other: unknown) => other === opened } as unknown as WritableFileHandle;
+    win.showSaveFilePicker = async () => same;
+    await expect(browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).rejects.toThrow(/different file/);
+  });
+
+  it('accepts a copy aimed at another file, and copes with a browser without isSameEntry', async () => {
+    const opened = { name: 'a.pdf' } as WritableFileHandle;
+    const other = { ...picked, isSameEntry: async () => false } as unknown as WritableFileHandle;
+    win.showSaveFilePicker = async () => other;
+    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).toEqual({ kind: 'copy', handle: other });
+    win.showSaveFilePicker = async () => picked;
+    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).toEqual({ kind: 'copy', handle: picked });
+  });
 });

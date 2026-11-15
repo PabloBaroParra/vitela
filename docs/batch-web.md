@@ -535,7 +535,12 @@ lo que sigue:
   `invalidateSignatures = true`. La web no tiene "Guardar como", así que **Save a copy**
   escribe los bytes reconocidos en un archivo **nuevo** sin tocar nunca el handle del
   archivo abierto: `showSaveFilePicker` en Chromium con "nombre (copy).pdf" sugerido, y
-  descarga con ese nombre donde no hay selector (o si falla). Descartar el diálogo de
+  descarga con ese nombre donde no hay selector (o si falla). Si el usuario elige en el diálogo
+  el propio archivo abierto (`isSameEntry`), la copia se **rechaza** antes de escribir nada
+  ("A copy must go to a different file…"); si la escritura de la copia falla se descarga con
+  un mensaje propio, y el `createWritable` del destino solo se llama cuando ya hay bytes.
+  El guardado en curso se acota por documento: uno pendiente de un documento anterior no
+  bloquea Save en el nuevo y no entrega nada. Descartar el diálogo de
   guardar cuenta como cancelar: no se descarga nada y el estado dice "Save cancelled.".
   La copia lleva la firma invalidada; lo que conserva su firma válida es el original, que
   no se toca. **Trampa:** un guardado sin ediciones no reescribe nada, así que un firmado

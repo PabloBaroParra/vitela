@@ -56,7 +56,7 @@ describe('saveCopy', () => {
     const { handle, log } = newFile({ failWrite: true });
     const { calls, download } = downloads();
     const outcome = await saveCopy({ bytes, name: 'a.pdf', handle, download });
-    expect(outcome).toEqual({ how: 'downloaded', name: 'a (copy).pdf', fellBack: 'write' });
+    expect(outcome).toEqual({ how: 'downloaded', name: 'a (copy).pdf', fellBack: 'copy' });
     expect(log).toEqual(['abort']);
     expect(calls).toHaveLength(1);
   });

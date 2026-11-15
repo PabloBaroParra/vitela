@@ -25,5 +25,5 @@ export async function saveCopy({ bytes, name, handle, download = downloadBytes }
   const suggested = copyName(name);
   if (handle && (await writeToHandle(handle, bytes))) return { how: 'copied', name: handle.name };
   download(bytes, suggested);
-  return { how: 'downloaded', name: suggested, fellBack: handle ? 'write' : null };
+  return { how: 'downloaded', name: suggested, fellBack: handle ? 'copy' : null };
 }

@@ -147,6 +147,13 @@ describe('SaveControls', () => {
     expect(asked).toEqual([false]);
   });
 
+  it('a copy that could not be written says so, not "over the opened file"', async () => {
+    const outcome: SaveOutcome = { how: 'downloaded', name: 'a (copy).pdf', fellBack: 'copy' };
+    renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(outcome));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText('Could not write the copy to the file you chose, so a (copy).pdf was downloaded instead.')).toBeTruthy();
+  });
+
   it('Cancel on the signature question saves nothing', async () => {
     const asked: boolean[] = [];
     renderControls(signedEngine(asked), delivery(downloaded));
@@ -169,7 +176,8 @@ describe('SaveControls', () => {
     it('keeps Save focusable while it runs, so the focus is not thrown to the page', async () => {
       let release: () => void = () => {};
       const gate = new Promise<void>((resolve) => (release = resolve));
-      renderControls(fakeEngine({ saveToBytes: async () => (await gate, bytes) }), delivery(downloaded));
+      let calls = 0;
+      renderControls(fakeEngine({ saveToBytes: async () => (calls++, await gate, bytes) }), delivery(downloaded));
       const button = saveButton();
       button.focus();
       fireEvent.click(button);
@@ -184,6 +192,7 @@ describe('SaveControls', () => {
       fireEvent.click(button);
       await act(async () => release());
       await screen.findByText('Downloaded a.pdf.');
+      expect(calls).toBe(1);
       expect(button.getAttribute('aria-disabled')).toBe('false');
       expect(globalThis.document.activeElement).toBe(button);
     });
