@@ -18,7 +18,7 @@ use super::super::state::{
 };
 use super::chooser::{choose_destination_from, confirm_signature_loss};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
-use super::{imported_sources, SAVE};
+use super::{default_save_breaks_signature, imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
 use crate::app::i18n::tr;
 
@@ -123,23 +123,13 @@ fn save_current_to(
 /// the save rather than after a rejected one: `pdf-save` answers the same
 /// question either way, and asking here means the user meets the warning as a
 /// question instead of an error message.
-///
-/// `base_breaks_signatures` is the one case `pdf-save` cannot see: a document
-/// restored after a crash from bytes that had already broken the signature.
 fn breaks_signature(snapshot: &SaveSnapshot, base_breaks_signatures: bool) -> bool {
-    if base_breaks_signatures {
-        return true;
-    }
-    let source_refs = imported_sources(&snapshot.sources);
-    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-        document: &snapshot.document,
-        base: &snapshot.backing.base,
-        original_bytes: Some(&snapshot.backing.original_bytes),
-        intent: pdf_save::SaveIntent::Default,
-        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::new(&source_refs),
-    })
-    .unwrap_or(false)
+    default_save_breaks_signature(
+        &snapshot.document,
+        &snapshot.backing,
+        &snapshot.sources,
+        base_breaks_signatures,
+    )
 }
 
 /// Runs the save on a worker thread and folds the result back into the

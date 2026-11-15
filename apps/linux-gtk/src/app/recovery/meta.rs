@@ -32,7 +32,8 @@ pub(crate) struct Meta {
 }
 
 /// The sidecar field for [`Meta::breaks_signatures`], written only when it
-/// is true: a sidecar from before the field existed reads as false.
+/// is true: a sidecar from before the field existed reads as false, and a
+/// value other than `0` or `1` as true.
 const BREAKS_SIGNATURES: &str = "breaks-signatures";
 
 impl Meta {
@@ -77,7 +78,10 @@ impl Meta {
                         .map(|name| name.to_string());
                 }
                 "origin" => origin = gio::File::for_uri(value).path(),
-                BREAKS_SIGNATURES => breaks_signatures = value == "1",
+                // Fails closed: only an explicit "0" clears the flag. A
+                // value this version does not know may be a later one's way
+                // of saying a signature broke.
+                BREAKS_SIGNATURES => breaks_signatures = value != "0",
                 _ => {}
             }
         }
@@ -134,6 +138,26 @@ name	quote.pdf
         let meta = Meta::parse(&text).expect("an older sidecar still reads");
 
         assert!(!meta.breaks_signatures);
+    }
+
+    /// Only an explicit "0" clears the flag: a value this version does not
+    /// know may be a later one's way of saying a signature broke, and
+    /// reading it as "nothing broke" would let a Save overwrite the signed
+    /// original without asking.
+    #[test]
+    fn an_unreadable_signature_flag_reads_as_breaking_one() {
+        let flag = |value: &str| {
+            Meta::parse(&format!(
+                "{META_HEADER}\nsaved\t5\nname\tq\n{BREAKS_SIGNATURES}\t{value}\n"
+            ))
+            .expect("the required fields are all there")
+            .breaks_signatures
+        };
+
+        assert!(!flag("0"));
+        assert!(flag("1"));
+        assert!(flag("yes"));
+        assert!(flag(""));
     }
 
     /// A line this version cannot make sense of costs that line, never the

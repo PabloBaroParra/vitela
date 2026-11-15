@@ -12,7 +12,7 @@
 //! Only document bytes are recovered, never the undo history: the core has no
 //! serialization of the edit log, and a restored document starts a new one.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -26,6 +26,7 @@ use super::policy::{decide, observe, Decision, Revision};
 use super::store::{EntryKey, EntryPaths, Orphan, RecoveryDir, Slot};
 use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
+use crate::app::write::default_save_breaks_signature;
 
 /// How often a window looks for unsaved changes to write. A crash loses at
 /// most this much work; a shorter interval would re-serialize a large
@@ -48,9 +49,8 @@ pub(crate) struct Autosave {
     /// The revision the entry on disk holds.
     written: Option<Revision>,
     in_flight: bool,
-    /// Disconnected once the write in flight has finished on its worker —
-    /// its cleanup included. What a clean exit waits on; see [`shutdown`].
-    worker: Option<mpsc::Receiver<()>>,
+    /// The write in flight, as a clean exit sees it; see [`shutdown`].
+    worker: Option<Worker>,
     /// Holds writes back after a failure — see [`super::backoff`].
     backoff: Backoff,
     /// Bumped by every [`forget`], before it deletes anything. A write that
@@ -77,6 +77,15 @@ pub(crate) struct Autosave {
 /// [`start`] does first, and all a test needs to drive [`tick`] by hand.
 pub(super) fn enable(viewer: &Viewer, dir: RecoveryDir) {
     viewer.recovery.borrow_mut().dir = Some(dir);
+}
+
+/// What a clean exit needs to know about a write in flight.
+struct Worker {
+    /// Disconnected once the worker has finished — its cleanup included.
+    done: mpsc::Receiver<()>,
+    /// Set before the worker's last forget check: from then on it may put
+    /// files on disk, and a clean exit has to wait for it to take them back.
+    writing: Arc<AtomicBool>,
 }
 
 /// Starts the timer for `window`, and stops it — deleting the entry — when
@@ -119,6 +128,10 @@ pub(super) fn shutdown(viewer: &Viewer) {
 /// launch would offer, for work the user just saved or discarded. So the
 /// exit waits for the worker, bounded: a disk that hangs must not keep the
 /// application from quitting, and the worst a timeout costs is that offer.
+///
+/// A worker still serializing is not waited for: the forget lands before its
+/// last check, so it will write nothing. See [`Job::run`] for why that
+/// holds.
 pub(super) fn shutdown_within(viewer: &Viewer, wait: Duration) {
     let worker = {
         let mut recovery = viewer.recovery.borrow_mut();
@@ -128,8 +141,8 @@ pub(super) fn shutdown_within(viewer: &Viewer, wait: Duration) {
         recovery.worker.take()
     };
     forget(viewer);
-    if let Some(worker) = worker {
-        if let Err(mpsc::RecvTimeoutError::Timeout) = worker.recv_timeout(wait) {
+    if let Some(worker) = worker.filter(|worker| worker.writing.load(Ordering::SeqCst)) {
+        if let Err(mpsc::RecvTimeoutError::Timeout) = worker.done.recv_timeout(wait) {
             eprintln!(
                 "recovery: an autosave was still being written after {wait:?}; \
                  its entry may be offered at the next launch"
@@ -160,16 +173,18 @@ pub(super) fn tick_at(viewer: &Viewer, now: Instant) {
         // Backing off after a failure: not even serialized, since the
         // attempt would most likely fail the same way.
         Decision::Write(_) if !viewer.recovery.borrow().backoff.ready(now) => {}
-        Decision::Write(revision) => write(viewer, revision),
+        Decision::Write(revision) => write(viewer, revision, now),
     }
 }
 
 /// A snapshot could not be written. The first failure of a streak tells the
 /// user — once, on the status line, not in a dialog: their work is still
 /// open in front of them, and only a crash would cost it.
-fn failed(viewer: &Viewer, error: &str) {
+///
+/// `now` is the clock of the tick that made the attempt.
+fn failed(viewer: &Viewer, error: &str, now: Instant) {
     eprintln!("recovery: autosave failed: {error}");
-    let first = viewer.recovery.borrow_mut().backoff.failed(Instant::now());
+    let first = viewer.recovery.borrow_mut().backoff.failed(now);
     if first {
         viewer.status.set_text(&tr("recovery-autosave-unavailable"));
     }
@@ -177,11 +192,15 @@ fn failed(viewer: &Viewer, error: &str) {
 
 /// Deletes this window's entry, and any restored one it was keeping: the
 /// document it protected was saved, closed, discarded or replaced.
+///
+/// Ends any failure streak too: the next document is written — and its own
+/// failures reported — without waiting out the last one's backoff.
 pub(super) fn forget(viewer: &Viewer) {
     let (slot, adopted) = {
         let mut recovery = viewer.recovery.borrow_mut();
         recovery.epoch.fetch_add(1, Ordering::SeqCst);
         recovery.written = None;
+        recovery.backoff = Backoff::default();
         (recovery.slot.take(), recovery.adopted.take())
     };
     if let Some(slot) = slot {
@@ -240,10 +259,15 @@ struct Job {
     paths: EntryPaths,
     epoch: Arc<AtomicU64>,
     started: u64,
-    /// Dropped with the job, which is what tells [`shutdown`] it finished.
-    _done: mpsc::Sender<()>,
+    /// See [`Worker::writing`].
+    writing: Arc<AtomicBool>,
+    /// Declared before `_done` on purpose: fields drop in declaration order,
+    /// and a test reading the hook's "finished" after [`shutdown`] returns
+    /// must find it already set.
     #[cfg(test)]
     pause: Option<test_hooks::PauseHook>,
+    /// Dropped with the job, which is what tells [`shutdown`] it finished.
+    _done: mpsc::Sender<()>,
 }
 
 impl Job {
@@ -254,6 +278,8 @@ impl Job {
     /// `Ok(true)` when the entry now holds the snapshot, `Ok(false)` when it
     /// was forgotten meanwhile and holds nothing.
     fn run(mut self) -> Result<bool, String> {
+        #[cfg(test)]
+        self.hold_at(test_hooks::Stage::Serializing);
         let snapshot = &self.snapshot;
         let serialized = serialize(
             &snapshot.document,
@@ -262,13 +288,15 @@ impl Job {
             snapshot.base_breaks_signatures,
         )?;
         self.snapshot.meta.breaks_signatures = serialized.breaks_signatures;
+        // Set before the check, both sequentially consistent: a shutdown
+        // that bumps the epoch and then finds this unset is ordered before
+        // it, so the check below sees the bump and nothing is written.
+        self.writing.store(true, Ordering::SeqCst);
         if self.forgotten() {
             return Ok(false);
         }
         #[cfg(test)]
-        if let Some(pause) = &self.pause {
-            pause.hold();
-        }
+        self.hold_at(test_hooks::Stage::Writing);
         self.paths
             .write(&serialized.bytes, &self.snapshot.meta)
             .map_err(|error| error.to_string())?;
@@ -283,9 +311,16 @@ impl Job {
         }
         Ok(true)
     }
+
+    #[cfg(test)]
+    fn hold_at(&self, stage: test_hooks::Stage) {
+        if let Some(pause) = self.pause.as_ref().filter(|pause| pause.stage == stage) {
+            pause.hold();
+        }
+    }
 }
 
-fn write(viewer: &Viewer, revision: Revision) {
+fn write(viewer: &Viewer, revision: Revision, now: Instant) {
     let Some(snapshot) = take_snapshot(viewer) else {
         return;
     };
@@ -307,6 +342,7 @@ fn write(viewer: &Viewer, revision: Revision) {
                     failed(
                         viewer,
                         &format!("cannot open {}: {error}", dir.root().display()),
+                        now,
                     );
                     return;
                 }
@@ -316,8 +352,12 @@ fn write(viewer: &Viewer, revision: Revision) {
             return;
         };
         recovery.in_flight = true;
-        let (done, worker) = mpsc::channel();
-        recovery.worker = Some(worker);
+        let (done, finished) = mpsc::channel();
+        let writing = Arc::new(AtomicBool::new(false));
+        recovery.worker = Some(Worker {
+            done: finished,
+            writing: Arc::clone(&writing),
+        });
         let epoch = Arc::clone(&recovery.epoch);
         let started = epoch.load(Ordering::SeqCst);
         Job {
@@ -325,9 +365,10 @@ fn write(viewer: &Viewer, revision: Revision) {
             paths,
             epoch,
             started,
-            _done: done,
+            writing,
             #[cfg(test)]
             pause: recovery.pause.take(),
+            _done: done,
         }
     };
     let started = job.started;
@@ -360,7 +401,7 @@ fn write(viewer: &Viewer, revision: Revision) {
                 }
             };
             if let Some(error) = error {
-                failed(&viewer, &error);
+                failed(&viewer, &error, now);
             }
             // The restored document is now in this window's own entry.
             if let Some(adopted) = adopted {
@@ -410,27 +451,21 @@ fn serialize(
     sources: &[ImportedSource],
     base_breaks_signatures: bool,
 ) -> Result<Serialized, String> {
+    // The question `write::save` asks before a real Save, asked the same way.
+    let breaks_signatures =
+        default_save_breaks_signature(document, backing, sources, base_breaks_signatures);
     let source_refs: Vec<_> = sources
         .iter()
         .map(|source| (source.id, &source.document))
         .collect();
-    let input = |signatures: pdf_save::SignatureAcknowledgement| pdf_save::SaveInput {
+    let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
-        signatures,
+        signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
-    };
-    // The question `write::save` asks before a real Save, asked the same way.
-    let breaks_signatures = base_breaks_signatures
-        || pdf_save::will_invalidate_signatures(input(
-            pdf_save::SignatureAcknowledgement::Unacknowledged,
-        ))
-        .unwrap_or(false);
-    let bytes = pdf_save::save_document(input(
-        pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
-    ))
+    })
     .map_err(|error| error.to_string())?;
     Ok(Serialized {
         bytes,
@@ -444,7 +479,18 @@ pub(super) mod test_hooks;
 /// Holds the next snapshot's worker just before it writes.
 #[cfg(test)]
 pub(super) fn pause_next_write(viewer: &Viewer) -> test_hooks::Pause {
-    let (pause, hook) = test_hooks::pair();
+    pause_next(viewer, test_hooks::Stage::Writing)
+}
+
+/// Holds the next snapshot's worker before it serializes anything.
+#[cfg(test)]
+pub(super) fn pause_next_serialize(viewer: &Viewer) -> test_hooks::Pause {
+    pause_next(viewer, test_hooks::Stage::Serializing)
+}
+
+#[cfg(test)]
+fn pause_next(viewer: &Viewer, stage: test_hooks::Stage) -> test_hooks::Pause {
+    let (pause, hook) = test_hooks::pair(stage);
     viewer.recovery.borrow_mut().pause = Some(hook);
     pause
 }

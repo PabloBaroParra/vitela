@@ -14,7 +14,8 @@ use gtk::prelude::*;
 use pdf_document::Command;
 
 use super::autosave::{
-    self, attempts, crash, is_writing, pause_next_write, shutdown_within, tick, tick_at,
+    self, attempts, crash, is_writing, pause_next_serialize, pause_next_write, shutdown_within,
+    tick, tick_at,
 };
 use super::meta::Meta;
 use super::restore::restore;
@@ -416,6 +417,33 @@ fn gtk_ui_a_stuck_write_does_not_hold_the_shutdown() {
     assert!(files_in(dir.root()).is_empty());
 }
 
+/// A snapshot still being serialized has written nothing, and the forget
+/// the exit makes lands before its last check: there is nothing to wait for.
+#[gtk::test]
+fn gtk_ui_a_shutdown_does_not_wait_for_a_snapshot_still_serializing() {
+    let (_scratch, dir) = scratch("shutdown-serializing");
+    let window = Window::over(&dir);
+    window.edit();
+    let pause = pause_next_serialize(window.viewer());
+    tick(window.viewer());
+    pause.wait_until_held();
+    let started = Instant::now();
+
+    shutdown_within(window.viewer(), Duration::from_secs(10));
+
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "shutdown waited for a worker that had written nothing"
+    );
+    (pause.releaser())();
+    settle_until(|| !is_writing(window.viewer()));
+    assert!(
+        files_in(dir.root()).is_empty(),
+        "{:?}",
+        files_in(dir.root())
+    );
+}
+
 /// A full or read-only disk: one notice, then no further serializing until
 /// the backoff has passed.
 #[gtk::test]
@@ -451,6 +479,57 @@ fn gtk_ui_a_failing_autosave_backs_off_and_says_so_once() {
     settle_until(|| !is_writing(viewer));
     assert_eq!(attempts(viewer), failed_attempts + 1, "tried again later");
     assert_eq!(viewer.status.text(), "", "and said nothing twice");
+}
+
+/// The backoff runs on the clock the tick was given, not the wall clock: a
+/// failure at a late tick holds the next attempt back from *that* tick.
+#[gtk::test]
+fn gtk_ui_the_backoff_is_measured_from_the_failing_tick() {
+    let (_scratch, dir) = scratch("backoff-clock");
+    let window = Window::over(&dir);
+    let viewer = window.viewer();
+    fs::create_dir_all(dir.root().parent().unwrap()).unwrap();
+    fs::write(dir.root(), b"not a directory").unwrap();
+    let late = Instant::now() + Duration::from_secs(2 * 60 * 60);
+
+    window.edit();
+    tick_at(viewer, late);
+    settle_until(|| !is_writing(viewer));
+    let failed_attempts = attempts(viewer);
+    window.edit();
+    tick_at(viewer, late + Duration::from_secs(30));
+    settle_until(|| !is_writing(viewer));
+
+    assert_eq!(attempts(viewer), failed_attempts, "still backing off");
+}
+
+/// A forget ends the document the failures were about: the next one is
+/// written — and its failures reported — without waiting out the old streak.
+#[gtk::test]
+fn gtk_ui_a_forget_ends_the_failure_streak() {
+    let (_scratch, dir) = scratch("backoff-forget");
+    let window = Window::over(&dir);
+    let viewer = window.viewer();
+    fs::create_dir_all(dir.root().parent().unwrap()).unwrap();
+    fs::write(dir.root(), b"not a directory").unwrap();
+    let start = Instant::now();
+    window.edit();
+    tick_at(viewer, start);
+    settle_until(|| !is_writing(viewer));
+    let failed_attempts = attempts(viewer);
+
+    super::forget(viewer);
+    viewer.status.set_text("");
+    window.edit();
+    tick_at(viewer, start + Duration::from_secs(30));
+    settle_until(|| !is_writing(viewer));
+
+    assert_eq!(attempts(viewer), failed_attempts + 1, "tried right away");
+    assert_eq!(
+        viewer.status.text(),
+        tr("recovery-autosave-unavailable"),
+        "and the new streak is reported"
+    );
 }
 
 /// The same notice when the directory cannot be opened at all.

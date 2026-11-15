@@ -263,6 +263,7 @@ fn build_request(
         backing: session.save_backing.clone()?,
         sources: session.imported_sources.clone(),
         protection: requested_protection(open_password, permissions_password),
+        base_breaks_signatures: session.base_breaks_signatures,
     })
 }
 

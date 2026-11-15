@@ -215,6 +215,7 @@ mod tests {
                 password: None,
             },
             sources: Vec::new(),
+            base_breaks_signatures: false,
             generation: 0,
         };
 

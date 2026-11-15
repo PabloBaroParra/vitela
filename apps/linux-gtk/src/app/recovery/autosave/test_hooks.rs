@@ -1,5 +1,5 @@
-//! Lets a test stop the autosave worker between its last pre-write check
-//! and the write itself, and see when it has finished.
+//! Lets a test stop the autosave worker at a chosen [`Stage`], and see when
+//! it has finished.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -7,8 +7,18 @@ use std::time::Duration;
 
 const PATIENCE: Duration = Duration::from_secs(20);
 
+/// Where the worker holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stage {
+    /// Before it has serialized anything.
+    Serializing,
+    /// Between its last pre-write check and the write itself.
+    Writing,
+}
+
 /// The worker's half: travels with the job.
 pub(crate) struct PauseHook {
+    pub(super) stage: Stage,
     held: mpsc::Sender<()>,
     release: mpsc::Receiver<()>,
     finished: Arc<AtomicBool>,
@@ -36,8 +46,7 @@ pub(crate) struct Pause {
 }
 
 impl Pause {
-    /// Blocks until the worker holds: its checks passed, nothing written
-    /// yet.
+    /// Blocks until the worker holds at its stage.
     pub(crate) fn wait_until_held(&self) {
         self.held
             .recv_timeout(PATIENCE)
@@ -58,7 +67,7 @@ impl Pause {
     }
 }
 
-pub(super) fn pair() -> (Pause, PauseHook) {
+pub(super) fn pair(stage: Stage) -> (Pause, PauseHook) {
     let (held_tx, held_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let finished = Arc::new(AtomicBool::new(false));
@@ -69,6 +78,7 @@ pub(super) fn pair() -> (Pause, PauseHook) {
             finished: Arc::clone(&finished),
         },
         PauseHook {
+            stage,
             held: held_tx,
             release: release_rx,
             finished,

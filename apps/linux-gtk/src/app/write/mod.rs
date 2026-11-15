@@ -64,7 +64,7 @@ mod worker;
 use gtk::FileFilter;
 
 use super::i18n::{tr, tr_args};
-use super::state::ImportedSource;
+use super::state::{ImportedSource, SaveBacking};
 
 pub(crate) use compress::begin_compress;
 pub(crate) use extract::begin_extract;
@@ -84,6 +84,41 @@ fn imported_sources(
         .iter()
         .map(|source| (source.id, &source.document))
         .collect()
+}
+
+/// Whether a save breaks a signature, given the core's answer about the
+/// save itself.
+///
+/// `base_breaks_signatures` is the one case `pdf-save` cannot see: a document
+/// restored after a crash from bytes that had already broken the signature.
+/// And the answer fails closed: a question the core could not answer is a
+/// signature that may break, so the user is asked rather than told nothing.
+fn breaks_signature<E>(
+    base_breaks_signatures: bool,
+    core_answer: impl FnOnce() -> Result<bool, E>,
+) -> bool {
+    base_breaks_signatures || core_answer().unwrap_or(true)
+}
+
+/// [`breaks_signature`] for the ordinary Save — what `save` asks before
+/// writing and what every autosave snapshot records in its sidecar.
+pub(crate) fn default_save_breaks_signature(
+    document: &pdf_document::Document,
+    backing: &SaveBacking,
+    sources: &[ImportedSource],
+    base_breaks_signatures: bool,
+) -> bool {
+    breaks_signature(base_breaks_signatures, || {
+        let source_refs = imported_sources(sources);
+        pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+            document,
+            base: &backing.base,
+            original_bytes: Some(&backing.original_bytes),
+            intent: pdf_save::SaveIntent::Default,
+            signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+            imported_sources: pdf_save::ImportedSources::new(&source_refs),
+        })
+    })
 }
 
 /// The PDF filter every file dialog in this shell offers — the open chooser
@@ -221,6 +256,14 @@ const COMPRESS: WriteOperation = WriteOperation {
 mod tests {
     use super::*;
     use crate::app::i18n::{speak, Language};
+
+    /// A signature question the core could not answer is asked of the user.
+    #[test]
+    fn an_unanswered_signature_question_fails_closed() {
+        assert!(breaks_signature(false, || Err::<bool, ()>(())));
+        assert!(!breaks_signature(false, || Ok::<bool, ()>(false)));
+        assert!(breaks_signature(true, || Ok::<bool, ()>(false)));
+    }
 
     /// Every operation, in table order, with the English it spoke before its
     /// strings moved into the catalogs: `[title, cancelled, busy, done,
