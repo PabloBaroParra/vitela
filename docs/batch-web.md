@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓, T-225 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -377,7 +377,7 @@ Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
 |---|---|---|
 | **T-223** ✓ | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
 | **T-224** ✓ | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
-| **T-225** | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
+| **T-225** ✓ | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
 | **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
 | **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
 
@@ -497,6 +497,48 @@ en `pdf-ffi`, previo).
 en wasm32 y nativo y de `pdf-save`, `-D warnings`; `cargo test --locked -p pdf-save
 -p pdf-wasm` con pdfium vendorizado (todo en verde); `wasm-bindgen-test` en Chrome
 headless con chromedriver 157 de Chrome for Testing: **15 pasados, 0 fallos**.
+
+### T-225 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Saving"). Lo que condiciona
+lo que sigue:
+
+- **Protocolo:** `saveToBytes(handle, invalidateSignatures)` cruza el worker como la
+  petición `save`; los bytes vuelven por transferencia (como el RGBA de `renderPage`).
+  `documentEngine` rechaza con `DocumentNotFound` un documento cerrado, igual que el resto.
+- **Dos destinos** (`features/save/`): sobre el mismo archivo si el documento entró con un
+  `FileSystemFileHandle`, y descarga (ancla + Blob URL) en cualquier otro caso. El handle
+  se obtiene en las dos puertas por las que entra un archivo: `showOpenFilePicker` (el
+  botón Open lo usa si el navegador lo tiene; el `<input type=file>` sigue en el DOM como
+  respaldo y destino del teclado) y `getAsFileSystemHandle` en un drop, que **tiene que
+  empezar dentro del evento `drop`** (el navegador invalida los items después). Si el
+  handle no deja escribir (permiso denegado, `createWritable` falla) se descarga y la
+  línea de estado lo dice ("…so X was downloaded instead"); nunca se descarta en
+  silencio. Chromium escribe en un archivo temporal y reemplaza el original en `close()`,
+  así que una escritura fallida deja el archivo del usuario intacto.
+- **Firmas:** `SignaturesWouldBeInvalidated` abre `SignatureDialog` (mismas palabras que
+  `write-signature-*` del shell Linux; el foco cae en Cancel) y solo entonces reintenta con
+  `invalidateSignatures = true`. **Trampa:** un guardado sin ediciones no reescribe nada,
+  así que un firmado sin editar guarda sin preguntar y con los bytes originales como
+  prefijo (el E2E lo comprueba). La pregunta no se puede provocar de punta a punta hasta
+  que T-226 meta ediciones; hoy la cubren los Vitest de `useSave` y `SaveControls`.
+  **Para T-226:** añadir ahí un E2E con un firmado + borrar/rotar página.
+- **Cifrados:** sin comportamiento nuevo; `saveToBytes` conserva el cifrado (intención por
+  defecto) y el E2E comprueba que el guardado lleva `/Encrypt` y que se reabre con la
+  misma contraseña.
+- **Dirty:** `useSave` expone `dirty` y `markDirty()` (un guardado correcto lo limpia, salvo
+  que haya entrado una edición mientras guardaba). Nadie lo marca todavía: es el gancho
+  para las pantallas de edición de T-226.
+- **Playwright:** `e2e/save.spec.ts` — descarga y reapertura en los tres navegadores;
+  cifrado; firmado sin editar; y, solo en Chromium, tres flujos con **handles reales del
+  sistema de archivos privado del origen** (`navigator.storage.getDirectory()`) entregados
+  por `showOpenFilePicker` y por `getAsFileSystemHandle` (Playwright no maneja el diálogo
+  nativo), incluido el respaldo a descarga. Antes de guardar, el test pisa el archivo con un
+  marcador: un guardado sin ediciones puede reproducir los bytes originales y, sin eso, no
+  se distinguiría "escrito" de "intacto". El zero-network ahora también guarda (la descarga
+  es una Blob URL, no una petición) y sigue en verde. **No cubierto:** el aviso de permiso
+  del propio navegador, un handle sobre el disco real, y Firefox/WebKit no tienen
+  File System Access (solo descarga).
 
 ## Verificación
 

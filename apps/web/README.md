@@ -126,10 +126,42 @@ its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text
 at known positions, an RC4-encrypted PDF that forbids copying — are built in
 memory by `e2e/pdf.ts` and never written to disk.
 
+## Saving
+
+`features/save/`. **Save** asks the engine for the document's bytes
+(`saveToBytes`, transferred back from the worker, never copied) and delivers them
+one of two ways:
+
+- **Over the opened file** when the document came in with a `FileSystemFileHandle`:
+  Chromium's `showOpenFilePicker` (the Open button uses it when the browser has
+  it; the `<input type=file>` stays as the fallback and the keyboard target) or a
+  drop's `getAsFileSystemHandle`. Write permission is asked on the Save click if the
+  handle lacks it. Chromium writes to a swap file and replaces the original on
+  `close()`, so a failed write leaves the user's file as it was.
+- **As a download** (anchor + Blob URL) everywhere else: Firefox, WebKit, a file
+  opened through the plain input, or a handle that refuses the write — in which
+  case the status line says it downloaded *instead*.
+
+A save that would break a signature is refused by the core
+(`SignaturesWouldBeInvalidated`); the app asks first (`SignatureDialog`, same words
+as the Linux shell) and retries with the acknowledgement. An encrypted document
+keeps its encryption (the core's default save intent).
+
+`useSave` also holds a `dirty` flag (`markDirty()`, cleared by a successful save)
+for the editing screens that arrive with Organize (T-226); nothing sets it yet.
+
+E2E (`e2e/save.spec.ts`): the download flow in all three browsers, reopening the
+saved bytes. In Chromium the write-over flows use real handles from the
+origin-private file system (`navigator.storage.getDirectory()`) fed in through
+`showOpenFilePicker` and `getAsFileSystemHandle`, because Playwright cannot drive
+the native picker. **Not covered:** the browser's own permission prompt, a handle
+onto the real disk, and the signature question end to end (an unedited save
+rewrites nothing, so it never fires; Vitest covers it, E2E waits for T-226's edits).
+
 ## Zero-network
 
 `e2e/zero-network.spec.ts` is the web counterpart of `tools/zero-network-guard`.
 After the app reports the engine ready, any request fails the test, including
-requests from the worker. The test also checks that it can see the worker's own
+requests from the worker (it opens, renders and saves — a Blob download is not a request). The test also checks that it can see the worker's own
 `pdfium.wasm` fetch during load, so in every browser it is shown to be able to
 see what it guards.
