@@ -7,7 +7,7 @@
 //!
 //! What happens *after* the destination is settled is [`super::worker`]'s.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use gtk::prelude::*;
@@ -39,13 +39,29 @@ pub(super) fn choose_destination(
     operation: WriteOperation,
     proceed: Proceed,
 ) {
+    choose_destination_from(window, viewer, operation, None, proceed);
+}
+
+/// [`choose_destination`], opened on `suggested` — the file the document came
+/// from — instead of a blank `document.pdf`. Still a question: picking the
+/// suggested file goes through the same overwrite guard as any other.
+pub(super) fn choose_destination_from(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    operation: WriteOperation,
+    suggested: Option<&Path>,
+    proceed: Proceed,
+) {
     let filter = pdf_filter();
-    let chooser = FileDialog::builder()
+    let builder = FileDialog::builder()
         .title(operation.title())
         .accept_label(tr("write-accept"))
-        .default_filter(&filter)
-        .initial_name("document.pdf")
-        .build();
+        .default_filter(&filter);
+    let chooser = match suggested {
+        Some(path) => builder.initial_file(&gio::File::for_path(path)),
+        None => builder.initial_name("document.pdf"),
+    }
+    .build();
     chooser.save(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();

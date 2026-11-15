@@ -17,7 +17,7 @@ use super::super::state::{
 };
 use super::chooser::{choose_destination, confirm_signature_loss};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
-use super::{imported_sources, PROTECT};
+use super::{breaks_signature, imported_sources, PROTECT};
 
 /// What `protect::begin_protect` threads through the destination chooser to
 /// [`spawn_protect`] — the protecting twin of
@@ -36,6 +36,9 @@ pub(crate) struct ProtectRequest {
     /// role in from the other, and `protect`'s dialog is shaped around that
     /// refusal.
     pub(crate) protection: SecurityContext,
+    /// `DocumentSession::base_breaks_signatures`: the bytes the session
+    /// opened from had already broken a signature.
+    pub(crate) base_breaks_signatures: bool,
 }
 
 impl ProtectRequest {
@@ -106,19 +109,21 @@ pub(crate) fn begin_protect(window: &ApplicationWindow, viewer: &Viewer, request
 /// by the full-rewrite writer, and a rewrite replaces the very bytes a
 /// signature covers. Asked through `pdf_save` anyway rather than assumed, so
 /// the shell and the core cannot come to disagree about it — the same reason
-/// `save::save_current_to` asks.
+/// `save::save_current_to` asks, and with the same two answers `pdf_save`
+/// cannot give it: a restored base that already broke one, and no answer.
 fn protect_breaks_signature(request: &ProtectRequest) -> bool {
-    let source_refs = imported_sources(&request.sources);
-    let document = request.protected_document();
-    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-        document: &document,
-        base: &request.backing.base,
-        original_bytes: Some(&request.backing.original_bytes),
-        intent: pdf_save::SaveIntent::ApplyProtection,
-        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::new(&source_refs),
+    breaks_signature(request.base_breaks_signatures, || {
+        let source_refs = imported_sources(&request.sources);
+        let document = request.protected_document();
+        pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+            document: &document,
+            base: &request.backing.base,
+            original_bytes: Some(&request.backing.original_bytes),
+            intent: pdf_save::SaveIntent::ApplyProtection,
+            signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+            imported_sources: pdf_save::ImportedSources::new(&source_refs),
+        })
     })
-    .unwrap_or(false)
 }
 
 /// The shared chooser, carrying the signature answer this chain had to reach
@@ -264,6 +269,7 @@ mod tests {
             },
             sources: Vec::new(),
             protection: crate::app::protect::requested_protection("open-pw", "perms-pw"),
+            base_breaks_signatures: false,
         };
 
         let destination = directory.join("protected.pdf");
@@ -289,5 +295,32 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&directory);
+    }
+
+    /// A restored document whose recovered bytes already broke a signature:
+    /// the unsigned sample breaks nothing now, and Protect must ask anyway.
+    #[test]
+    fn a_restored_base_that_broke_a_signature_still_asks_before_protecting() {
+        let (base, _) =
+            pdf_manip::open_document_from_bytes(SAMPLE_PDF, None).expect("the sample must open");
+        let document = pdf_save::document_from_lopdf(&base, None).expect("model the sample");
+        let request = |base_breaks_signatures| super::ProtectRequest {
+            token: SessionToken {
+                generation: 0,
+                edit_revision: 0,
+            },
+            document: document.clone(),
+            backing: SaveBacking {
+                base: base.clone().into(),
+                original_bytes: SAMPLE_PDF.to_vec().into(),
+                password: None,
+            },
+            sources: Vec::new(),
+            protection: crate::app::protect::requested_protection("open-pw", "perms-pw"),
+            base_breaks_signatures,
+        };
+
+        assert!(!super::protect_breaks_signature(&request(false)));
+        assert!(super::protect_breaks_signature(&request(true)));
     }
 }

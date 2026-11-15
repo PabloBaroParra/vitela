@@ -26,6 +26,7 @@ mod palette;
 mod pan;
 mod print;
 mod protect;
+mod recovery;
 mod render;
 mod search;
 mod selection;
@@ -110,7 +111,12 @@ pub fn run() -> glib::ExitCode {
     application.connect_activate({
         let built_ui = built_ui.clone();
         move |application| {
-            ensure_built(&built_ui, application).window.present();
+            let first = built_ui.borrow().is_none();
+            let ui = ensure_built(&built_ui, application);
+            ui.window.present();
+            if first {
+                recovery::install(&ui.window, &ui.viewer, None);
+            }
         }
     });
     // The PDF fonts the text editor loaded live in a per-process temp dir.
@@ -118,12 +124,20 @@ pub fn run() -> glib::ExitCode {
     application.connect_open({
         let built_ui = built_ui.clone();
         move |application, files, _hint| {
+            let first = built_ui.borrow().is_none();
             let ui = ensure_built(&built_ui, application);
             ui.window.present();
             // A file-manager "Open With" always means one document; extra
             // entries in `files` (multi-select) are silently ignored rather
             // than half-supporting multi-window.
-            if let Some(path) = files.first().and_then(gio::File::path) {
+            let path = files.first().and_then(gio::File::path);
+            // Offered over the file being opened: a restore supersedes that
+            // open the way any later open would — and, should it fail, opens
+            // the file after all.
+            if first {
+                recovery::install(&ui.window, &ui.viewer, path.clone());
+            }
+            if let Some(path) = path {
                 open_file(&ui.viewer, path);
             }
         }
@@ -473,6 +487,9 @@ fn build_ui(application: &Application) -> BuiltUi {
                 armed: None,
             },
         })),
+        // Disabled until `recovery::install` — which only `run` calls — gives
+        // it a directory, so a window built by a test never writes one.
+        recovery: Default::default(),
     };
 
     // Built last, and by its own module: every control on Home acts through

@@ -120,6 +120,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
         let sources = session.imported_sources.clone();
         let carried = CarriedSession {
             name: session.base_name.clone(),
+            origin_path: session.origin_path.clone(),
             text_access: session.text_access,
             annotation_access: session.annotation_access,
             content_edit_access: session.content_edit_access,
@@ -289,6 +290,7 @@ fn refresh_snapshot_and_reopen(
     let reopened = OpenedDocument {
         document: handle,
         name: carried.name,
+        origin_path: carried.origin_path,
         page_geometry,
         text_access: carried.text_access,
         annotation_access: carried.annotation_access,
@@ -310,6 +312,7 @@ fn refresh_snapshot_and_reopen(
 /// from the file the user opened, and the session's are exactly those.
 struct CarriedSession {
     name: String,
+    origin_path: Option<std::path::PathBuf>,
     text_access: TextAccess,
     annotation_access: AnnotationAccess,
     content_edit_access: ContentEditAccess,

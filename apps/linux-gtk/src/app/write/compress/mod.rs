@@ -77,7 +77,7 @@ use pdf_compress::CompressPreset;
 use pdf_document::Document;
 
 use super::chooser::confirm_signature_loss;
-use super::{imported_sources, COMPRESS};
+use super::{breaks_signature, imported_sources, COMPRESS};
 use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 
@@ -92,6 +92,9 @@ struct CompressRequest {
     document: Document,
     backing: SaveBacking,
     sources: Vec<ImportedSource>,
+    /// `DocumentSession::base_breaks_signatures`: the bytes the session
+    /// opened from had already broken a signature.
+    base_breaks_signatures: bool,
     /// Generation of the session this compression started under.
     /// [`worker`] compares it before touching the status line, so one that
     /// finishes after the document was replaced says nothing at all.
@@ -150,12 +153,13 @@ fn compress_with(window: &ApplicationWindow, viewer: &Viewer, preset: CompressPr
     };
 
     let sources = imported_sources(&request.sources);
-    let breaks_signature = pdf_save::compressed_save_will_invalidate_signatures(save_input(
-        &request,
-        &sources,
-        pdf_save::SignatureAcknowledgement::Unacknowledged,
-    ))
-    .unwrap_or(false);
+    let breaks_signature = breaks_signature(request.base_breaks_signatures, || {
+        pdf_save::compressed_save_will_invalidate_signatures(save_input(
+            &request,
+            &sources,
+            pdf_save::SignatureAcknowledgement::Unacknowledged,
+        ))
+    });
 
     if !breaks_signature {
         worker::spawn_compress(
@@ -209,6 +213,7 @@ fn snapshot(viewer: &Viewer) -> Option<CompressRequest> {
         document,
         backing,
         sources: session.imported_sources.clone(),
+        base_breaks_signatures: session.base_breaks_signatures,
         generation: state.generation,
     })
 }

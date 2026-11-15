@@ -91,6 +91,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         // request at the renderer boundary instead.
         document: unsafe { std::mem::zeroed() },
         base_name: "Fixture document".to_owned(),
+        origin_path: None,
         text_access: TextAccess::Allowed,
         annotation_access: AnnotationAccess::Allowed,
         content_edit_access: ContentEditAccess::Allowed,
@@ -106,6 +107,8 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         content_checkpoints: Default::default(),
         import_warning_revision: None,
         unsaved_to_disk: false,
+        unsaved_base: false,
+        base_breaks_signatures: false,
         edit_revision: 0,
         next_annotation_id: 0,
         selected_annotation: None,

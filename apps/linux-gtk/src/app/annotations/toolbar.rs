@@ -346,7 +346,10 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     viewer
         .redo_action
         .set_enabled(crate::app::content_edit::checkpoint::can_redo(session));
-    viewer.save_button.set_sensitive(can_undo);
+    // A restored document's base is unsaved work with no history behind it.
+    viewer
+        .save_button
+        .set_sensitive(can_undo || session.unsaved_base);
 }
 
 #[cfg(test)]

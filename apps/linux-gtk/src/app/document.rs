@@ -307,6 +307,9 @@ fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSourc
                 Ok(document) if is_current(&viewer, generation) => {
                     show_document(&viewer, generation, document);
                     remember_recent(&source);
+                    // Whatever the replaced document had unsaved was saved
+                    // or discarded at the prompt before this open started.
+                    super::recovery::forget(&viewer);
                 }
                 Ok(document) => close_document_in_background(document.document),
                 Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
@@ -355,7 +358,7 @@ fn remember_recent(source: &DocumentSource) {
 /// session is replaced only once the new one opens successfully, in
 /// [`show_document`]. The bumped generation lets [`is_current`] discard the
 /// results of any open this one supersedes.
-fn begin_loading(viewer: &Viewer) -> u64 {
+pub(crate) fn begin_loading(viewer: &Viewer) -> u64 {
     // A new open attempt supersedes any password prompt still waiting on the
     // previous one — tear it down here rather than leaving it stacked
     // underneath a second prompt if this attempt also turns out encrypted
@@ -418,6 +421,10 @@ pub(crate) fn open_document(
         Ok(page_geometry) => Ok(OpenedDocument {
             document,
             name: source_name(source),
+            origin_path: match source {
+                DocumentSource::File(path) => Some(path.clone()),
+                DocumentSource::Embedded(_) | DocumentSource::Bytes(_) => None,
+            },
             page_geometry,
             text_access,
             annotation_access,
@@ -739,6 +746,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
         state.session = Some(DocumentSession {
             document: document.document,
             base_name: document.name,
+            origin_path: document.origin_path,
             text_access: document.text_access,
             annotation_access: document.annotation_access,
             content_edit_access: document.content_edit_access,
@@ -756,6 +764,8 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             // shows bytes that were never written anywhere, so it restores
             // this to `true` right after — see `restore_edit_state`.
             unsaved_to_disk: false,
+            unsaved_base: false,
+            base_breaks_signatures: false,
             edit_revision: 0,
             next_annotation_id: 0,
             selected_annotation: None,
@@ -933,6 +943,9 @@ fn prompt_for_password(
                         Ok(document) if is_current(&viewer, generation) => {
                             show_document(&viewer, generation, document);
                             remember_recent(&source);
+                            // As in `start_open`: the replaced document's
+                            // unsaved work was resolved at the prompt.
+                            super::recovery::forget(&viewer);
                             // See the comment on the cancel branch above:
                             // `close` would re-emit `response(DeleteEvent)`
                             // and stomp the status `show_document` just set.
