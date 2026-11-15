@@ -13,6 +13,7 @@ function fakeCore(options: { failDimensions?: boolean; restricted?: boolean } = 
   const open = new Map<number, number>();
   const closed: number[] = [];
   const freed: string[] = [];
+  const saves: [number, boolean][] = [];
   let nextId = 0;
   const known = (doc: number) => {
     const marker = open.get(doc);
@@ -54,6 +55,11 @@ function fakeCore(options: { failDimensions?: boolean; restricted?: boolean } = 
       return { width: 1, height: 1, takeRgba: () => new Uint8Array([marker, 0, 0, 255]), free: () => {} };
     },
     textExtractionAllowed: (doc) => (known(doc), !options.restricted),
+    saveToBytes: (doc, invalidate) => {
+      known(doc);
+      saves.push([doc, invalidate]);
+      return new Uint8Array([known(doc), invalidate ? 1 : 0]);
+    },
     search: (doc, query) => {
       readable(doc);
       return [{ pageIndex: 0, lines: new Float32Array([query.length, 0, 0, 0]), free: () => freed.push('match') }];
@@ -70,7 +76,7 @@ function fakeCore(options: { failDimensions?: boolean; restricted?: boolean } = 
       };
     },
   };
-  return { core, closed, freed };
+  return { core, closed, freed, saves };
 }
 
 describe('documentEngine', () => {
@@ -89,6 +95,27 @@ describe('documentEngine', () => {
     // Each render reaches the document its handle names, not the newest one.
     expect((await engine.renderPage(a.handle, 0, 72)).rgba[0]).toBe(10);
     expect((await engine.renderPage(b.handle, 0, 72)).rgba[0]).toBe(20);
+  });
+
+  it('saves the document its handle names, passing the signature acknowledgement', async () => {
+    const { core, saves } = fakeCore();
+    const engine = documentEngine(core, geometry);
+    const a = await engine.open(new Uint8Array([10]));
+    const b = await engine.open(new Uint8Array([20]));
+    expect(await engine.saveToBytes(b.handle, false)).toEqual(new Uint8Array([20, 0]));
+    expect(await engine.saveToBytes(a.handle, true)).toEqual(new Uint8Array([10, 1]));
+    expect(saves).toEqual([
+      [b.handle, false],
+      [a.handle, true],
+    ]);
+  });
+
+  it('refuses to save a document once it was closed', async () => {
+    const { core } = fakeCore();
+    const engine = documentEngine(core, geometry);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    await expect(engine.saveToBytes(handle, false)).rejects.toMatchObject({ name: 'DocumentNotFound' });
   });
 
   it('refuses to render a document once it was closed', async () => {

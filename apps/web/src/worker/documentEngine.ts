@@ -14,6 +14,7 @@ export interface CoreEngine extends CoreText {
   pageCount(doc: number): number;
   pageDimensions(doc: number): (PageSize & Owned)[];
   textExtractionAllowed(doc: number): boolean;
+  saveToBytes(doc: number, invalidateSignatures: boolean): Uint8Array;
   renderPage(doc: number, page: number, dpi: number, invert: boolean): Owned & {
     readonly width: number;
     readonly height: number;
@@ -31,6 +32,8 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine
     if (!pages) throw named('DocumentNotFound', `document ${document} is not open`);
     return pages;
   };
+  /** Refuses a document this side never opened, with the core's own error. */
+  const assertOpen = (document: DocumentHandle): void => void pagesOf(document);
   const pageOf = (document: DocumentHandle, pageIndex: number) => {
     const page = pagesOf(document)[pageIndex];
     if (!page) throw named('PageIndexOutOfBounds', `page ${pageIndex} is out of bounds`);
@@ -67,6 +70,10 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine
       text.forget(document);
       sizes.delete(document);
       core.close(document);
+    },
+    async saveToBytes(document: DocumentHandle, invalidateSignatures: boolean) {
+      assertOpen(document);
+      return core.saveToBytes(document, invalidateSignatures);
     },
     async search(document: DocumentHandle, query: string) {
       return text.search(document, pagesOf(document), query);

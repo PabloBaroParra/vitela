@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { EngineError } from '../../core/errors';
 import type { DocumentInfo, Engine, OpenedDocument } from '../../core/types';
 import { fakeEngine } from '../../test/fakeEngine';
+import type { WritableFileHandle } from '../../platform/fileHandle';
+import { checkFileStamp } from '../../platform/fileStamp';
 import { useDocument } from './useDocument';
 
 function file(name: string, bytes = [37, 80, 68, 70]): File {
@@ -242,5 +244,41 @@ describe('useDocument', () => {
     // second.pdf resolved first and got handle 1; the late first.pdf got 2.
     expect(result.current.state.document).toMatchObject({ name: 'second.pdf', handle: 1 });
     expect(engine.closed).toEqual([2]);
+  });
+
+  it('keeps the file handle it was given, through a password prompt', async () => {
+    const fileHandle = { name: 'locked.pdf' } as WritableFileHandle;
+    const { result } = renderHook(() => useDocument(lockedEngine('secret')));
+    act(() => result.current.open(file('locked.pdf'), fileHandle));
+    await waitFor(() => expect(result.current.state.activity.kind).toBe('password'));
+    act(() => result.current.submitPassword('secret'));
+    await waitFor(() => expect(result.current.state.document?.fileHandle).toBe(fileHandle));
+  });
+
+  it('a file opened without a handle does not inherit the previous one', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('first.pdf'), { name: 'first.pdf' } as WritableFileHandle));
+    await waitFor(() => expect(result.current.state.document?.fileHandle).toBeDefined());
+    act(() => result.current.open(file('second.pdf')));
+    await waitFor(() => expect(result.current.state.document?.name).toBe('second.pdf'));
+    expect(result.current.state.document?.fileHandle).toBeUndefined();
+  });
+
+  it('records the opened file as it is on disk, so a later save can tell it changed', async () => {
+    const disk = { lastModified: 1000, size: 4 };
+    const fileHandle: WritableFileHandle = {
+      name: 'a.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      getFile: async () => ({ ...disk }),
+    };
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf'), fileHandle));
+    await waitFor(() => expect(result.current.state.document?.name).toBe('a.pdf'));
+
+    expect(await checkFileStamp(fileHandle)).toBe('unchanged');
+    disk.lastModified = 2000;
+    expect(await checkFileStamp(fileHandle)).toBe('changed');
   });
 });

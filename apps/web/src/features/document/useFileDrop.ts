@@ -6,12 +6,15 @@
 // would open the file itself and unload the app.
 
 import { useEffect, useRef, useState } from 'react';
+import { handlesOfDrop, type WritableFileHandle } from '../../platform/fileHandle';
 import { carriesFiles, droppedFile } from './droppedFile';
 
-export function useFileDrop(onFile: (file: File) => void, enabled: boolean): boolean {
+export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle) => void, enabled: boolean): boolean {
   const [dragging, setDragging] = useState(false);
   const handler = useRef(onFile);
   const accepting = useRef(enabled);
+  /** Counts drops, so a drop whose handle arrives late is dropped if a newer one came. */
+  const latestDrop = useRef(0);
   useEffect(() => {
     handler.current = onFile;
     accepting.current = enabled;
@@ -39,25 +42,40 @@ export function useFileDrop(onFile: (file: File) => void, enabled: boolean): boo
       event.preventDefault();
       if (event.dataTransfer) event.dataTransfer.dropEffect = accepting.current ? 'copy' : 'none';
     };
-    const drop = (event: DragEvent) => {
+    const onDrop = (event: DragEvent) => {
       if (!isFileDrag(event)) return;
       event.preventDefault();
       depth = 0;
       setDragging(false);
       if (!accepting.current) return;
-      const file = droppedFile([...(event.dataTransfer?.files ?? [])]);
-      if (file) handler.current(file);
+      const sequence = ++latestDrop.current;
+      const files = [...(event.dataTransfer?.files ?? [])];
+      const file = droppedFile(files);
+      if (!file) return;
+      // Must start now: the browser invalidates the drop's items afterwards.
+      const handles = handlesOfDrop(event.dataTransfer?.items ?? []);
+      const handle = handles?.[files.indexOf(file)];
+      if (!handle) handler.current(file);
+      else {
+        void handle.then((fileHandle) => {
+          // The handle takes a moment: a newer drop, or an open that started
+          // meanwhile, has priority over this one.
+          if (sequence !== latestDrop.current || !accepting.current) return;
+          // A handle for another file would make Save overwrite the wrong one.
+          handler.current(file, fileHandle?.name === file.name ? fileHandle : undefined);
+        });
+      }
     };
 
     window.addEventListener('dragenter', enter);
     window.addEventListener('dragleave', leave);
     window.addEventListener('dragover', over);
-    window.addEventListener('drop', drop);
+    window.addEventListener('drop', onDrop);
     return () => {
       window.removeEventListener('dragenter', enter);
       window.removeEventListener('dragleave', leave);
       window.removeEventListener('dragover', over);
-      window.removeEventListener('drop', drop);
+      window.removeEventListener('drop', onDrop);
     };
   }, []);
 

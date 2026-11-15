@@ -85,6 +85,14 @@ export interface Engine {
   /** Closes `document`; closing one that is not open does nothing. */
   close(document: DocumentHandle): Promise<void>;
   /**
+   * The document with every edit applied, as a complete PDF that keeps the
+   * document's own encryption. A document whose signatures the save would
+   * break rejects with `SignaturesWouldBeInvalidated` unless
+   * `invalidateSignatures` says the user was told. Rejects with `SaveFailed`
+   * when the bytes cannot be written.
+   */
+  saveToBytes(document: DocumentHandle, invalidateSignatures: boolean): Promise<Uint8Array>;
+  /**
    * Every exact, case-sensitive match of `query` (the core's search), in page
    * order. An empty query matches nothing. Rejects with `TextExtractionDenied`
    * when the document withholds its text.

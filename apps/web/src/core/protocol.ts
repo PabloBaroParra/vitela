@@ -13,6 +13,7 @@ export type EngineRequest =
       readonly dpi: number;
     }
   | { readonly kind: 'close'; readonly document: DocumentHandle }
+  | { readonly kind: 'save'; readonly document: DocumentHandle; readonly invalidateSignatures: boolean }
   | { readonly kind: 'search'; readonly document: DocumentHandle; readonly query: string }
   | {
       readonly kind: 'selectText';
@@ -32,6 +33,7 @@ export interface EngineResults {
   open: OpenedDocument;
   renderPage: RenderedPage;
   close: void;
+  save: Uint8Array;
   search: SearchHit[];
   selectText: TextSelection;
   selectWord: TextSelection;

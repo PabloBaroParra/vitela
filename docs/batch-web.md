@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓, T-225 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -377,7 +377,7 @@ Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
 |---|---|---|
 | **T-223** ✓ | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
 | **T-224** ✓ | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
-| **T-225** | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
+| **T-225** ✓ | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
 | **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
 | **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
 
@@ -497,6 +497,116 @@ en `pdf-ffi`, previo).
 en wasm32 y nativo y de `pdf-save`, `-D warnings`; `cargo test --locked -p pdf-save
 -p pdf-wasm` con pdfium vendorizado (todo en verde); `wasm-bindgen-test` en Chrome
 headless con chromedriver 157 de Chrome for Testing: **15 pasados, 0 fallos**.
+
+### T-225 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Saving"). Lo que condiciona
+lo que sigue:
+
+- **Protocolo:** `saveToBytes(handle, invalidateSignatures)` cruza el worker como la
+  petición `save`; los bytes vuelven por transferencia (como el RGBA de `renderPage`).
+  `documentEngine` rechaza con `DocumentNotFound` un documento cerrado, igual que el resto.
+- **Tres destinos** (`features/save/`): sobre el mismo archivo si el documento entró con un
+  `FileSystemFileHandle`, una **copia** en un archivo nuevo (ver Firmas), y descarga
+  (ancla + Blob URL) en cualquier otro caso. El handle se obtiene en las dos puertas por
+  las que entra un archivo: `showOpenFilePicker` (el botón Open lo usa si el navegador lo
+  tiene; el `<input type=file>` sigue en el DOM como respaldo y destino del teclado) y
+  `getAsFileSystemHandle` en un drop, que **tiene que empezar dentro del evento `drop`**
+  (el navegador invalida los items después). El drop solo conserva el handle si su nombre
+  coincide con el del `File` soltado (si no, se abre sin handle y Save descarga), y solo
+  gana el último drop: un token de secuencia más una re-comprobación de "ocupado" tras el
+  `await`. Si `showOpenFilePicker` falla (no es un `AbortError`), ese clic cae al
+  `<input>` nativo y el siguiente vuelve a usar el selector; un `AbortError` no hace nada.
+- **El guardado va en dos pasos** (`delivery.ts`): `prepare` es lo **primero** que ocurre
+  en el clic de Save, antes de pedir los bytes al motor, porque la activación de usuario de
+  Chromium puede caducar mientras el worker guarda: ahí se pide el permiso `readwrite` del
+  handle (o se abre el diálogo de guardar de una copia) y el resultado viaja hasta
+  `deliver`. Si el permiso se deniega se guarda igualmente pero se **descarga** y la
+  línea de estado lo dice ("Permission to write over the opened file was refused, so X was
+  downloaded instead"). Un `write()`/`close()` fallido llama a `writable.abort()` (con
+  guarda) antes de caer a la descarga ("Could not write over the opened file…"); nunca se
+  descarta en silencio. Chromium escribe en un archivo temporal y reemplaza el original en
+  `close()`, así que una escritura fallida deja el archivo del usuario intacto. El adaptador
+  de handles vive en `src/platform/` (`fileHandle`, `fileWrite`) para que
+  `ui/` y `features/document/` no importen de `features/save/`.
+- **Firmas:** ``SignaturesWouldBeInvalidated`` abre `SignatureDialog` (mismas palabras que
+  `write-signature-*` del shell Linux, con tres respuestas: **Cancel** —el foco inicial—,
+  **Save a copy** y **Save anyway**) y solo entonces reintenta con
+  `invalidateSignatures = true`. La web no tiene "Guardar como", así que **Save a copy**
+  escribe los bytes reconocidos en un archivo **nuevo** sin tocar nunca el handle del
+  archivo abierto: **siempre se descarga** como "nombre (copy).pdf", en los tres navegadores.
+  **No usa `showSaveFilePicker`:** Chromium crea y **trunca a cero** el archivo existente que
+  el usuario elige antes de devolver el handle (`DidCreateAndTruncateSaveFile` en
+  `file_system_access_manager_impl.cc`), así que elegir el propio archivo abierto lo vaciaría
+  antes de que cualquier comprobación (`isSameEntry`) pudiera rechazarlo, y un fallo posterior
+  del motor dejaría vacío el archivo elegido. Lo encontró la revisión 4R previa a la PR y se
+  confirmó en el código de Chromium; una descarga nunca sobrescribe.
+  El guardado en curso se acota por documento: uno pendiente de un documento anterior no
+  bloquea Save en el nuevo y no entrega nada.
+  La copia lleva la firma invalidada; lo que conserva su firma válida es el original, que
+  no se toca. **Trampa:** un guardado sin ediciones no reescribe nada, así que un firmado
+  sin editar guarda sin preguntar y con los bytes originales como prefijo (el E2E lo
+  comprueba). La pregunta no se puede provocar de punta a punta hasta que T-226 meta
+  ediciones; hoy la cubren los Vitest de `useSave`, `SaveControls` y `delivery`.
+  **Para T-226:** añadir ahí un E2E con un firmado + borrar/rotar página, que cubra Save a
+  copy.
+- **Cifrados:** sin comportamiento nuevo; `saveToBytes` conserva el cifrado (intención por
+  defecto) y el E2E comprueba que el guardado lleva `/Encrypt` y que se reabre con la
+  misma contraseña.
+- **Dirty:** `useSave` vive en `DocumentWorkspace` (un estado por documento: abrir otro
+  empieza limpio, y un guardado que sobrevive a su documento no informa) y entrega
+  `markDirty()` por `MarkDirtyContext`: las pantallas de edición de T-226 llaman a
+  `useMarkDirty()` (falla en voz alta fuera del workspace). **Solo un guardado que escribió
+  sobre el archivo abierto** (`outcome.how === 'wrote'`) limpia el flag, y solo si no entró
+  una edición mientras guardaba (contador de ediciones capturado al empezar): una descarga
+  (también la de respaldo) o un "Save a copy" dejan el archivo abierto sin las ediciones, así
+  que el documento sigue sucio y la línea de estado lo dice ("Downloaded x.pdf. The opened
+  file still has unsaved changes."). Si se editó durante un guardado que sí escribió, la línea
+  dice "Saved over x.pdf, but edits made while saving are not in it. Unsaved changes." en vez
+  de dar todo por guardado. Una edición posterior a un guardado sustituye el mensaje por
+  "Unsaved changes.". Nadie lo marca todavía.
+- **Archivo cambiado en disco:** al abrir un documento con handle, `platform/fileStamp.ts`
+  anota `lastModified` y `size` (`handle.getFile()`, una promesa por handle para que una
+  comprobación inmediata la espere). `prepare` —lo primero del clic de Save, antes del motor—
+  pide primero el permiso de escritura (la activación del clic sigue fresca) y después los
+  vuelve a leer: si difieren **no se escribe** y
+  `useSave` pasa a `confirmChangedOnDisk`, que abre `ChangedOnDiskDialog` (mismo estilo que
+  `SignatureDialog`, ambos sobre `WarningDialog`: `dialog dialog--warning`, icono, **Cancel**
+  enfocado) con **Cancel**, **Save a copy** (descarga; no toca el archivo) y **Overwrite**
+  (intención `overwriteAnyway`). El cambio **solo se adopta como referencia tras una
+  escritura correcta** (`writeToHandle`): si el permiso se rechaza, se cancela la pregunta de
+  firma o la escritura falla, el siguiente Save vuelve a preguntar. Justo antes de
+  `createWritable`, `deliver` relee el archivo y lo compara con lo que vio `prepare`
+  (`Placement.seen`): si cambió mientras el motor trabajaba no se escribe y se vuelve a
+  preguntar (`how: 'changedOnDisk'`; tras un permiso concedido no hace falta activación). Si la
+  lectura falla el destino es `unverified` (un tipo propio, no un overwrite disfrazado): se
+  descarga y la línea dice "Could not check whether the opened file changed on disk, so x.pdf
+  was downloaded instead.". Un fallo de lectura durante un guardado se reintenta en el siguiente; si falló **al abrir**,
+  no hay referencia y el documento queda `unverified` (nunca se adopta una lectura posterior). Tras
+  aceptar el cambio (Overwrite), el sello aceptado viaja por el reintento de firma (Save anyway). Si la acción es una
+  copia, la pregunta de firma solo ofrece **Cancel** y **Save copy anyway** (descarga): nada
+  que escriba sobre el archivo abierto. Un handle sin `getFile` (dobles de test) no se comprueba. **Límites:**
+  `lastModified`+`size` no detecta un cambio que conserve ambos; y entre la comprobación y el
+  `close()` del `writable` queda una ventana de milisegundos (el navegador no ofrece un
+  compare-and-swap). **No se maneja un worker del motor colgado:** exigiría reiniciar el worker
+  y reabrir el documento; queda fuera de alcance.
+- **Foco:** Save se queda enfocable mientras guarda (`aria-disabled` + guarda en el
+  manejador; un `disabled` real tira el foco a la página) y recupera el foco al cerrarse
+  la pregunta de la firma.
+- **Playwright:** `e2e/save.spec.ts` — descarga y reapertura en los tres navegadores;
+  cifrado; firmado sin editar; el foco que se queda en Save; y, solo en Chromium, seis flujos con **handles reales del
+  sistema de archivos privado del origen** (`navigator.storage.getDirectory()`) entregados
+  por `showOpenFilePicker` y por `getAsFileSystemHandle` (Playwright no maneja el diálogo
+  nativo), incluidos el respaldo a descarga, el permiso denegado, un drop cuyo handle es de otro archivo
+  y un selector que falla. Los tests de escritura cuentan las llamadas a `createWritable`: un
+  guardado sin ediciones puede reproducir los bytes originales y, sin eso, no se
+  distinguiría "escrito" de "intacto". Cuatro más cubren el archivo cambiado en disco
+  (modificado desde fuera tras abrir: aparece el diálogo con Cancel enfocado y Cancel lo deja
+  como está; Overwrite escribe y el siguiente guardado no vuelve a preguntar; Save a copy
+  descarga sin tocarlo; `getFile` que falla descarga y lo dice). El zero-network ahora también guarda (la descarga
+  es una Blob URL, no una petición) y sigue en verde. **No cubierto:** Save a copy de punta a punta (necesita una edición, T-226), el aviso de
+  permiso del propio navegador (los E2E lo sustituyen por un handle que responde "denied"), un handle sobre el disco real, y Firefox/WebKit no tienen
+  File System Access (solo descarga).
 
 ## Verificación
 

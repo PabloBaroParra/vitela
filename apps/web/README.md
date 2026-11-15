@@ -126,10 +126,78 @@ its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text
 at known positions, an RC4-encrypted PDF that forbids copying — are built in
 memory by `e2e/pdf.ts` and never written to disk.
 
+## Saving
+
+`features/save/`. **Save** asks the engine for the document's bytes
+(`saveToBytes`, transferred back from the worker, never copied) and delivers them
+one of three ways:
+
+- **Over the opened file** when the document came in with a `FileSystemFileHandle`:
+  Chromium's `showOpenFilePicker` (the Open button uses it when the browser has
+  it; the `<input type=file>` stays as the fallback and the keyboard target) or a
+  drop's `getAsFileSystemHandle` (kept only when its name matches the dropped
+  file). Write permission is requested as the **first** step of the Save click,
+  before the engine runs — Chromium's user activation can expire while the
+  worker saves — and the answer travels with the bytes (`delivery.ts`:
+  `prepare`, then `deliver`). If it is refused the document is downloaded and
+  the status line says the permission was the reason. Chromium writes to a swap
+  file and replaces the original on `close()`; a failed `write()`/`close()`
+  calls `abort()` first, so a failed write leaves the user's file as it was.
+  **If the file changed on disk since it was opened** (its `lastModified` or
+  `size` differs from what `platform/fileStamp.ts` recorded at open), nothing is
+  written: a dialog (`ChangedOnDiskDialog`, Cancel focused) offers **Cancel**,
+  **Save a copy** (a download; the file is not touched) and **Overwrite**. The
+  check is part of `prepare`, after the write-permission prompt and before the
+  engine, and is repeated right before the write: if the file moved while the
+  engine worked, nothing is written and the dialog shows again. Choosing
+  Overwrite only counts once the write succeeded. If the file cannot be read
+  (`getFile` fails) the document is downloaded and the status says why; the next
+  save tries again. On a signed document, a copy's signature question offers only
+  Cancel and "Save copy anyway". After a successful
+  write the recorded state is refreshed, so the next save does not false-alarm.
+- **As a copy** (`saveCopy.ts`), only from the signature question: always a
+  download named `name (copy).pdf`. It deliberately does not use
+  `showSaveFilePicker`: Chromium truncates an existing file picked there before
+  returning its handle, so picking the opened file would empty it. The opened
+  file's handle is never touched.
+- **As a download** (anchor + Blob URL) everywhere else: Firefox, WebKit, a file
+  opened through the plain input, or a handle that refuses the write — in which
+  case the status line says it downloaded *instead*.
+
+A save that would break a signature is refused by the core
+(`SignaturesWouldBeInvalidated`); the app asks first (`SignatureDialog`, same
+words as the Linux shell) with **Cancel** (focused), **Save a copy** and **Save
+anyway**, and retries with the acknowledgement. The copy carries the broken
+signature; the original, untouched, keeps its valid one. An encrypted document
+keeps its encryption (the core's default save intent).
+
+The save state (`useSave`) lives in `DocumentWorkspace`, one per open document.
+It holds a `dirty` flag: editing screens (Organize, T-226) call `useMarkDirty()`
+after each applied edit. Only a save that **wrote over the opened file** clears
+it, and only if no edit came in while it ran; a download or a copy leaves the
+opened file without the edits, so the status says it still has unsaved changes.
+An edit after a save turns "Saved over…" into "Unsaved changes."; nothing sets
+it yet. A hung engine worker is not handled (it would need a worker restart and
+a reopen). The Save
+button uses `aria-disabled` while it runs, so the keyboard focus stays on it.
+
+The file-handle adapter (`fileHandle`, `fileWrite`, `saveTarget`) lives in
+`src/platform/`, shared by `ui/`, `features/document/` and `features/save/`.
+
+E2E (`e2e/save.spec.ts`): the download flow in all three browsers, reopening the
+saved bytes, and the keyboard focus staying on Save. In Chromium the write-over flows use real handles from the
+origin-private file system (`navigator.storage.getDirectory()`) fed in through
+`showOpenFilePicker` and `getAsFileSystemHandle`, because Playwright cannot drive
+the native picker (a refused permission, a mismatched drop handle and a failing
+picker are covered the same way). **Not covered:** the browser's own permission
+prompt, a handle onto the real disk, and the signature question and Save a copy
+end to end (an unedited save
+rewrites nothing, so it never fires; Vitest covers it, E2E waits for T-226's edits).
+
 ## Zero-network
 
 `e2e/zero-network.spec.ts` is the web counterpart of `tools/zero-network-guard`.
 After the app reports the engine ready, any request fails the test, including
-requests from the worker. The test also checks that it can see the worker's own
+requests from the worker (it opens, renders and saves — a Blob download is not a request). The test also checks that it can see the worker's own
 `pdfium.wasm` fetch during load, so in every browser it is shown to be able to
 see what it guards.
