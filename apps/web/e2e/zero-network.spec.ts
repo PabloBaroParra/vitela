@@ -26,6 +26,8 @@ test('makes no network request after the initial load', async ({ page, context, 
   // Exercise the app: open and render a document, then give stragglers time.
   await openFixture(page, 'forms/reportlab_acroform.pdf');
   await openFixture(page, 'content-edit/reportlab_embedded_subset.pdf');
+  // Saving is local too: the download is a Blob URL, not a request.
+  await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save', exact: true }).click()]);
   await page.waitForTimeout(1_000);
 
   expect(afterLoad).toEqual([]);

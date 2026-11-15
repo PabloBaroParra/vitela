@@ -6,9 +6,10 @@
 // would open the file itself and unload the app.
 
 import { useEffect, useRef, useState } from 'react';
+import { handlesOfDrop, type WritableFileHandle } from '../save/fileHandle';
 import { carriesFiles, droppedFile } from './droppedFile';
 
-export function useFileDrop(onFile: (file: File) => void, enabled: boolean): boolean {
+export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle) => void, enabled: boolean): boolean {
   const [dragging, setDragging] = useState(false);
   const handler = useRef(onFile);
   const accepting = useRef(enabled);
@@ -45,8 +46,14 @@ export function useFileDrop(onFile: (file: File) => void, enabled: boolean): boo
       depth = 0;
       setDragging(false);
       if (!accepting.current) return;
-      const file = droppedFile([...(event.dataTransfer?.files ?? [])]);
-      if (file) handler.current(file);
+      const files = [...(event.dataTransfer?.files ?? [])];
+      const file = droppedFile(files);
+      if (!file) return;
+      // Must start now: the browser invalidates the drop's items afterwards.
+      const handles = handlesOfDrop(event.dataTransfer?.items ?? []);
+      const handle = handles?.[files.indexOf(file)];
+      if (!handle) handler.current(file);
+      else void handle.then((fileHandle) => handler.current(file, fileHandle ?? undefined));
     };
 
     window.addEventListener('dragenter', enter);

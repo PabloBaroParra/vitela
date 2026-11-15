@@ -3,6 +3,8 @@
 
 import type { Engine } from '../../core/types';
 import { FilePicker } from '../../ui/FilePicker';
+import { canPickWithHandle, pickPdfWithHandle } from '../save/fileHandle';
+import { SaveControls } from '../save/SaveControls';
 import { StatusLine } from '../../ui/StatusLine';
 import { DocumentViewer } from '../viewer/DocumentViewer';
 import { PasswordDialog } from './PasswordDialog';
@@ -22,11 +24,18 @@ export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
   return (
     <div className="workspace">
       <div className="workspace__bar">
-        <FilePicker label="Open PDF" accept="application/pdf,.pdf" onPick={open} disabled={busy} />
+        <FilePicker
+          label="Open PDF"
+          accept="application/pdf,.pdf"
+          onPick={open}
+          pick={canPickWithHandle() ? pickPdfWithHandle : undefined}
+          disabled={busy}
+        />
         <ActivityLine activity={activity} />
         {activity.kind === 'idle' && document && (
           <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
         )}
+        {document && <SaveControls key={document.generation} engine={engine} document={document} />}
         {activity.kind === 'idle' && !document && <StatusLine>Open a PDF or drop one anywhere on this window.</StatusLine>}
       </div>
       {document && <DocumentViewer key={document.generation} engine={engine} document={document} />}

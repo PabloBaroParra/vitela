@@ -266,8 +266,9 @@ button:focus-visible,
   color: var(--error);
 }
 
-/* Password prompt */
-.password-dialog {
+/* Password prompt and the other modal questions (.dialog) */
+.password-dialog,
+.dialog {
   max-width: min(420px, calc(100vw - 32px));
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -276,11 +277,13 @@ button:focus-visible,
   padding: 20px;
 }
 
-.password-dialog::backdrop {
+.password-dialog::backdrop,
+.dialog::backdrop {
   background: rgb(0 0 0 / 40%);
 }
 
-.password-dialog__title {
+.password-dialog__title,
+.dialog__title {
   font-size: 1.15rem;
   margin: 0 0 8px;
 }
@@ -305,7 +308,8 @@ button:focus-visible,
   margin: 8px 0 0;
 }
 
-.password-dialog__actions {
+.password-dialog__actions,
+.dialog__actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;

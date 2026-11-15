@@ -5,6 +5,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '../../core/errors';
 import type { DocumentHandle, DocumentInfo, Engine } from '../../core/types';
+import type { WritableFileHandle } from '../save/fileHandle';
 
 export interface OpenDocument {
   readonly name: string;
@@ -13,6 +14,11 @@ export interface OpenDocument {
   readonly handle: DocumentHandle;
   /** Bumps on every successful open, so views reset for a same-named file. */
   readonly generation: number;
+  /**
+   * The handle to save back over the opened file, when the browser gave one
+   * (Chromium's picker or drop). Without it, saving downloads.
+   */
+  readonly fileHandle?: WritableFileHandle;
 }
 
 /** What is happening besides showing the open document, if any. */
@@ -44,7 +50,7 @@ export function useDocument(engine: Engine) {
   const [state, setState] = useState<DocumentState>({ document: null, activity: IDLE });
   const latest = useRef(0);
   /** The file waiting for a password; `null` when no prompt is open. */
-  const locked = useRef<{ file: File; attempt: number } | null>(null);
+  const locked = useRef<{ file: File; fileHandle?: WritableFileHandle; attempt: number } | null>(null);
   /** The handle of the document on screen, the one engine document kept. */
   const shown = useRef<DocumentHandle | null>(null);
   const release = useCallback(
@@ -54,7 +60,7 @@ export function useDocument(engine: Engine) {
   );
 
   const attempt = useCallback(
-    (file: File, attemptId: number, password: string | undefined) => {
+    (file: File, fileHandle: WritableFileHandle | undefined, attemptId: number, password: string | undefined) => {
       const current = () => attemptId === latest.current;
       // Read afresh each time: the engine takes the bytes by transfer.
       file
@@ -68,14 +74,14 @@ export function useDocument(engine: Engine) {
             locked.current = null;
             const previous = shown.current;
             shown.current = handle;
-            setState({ document: { name: file.name, info, handle, generation: attemptId }, activity: IDLE });
+            setState({ document: { name: file.name, info, handle, generation: attemptId, fileHandle }, activity: IDLE });
             if (previous !== null) release(previous);
           },
           (error: unknown) => {
             if (!current()) return;
             const kind = errorKind(error);
             if (kind === PASSWORD_REQUIRED || kind === WRONG_PASSWORD) {
-              locked.current = { file, attempt: attemptId };
+              locked.current = { file, fileHandle, attempt: attemptId };
               const wrong = password !== undefined;
               setState((s) => ({ ...s, activity: { kind: 'password', name: file.name, wrong, checking: false } }));
             } else {
@@ -89,11 +95,11 @@ export function useDocument(engine: Engine) {
   );
 
   const open = useCallback(
-    (file: File) => {
+    (file: File, fileHandle?: WritableFileHandle) => {
       const attemptId = ++latest.current;
       locked.current = null;
       setState((s) => ({ ...s, activity: { kind: 'opening', name: file.name } }));
-      attempt(file, attemptId, undefined);
+      attempt(file, fileHandle, attemptId, undefined);
     },
     [attempt],
   );
@@ -105,7 +111,7 @@ export function useDocument(engine: Engine) {
       setState((s) =>
         s.activity.kind === 'password' ? { ...s, activity: { ...s.activity, checking: true } } : s,
       );
-      attempt(pending.file, pending.attempt, password);
+      attempt(pending.file, pending.fileHandle, pending.attempt, password);
     },
     [attempt],
   );

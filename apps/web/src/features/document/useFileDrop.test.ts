@@ -1,13 +1,14 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { WritableFileHandle } from '../save/fileHandle';
 import { useFileDrop } from './useFileDrop';
 
 const pdf = new File([new Uint8Array([37, 80, 68, 70])], 'dropped.pdf', { type: 'application/pdf' });
 
 /** A cancelable drag event carrying `files` (jsdom has no DragEvent/DataTransfer). */
-function drag(type: string, files: File[] = [pdf]): Event {
+function drag(type: string, files: File[] = [pdf], items?: unknown[]): Event {
   const event = new Event(type, { bubbles: true, cancelable: true });
-  Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files, dropEffect: 'none' } });
+  Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files, items, dropEffect: 'none' } });
   act(() => {
     window.dispatchEvent(event);
   });
@@ -46,5 +47,27 @@ describe('useFileDrop', () => {
     Object.defineProperty(event, 'dataTransfer', { value: { types: ['text/plain'], files: [] } });
     window.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('hands over the file handle of the dropped file when the browser gives one', async () => {
+    const handle = { kind: 'file', name: 'dropped.pdf', createWritable: async () => ({}) } as unknown as WritableFileHandle;
+    const other = new File([new Uint8Array([1])], 'notes.txt', { type: 'text/plain' });
+    const opened: [File, WritableFileHandle | undefined][] = [];
+    renderHook(() => useFileDrop((file, fileHandle) => opened.push([file, fileHandle]), true));
+    // The PDF is the second file: its handle must be the second item's.
+    drag('drop', [other, pdf], [
+      { kind: 'file', getAsFileSystemHandle: async () => ({ kind: 'file' }) },
+      { kind: 'file', getAsFileSystemHandle: async () => handle },
+    ]);
+    await act(async () => {});
+    expect(opened).toEqual([[pdf, handle]]);
+  });
+
+  it('opens the file without a handle when the browser gives none for it', async () => {
+    const opened: [File, WritableFileHandle | undefined][] = [];
+    renderHook(() => useFileDrop((file, fileHandle) => opened.push([file, fileHandle]), true));
+    drag('drop', [pdf], [{ kind: 'file', getAsFileSystemHandle: async () => null }]);
+    await act(async () => {});
+    expect(opened).toEqual([[pdf, undefined]]);
   });
 });
