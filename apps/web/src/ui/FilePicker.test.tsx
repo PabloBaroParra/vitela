@@ -35,15 +35,41 @@ describe('FilePicker', () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  it('lets the next click open the native input dialog once the browser picker failed', async () => {
+  it('does nothing when the browser picker is aborted', async () => {
+    const pick = vi.fn(async (): Promise<PickedFile | null> => {
+      throw new DOMException('dismissed', 'AbortError');
+    });
+    const onPick = vi.fn();
+    render(<FilePicker label="Open PDF" accept=".pdf" onPick={onPick} pick={pick} />);
+    const clicks = recordClicks();
+    fireEvent.click(screen.getByLabelText('Open PDF'));
+    await waitFor(() => expect(pick).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(clicks).toEqual([true]);
+    expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('opens the native dialog for that click only when the browser picker fails, then uses the picker again', async () => {
     const pick = vi.fn(async (): Promise<PickedFile | null> => {
       throw new Error('blocked');
     });
     render(<FilePicker label="Open PDF" accept=".pdf" onPick={vi.fn()} pick={pick} />);
     const input = screen.getByLabelText('Open PDF');
-    expect(fireEvent.click(input)).toBe(false);
-    await waitFor(() => expect(pick).toHaveBeenCalled());
-    await waitFor(() => expect(fireEvent.click(input)).toBe(true));
-    expect(pick).toHaveBeenCalledTimes(1);
+    const clicks = recordClicks();
+
+    fireEvent.click(input);
+    // The first click was intercepted; the fallback click right after it was not.
+    await waitFor(() => expect(clicks).toEqual([true, false]));
+
+    fireEvent.click(input);
+    await waitFor(() => expect(pick).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(clicks).toEqual([true, false, true, false]));
   });
 });
+
+/** The `defaultPrevented` of every click that reaches the document, in order. */
+function recordClicks(): boolean[] {
+  const clicks: boolean[] = [];
+  document.addEventListener('click', (event) => clicks.push(event.defaultPrevented));
+  return clicks;
+}

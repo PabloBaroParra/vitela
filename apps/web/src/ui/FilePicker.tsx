@@ -19,8 +19,9 @@ interface FilePickerProps {
 
 export function FilePicker({ label, accept, disabled = false, onPick, pick }: FilePickerProps) {
   const id = useId();
-  /** Set once the browser picker failed: from then on the native dialog opens. */
-  const native = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+  /** Lets the one click that falls back to the native dialog through. */
+  const letThrough = useRef(false);
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     // Reset so picking the same file again still fires a change.
@@ -28,19 +29,31 @@ export function FilePicker({ label, accept, disabled = false, onPick, pick }: Fi
     if (file) onPick(file);
   };
   const handleClick = (event: MouseEvent<HTMLInputElement>) => {
-    if (!pick || native.current) return;
+    if (!pick) return;
+    if (letThrough.current) {
+      letThrough.current = false;
+      return;
+    }
     event.preventDefault();
     pick().then(
       (picked) => picked && onPick(picked.file, picked.handle),
-      // The browser picker failed (blocked, say): the next click opens the
-      // native dialog. Clicking again here would lack the user's gesture.
-      () => void (native.current = true),
+      (error: unknown) => {
+        // The user dismissed the picker: nothing to do.
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        // The picker failed (blocked, say): open the native dialog for this
+        // click only. The user's activation outlives the failed call, and the
+        // picker stays in use for the next click.
+        letThrough.current = true;
+        input.current?.click();
+        // The click is dispatched synchronously; never leave the pass armed.
+        letThrough.current = false;
+      },
     );
   };
   return (
     <label className="file-picker" htmlFor={id} aria-disabled={disabled}>
       {label}
-      <input id={id} type="file" accept={accept} disabled={disabled} onChange={handleChange} onClick={handleClick} />
+      <input ref={input} id={id} type="file" accept={accept} disabled={disabled} onChange={handleChange} onClick={handleClick} />
     </label>
   );
 }
