@@ -14,6 +14,7 @@ export interface CoreEngine extends CoreText {
   pageCount(doc: number): number;
   pageDimensions(doc: number): (PageSize & Owned)[];
   textExtractionAllowed(doc: number): boolean;
+  saveToBytes(doc: number, invalidateSignatures: boolean): Uint8Array;
   renderPage(doc: number, page: number, dpi: number, invert: boolean): Owned & {
     readonly width: number;
     readonly height: number;
@@ -67,6 +68,10 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine
       text.forget(document);
       sizes.delete(document);
       core.close(document);
+    },
+    async saveToBytes(document: DocumentHandle, invalidateSignatures: boolean) {
+      pagesOf(document); // the core's own refusal for a document this side never opened
+      return core.saveToBytes(document, invalidateSignatures);
     },
     async search(document: DocumentHandle, query: string) {
       return text.search(document, pagesOf(document), query);

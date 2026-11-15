@@ -55,6 +55,10 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'close', document });
   }
 
+  saveToBytes(document: DocumentHandle, invalidateSignatures: boolean): Promise<Uint8Array> {
+    return this.send({ kind: 'save', document, invalidateSignatures });
+  }
+
   search(document: DocumentHandle, query: string): Promise<SearchHit[]> {
     return this.send({ kind: 'search', document, query });
   }

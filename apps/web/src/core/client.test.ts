@@ -138,4 +138,22 @@ describe('EngineClient', () => {
     expect(error).toBeInstanceOf(EngineError);
     expect(error).toMatchObject({ name: 'PasswordRequired', message: 'needs a password' });
   });
+
+  it('asks for the saved bytes of a document, saying whether signatures may be invalidated', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const saved = client.saveToBytes(4, true);
+    expect(sent[0]!.message.request).toEqual({ kind: 'save', document: 4, invalidateSignatures: true });
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    reply({ type: 'result', id: sent[0]!.message.id, value: bytes });
+    await expect(saved).resolves.toBe(bytes);
+  });
+
+  it('rejects a save that would break a signature with that name', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const saved = client.saveToBytes(4, false);
+    reply({ type: 'error', id: sent[0]!.message.id, name: 'SignaturesWouldBeInvalidated', message: 'signed' });
+    await expect(saved).rejects.toMatchObject({ name: 'SignaturesWouldBeInvalidated' });
+  });
 });

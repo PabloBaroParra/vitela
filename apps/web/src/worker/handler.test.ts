@@ -14,6 +14,7 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     search: async () => [],
     selectText: async () => ({ text: '', rects: new Float32Array(0) }),
     selectWord: async () => ({ text: '', rects: new Float32Array(0) }),
+    saveToBytes: async () => new Uint8Array(0),
     ...overrides,
   };
 }
@@ -151,5 +152,37 @@ describe('handleRequest', () => {
     });
     const reply = await handleRequest(engine, { id: 7, request: { kind: 'search', document: 5, query: 'x' } });
     expect(reply.message).toMatchObject({ type: 'error', id: 7, name: 'TextExtractionDenied' });
+  });
+
+  it('answers save with the bytes, transferred instead of copied', async () => {
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const calls: [number, boolean][] = [];
+    const engine = fakeEngine({
+      saveToBytes: async (document, invalidate) => {
+        calls.push([document, invalidate]);
+        return bytes;
+      },
+    });
+    const reply = await handleRequest(engine, {
+      id: 4,
+      request: { kind: 'save', document: 5, invalidateSignatures: true },
+    });
+    expect(calls).toEqual([[5, true]]);
+    expect(reply).toEqual({ message: { type: 'result', id: 4, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('forwards SignaturesWouldBeInvalidated by name', async () => {
+    const failure = new Error('the document is signed');
+    failure.name = 'SignaturesWouldBeInvalidated';
+    const engine = fakeEngine({
+      saveToBytes: async () => {
+        throw failure;
+      },
+    });
+    const reply = await handleRequest(engine, {
+      id: 9,
+      request: { kind: 'save', document: 5, invalidateSignatures: false },
+    });
+    expect(reply.message).toMatchObject({ type: 'error', id: 9, name: 'SignaturesWouldBeInvalidated' });
   });
 });

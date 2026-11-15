@@ -25,6 +25,11 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
       case 'close':
         await engine.close(request.document);
         return { message: { type: 'result', id, value: undefined }, transfer: [] };
+      case 'save': {
+        const bytes = await engine.saveToBytes(request.document, request.invalidateSignatures);
+        // A whole PDF: handed over, not copied.
+        return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
+      }
       // Text replies are small (a few rects per line or match): copied, not
       // transferred.
       case 'search':

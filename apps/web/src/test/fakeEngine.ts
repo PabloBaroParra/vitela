@@ -10,6 +10,7 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     open: unused('open'),
     renderPage: unused('renderPage'),
     close: async () => {},
+    saveToBytes: unused('saveToBytes'),
     search: unused('search'),
     selectText: unused('selectText'),
     selectWord: unused('selectWord'),
