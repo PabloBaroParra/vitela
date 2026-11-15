@@ -32,6 +32,8 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine
     if (!pages) throw named('DocumentNotFound', `document ${document} is not open`);
     return pages;
   };
+  /** Refuses a document this side never opened, with the core's own error. */
+  const assertOpen = (document: DocumentHandle): void => void pagesOf(document);
   const pageOf = (document: DocumentHandle, pageIndex: number) => {
     const page = pagesOf(document)[pageIndex];
     if (!page) throw named('PageIndexOutOfBounds', `page ${pageIndex} is out of bounds`);
@@ -70,7 +72,7 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry): Engine
       core.close(document);
     },
     async saveToBytes(document: DocumentHandle, invalidateSignatures: boolean) {
-      pagesOf(document); // the core's own refusal for a document this side never opened
+      assertOpen(document);
       return core.saveToBytes(document, invalidateSignatures);
     },
     async search(document: DocumentHandle, query: string) {
