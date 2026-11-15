@@ -10,7 +10,7 @@ import { useCallback, useRef, useState } from 'react';
 import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '../../core/errors';
 import type { Engine } from '../../core/types';
 import type { OpenDocument } from '../document/useDocument';
-import type { WritableFileHandle } from './fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import { saveBytes, type SaveOutcome } from './saveBytes';
 
 export type SaveActivity =

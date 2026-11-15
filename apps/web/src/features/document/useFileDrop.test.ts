@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { WritableFileHandle } from '../save/fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import { useFileDrop } from './useFileDrop';
 
 const pdf = new File([new Uint8Array([37, 80, 68, 70])], 'dropped.pdf', { type: 'application/pdf' });

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EngineError } from '../../core/errors';
 import type { DocumentInfo, Engine, OpenedDocument } from '../../core/types';
 import { fakeEngine } from '../../test/fakeEngine';
-import type { WritableFileHandle } from '../save/fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import { useDocument } from './useDocument';
 
 function file(name: string, bytes = [37, 80, 68, 70]): File {

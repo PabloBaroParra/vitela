@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PickedFile, WritableFileHandle } from '../features/save/fileHandle';
+import type { PickedFile, WritableFileHandle } from '../platform/fileHandle';
 import { FilePicker } from './FilePicker';
 
 afterEach(cleanup);

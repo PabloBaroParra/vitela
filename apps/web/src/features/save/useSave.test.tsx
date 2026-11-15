@@ -4,7 +4,7 @@ import { EngineError } from '../../core/errors';
 import type { Engine } from '../../core/types';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
-import type { WritableFileHandle } from './fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import type { SaveOutcome } from './saveBytes';
 import { useSave } from './useSave';
 

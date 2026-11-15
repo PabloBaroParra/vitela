@@ -6,7 +6,7 @@
 // would open the file itself and unload the app.
 
 import { useEffect, useRef, useState } from 'react';
-import { handlesOfDrop, type WritableFileHandle } from '../save/fileHandle';
+import { handlesOfDrop, type WritableFileHandle } from '../../platform/fileHandle';
 import { carriesFiles, droppedFile } from './droppedFile';
 
 export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle) => void, enabled: boolean): boolean {

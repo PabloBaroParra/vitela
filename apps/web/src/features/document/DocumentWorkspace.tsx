@@ -3,7 +3,7 @@
 
 import type { Engine } from '../../core/types';
 import { FilePicker } from '../../ui/FilePicker';
-import { canPickWithHandle, pickPdfWithHandle } from '../save/fileHandle';
+import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
 import { SaveControls } from '../save/SaveControls';
 import { StatusLine } from '../../ui/StatusLine';
 import { DocumentViewer } from '../viewer/DocumentViewer';

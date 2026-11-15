@@ -5,7 +5,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '../../core/errors';
 import type { DocumentHandle, DocumentInfo, Engine } from '../../core/types';
-import type { WritableFileHandle } from '../save/fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 
 export interface OpenDocument {
   readonly name: string;

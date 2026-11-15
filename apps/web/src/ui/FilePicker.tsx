@@ -6,7 +6,7 @@
 // target and the fallback.
 
 import { useId, useRef, type ChangeEvent, type MouseEvent } from 'react';
-import type { PickedFile, WritableFileHandle } from '../features/save/fileHandle';
+import type { PickedFile, WritableFileHandle } from '../platform/fileHandle';
 
 interface FilePickerProps {
   readonly label: string;

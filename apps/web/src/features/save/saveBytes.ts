@@ -2,7 +2,7 @@
 // opened when the browser gave us a handle, else as a download.
 
 import { downloadBytes } from './download';
-import type { WritableFileHandle } from './fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 
 export type SaveOutcome =
   /** Written over the file the document was opened from. */

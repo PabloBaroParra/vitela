@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { WritableFileHandle } from './fileHandle';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import { saveBytes } from './saveBytes';
 
 const bytes = new Uint8Array([37, 80, 68, 70]);
