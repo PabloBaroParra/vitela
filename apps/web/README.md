@@ -143,11 +143,11 @@ one of three ways:
   the status line says the permission was the reason. Chromium writes to a swap
   file and replaces the original on `close()`; a failed `write()`/`close()`
   calls `abort()` first, so a failed write leaves the user's file as it was.
-- **As a copy** (`saveCopy.ts`), only from the signature question: a new file
-  chosen with `showSaveFilePicker` (suggested name `name (copy).pdf`), or a
-  download under that name where the browser has no save dialog. The opened
-  file's handle is never touched. Dismissing the dialog cancels the save
-  ("Save cancelled.", nothing downloaded).
+- **As a copy** (`saveCopy.ts`), only from the signature question: always a
+  download named `name (copy).pdf`. It deliberately does not use
+  `showSaveFilePicker`: Chromium truncates an existing file picked there before
+  returning its handle, so picking the opened file would empty it. The opened
+  file's handle is never touched.
 - **As a download** (anchor + Blob URL) everywhere else: Firefox, WebKit, a file
   opened through the plain input, or a handle that refuses the write — in which
   case the status line says it downloaded *instead*.

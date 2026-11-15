@@ -31,43 +31,14 @@ describe('browserDelivery.prepare', () => {
     });
   });
 
-  it('a copy asks the save dialog for "name (copy).pdf" and never looks at the opened file handle', async () => {
-    const asked: unknown[] = [];
-    win.showSaveFilePicker = async (options: unknown) => (asked.push(options), picked);
+  it('a copy is always a download: no save dialog, so no existing file can be emptied', async () => {
+    // Chromium's showSaveFilePicker truncates an existing file it hands back
+    // (file_system_access_manager_impl.cc, DidCreateAndTruncateSaveFile), so
+    // picking the opened file there would empty it before any check could run.
+    const picker = vi.fn(async () => picked);
+    win.showSaveFilePicker = picker;
     const fileHandle = { name: 'a.pdf' } as WritableFileHandle;
-    const destination = await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle });
-    expect(destination).toEqual({ kind: 'copy', handle: picked });
-    expect(asked).toMatchObject([{ suggestedName: 'a (copy).pdf' }]);
-  });
-
-  it('a copy is cancelled when the user dismisses the save dialog', async () => {
-    win.showSaveFilePicker = async () => {
-      throw new DOMException('dismissed', 'AbortError');
-    };
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf' })).toBeNull();
-  });
-
-  it('a copy is a download where there is no save dialog, or it fails', async () => {
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf' })).toEqual({ kind: 'copy', handle: undefined });
-    win.showSaveFilePicker = vi.fn(async () => {
-      throw new DOMException('blocked', 'SecurityError');
-    });
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf' })).toEqual({ kind: 'copy', handle: undefined });
-  });
-
-  it('refuses a copy aimed at the opened file itself, before anything is written', async () => {
-    const opened = { name: 'a.pdf' } as WritableFileHandle;
-    const same = { ...picked, isSameEntry: async (other: unknown) => other === opened } as unknown as WritableFileHandle;
-    win.showSaveFilePicker = async () => same;
-    await expect(browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).rejects.toThrow(/different file/);
-  });
-
-  it('accepts a copy aimed at another file, and copes with a browser without isSameEntry', async () => {
-    const opened = { name: 'a.pdf' } as WritableFileHandle;
-    const other = { ...picked, isSameEntry: async () => false } as unknown as WritableFileHandle;
-    win.showSaveFilePicker = async () => other;
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).toEqual({ kind: 'copy', handle: other });
-    win.showSaveFilePicker = async () => picked;
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle: opened })).toEqual({ kind: 'copy', handle: picked });
+    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle })).toEqual({ kind: 'copy', handle: undefined });
+    expect(picker).not.toHaveBeenCalled();
   });
 });

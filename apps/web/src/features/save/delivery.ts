@@ -1,15 +1,14 @@
 // How a save reaches the user, in two steps. `prepare` is the FIRST step of a
-// Save click: anything that needs the user's click still fresh (the write
-// permission prompt, the save dialog) is done there, before the engine spends
+// Save click: anything that needs the user's click still fresh (the
+// write-permission prompt) is done there, before the engine spends
 // time producing the bytes — by then the click's activation may have expired.
 // `deliver` then puts the bytes where `prepare` decided.
 
-import { canPickSaveTarget, pickSaveTarget } from '../../platform/saveTarget';
 import { ensureWritePermission } from '../../platform/fileWrite';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import type { SaveOutcome } from './outcome';
 import { saveBytes } from './saveBytes';
-import { copyName, saveCopy } from './saveCopy';
+import { saveCopy } from './saveCopy';
 
 /** What the user asked for: write over the opened file, or save a new copy. */
 export type SaveIntent = 'overwrite' | 'copy';
@@ -25,7 +24,10 @@ export type Destination =
     }
   | {
       readonly kind: 'copy';
-      /** The new file the user chose; none where the browser has no save dialog. */
+      /**
+       * Always none: a copy is a download. Chromium's save dialog truncates an
+       * existing file it hands back, so it could empty the opened file itself.
+       */
       readonly handle: WritableFileHandle | undefined;
     };
 
@@ -49,33 +51,10 @@ export interface Delivery {
   readonly deliver: Deliver;
 }
 
-const SAME_FILE = 'A copy must go to a different file than the opened one. Nothing was written.';
-
 async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destination | null> {
-  if (intent === 'overwrite') {
-    const { fileHandle } = source;
-    return { kind: 'overwrite', handle: fileHandle, permission: fileHandle ? await ensureWritePermission(fileHandle) : 'granted' };
-  }
-  if (!canPickSaveTarget()) return { kind: 'copy', handle: undefined };
-  let handle: WritableFileHandle | null;
-  try {
-    handle = await pickSaveTarget(copyName(source.name));
-  } catch {
-    // The save dialog itself failed (blocked, say): the copy still arrives, as a download.
-    return { kind: 'copy', handle: undefined };
-  }
-  if (!handle) return null;
-  // Picking the opened file in the dialog would overwrite it (and its signature).
-  if (source.fileHandle && (await isSameFile(handle, source.fileHandle))) throw new Error(SAME_FILE);
-  return { kind: 'copy', handle };
-}
-
-async function isSameFile(a: WritableFileHandle, b: WritableFileHandle): Promise<boolean> {
-  try {
-    return (await a.isSameEntry?.(b)) === true;
-  } catch {
-    return false;
-  }
+  if (intent === 'copy') return { kind: 'copy', handle: undefined };
+  const { fileHandle } = source;
+  return { kind: 'overwrite', handle: fileHandle, permission: fileHandle ? await ensureWritePermission(fileHandle) : 'granted' };
 }
 
 const deliver: Deliver = ({ bytes, name, destination }) =>

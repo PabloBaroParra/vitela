@@ -527,21 +527,22 @@ lo que sigue:
   guarda) antes de caer a la descarga ("Could not write over the opened file…"); nunca se
   descarta en silencio. Chromium escribe en un archivo temporal y reemplaza el original en
   `close()`, así que una escritura fallida deja el archivo del usuario intacto. El adaptador
-  de handles vive en `src/platform/` (`fileHandle`, `fileWrite`, `saveTarget`) para que
+  de handles vive en `src/platform/` (`fileHandle`, `fileWrite`) para que
   `ui/` y `features/document/` no importen de `features/save/`.
 - **Firmas:** ``SignaturesWouldBeInvalidated`` abre `SignatureDialog` (mismas palabras que
   `write-signature-*` del shell Linux, con tres respuestas: **Cancel** —el foco inicial—,
   **Save a copy** y **Save anyway**) y solo entonces reintenta con
   `invalidateSignatures = true`. La web no tiene "Guardar como", así que **Save a copy**
   escribe los bytes reconocidos en un archivo **nuevo** sin tocar nunca el handle del
-  archivo abierto: `showSaveFilePicker` en Chromium con "nombre (copy).pdf" sugerido, y
-  descarga con ese nombre donde no hay selector (o si falla). Si el usuario elige en el diálogo
-  el propio archivo abierto (`isSameEntry`), la copia se **rechaza** antes de escribir nada
-  ("A copy must go to a different file…"); si la escritura de la copia falla se descarga con
-  un mensaje propio, y el `createWritable` del destino solo se llama cuando ya hay bytes.
+  archivo abierto: **siempre se descarga** como "nombre (copy).pdf", en los tres navegadores.
+  **No usa `showSaveFilePicker`:** Chromium crea y **trunca a cero** el archivo existente que
+  el usuario elige antes de devolver el handle (`DidCreateAndTruncateSaveFile` en
+  `file_system_access_manager_impl.cc`), así que elegir el propio archivo abierto lo vaciaría
+  antes de que cualquier comprobación (`isSameEntry`) pudiera rechazarlo, y un fallo posterior
+  del motor dejaría vacío el archivo elegido. Lo encontró la revisión 4R previa a la PR y se
+  confirmó en el código de Chromium; una descarga nunca sobrescribe.
   El guardado en curso se acota por documento: uno pendiente de un documento anterior no
-  bloquea Save en el nuevo y no entrega nada. Descartar el diálogo de
-  guardar cuenta como cancelar: no se descarga nada y el estado dice "Save cancelled.".
+  bloquea Save en el nuevo y no entrega nada.
   La copia lleva la firma invalidada; lo que conserva su firma válida es el original, que
   no se toca. **Trampa:** un guardado sin ediciones no reescribe nada, así que un firmado
   sin editar guarda sin preguntar y con los bytes originales como prefijo (el E2E lo
