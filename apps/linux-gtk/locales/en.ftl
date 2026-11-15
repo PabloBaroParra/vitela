@@ -671,6 +671,8 @@ recovery-restore = Restore
 recovery-restored = Recovered the unsaved changes. Save the document to keep them.
 recovery-kept = The recovered copy was kept for the next start.
 recovery-unreadable = The recovered copy could not be opened and was discarded.
+recovery-restore-failed = The recovered copy could not be opened right now. It was kept for the next start.
+recovery-autosave-unavailable = Autosave is unavailable: unsaved changes cannot be written to the recovery folder. Save your work to keep it.
 
 ## Opening documents: password prompt for an encrypted PDF
 

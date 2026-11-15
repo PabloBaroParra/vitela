@@ -64,7 +64,7 @@ fn save_current_to(
     destination: PathBuf,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
-    let (token, document, backing, sources) = {
+    let (token, snapshot, base_breaks_signatures) = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
             viewer.status.set_text(&tr("save-no-document"));
@@ -83,32 +83,16 @@ fn save_current_to(
                 generation: state.generation,
                 edit_revision: session.edit_revision,
             },
-            document,
-            backing,
-            session.imported_sources.clone(),
+            SaveSnapshot {
+                document,
+                backing,
+                sources: session.imported_sources.clone(),
+            },
+            session.base_breaks_signatures,
         )
     };
 
-    // Asked before the save rather than after a rejected one: `pdf-save`
-    // answers the same question either way, and asking here means the user
-    // meets the warning as a question instead of an error message.
-    let source_refs = imported_sources(&sources);
-    let breaks_signature = pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-        document: &document,
-        base: &backing.base,
-        original_bytes: Some(&backing.original_bytes),
-        intent: pdf_save::SaveIntent::Default,
-        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-        imported_sources: pdf_save::ImportedSources::new(&source_refs),
-    })
-    .unwrap_or(false);
-
-    if breaks_signature {
-        let snapshot = SaveSnapshot {
-            document,
-            backing,
-            sources,
-        };
+    if breaks_signature(&snapshot, base_breaks_signatures) {
         confirm_signature_loss(window, viewer, SAVE, {
             let viewer = viewer.clone();
             Rc::new(move || {
@@ -128,15 +112,34 @@ fn save_current_to(
     spawn_save(
         viewer,
         token,
-        SaveSnapshot {
-            document,
-            backing,
-            sources,
-        },
+        snapshot,
         destination,
         after_save,
         pdf_save::SignatureAcknowledgement::Unacknowledged,
     );
+}
+
+/// Whether this save would break a signature the file carries, asked before
+/// the save rather than after a rejected one: `pdf-save` answers the same
+/// question either way, and asking here means the user meets the warning as a
+/// question instead of an error message.
+///
+/// `base_breaks_signatures` is the one case `pdf-save` cannot see: a document
+/// restored after a crash from bytes that had already broken the signature.
+fn breaks_signature(snapshot: &SaveSnapshot, base_breaks_signatures: bool) -> bool {
+    if base_breaks_signatures {
+        return true;
+    }
+    let source_refs = imported_sources(&snapshot.sources);
+    pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
+        document: &snapshot.document,
+        base: &snapshot.backing.base,
+        original_bytes: Some(&snapshot.backing.original_bytes),
+        intent: pdf_save::SaveIntent::Default,
+        signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
+        imported_sources: pdf_save::ImportedSources::new(&source_refs),
+    })
+    .unwrap_or(false)
 }
 
 /// Runs the save on a worker thread and folds the result back into the
@@ -200,8 +203,33 @@ fn save_snapshot_and_reopen(
 
 #[cfg(test)]
 mod tests {
-    use super::show_save_chooser;
+    use super::{breaks_signature, show_save_chooser, SaveSnapshot};
     use crate::app::content_edit::test_support::OpenRetype;
+    use crate::app::document::{open_document, SAMPLE_PDF};
+    use crate::app::state::DocumentSource;
+
+    fn the_sample() -> SaveSnapshot {
+        let opened =
+            open_document(&DocumentSource::Embedded(SAMPLE_PDF), None).expect("the sample opens");
+        let _ = pdf_render::PdfiumRenderer::new().close_document(opened.document);
+        SaveSnapshot {
+            document: opened.document_model.expect("the sample is editable"),
+            backing: opened.save_backing.expect("the sample has a save backing"),
+            sources: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn an_unsigned_document_with_nothing_broken_saves_without_asking() {
+        assert!(!breaks_signature(&the_sample(), false));
+    }
+
+    /// A restored document whose recovered bytes already broke a signature:
+    /// nothing pending would break one now, and the save must ask anyway.
+    #[test]
+    fn a_restored_base_that_broke_a_signature_still_asks() {
+        assert!(breaks_signature(&the_sample(), true));
+    }
 
     /// Ctrl+S, the toolbar's Save and the unsaved-changes prompt's Save all
     /// start here. The text in an open box is in the model before the chooser

@@ -66,6 +66,8 @@ pub(super) struct EditState {
     base_name: String,
     /// The refresh reopens from bytes too, which `show_document` takes as new.
     unsaved_base: bool,
+    /// Rides with `unsaved_base`: what those bytes did to a signature.
+    base_breaks_signatures: bool,
     save_backing: Option<SaveBacking>,
     imported_sources: Vec<ImportedSource>,
     content_checkpoints: pdf_save::Checkpoints<SaveBacking>,
@@ -119,6 +121,7 @@ pub(super) fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
         document_model: session.document_model.take(),
         base_name: session.base_name.clone(),
         unsaved_base: session.unsaved_base,
+        base_breaks_signatures: session.base_breaks_signatures,
         save_backing: session.save_backing.take(),
         imported_sources: std::mem::take(&mut session.imported_sources),
         // Kept with the backing it belongs to: the refresh reopens from bytes
@@ -167,6 +170,7 @@ pub(super) fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) 
                 session.document_model = preserved.document_model;
                 session.base_name = preserved.base_name;
                 session.unsaved_base = preserved.unsaved_base;
+                session.base_breaks_signatures = preserved.base_breaks_signatures;
                 session.save_backing = preserved.save_backing;
                 session.imported_sources = preserved.imported_sources;
                 session.content_checkpoints = preserved.content_checkpoints;
@@ -294,6 +298,42 @@ mod tests {
             assert!(
                 session.search.is_none(),
                 "search matches name backend page positions and must not survive"
+            );
+        }
+
+        built.viewer.state.borrow_mut().session = None;
+        built.window.close();
+    }
+
+    /// A restored document's bytes stay the ones a crash left behind across
+    /// every preview refresh, and so does what they did to its signature.
+    #[gtk::test]
+    fn gtk_ui_a_preview_refresh_keeps_a_restored_base_breaking_its_signature() {
+        use gtk::prelude::GtkWindowExt;
+
+        let built = built_ui();
+        let mut document = Document::blank();
+        document
+            .pages
+            .push(Page::blank(PageId(0), PageSize::A4, Orientation::Portrait));
+        {
+            let mut session = model_session(document.clone());
+            session.unsaved_base = true;
+            session.base_breaks_signatures = true;
+            built.viewer.state.borrow_mut().session = Some(session);
+        }
+
+        let preserved = take_edit_state(&built.viewer);
+        built.viewer.state.borrow_mut().session = Some(model_session(document));
+        restore_edit_state(&built.viewer, preserved);
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("a session was installed");
+            assert!(session.unsaved_base);
+            assert!(
+                session.base_breaks_signatures,
+                "the reopened bytes still broke the signature; Save must still ask"
             );
         }
 

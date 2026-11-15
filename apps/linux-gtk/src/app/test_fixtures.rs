@@ -108,6 +108,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         import_warning_revision: None,
         unsaved_to_disk: false,
         unsaved_base: false,
+        base_breaks_signatures: false,
         edit_revision: 0,
         next_annotation_id: 0,
         selected_annotation: None,

@@ -31,8 +31,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gtk::prelude::FileExt;
-use gtk::{gio, glib};
+use gtk::glib;
+
+use super::meta::Meta;
 
 /// Under the user's state directory, beside nothing else of Vitela's yet.
 const APP_DIR: &str = "vitela";
@@ -41,10 +42,6 @@ const RECOVERY_DIR: &str = "recovery";
 const PDF_EXTENSION: &str = "pdf";
 const META_EXTENSION: &str = "meta";
 const LOCK_EXTENSION: &str = "lock";
-
-/// First line of every sidecar. A different first line is a different format,
-/// and is discarded rather than guessed at.
-const META_HEADER: &str = "vitela-recovery 1";
 
 const PRIVATE_DIR: u32 = 0o700;
 const PRIVATE_FILE: u32 = 0o600;
@@ -60,18 +57,6 @@ pub(crate) struct RecoveryDir {
 /// later process that reuses the PID can land on the same files.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EntryKey(String);
-
-/// What the sidecar records about the bytes beside it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct Meta {
-    /// When the bytes were written, in Unix seconds.
-    pub(crate) saved_at: i64,
-    /// The document's display name (`DocumentSession::base_name`).
-    pub(crate) name: String,
-    /// The file the document was opened from or last saved to, when it has
-    /// one. A new or sample document has none.
-    pub(crate) origin: Option<PathBuf>,
-}
 
 /// The paths of one entry. `Send`, so a worker thread can write them.
 #[derive(Clone, Debug)]
@@ -309,48 +294,6 @@ impl EntryKey {
     }
 }
 
-impl Meta {
-    /// One `field TAB value` line each. The name is URI-escaped and the origin
-    /// stored as a `file://` URI, because both are the user's text and a
-    /// Linux file name may hold a tab or a newline.
-    fn encode(&self) -> String {
-        let mut text = format!(
-            "{META_HEADER}\nsaved\t{}\nname\t{}\n",
-            self.saved_at,
-            glib::Uri::escape_string(&self.name, None, true)
-        );
-        if let Some(origin) = &self.origin {
-            text.push_str(&format!("origin\t{}\n", gio::File::for_path(origin).uri()));
-        }
-        text
-    }
-
-    fn parse(text: &str) -> Option<Self> {
-        let mut lines = text.lines();
-        if lines.next()? != META_HEADER {
-            return None;
-        }
-        let (mut saved_at, mut name, mut origin) = (None, None, None);
-        for line in lines {
-            let (field, value) = line.split_once('\t')?;
-            match field {
-                "saved" => saved_at = Some(value.parse().ok()?),
-                "name" => {
-                    name = Some(glib::Uri::unescape_string(value, None::<&str>)?.to_string());
-                }
-                "origin" => origin = Some(gio::File::for_uri(value).path()?),
-                // A later version may add fields; this one reads what it knows.
-                _ => {}
-            }
-        }
-        Some(Self {
-            saved_at: saved_at?,
-            name: name?,
-            origin,
-        })
-    }
-}
-
 impl EntryPaths {
     /// Replaces the entry's bytes and sidecar, each atomically, sidecar last.
     pub(crate) fn write(&self, bytes: &[u8], meta: &Meta) -> io::Result<()> {
@@ -440,6 +383,7 @@ mod tests {
             saved_at,
             name: "quote.pdf".to_owned(),
             origin: Some(PathBuf::from("/home/someone/quote.pdf")),
+            breaks_signatures: false,
         }
     }
 
@@ -555,6 +499,7 @@ mod tests {
             // path may hold a tab or a newline, and must come back whole.
             name: "line\none\ttab ✓.pdf".to_owned(),
             origin: Some(PathBuf::from("/tmp/odd\nname\t.pdf")),
+            breaks_signatures: false,
         };
         {
             let slot = dir.open_slot(&EntryKey::fresh()).expect("the slot opens");
@@ -576,6 +521,7 @@ mod tests {
             saved_at: 5,
             name: "Untitled document".to_owned(),
             origin: None,
+            breaks_signatures: false,
         };
         drop({
             let slot = dir.open_slot(&EntryKey::fresh()).unwrap();
@@ -681,6 +627,29 @@ mod tests {
 
         assert!(dir.orphans().is_empty());
         assert!(files_in(&dir.root).is_empty(), "the debris is cleaned up");
+    }
+
+    /// A sidecar line this version cannot read is skipped, not taken as a
+    /// reason to delete the user's only copy of their work.
+    #[test]
+    fn a_sidecar_with_an_unreadable_line_is_still_offered() {
+        let (_scratch, dir) = scratch("odd-line");
+        let paths = {
+            let slot = dir.open_slot(&EntryKey::fresh()).unwrap();
+            slot.paths().write(BYTES, &a_meta(1)).unwrap();
+            slot.paths().clone()
+        };
+        let mut text = fs::read_to_string(&paths.meta).unwrap();
+        text.push_str(
+            "a line from some later version
+",
+        );
+        fs::write(&paths.meta, text).unwrap();
+
+        let orphans = dir.orphans();
+
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].meta(), &a_meta(1));
     }
 
     #[test]

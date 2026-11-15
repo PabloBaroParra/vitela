@@ -1,4 +1,4 @@
-//! The autosave timer: every [`INTERVAL`], a window whose document has
+//! The autosave timer: every [`INTERVAL_SECONDS`], a window whose document has
 //! unsaved changes writes its bytes — pending edits applied — to its own
 //! recovery entry, and a window whose document has none deletes it.
 //!
@@ -13,15 +13,18 @@
 //! serialization of the edit log, and a restored document starts a new one.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::{mpsc, Arc};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use gtk::prelude::*;
 use gtk::{gio, glib, ApplicationWindow};
 use pdf_document::Document;
 
+use super::backoff::Backoff;
+use super::meta::Meta;
 use super::policy::{decide, observe, Decision, Revision};
-use super::store::{EntryKey, Meta, Orphan, RecoveryDir, Slot};
+use super::store::{EntryKey, EntryPaths, Orphan, RecoveryDir, Slot};
+use crate::app::i18n::tr;
 use crate::app::state::{ImportedSource, SaveBacking, Viewer};
 
 /// How often a window looks for unsaved changes to write. A crash loses at
@@ -45,6 +48,11 @@ pub(crate) struct Autosave {
     /// The revision the entry on disk holds.
     written: Option<Revision>,
     in_flight: bool,
+    /// Disconnected once the write in flight has finished on its worker —
+    /// its cleanup included. What a clean exit waits on; see [`shutdown`].
+    worker: Option<mpsc::Receiver<()>>,
+    /// Holds writes back after a failure — see [`super::backoff`].
+    backoff: Backoff,
     /// Bumped by every [`forget`], before it deletes anything. A write that
     /// started before one sees the change once its files are in place and
     /// deletes them, instead of resurrecting an entry the user just saved or
@@ -55,6 +63,14 @@ pub(crate) struct Autosave {
     /// crash in between still has something to recover.
     adopted: Option<Orphan>,
     timer: Option<glib::SourceId>,
+    /// How many snapshots have been started — what the tests read to tell
+    /// a skipped attempt from one that serialized the document.
+    #[cfg(test)]
+    attempts: u32,
+    /// Holds the next write's worker just before it writes, for the tests
+    /// that need a forget to land in exactly that window.
+    #[cfg(test)]
+    pause: Option<test_hooks::PauseHook>,
 }
 
 /// Gives `viewer` a directory to write to, without a timer — what
@@ -82,16 +98,53 @@ pub(super) fn start(window: &ApplicationWindow, viewer: &Viewer, dir: RecoveryDi
     window.connect_destroy({
         let viewer = viewer.clone();
         move |_| {
-            if let Some(timer) = viewer.recovery.borrow_mut().timer.take() {
-                timer.remove();
-            }
-            forget(&viewer);
+            shutdown(&viewer);
         }
     });
 }
 
+/// How long a clean exit waits for a snapshot still being written.
+const SHUTDOWN_WAIT: Duration = Duration::from_secs(5);
+
+/// The window is going away cleanly: stop the timer and delete the entry.
+pub(super) fn shutdown(viewer: &Viewer) {
+    shutdown_within(viewer, SHUTDOWN_WAIT);
+}
+
+/// [`shutdown`], waiting at most `wait` for a write in flight.
+///
+/// The forget alone is not enough when a snapshot is still being written:
+/// the worker checks the epoch only once its files are in place, and a
+/// process that exits before then leaves a whole entry behind — one the next
+/// launch would offer, for work the user just saved or discarded. So the
+/// exit waits for the worker, bounded: a disk that hangs must not keep the
+/// application from quitting, and the worst a timeout costs is that offer.
+pub(super) fn shutdown_within(viewer: &Viewer, wait: Duration) {
+    let worker = {
+        let mut recovery = viewer.recovery.borrow_mut();
+        if let Some(timer) = recovery.timer.take() {
+            timer.remove();
+        }
+        recovery.worker.take()
+    };
+    forget(viewer);
+    if let Some(worker) = worker {
+        if let Err(mpsc::RecvTimeoutError::Timeout) = worker.recv_timeout(wait) {
+            eprintln!(
+                "recovery: an autosave was still being written after {wait:?}; \
+                 its entry may be offered at the next launch"
+            );
+        }
+    }
+}
+
 /// One look at the document: write it, forget its entry, or wait.
 pub(super) fn tick(viewer: &Viewer) {
+    tick_at(viewer, Instant::now());
+}
+
+/// [`tick`], with the clock the failure backoff is measured against.
+pub(super) fn tick_at(viewer: &Viewer, now: Instant) {
     let decision = {
         let recovery = viewer.recovery.borrow();
         if recovery.dir.is_none() {
@@ -104,7 +157,21 @@ pub(super) fn tick(viewer: &Viewer) {
     match decision {
         Decision::Wait => {}
         Decision::Forget => forget(viewer),
+        // Backing off after a failure: not even serialized, since the
+        // attempt would most likely fail the same way.
+        Decision::Write(_) if !viewer.recovery.borrow().backoff.ready(now) => {}
         Decision::Write(revision) => write(viewer, revision),
+    }
+}
+
+/// A snapshot could not be written. The first failure of a streak tells the
+/// user — once, on the status line, not in a dialog: their work is still
+/// open in front of them, and only a crash would cost it.
+fn failed(viewer: &Viewer, error: &str) {
+    eprintln!("recovery: autosave failed: {error}");
+    let first = viewer.recovery.borrow_mut().backoff.failed(Instant::now());
+    if first {
+        viewer.status.set_text(&tr("recovery-autosave-unavailable"));
     }
 }
 
@@ -134,6 +201,12 @@ pub(super) fn adopt(viewer: &Viewer, orphan: Orphan) {
     tick(viewer);
 }
 
+/// How many snapshots this window has started.
+#[cfg(test)]
+pub(super) fn attempts(viewer: &Viewer) -> u32 {
+    viewer.recovery.borrow().attempts
+}
+
 /// Whether a snapshot is being written right now.
 #[cfg(test)]
 pub(super) fn is_writing(viewer: &Viewer) -> bool {
@@ -155,15 +228,73 @@ struct Snapshot {
     document: Document,
     backing: SaveBacking,
     sources: Vec<ImportedSource>,
+    /// `DocumentSession::base_breaks_signatures`: the bytes the session
+    /// opened from had already broken a signature.
+    base_breaks_signatures: bool,
     meta: Meta,
+}
+
+/// One snapshot's work on the worker thread.
+struct Job {
+    snapshot: Snapshot,
+    paths: EntryPaths,
+    epoch: Arc<AtomicU64>,
+    started: u64,
+    /// Dropped with the job, which is what tells [`shutdown`] it finished.
+    _done: mpsc::Sender<()>,
+    #[cfg(test)]
+    pause: Option<test_hooks::PauseHook>,
+}
+
+impl Job {
+    fn forgotten(&self) -> bool {
+        self.epoch.load(Ordering::SeqCst) != self.started
+    }
+
+    /// `Ok(true)` when the entry now holds the snapshot, `Ok(false)` when it
+    /// was forgotten meanwhile and holds nothing.
+    fn run(mut self) -> Result<bool, String> {
+        let snapshot = &self.snapshot;
+        let serialized = serialize(
+            &snapshot.document,
+            &snapshot.backing,
+            &snapshot.sources,
+            snapshot.base_breaks_signatures,
+        )?;
+        self.snapshot.meta.breaks_signatures = serialized.breaks_signatures;
+        if self.forgotten() {
+            return Ok(false);
+        }
+        #[cfg(test)]
+        if let Some(pause) = &self.pause {
+            pause.hold();
+        }
+        self.paths
+            .write(&serialized.bytes, &self.snapshot.meta)
+            .map_err(|error| error.to_string())?;
+        // Checked here, on the worker, and not only once the result reaches
+        // the main loop: a window destroyed mid-write takes the main loop
+        // with it, so the completion in [`write`] may never run — and files
+        // it should have deleted would be offered for recovery at the next
+        // launch.
+        if self.forgotten() {
+            self.paths.remove_data();
+            return Ok(false);
+        }
+        Ok(true)
+    }
 }
 
 fn write(viewer: &Viewer, revision: Revision) {
     let Some(snapshot) = take_snapshot(viewer) else {
         return;
     };
-    let (paths, epoch) = {
+    let job = {
         let mut recovery = viewer.recovery.borrow_mut();
+        #[cfg(test)]
+        {
+            recovery.attempts += 1;
+        }
         let Some(dir) = recovery.dir.clone() else {
             return;
         };
@@ -172,7 +303,11 @@ fn write(viewer: &Viewer, revision: Revision) {
             match dir.open_slot(&key) {
                 Ok(slot) => recovery.slot = Some(slot),
                 Err(error) => {
-                    eprintln!("recovery: cannot open {}: {error}", dir.root().display());
+                    drop(recovery);
+                    failed(
+                        viewer,
+                        &format!("cannot open {}: {error}", dir.root().display()),
+                    );
                     return;
                 }
             }
@@ -181,40 +316,34 @@ fn write(viewer: &Viewer, revision: Revision) {
             return;
         };
         recovery.in_flight = true;
+        let (done, worker) = mpsc::channel();
+        recovery.worker = Some(worker);
         let epoch = Arc::clone(&recovery.epoch);
         let started = epoch.load(Ordering::SeqCst);
-        (paths, (epoch, started))
+        Job {
+            snapshot,
+            paths,
+            epoch,
+            started,
+            _done: done,
+            #[cfg(test)]
+            pause: recovery.pause.take(),
+        }
     };
+    let started = job.started;
+    // Started here rather than inside the future below, which only runs once
+    // the main loop next turns: a window destroyed before then must still
+    // find its worker running, finishing and cleaning up.
+    let running = gio::spawn_blocking(move || job.run());
 
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let (shared_epoch, started) = epoch;
-            let forgotten = move || shared_epoch.load(Ordering::SeqCst) != started;
-            let result = gio::spawn_blocking(move || {
-                let bytes =
-                    snapshot_bytes(&snapshot.document, &snapshot.backing, &snapshot.sources)?;
-                if forgotten() {
-                    return Ok(false);
-                }
-                paths
-                    .write(&bytes, &snapshot.meta)
-                    .map_err(|error| error.to_string())?;
-                // Checked here, on the worker, and not only once the result
-                // reaches the main loop: a window destroyed mid-write takes
-                // the main loop with it, so the completion below may never
-                // run — and files it should have deleted would be offered
-                // for recovery at the next launch.
-                if forgotten() {
-                    paths.remove_data();
-                    return Ok(false);
-                }
-                Ok(true)
-            })
-            .await
-            .unwrap_or_else(|_| Err("the autosave worker stopped unexpectedly".to_owned()));
+            let result = running
+                .await
+                .unwrap_or_else(|_| Err("the autosave worker stopped unexpectedly".to_owned()));
 
-            let adopted = {
+            let (adopted, error) = {
                 let mut recovery = viewer.recovery.borrow_mut();
                 recovery.in_flight = false;
                 match result {
@@ -222,16 +351,17 @@ fn write(viewer: &Viewer, revision: Revision) {
                     // document, if any, is now safely in it.
                     Ok(true) if recovery.epoch.load(Ordering::SeqCst) == started => {
                         recovery.written = Some(revision);
-                        recovery.adopted.take()
+                        recovery.backoff.succeeded();
+                        (recovery.adopted.take(), None)
                     }
                     // Forgotten while writing; whoever forgot it deleted it.
-                    Ok(_) => None,
-                    Err(error) => {
-                        eprintln!("recovery: autosave failed: {error}");
-                        None
-                    }
+                    Ok(_) => (None, None),
+                    Err(error) => (None, Some(error)),
                 }
             };
+            if let Some(error) = error {
+                failed(&viewer, &error);
+            }
             // The restored document is now in this window's own entry.
             if let Some(adopted) = adopted {
                 adopted.discard();
@@ -247,40 +377,76 @@ fn take_snapshot(viewer: &Viewer) -> Option<Snapshot> {
         document: session.document_model.clone()?,
         backing: session.save_backing.clone()?,
         sources: session.imported_sources.clone(),
+        base_breaks_signatures: session.base_breaks_signatures,
         meta: Meta {
             saved_at: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |since| since.as_secs() as i64),
             name: session.base_name.clone(),
             origin: session.origin_path.clone(),
+            // Answered on the worker, beside the save it describes.
+            breaks_signatures: false,
         },
     })
+}
+
+/// A snapshot's bytes, and whether they broke a signature.
+struct Serialized {
+    bytes: Vec<u8>,
+    breaks_signatures: bool,
 }
 
 /// The bytes a Save of this session would write.
 ///
 /// Signatures are acknowledged silently, as the preview refresh and the print
-/// snapshot do: a recovery file is not the user's document, and the real
-/// Save of a restored one still meets `confirm_signature_loss` — its bytes
-/// carry the signature it would break.
-fn snapshot_bytes(
+/// snapshot do: a recovery file is not the user's document. What the user
+/// would have been asked is recorded instead — `breaks_signatures`, carried
+/// into the sidecar — because once restored, these bytes *are* the base, and
+/// the edit that broke the signature is no longer there for
+/// `pdf_save::will_invalidate_signatures` to find.
+fn serialize(
     document: &Document,
     backing: &SaveBacking,
     sources: &[ImportedSource],
-) -> Result<Vec<u8>, String> {
+    base_breaks_signatures: bool,
+) -> Result<Serialized, String> {
     let source_refs: Vec<_> = sources
         .iter()
         .map(|source| (source.id, &source.document))
         .collect();
-    pdf_save::save_document(pdf_save::SaveInput {
+    let input = |signatures: pdf_save::SignatureAcknowledgement| pdf_save::SaveInput {
         document,
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
         intent: pdf_save::SaveIntent::Default,
-        signatures: pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+        signatures,
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
+    };
+    // The question `write::save` asks before a real Save, asked the same way.
+    let breaks_signatures = base_breaks_signatures
+        || pdf_save::will_invalidate_signatures(input(
+            pdf_save::SignatureAcknowledgement::Unacknowledged,
+        ))
+        .unwrap_or(false);
+    let bytes = pdf_save::save_document(input(
+        pdf_save::SignatureAcknowledgement::ProceedAndInvalidate,
+    ))
+    .map_err(|error| error.to_string())?;
+    Ok(Serialized {
+        bytes,
+        breaks_signatures,
     })
-    .map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+pub(super) mod test_hooks;
+
+/// Holds the next snapshot's worker just before it writes.
+#[cfg(test)]
+pub(super) fn pause_next_write(viewer: &Viewer) -> test_hooks::Pause {
+    let (pause, hook) = test_hooks::pair();
+    viewer.recovery.borrow_mut().pause = Some(hook);
+    pause
 }
 
 #[cfg(test)]
@@ -289,7 +455,7 @@ mod tests {
     use crate::app::document::{open_document, SAMPLE_PDF};
     use crate::app::state::DocumentSource;
     use crate::app::test_fixtures::a_highlight;
-    use pdf_document::Command;
+    use pdf_document::{Command, Orientation, Page, PageSize};
 
     /// What a recovery file is for: the annotation exists only in the model —
     /// the canvas overlay draws it, no file holds it — and must survive in
@@ -305,7 +471,9 @@ mod tests {
         log.apply(&mut model, Command::AddAnnotation(a_highlight(1, page)));
         model.pending_edits = log;
 
-        let bytes = snapshot_bytes(&model, &backing, &[]).expect("the snapshot serializes");
+        let bytes = serialize(&model, &backing, &[], false)
+            .expect("the snapshot serializes")
+            .bytes;
 
         let (reopened, _) =
             pdf_manip::open_document_from_bytes(&bytes, None).expect("the snapshot reopens");
@@ -322,5 +490,69 @@ mod tests {
             .count();
         assert_eq!(highlights, 1);
         let _ = pdf_render::PdfiumRenderer::new().close_document(opened.document);
+    }
+
+    const SIGNED_PDF: &[u8] =
+        include_bytes!("../../../../../tests/fixtures/signed/rsa2048_sha256.pdf");
+
+    /// Opens `bytes` and records the command `edit` builds.
+    fn edited(
+        bytes: &'static [u8],
+        edit: impl FnOnce(&mut Document) -> Command,
+    ) -> (Document, SaveBacking) {
+        let opened = open_document(&DocumentSource::Embedded(bytes), None).expect("it opens");
+        let _ = pdf_render::PdfiumRenderer::new().close_document(opened.document);
+        let mut model = opened.document_model.expect("it is editable");
+        let backing = opened.save_backing.expect("it has a save backing");
+        let command = edit(&mut model);
+        let mut log = std::mem::take(&mut model.pending_edits);
+        log.apply(&mut model, command);
+        model.pending_edits = log;
+        (model, backing)
+    }
+
+    fn a_highlight_on_page_one(model: &mut Document) -> Command {
+        Command::AddAnnotation(a_highlight(1, model.pages[0].id))
+    }
+
+    /// A new page is a structural change only the rewriter can write, and
+    /// the rewrite replaces the bytes the signature covers.
+    #[test]
+    fn a_snapshot_that_breaks_a_signature_records_it() {
+        let (model, backing) = edited(SIGNED_PDF, |model| Command::InsertPage {
+            index: 1,
+            page: Page::blank(
+                model.allocate_page_id().expect("a page id is free"),
+                PageSize::A4,
+                Orientation::Portrait,
+            ),
+            annotations: Vec::new(),
+            form_fields: Vec::new(),
+        });
+
+        let serialized = serialize(&model, &backing, &[], false).expect("it serializes");
+
+        assert!(serialized.breaks_signatures);
+    }
+
+    #[test]
+    fn a_snapshot_of_an_unsigned_document_breaks_nothing() {
+        let (model, backing) = edited(SAMPLE_PDF, a_highlight_on_page_one);
+
+        let serialized = serialize(&model, &backing, &[], false).expect("it serializes");
+
+        assert!(!serialized.breaks_signatures);
+    }
+
+    /// Once restored, the broken signature is in the base and no pending edit
+    /// shows it — so the session's flag is what carries it into the next
+    /// snapshot.
+    #[test]
+    fn a_restored_base_that_broke_a_signature_keeps_saying_so() {
+        let (model, backing) = edited(SAMPLE_PDF, a_highlight_on_page_one);
+
+        let serialized = serialize(&model, &backing, &[], true).expect("it serializes");
+
+        assert!(serialized.breaks_signatures);
     }
 }

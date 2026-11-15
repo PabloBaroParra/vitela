@@ -626,6 +626,8 @@ recovery-restore = Restaurar
 recovery-restored = Se han recuperado los cambios sin guardar. Guarda el documento para conservarlos.
 recovery-kept = Se ha conservado la copia recuperada para el próximo inicio.
 recovery-unreadable = La copia recuperada no se pudo abrir y se ha descartado.
+recovery-restore-failed = La copia recuperada no se pudo abrir ahora. Se ha conservado para el próximo inicio.
+recovery-autosave-unavailable = El guardado automático no está disponible: los cambios sin guardar no se pueden escribir en la carpeta de recuperación. Guarda tu trabajo para conservarlo.
 
 ## Opening documents: password prompt for an encrypted PDF
 

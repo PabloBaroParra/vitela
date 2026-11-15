@@ -765,6 +765,7 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
             // this to `true` right after — see `restore_edit_state`.
             unsaved_to_disk: false,
             unsaved_base: false,
+            base_breaks_signatures: false,
             edit_revision: 0,
             next_annotation_id: 0,
             selected_annotation: None,

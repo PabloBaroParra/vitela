@@ -17,6 +17,8 @@
 //! document starts a fresh one, exactly as if its bytes had been opened.
 
 mod autosave;
+mod backoff;
+mod meta;
 mod policy;
 mod restore;
 mod store;
@@ -25,6 +27,7 @@ mod store;
 mod tests;
 
 use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::ApplicationWindow;
@@ -42,14 +45,19 @@ pub(crate) type Recovery = Rc<RefCell<Autosave>>;
 ///
 /// Nothing happens on a machine with no usable state directory: no entry can
 /// be written, and none can have been.
-pub(crate) fn install(window: &ApplicationWindow, viewer: &Viewer) {
+///
+/// `launch_file` is the file the application was started to open, if any —
+/// "Open With" from a file manager. A restore supersedes that open; should
+/// the restore fail, the file is opened after all rather than leaving the
+/// window empty.
+pub(crate) fn install(window: &ApplicationWindow, viewer: &Viewer, launch_file: Option<PathBuf>) {
     let Some(dir) = RecoveryDir::in_user_state_dir() else {
         return;
     };
     // Scanned before this window owns an entry, so its own is never offered.
     let orphans = dir.orphans();
     autosave::start(window, viewer, dir);
-    restore::offer(window, viewer, orphans);
+    restore::offer(window, viewer, orphans, launch_file);
 }
 
 /// Deletes the window's recovery entry: its unsaved work was saved to disk,

@@ -1573,6 +1573,13 @@ pub(crate) struct DocumentSession {
     /// `unsaved_to_disk` no undo can take it back, so it alone keeps Save lit
     /// with an empty history. Only a disk save's fresh session clears it.
     pub(crate) unsaved_base: bool,
+    /// The bytes this session opened from had already broken a signature
+    /// the document's file carries — a crash-recovery restore of a snapshot
+    /// taken after an edit only the rewriter can write. The edit that broke
+    /// it is gone with the undo history, so `pdf_save` can no longer see it;
+    /// this keeps Save asking before it writes over the signed original.
+    /// Only a disk save's fresh session clears it.
+    pub(crate) base_breaks_signatures: bool,
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     // There is no `next_page_id` beside these two, and deliberately so: page

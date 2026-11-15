@@ -13,9 +13,12 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use gtk::prelude::*;
 use pdf_document::Command;
 
-use super::autosave::{self, crash, is_writing, tick};
+use super::autosave::{
+    self, attempts, crash, is_writing, pause_next_write, shutdown_within, tick, tick_at,
+};
+use super::meta::Meta;
 use super::restore::restore;
-use super::store::{EntryKey, Meta, RecoveryDir};
+use super::store::{EntryKey, RecoveryDir};
 use crate::app::document::{begin_loading, open_document, show_document, SAMPLE_PDF};
 use crate::app::i18n::tr;
 use crate::app::state::{DocumentSource, Viewer};
@@ -245,6 +248,7 @@ fn gtk_ui_a_crashed_entry_comes_back_as_the_unsaved_document() {
         restored.viewer(),
         orphans.remove(0),
         Vec::new(),
+        None,
     );
     settle_until(|| {
         restored.viewer().status.text() == tr("recovery-restored") && !is_writing(restored.viewer())
@@ -285,6 +289,7 @@ fn gtk_ui_an_entry_that_cannot_be_opened_is_discarded() {
             saved_at: 1,
             name: "broken.pdf".to_owned(),
             origin: None,
+            breaks_signatures: false,
         };
         slot.paths()
             .write(b"%PDF-1.7 and then nothing", &meta)
@@ -300,6 +305,7 @@ fn gtk_ui_an_entry_that_cannot_be_opened_is_discarded() {
         window.viewer(),
         orphans.remove(0),
         Vec::new(),
+        None,
     );
     settle_until(|| window.viewer().status.text() == tr("recovery-unreadable"));
 
@@ -309,6 +315,257 @@ fn gtk_ui_an_entry_that_cannot_be_opened_is_discarded() {
         session_before,
         "the open document stays on screen"
     );
+}
+
+/// Leaves an entry the way a crashed window would: written, then let go.
+fn crashed_entry(dir: &RecoveryDir, bytes: &[u8], meta: &Meta) {
+    let slot = dir.open_slot(&EntryKey::fresh()).unwrap();
+    slot.paths().write(bytes, meta).unwrap();
+}
+
+fn a_meta(name: &str) -> Meta {
+    Meta {
+        saved_at: 1,
+        name: name.to_owned(),
+        origin: None,
+        breaks_signatures: false,
+    }
+}
+
+fn the_file_ending(root: &Path, extension: &str) -> PathBuf {
+    let name = files_in(root)
+        .into_iter()
+        .find(|name| name.ends_with(extension))
+        .unwrap_or_else(|| panic!("no {extension} file in {root:?}"));
+    root.join(name)
+}
+
+/// The window the post-write check exists for: the forget lands after the
+/// worker's last check before writing, so the bytes still reach the disk and
+/// only the check after the write can take them back.
+#[gtk::test]
+fn gtk_ui_a_forget_during_the_disk_write_leaves_nothing_behind() {
+    let (_scratch, dir) = scratch("forget-mid-write");
+    let window = Window::over(&dir);
+    window.edit();
+    let pause = pause_next_write(window.viewer());
+
+    tick(window.viewer());
+    pause.wait_until_held();
+    super::forget(window.viewer());
+    (pause.releaser())();
+    settle_until(|| !is_writing(window.viewer()));
+
+    assert!(
+        files_in(dir.root()).is_empty(),
+        "{:?}",
+        files_in(dir.root())
+    );
+}
+
+/// A clean exit with a snapshot still on its way to disk: the process must
+/// not end before the worker has removed what it wrote, or the next launch
+/// offers work that was saved or discarded.
+#[gtk::test]
+fn gtk_ui_a_clean_shutdown_waits_for_the_write_in_flight() {
+    let (_scratch, dir) = scratch("shutdown-waits");
+    let window = Window::over(&dir);
+    window.edit();
+    let pause = pause_next_write(window.viewer());
+    tick(window.viewer());
+    pause.wait_until_held();
+    let release = pause.releaser();
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        release();
+    });
+
+    shutdown_within(window.viewer(), Duration::from_secs(10));
+
+    assert!(
+        pause.worker_finished(),
+        "shutdown returned with the write still running"
+    );
+    assert!(
+        files_in(dir.root()).is_empty(),
+        "{:?}",
+        files_in(dir.root())
+    );
+    releaser.join().unwrap();
+    settle_until(|| !is_writing(window.viewer()));
+}
+
+/// The wait is bounded: a write that never finishes does not keep the
+/// application from quitting.
+#[gtk::test]
+fn gtk_ui_a_stuck_write_does_not_hold_the_shutdown() {
+    let (_scratch, dir) = scratch("shutdown-bounded");
+    let window = Window::over(&dir);
+    window.edit();
+    let pause = pause_next_write(window.viewer());
+    tick(window.viewer());
+    pause.wait_until_held();
+    let started = Instant::now();
+
+    shutdown_within(window.viewer(), Duration::from_millis(100));
+
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(!pause.worker_finished());
+    (pause.releaser())();
+    settle_until(|| !is_writing(window.viewer()));
+    assert!(files_in(dir.root()).is_empty());
+}
+
+/// A full or read-only disk: one notice, then no further serializing until
+/// the backoff has passed.
+#[gtk::test]
+fn gtk_ui_a_failing_autosave_backs_off_and_says_so_once() {
+    let (_scratch, dir) = scratch("disk-fails");
+    let window = Window::over(&dir);
+    let viewer = window.viewer();
+    window.edit();
+    window.tick_and_settle();
+    // The directory vanishes under the open entry, and a file takes its
+    // place: every write now fails, even for root.
+    fs::remove_dir_all(dir.root()).unwrap();
+    fs::write(dir.root(), b"not a directory").unwrap();
+    let start = Instant::now();
+
+    window.edit();
+    tick_at(viewer, start);
+    settle_until(|| !is_writing(viewer));
+    assert_eq!(viewer.status.text(), tr("recovery-autosave-unavailable"));
+    let failed_attempts = attempts(viewer);
+
+    viewer.status.set_text("");
+    window.edit();
+    tick_at(viewer, start + Duration::from_secs(30));
+    settle_until(|| !is_writing(viewer));
+    assert_eq!(
+        attempts(viewer),
+        failed_attempts,
+        "backing off: the document is not even serialized"
+    );
+
+    tick_at(viewer, start + Duration::from_secs(60 * 60));
+    settle_until(|| !is_writing(viewer));
+    assert_eq!(attempts(viewer), failed_attempts + 1, "tried again later");
+    assert_eq!(viewer.status.text(), "", "and said nothing twice");
+}
+
+/// The same notice when the directory cannot be opened at all.
+#[gtk::test]
+fn gtk_ui_an_unusable_recovery_directory_is_reported() {
+    let (scratch, dir) = scratch("unusable");
+    fs::create_dir_all(&scratch.0).unwrap();
+    fs::write(dir.root(), b"not a directory").unwrap();
+    let window = Window::over(&dir);
+    window.edit();
+
+    window.tick_and_settle();
+
+    assert_eq!(
+        window.viewer().status.text(),
+        tr("recovery-autosave-unavailable")
+    );
+}
+
+#[gtk::test]
+fn gtk_ui_a_restored_document_still_knows_it_broke_a_signature() {
+    let (_scratch, dir) = scratch("restored-signature");
+    let meta = Meta {
+        breaks_signatures: true,
+        ..a_meta("signed.pdf")
+    };
+    crashed_entry(&dir, SAMPLE_PDF, &meta);
+    let window = Window::over(&dir);
+
+    restore(
+        &window.built.window,
+        window.viewer(),
+        dir.orphans().remove(0),
+        Vec::new(),
+        None,
+    );
+    settle_until(|| {
+        window.viewer().status.text() == tr("recovery-restored") && !is_writing(window.viewer())
+    });
+
+    assert!(
+        window
+            .viewer()
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|session| session.base_breaks_signatures),
+        "Save must still ask before writing over the signed original"
+    );
+    let sidecar = fs::read_to_string(the_file_ending(dir.root(), ".meta")).unwrap();
+    assert!(
+        Meta::parse(&sidecar).is_some_and(|meta| meta.breaks_signatures),
+        "the window's own entry says so too"
+    );
+}
+
+/// Bytes the disk cannot hand over right now say nothing about whether they
+/// are a document: the entry stays for the next launch.
+#[gtk::test]
+fn gtk_ui_an_entry_that_cannot_be_read_right_now_is_kept() {
+    let (_scratch, dir) = scratch("transient");
+    crashed_entry(&dir, SAMPLE_PDF, &a_meta("kept.pdf"));
+    let mut orphans = dir.orphans();
+    // A directory where the bytes were: reading fails, and not because of
+    // what the bytes are.
+    let pdf = the_file_ending(dir.root(), ".pdf");
+    fs::remove_file(&pdf).unwrap();
+    fs::create_dir(&pdf).unwrap();
+    let window = Window::over(&dir);
+
+    restore(
+        &window.built.window,
+        window.viewer(),
+        orphans.remove(0),
+        Vec::new(),
+        None,
+    );
+    settle_until(|| window.viewer().status.text() == tr("recovery-restore-failed"));
+
+    assert!(
+        files_in(dir.root())
+            .iter()
+            .any(|name| name.ends_with(".meta")),
+        "the entry is kept: {:?}",
+        files_in(dir.root())
+    );
+}
+
+/// Launched by "Open With" and asked to restore instead: if the restore
+/// fails, the file the user asked for is opened after all.
+#[gtk::test]
+fn gtk_ui_a_failed_restore_opens_the_file_the_app_was_launched_with() {
+    let (scratch, dir) = scratch("launch-file");
+    crashed_entry(&dir, b"%PDF-1.7 and then nothing", &a_meta("broken.pdf"));
+    let launched = scratch.0.join("launched.pdf");
+    fs::write(&launched, SAMPLE_PDF).unwrap();
+    let window = Window::over(&dir);
+
+    restore(
+        &window.built.window,
+        window.viewer(),
+        dir.orphans().remove(0),
+        Vec::new(),
+        Some(launched.clone()),
+    );
+    settle_until(|| {
+        window
+            .viewer()
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .is_some_and(|session| session.origin_path.as_deref() == Some(launched.as_path()))
+    });
 }
 
 /// The origin an entry records is the file the document came from.

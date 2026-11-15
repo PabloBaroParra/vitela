@@ -115,7 +115,7 @@ pub fn run() -> glib::ExitCode {
             let ui = ensure_built(&built_ui, application);
             ui.window.present();
             if first {
-                recovery::install(&ui.window, &ui.viewer);
+                recovery::install(&ui.window, &ui.viewer, None);
             }
         }
     });
@@ -127,15 +127,17 @@ pub fn run() -> glib::ExitCode {
             let first = built_ui.borrow().is_none();
             let ui = ensure_built(&built_ui, application);
             ui.window.present();
-            // Offered over the file being opened: a restore supersedes that
-            // open the way any later open would.
-            if first {
-                recovery::install(&ui.window, &ui.viewer);
-            }
             // A file-manager "Open With" always means one document; extra
             // entries in `files` (multi-select) are silently ignored rather
             // than half-supporting multi-window.
-            if let Some(path) = files.first().and_then(gio::File::path) {
+            let path = files.first().and_then(gio::File::path);
+            // Offered over the file being opened: a restore supersedes that
+            // open the way any later open would — and, should it fail, opens
+            // the file after all.
+            if first {
+                recovery::install(&ui.window, &ui.viewer, path.clone());
+            }
+            if let Some(path) = path {
                 open_file(&ui.viewer, path);
             }
         }
