@@ -1,7 +1,8 @@
 // Asks whether to save a signed document anyway. Presentational: it reports
 // the answer. A native modal <dialog> keeps focus inside it and makes the
-// rest of the page inert; Escape fires `cancel`. The wording is the other
-// shells' (the `write-signature-*` strings of the Linux locale).
+// rest of the page inert; Escape fires `cancel`. The wording follows the
+// other shells' `write-signature-*` strings, shortened to one statement and
+// one hint.
 
 import { useEffect, useId, useRef } from 'react';
 
@@ -13,6 +14,7 @@ interface SignatureDialogProps {
 export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  const bodyId = useId();
 
   useEffect(() => {
     const element = dialog.current;
@@ -24,23 +26,28 @@ export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
   return (
     <dialog
       ref={dialog}
-      className="dialog"
+      className="dialog dialog--warning"
       aria-labelledby={titleId}
+      aria-describedby={bodyId}
       onCancel={(event) => {
         // The parent unmounts the dialog; do not let the browser close it first.
         event.preventDefault();
         onCancel();
       }}
     >
+      <div className="dialog__icon" aria-hidden="true">
+        <SignatureIcon />
+      </div>
       <h2 id={titleId} className="dialog__title">
         {"Saving will break this document's signature"}
       </h2>
-      <p>This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.</p>
-      <p>
-        It is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather
-        than missing.
-      </p>
-      <p>To keep a copy that still verifies, cancel and save to a different file.</p>
+      <div id={bodyId} className="dialog__body">
+        <p>
+          The signature stays in the file, but PDF readers will report it as invalid because the content it covers
+          changes.
+        </p>
+        <p className="dialog__hint">To keep a copy that still verifies, cancel and save to a different file.</p>
+      </div>
       <div className="dialog__actions">
         {/* Cancel takes the focus: the safe answer is the default one. */}
         <button type="button" autoFocus onClick={onCancel}>
@@ -51,5 +58,15 @@ export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
         </button>
       </div>
     </dialog>
+  );
+}
+
+function SignatureIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.75">
+      <path d="M12 3 4.5 6v5.5c0 4.5 3.2 8.2 7.5 9.5 4.3-1.3 7.5-5 7.5-9.5V6L12 3Z" strokeLinejoin="round" />
+      <path d="M12 8.5v4.5" strokeLinecap="round" />
+      <circle cx="12" cy="16" r="0.6" fill="currentColor" />
+    </svg>
   );
 }

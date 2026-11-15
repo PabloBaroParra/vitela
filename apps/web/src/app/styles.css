@@ -9,6 +9,8 @@
   --viewer-bg: #e3e1db;
   --control-bg: #ffffff;
   --border: #c9c6bd;
+  --warning: #9a5b00;
+  --warning-soft: rgb(230 150 30 / 16%);
   /* Highlights sit on the white page in both themes. */
   --search-hit: rgb(255 205 40 / 45%);
   --search-hit-current: rgb(255 130 0 / 60%);
@@ -26,6 +28,8 @@
     --viewer-bg: #141312;
     --control-bg: #2a2926;
     --border: #45433e;
+    --warning: #f2b45a;
+    --warning-soft: rgb(242 180 90 / 14%);
   }
 }
 
@@ -280,6 +284,80 @@ button:focus-visible,
 .password-dialog::backdrop,
 .dialog::backdrop {
   background: rgb(0 0 0 / 40%);
+}
+
+/* Warning question: a card with an icon badge, a short body and a muted hint. */
+.dialog--warning {
+  width: min(400px, calc(100vw - 32px));
+  max-width: none;
+  box-sizing: border-box;
+  padding: 24px;
+  border-radius: 14px;
+  border-color: transparent;
+  background: var(--control-bg);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 8%),
+    0 16px 40px rgb(0 0 0 / 22%);
+}
+
+.dialog--warning::backdrop {
+  background: rgb(20 18 16 / 35%);
+  backdrop-filter: blur(3px);
+}
+
+.dialog--warning[open] {
+  animation: dialog-in 160ms ease-out;
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog--warning[open] {
+    animation: none;
+  }
+}
+
+.dialog__icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 14px;
+  border-radius: 50%;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.dialog--warning .dialog__title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 6px;
+}
+
+.dialog__body p {
+  margin: 0;
+  font-size: 0.93rem;
+}
+
+.dialog__body .dialog__hint {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+
+.dialog--warning .dialog__actions {
+  margin-top: 22px;
+}
+
+.dialog--warning .dialog__actions button {
+  padding: 7px 16px;
+  border-radius: 8px;
 }
 
 .password-dialog__title,
