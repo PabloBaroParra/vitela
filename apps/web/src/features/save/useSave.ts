@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '../../core/errors';
+import type { FileStamp } from '../../platform/fileStamp';
 import type { Engine } from '../../core/types';
 import type { OpenDocument } from '../document/useDocument';
 import { browserDelivery, type Delivery, type SaveIntent } from './delivery';
@@ -41,6 +42,8 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
   const edits = useRef(0);
   /** The document on screen: a save that outlives its document reports nothing. */
   const shown = useRef(generation);
+  /** The on-disk change the user accepted in the save being retried (e.g. after a signature question). */
+  const accepted = useRef<FileStamp | undefined>(undefined);
 
   // A new document starts with a clean slate (adjusting state while rendering
   // is React's way to reset state when an input changes).
@@ -64,12 +67,14 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
       setActivity({ kind: 'saving' });
       try {
         // First, while the click is fresh: the permission prompt or save dialog.
-        const destination = await delivery.prepare(intent, document);
+        const destination = await delivery.prepare(intent, document, accepted.current);
         if (!destination) {
           if (current()) setActivity({ kind: 'done', outcome: { how: 'cancelled' } });
           return;
         }
+        if (intent === 'overwriteAnyway' && destination.kind === 'overwrite') accepted.current = destination.seen;
         if (destination.kind === 'changedOnDisk') {
+          accepted.current = undefined;
           if (current()) setActivity({ kind: 'confirmChangedOnDisk' });
           return;
         }
@@ -84,9 +89,11 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
           return;
         }
         // Only writing over the opened file puts the edits in it, and not an edit made since.
+        accepted.current = undefined;
         if (outcome.how === 'wrote' && edits.current === editsAtStart) setDirty(false);
         setActivity({ kind: 'done', outcome });
       } catch (error) {
+        if (errorKind(error) !== SIGNATURES_WOULD_BE_INVALIDATED) accepted.current = undefined;
         if (!current()) return;
         setActivity(
           errorKind(error) === SIGNATURES_WOULD_BE_INVALIDATED
@@ -100,12 +107,12 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
     [engine, document, delivery],
   );
 
-  const save = useCallback(() => void run('overwrite', false), [run]);
+  const save = useCallback(() => ((accepted.current = undefined), void run('overwrite', false)), [run]);
   /** "Save anyway": over the opened file, breaking its signature. */
   const confirmSignatures = useCallback(() => void run('overwrite', true), [run]);
   /** "Save a copy": the acknowledged bytes go to a new file, the opened one stays as it is. */
   const saveSignedCopy = useCallback(() => void run('copy', true), [run]);
-  const cancelSignatures = useCallback(() => setActivity(IDLE), []);
+  const cancelSignatures = useCallback(() => (setActivity(IDLE), (accepted.current = undefined)), []);
   /** "Overwrite": the user saw the file changed on disk and wants it replaced. */
   const overwriteChanged = useCallback(() => void run('overwriteAnyway', false), [run]);
   /** "Save a copy": a download; the changed file is left as it is. */

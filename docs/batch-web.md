@@ -581,8 +581,9 @@ lo que sigue:
   preguntar (`how: 'changedOnDisk'`; tras un permiso concedido no hace falta activación). Si la
   lectura falla el destino es `unverified` (un tipo propio, no un overwrite disfrazado): se
   descarga y la línea dice "Could not check whether the opened file changed on disk, so x.pdf
-  was downloaded instead.". Un fallo de lectura **no se queda fijado**: cada guardado reintenta
-  y la primera lectura buena pasa a ser la referencia si falló al abrir. Si la acción es una
+  was downloaded instead.". Un fallo de lectura durante un guardado se reintenta en el siguiente; si falló **al abrir**,
+  no hay referencia y el documento queda `unverified` (nunca se adopta una lectura posterior). Tras
+  aceptar el cambio (Overwrite), el sello aceptado viaja por el reintento de firma (Save anyway). Si la acción es una
   copia, la pregunta de firma solo ofrece **Cancel** y **Save copy anyway** (descarga): nada
   que escriba sobre el archivo abierto. Un handle sin `getFile` (dobles de test) no se comprueba. **Límites:**
   `lastModified`+`size` no detecta un cambio que conserve ambos; y entre la comprobación y el

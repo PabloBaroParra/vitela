@@ -47,15 +47,15 @@ describe('file stamp', () => {
     expect(await checkFileStamp(handle)).toBe('unknown');
   });
 
-  it('does not latch a failed read at open: the next check reads again and takes the file as the baseline', async () => {
+  it('never adopts a baseline that could not be read at open: a later change would go unnoticed', async () => {
     const disk: { lastModified: number; size: number; fail?: boolean } = { lastModified: 1000, size: 50, fail: true };
     const handle = diskHandle(disk);
     recordFileStamp(handle);
     expect(await checkFileStamp(handle)).toBe('unknown');
     disk.fail = false;
-    expect(await checkFileStamp(handle)).toBe('unchanged');
+    expect(await checkFileStamp(handle)).toBe('unknown');
     disk.lastModified = 2000;
-    expect(await checkFileStamp(handle)).toBe('changed');
+    expect(await checkFileStamp(handle)).toBe('unknown');
   });
 
   it('is unknown for a handle nothing was recorded for', async () => {
@@ -78,13 +78,13 @@ describe('file stamp', () => {
     expect(await checkFileStamp(handle)).toBe('unchanged');
   });
 
-  it('adopting a file that cannot be read is not latched either: a later read becomes the baseline', async () => {
+  it('adopting a file that cannot be read leaves it unverified, like one unreadable at open', async () => {
     const disk: { lastModified: number; size: number; fail?: boolean } = { lastModified: 1000, size: 50 };
     const handle = diskHandle(disk);
     recordFileStamp(handle);
     disk.fail = true;
     await adoptCurrentFile(handle);
     disk.fail = false;
-    expect(await checkFileStamp(handle)).toBe('unchanged');
+    expect(await checkFileStamp(handle)).toBe('unknown');
   });
 });

@@ -183,3 +183,45 @@ describe('browserDelivery.deliver: the file changes while the engine works', () 
     expect(await browserDelivery.prepare('overwrite', { name: 'a.pdf', fileHandle })).toEqual({ kind: 'changedOnDisk' });
   });
 });
+
+describe('browserDelivery.prepare: carrying an accepted change', () => {
+  function disked() {
+    const disk = { lastModified: 1000, size: 50 };
+    const fileHandle: WritableFileHandle = {
+      name: 'a.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      getFile: async () => ({ lastModified: disk.lastModified, size: disk.size }),
+      queryPermission: async () => 'granted',
+    };
+    recordFileStamp(fileHandle);
+    return { disk, fileHandle };
+  }
+  const source = (fileHandle: WritableFileHandle) => ({ name: 'a.pdf', fileHandle });
+
+  it('compares against the accepted stamp, not the opened baseline', async () => {
+    const { disk, fileHandle } = disked();
+    disk.lastModified = 2000;
+    const first = (await browserDelivery.prepare('overwriteAnyway', source(fileHandle))) as unknown as { seen: never };
+    const retry = await browserDelivery.prepare('overwrite', source(fileHandle), first.seen);
+    expect(retry).toEqual({ kind: 'overwrite', handle: fileHandle, permission: 'granted', seen: first.seen });
+  });
+
+  it('asks again when the file changed once more after it was accepted', async () => {
+    const { disk, fileHandle } = disked();
+    disk.lastModified = 2000;
+    const first = (await browserDelivery.prepare('overwriteAnyway', source(fileHandle))) as unknown as { seen: never };
+    disk.lastModified = 3000;
+    expect(await browserDelivery.prepare('overwrite', source(fileHandle), first.seen)).toEqual({ kind: 'changedOnDisk' });
+  });
+
+  it('a stamp that cannot be read before the write means unverified, never a write', async () => {
+    const { fileHandle } = disked();
+    const real = fileHandle.getFile!;
+    let calls = 0;
+    fileHandle.getFile = async () => {
+      if (++calls >= 2) throw new Error('gone');
+      return real();
+    };
+    expect(await browserDelivery.prepare('overwrite', source(fileHandle))).toEqual({ kind: 'unverified' });
+  });
+});

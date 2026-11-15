@@ -52,18 +52,14 @@ export async function adoptCurrentFile(handle: WritableFileHandle): Promise<void
 
 /**
  * Compares the file on disk with the recorded baseline. A baseline that could
- * not be read at open is not kept as "unknown" forever: the first successful
- * read since then becomes the baseline.
+ * not be read at open stays "unknown": adopting a later read would hide a
+ * change made in between, so only our own successful write sets a new one.
  */
 export async function checkFileStamp(handle: WritableFileHandle): Promise<FileCheck> {
   if (!handle.getFile) return 'unchanged';
   const recorded = baselines.get(handle);
   if (!recorded) return 'unknown';
   const [before, now] = await Promise.all([recorded, readFileStamp(handle)]);
-  if (!now) return 'unknown';
-  if (!before) {
-    baselines.set(handle, Promise.resolve(now));
-    return 'unchanged';
-  }
+  if (!now || !before) return 'unknown';
   return sameStamp(before, now) ? 'unchanged' : 'changed';
 }

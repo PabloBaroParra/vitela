@@ -59,11 +59,16 @@ export type Deliver = (request: DeliverRequest) => Promise<Delivered>;
 
 export interface Delivery {
   /** `null` when the user dismissed a dialog: the save is cancelled. */
-  readonly prepare: (intent: SaveIntent, source: SaveSource) => Promise<Destination | null>;
+  readonly prepare: (
+    intent: SaveIntent,
+    source: SaveSource,
+    /** The stamp of a change the user already accepted in this save: compared against instead of the baseline. */
+    accepted?: FileStamp,
+  ) => Promise<Destination | null>;
   readonly deliver: Deliver;
 }
 
-async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destination | null> {
+async function prepare(intent: SaveIntent, source: SaveSource, accepted?: FileStamp): Promise<Destination | null> {
   if (intent === 'copy') return { kind: 'copy' };
   const { fileHandle } = source;
   if (!fileHandle) return { kind: 'overwrite', handle: undefined, permission: 'granted' };
@@ -78,11 +83,22 @@ async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destinat
       ? { kind: 'overwrite', handle: fileHandle, permission, seen: seen ?? undefined }
       : { kind: 'unverified' };
   }
+  if (accepted) {
+    // A retry of a save whose change the user accepted: only a NEWER change asks again.
+    const now = await readFileStamp(fileHandle);
+    if (!now) return { kind: 'unverified' };
+    return sameStamp(accepted, now)
+      ? { kind: 'overwrite', handle: fileHandle, permission, seen: accepted }
+      : { kind: 'changedOnDisk' };
+  }
   const check = await checkFileStamp(fileHandle);
   if (check === 'changed') return { kind: 'changedOnDisk' };
   if (check === 'unknown') return { kind: 'unverified' };
   const seen = await readFileStamp(fileHandle);
-  return { kind: 'overwrite', handle: fileHandle, permission, seen: seen ?? undefined };
+  // No stamp to guard the write with: not verified, so no write over the file.
+  return seen || !fileHandle.getFile
+    ? { kind: 'overwrite', handle: fileHandle, permission, seen: seen ?? undefined }
+    : { kind: 'unverified' };
 }
 
 async function deliver({ bytes, name, destination }: DeliverRequest): Promise<Delivered> {

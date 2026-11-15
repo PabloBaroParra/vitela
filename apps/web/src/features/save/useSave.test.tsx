@@ -383,6 +383,32 @@ describe('useSave', () => {
     });
   });
 
+  it('a signed document whose file changed: Overwrite then Save anyway writes once, carrying the accepted stamp', async () => {
+    const accepted = { lastModified: 2000, size: 50 };
+    const placement: Destination = { kind: 'overwrite', handle: undefined, permission: 'granted', seen: accepted };
+    const stamps: unknown[] = [];
+    const { calls, delivery: base } = deliveries([]);
+    const delivery: Delivery = {
+      ...base,
+      prepare: async (intent, source, acceptedStamp) => {
+        stamps.push(acceptedStamp);
+        await base.prepare(intent, source);
+        if (intent === 'overwriteAnyway') return placement;
+        return acceptedStamp ? placement : { kind: 'changedOnDisk' };
+      },
+    };
+    const { engine } = savingEngine([], signed);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity.kind).toBe('confirmChangedOnDisk'));
+    act(() => result.current.overwriteChanged());
+    await waitFor(() => expect(result.current.activity.kind).toBe('confirmSignatures'));
+    act(() => result.current.confirmSignatures());
+    await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+    expect(stamps).toEqual([undefined, undefined, accepted]);
+    expect(calls).toHaveLength(1);
+  });
+
   it('a write that finds the file changed after the engine ran asks again and keeps the document dirty', async () => {
     const { engine } = savingEngine();
     const { delivery } = deliveries([], undefined, { how: 'changedOnDisk' });
