@@ -130,32 +130,52 @@ memory by `e2e/pdf.ts` and never written to disk.
 
 `features/save/`. **Save** asks the engine for the document's bytes
 (`saveToBytes`, transferred back from the worker, never copied) and delivers them
-one of two ways:
+one of three ways:
 
 - **Over the opened file** when the document came in with a `FileSystemFileHandle`:
   Chromium's `showOpenFilePicker` (the Open button uses it when the browser has
   it; the `<input type=file>` stays as the fallback and the keyboard target) or a
-  drop's `getAsFileSystemHandle`. Write permission is asked on the Save click if the
-  handle lacks it. Chromium writes to a swap file and replaces the original on
-  `close()`, so a failed write leaves the user's file as it was.
+  drop's `getAsFileSystemHandle` (kept only when its name matches the dropped
+  file). Write permission is requested as the **first** step of the Save click,
+  before the engine runs — Chromium's user activation can expire while the
+  worker saves — and the answer travels with the bytes (`delivery.ts`:
+  `prepare`, then `deliver`). If it is refused the document is downloaded and
+  the status line says the permission was the reason. Chromium writes to a swap
+  file and replaces the original on `close()`; a failed `write()`/`close()`
+  calls `abort()` first, so a failed write leaves the user's file as it was.
+- **As a copy** (`saveCopy.ts`), only from the signature question: a new file
+  chosen with `showSaveFilePicker` (suggested name `name (copy).pdf`), or a
+  download under that name where the browser has no save dialog. The opened
+  file's handle is never touched. Dismissing the dialog cancels the save
+  ("Save cancelled.", nothing downloaded).
 - **As a download** (anchor + Blob URL) everywhere else: Firefox, WebKit, a file
   opened through the plain input, or a handle that refuses the write — in which
   case the status line says it downloaded *instead*.
 
 A save that would break a signature is refused by the core
-(`SignaturesWouldBeInvalidated`); the app asks first (`SignatureDialog`, same words
-as the Linux shell) and retries with the acknowledgement. An encrypted document
+(`SignaturesWouldBeInvalidated`); the app asks first (`SignatureDialog`, same
+words as the Linux shell) with **Cancel** (focused), **Save a copy** and **Save
+anyway**, and retries with the acknowledgement. The copy carries the broken
+signature; the original, untouched, keeps its valid one. An encrypted document
 keeps its encryption (the core's default save intent).
 
-`useSave` also holds a `dirty` flag (`markDirty()`, cleared by a successful save)
-for the editing screens that arrive with Organize (T-226); nothing sets it yet.
+The save state (`useSave`) lives in `DocumentWorkspace`, one per open document.
+It holds a `dirty` flag: editing screens (Organize, T-226) call `useMarkDirty()`
+after each applied edit, a successful save clears it, and an edit after a save
+turns "Saved over…" into "Unsaved changes."; nothing sets it yet. The Save
+button uses `aria-disabled` while it runs, so the keyboard focus stays on it.
+
+The file-handle adapter (`fileHandle`, `fileWrite`, `saveTarget`) lives in
+`src/platform/`, shared by `ui/`, `features/document/` and `features/save/`.
 
 E2E (`e2e/save.spec.ts`): the download flow in all three browsers, reopening the
-saved bytes. In Chromium the write-over flows use real handles from the
+saved bytes, and the keyboard focus staying on Save. In Chromium the write-over flows use real handles from the
 origin-private file system (`navigator.storage.getDirectory()`) fed in through
 `showOpenFilePicker` and `getAsFileSystemHandle`, because Playwright cannot drive
-the native picker. **Not covered:** the browser's own permission prompt, a handle
-onto the real disk, and the signature question end to end (an unedited save
+the native picker (a refused permission, a mismatched drop handle and a failing
+picker are covered the same way). **Not covered:** the browser's own permission
+prompt, a handle onto the real disk, and the signature question and Save a copy
+end to end (an unedited save
 rewrites nothing, so it never fires; Vitest covers it, E2E waits for T-226's edits).
 
 ## Zero-network

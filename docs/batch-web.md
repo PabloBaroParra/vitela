@@ -506,38 +506,66 @@ lo que sigue:
 - **Protocolo:** `saveToBytes(handle, invalidateSignatures)` cruza el worker como la
   petición `save`; los bytes vuelven por transferencia (como el RGBA de `renderPage`).
   `documentEngine` rechaza con `DocumentNotFound` un documento cerrado, igual que el resto.
-- **Dos destinos** (`features/save/`): sobre el mismo archivo si el documento entró con un
-  `FileSystemFileHandle`, y descarga (ancla + Blob URL) en cualquier otro caso. El handle
-  se obtiene en las dos puertas por las que entra un archivo: `showOpenFilePicker` (el
-  botón Open lo usa si el navegador lo tiene; el `<input type=file>` sigue en el DOM como
-  respaldo y destino del teclado) y `getAsFileSystemHandle` en un drop, que **tiene que
-  empezar dentro del evento `drop`** (el navegador invalida los items después). Si el
-  handle no deja escribir (permiso denegado, `createWritable` falla) se descarga y la
-  línea de estado lo dice ("…so X was downloaded instead"); nunca se descarta en
-  silencio. Chromium escribe en un archivo temporal y reemplaza el original en `close()`,
-  así que una escritura fallida deja el archivo del usuario intacto.
-- **Firmas:** `SignaturesWouldBeInvalidated` abre `SignatureDialog` (mismas palabras que
-  `write-signature-*` del shell Linux; el foco cae en Cancel) y solo entonces reintenta con
-  `invalidateSignatures = true`. **Trampa:** un guardado sin ediciones no reescribe nada,
-  así que un firmado sin editar guarda sin preguntar y con los bytes originales como
-  prefijo (el E2E lo comprueba). La pregunta no se puede provocar de punta a punta hasta
-  que T-226 meta ediciones; hoy la cubren los Vitest de `useSave` y `SaveControls`.
-  **Para T-226:** añadir ahí un E2E con un firmado + borrar/rotar página.
+- **Tres destinos** (`features/save/`): sobre el mismo archivo si el documento entró con un
+  `FileSystemFileHandle`, una **copia** en un archivo nuevo (ver Firmas), y descarga
+  (ancla + Blob URL) en cualquier otro caso. El handle se obtiene en las dos puertas por
+  las que entra un archivo: `showOpenFilePicker` (el botón Open lo usa si el navegador lo
+  tiene; el `<input type=file>` sigue en el DOM como respaldo y destino del teclado) y
+  `getAsFileSystemHandle` en un drop, que **tiene que empezar dentro del evento `drop`**
+  (el navegador invalida los items después). El drop solo conserva el handle si su nombre
+  coincide con el del `File` soltado (si no, se abre sin handle y Save descarga), y solo
+  gana el último drop: un token de secuencia más una re-comprobación de "ocupado" tras el
+  `await`. Si `showOpenFilePicker` falla (no es un `AbortError`), ese clic cae al
+  `<input>` nativo y el siguiente vuelve a usar el selector; un `AbortError` no hace nada.
+- **El guardado va en dos pasos** (`delivery.ts`): `prepare` es lo **primero** que ocurre
+  en el clic de Save, antes de pedir los bytes al motor, porque la activación de usuario de
+  Chromium puede caducar mientras el worker guarda: ahí se pide el permiso `readwrite` del
+  handle (o se abre el diálogo de guardar de una copia) y el resultado viaja hasta
+  `deliver`. Si el permiso se deniega se guarda igualmente pero se **descarga** y la
+  línea de estado lo dice ("Permission to write over the opened file was refused, so X was
+  downloaded instead"). Un `write()`/`close()` fallido llama a `writable.abort()` (con
+  guarda) antes de caer a la descarga ("Could not write over the opened file…"); nunca se
+  descarta en silencio. Chromium escribe en un archivo temporal y reemplaza el original en
+  `close()`, así que una escritura fallida deja el archivo del usuario intacto. El adaptador
+  de handles vive en `src/platform/` (`fileHandle`, `fileWrite`, `saveTarget`) para que
+  `ui/` y `features/document/` no importen de `features/save/`.
+- **Firmas:** ``SignaturesWouldBeInvalidated`` abre `SignatureDialog` (mismas palabras que
+  `write-signature-*` del shell Linux, con tres respuestas: **Cancel** —el foco inicial—,
+  **Save a copy** y **Save anyway**) y solo entonces reintenta con
+  `invalidateSignatures = true`. La web no tiene "Guardar como", así que **Save a copy**
+  escribe los bytes reconocidos en un archivo **nuevo** sin tocar nunca el handle del
+  archivo abierto: `showSaveFilePicker` en Chromium con "nombre (copy).pdf" sugerido, y
+  descarga con ese nombre donde no hay selector (o si falla). Descartar el diálogo de
+  guardar cuenta como cancelar: no se descarga nada y el estado dice "Save cancelled.".
+  La copia lleva la firma invalidada; lo que conserva su firma válida es el original, que
+  no se toca. **Trampa:** un guardado sin ediciones no reescribe nada, así que un firmado
+  sin editar guarda sin preguntar y con los bytes originales como prefijo (el E2E lo
+  comprueba). La pregunta no se puede provocar de punta a punta hasta que T-226 meta
+  ediciones; hoy la cubren los Vitest de `useSave`, `SaveControls` y `delivery`.
+  **Para T-226:** añadir ahí un E2E con un firmado + borrar/rotar página, que cubra Save a
+  copy.
 - **Cifrados:** sin comportamiento nuevo; `saveToBytes` conserva el cifrado (intención por
   defecto) y el E2E comprueba que el guardado lleva `/Encrypt` y que se reabre con la
   misma contraseña.
-- **Dirty:** `useSave` expone `dirty` y `markDirty()` (un guardado correcto lo limpia, salvo
-  que haya entrado una edición mientras guardaba). Nadie lo marca todavía: es el gancho
-  para las pantallas de edición de T-226.
+- **Dirty:** `useSave` vive en `DocumentWorkspace` (un estado por documento: abrir otro
+  empieza limpio, y un guardado que sobrevive a su documento no informa) y entrega
+  `markDirty()` por `MarkDirtyContext`: las pantallas de edición de T-226 llaman a
+  `useMarkDirty()` (falla en voz alta fuera del workspace). Un guardado correcto limpia el
+  flag, salvo que haya entrado una edición mientras guardaba, y una edición posterior a un
+  guardado sustituye "Saved over…" por "Unsaved changes.". Nadie lo marca todavía.
+- **Foco:** Save se queda enfocable mientras guarda (`aria-disabled` + guarda en el
+  manejador; un `disabled` real tira el foco a la página) y recupera el foco al cerrarse
+  la pregunta de la firma.
 - **Playwright:** `e2e/save.spec.ts` — descarga y reapertura en los tres navegadores;
-  cifrado; firmado sin editar; y, solo en Chromium, tres flujos con **handles reales del
+  cifrado; firmado sin editar; el foco que se queda en Save; y, solo en Chromium, seis flujos con **handles reales del
   sistema de archivos privado del origen** (`navigator.storage.getDirectory()`) entregados
   por `showOpenFilePicker` y por `getAsFileSystemHandle` (Playwright no maneja el diálogo
-  nativo), incluido el respaldo a descarga. Antes de guardar, el test pisa el archivo con un
+  nativo), incluidos el respaldo a descarga, el permiso denegado, un drop cuyo handle es de otro archivo
+  y un selector que falla. Antes de guardar, el test pisa el archivo con un
   marcador: un guardado sin ediciones puede reproducir los bytes originales y, sin eso, no
   se distinguiría "escrito" de "intacto". El zero-network ahora también guarda (la descarga
-  es una Blob URL, no una petición) y sigue en verde. **No cubierto:** el aviso de permiso
-  del propio navegador, un handle sobre el disco real, y Firefox/WebKit no tienen
+  es una Blob URL, no una petición) y sigue en verde. **No cubierto:** Save a copy de punta a punta (necesita una edición, T-226), el aviso de
+  permiso del propio navegador (los E2E lo sustituyen por un handle que responde "denied"), un handle sobre el disco real, y Firefox/WebKit no tienen
   File System Access (solo descarga).
 
 ## Verificación
