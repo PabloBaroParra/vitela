@@ -6,6 +6,8 @@
 import { WarningDialog } from './WarningDialog';
 
 interface SignatureDialogProps {
+  /** The save is already a copy: the dialog must not offer anything that writes over the opened file. */
+  readonly forCopy: boolean;
   /** Save over the opened file, breaking the signature. */
   readonly onSaveAnyway: () => void;
   /** Save to a new file; the opened one, and its signature, are untouched. */
@@ -13,7 +15,7 @@ interface SignatureDialogProps {
   readonly onCancel: () => void;
 }
 
-export function SignatureDialog({ onSaveAnyway, onSaveCopy, onCancel }: SignatureDialogProps) {
+export function SignatureDialog({ forCopy, onSaveAnyway, onSaveCopy, onCancel }: SignatureDialogProps) {
   return (
     <WarningDialog
       icon={<SignatureIcon />}
@@ -25,12 +27,20 @@ export function SignatureDialog({ onSaveAnyway, onSaveCopy, onCancel }: Signatur
           <button type="button" autoFocus onClick={onCancel}>
             Cancel
           </button>
-          <button type="button" onClick={onSaveCopy}>
-            Save a copy
-          </button>
-          <button type="button" className="button--primary" onClick={onSaveAnyway}>
-            Save anyway
-          </button>
+          {forCopy ? (
+            <button type="button" className="button--primary" onClick={onSaveCopy}>
+              Save copy anyway
+            </button>
+          ) : (
+            <>
+              <button type="button" onClick={onSaveCopy}>
+                Save a copy
+              </button>
+              <button type="button" className="button--primary" onClick={onSaveAnyway}>
+                Save anyway
+              </button>
+            </>
+          )}
         </>
       }
     >
@@ -38,7 +48,11 @@ export function SignatureDialog({ onSaveAnyway, onSaveCopy, onCancel }: Signatur
         Saving rewrites the file, so the signature no longer matches it. The signature is not removed: PDF readers
         will report it as invalid.
       </p>
-      <p className="dialog__hint">Save a copy to leave the original file, and its valid signature, untouched.</p>
+      <p className="dialog__hint">
+        {forCopy
+          ? 'The opened file, and its valid signature, stay untouched: only the copy is affected.'
+          : 'Save a copy to leave the original file, and its valid signature, untouched.'}
+      </p>
     </WarningDialog>
   );
 }

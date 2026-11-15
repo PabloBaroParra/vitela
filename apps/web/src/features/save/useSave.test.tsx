@@ -5,7 +5,7 @@ import type { Engine } from '../../core/types';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
-import { type DeliverRequest, type Delivery, type Destination, type SaveIntent } from './delivery';
+import { type DeliverRequest, type Delivered, type Delivery, type Destination, type SaveIntent } from './delivery';
 import type { SaveOutcome } from './outcome';
 import { useSave } from './useSave';
 
@@ -42,7 +42,7 @@ const wrote: SaveOutcome = { how: 'wrote', name: 'a.pdf' };
 function deliveries(
   log: Log = [],
   destination: Destination | null = { kind: 'overwrite', handle: undefined, permission: 'granted' },
-  result: SaveOutcome = outcome,
+  result: Delivered = outcome,
 ) {
   const prepared: { intent: SaveIntent; name: string; fileHandle: WritableFileHandle | undefined }[] = [];
   const calls: DeliverRequest[] = [];
@@ -116,7 +116,7 @@ describe('useSave', () => {
     const { result } = renderHook(() => useSave(engine, document, delivery));
 
     act(() => result.current.save());
-    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmSignatures' }));
+    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmSignatures', forCopy: false }));
     expect(calls).toEqual([]);
 
     act(() => result.current.confirmSignatures());
@@ -381,5 +381,23 @@ describe('useSave', () => {
       expect(result.current.activity).toEqual({ kind: 'idle' });
       expect(asked).toEqual([]);
     });
+  });
+
+  it('a write that finds the file changed after the engine ran asks again and keeps the document dirty', async () => {
+    const { engine } = savingEngine();
+    const { delivery } = deliveries([], undefined, { how: 'changedOnDisk' });
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.markDirty());
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmChangedOnDisk' }));
+    expect(result.current.dirty).toBe(true);
+  });
+
+  it('a signature question raised by a copy is marked as one, so it cannot offer to overwrite', async () => {
+    const { engine } = savingEngine([], signed);
+    const { delivery } = deliveries([], { kind: 'copy' });
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    act(() => result.current.saveChangedCopy());
+    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'confirmSignatures', forCopy: true }));
   });
 });

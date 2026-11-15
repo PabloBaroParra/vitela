@@ -20,7 +20,7 @@ export type SaveActivity =
   | { readonly kind: 'idle' }
   | { readonly kind: 'saving' }
   /** The save would break a signature; waiting for the user's answer. */
-  | { readonly kind: 'confirmSignatures' }
+  | { readonly kind: 'confirmSignatures'; readonly forCopy: boolean }
   /** The opened file changed on disk; waiting for the user's answer. */
   | { readonly kind: 'confirmChangedOnDisk' }
   | { readonly kind: 'done'; readonly outcome: SaveOutcome }
@@ -78,6 +78,11 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
         if (!current()) return;
         const outcome = await delivery.deliver({ bytes, name: document.name, destination });
         if (!current()) return;
+        // The file moved while the engine worked: nothing was written, so ask again.
+        if (outcome.how === 'changedOnDisk') {
+          setActivity({ kind: 'confirmChangedOnDisk' });
+          return;
+        }
         // Only writing over the opened file puts the edits in it, and not an edit made since.
         if (outcome.how === 'wrote' && edits.current === editsAtStart) setDirty(false);
         setActivity({ kind: 'done', outcome });
@@ -85,7 +90,7 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
         if (!current()) return;
         setActivity(
           errorKind(error) === SIGNATURES_WOULD_BE_INVALIDATED
-            ? { kind: 'confirmSignatures' }
+            ? { kind: 'confirmSignatures', forCopy: intent === 'copy' }
             : { kind: 'failed', message: errorMessage(error) },
         );
       } finally {

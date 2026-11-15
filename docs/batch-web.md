@@ -567,17 +567,24 @@ lo que sigue:
   "Unsaved changes.". Nadie lo marca todavía.
 - **Archivo cambiado en disco:** al abrir un documento con handle, `platform/fileStamp.ts`
   anota `lastModified` y `size` (`handle.getFile()`, una promesa por handle para que una
-  comprobación inmediata la espere). `prepare` —lo primero del clic de Save, antes del motor y
-  antes de pedir el permiso de escritura— los vuelve a leer: si difieren **no se escribe** y
+  comprobación inmediata la espere). `prepare` —lo primero del clic de Save, antes del motor—
+  pide primero el permiso de escritura (la activación del clic sigue fresca) y después los
+  vuelve a leer: si difieren **no se escribe** y
   `useSave` pasa a `confirmChangedOnDisk`, que abre `ChangedOnDiskDialog` (mismo estilo que
   `SignatureDialog`, ambos sobre `WarningDialog`: `dialog dialog--warning`, icono, **Cancel**
   enfocado) con **Cancel**, **Save a copy** (descarga; no toca el archivo) y **Overwrite**
-  (intención `overwriteAnyway`: adopta el archivo tal como está ahora como nueva referencia y
-  sigue el camino normal de permiso). Si la comprobación no puede hacerse (`getFile` falla, o
-  falló al abrir) el estado es *desconocido*: no se escribe, se descarga y la línea dice "Could
-  not check whether the opened file changed on disk, so x.pdf was downloaded instead.". Tras
-  una escritura correcta `writeToHandle` re-anota el archivo, para que el siguiente guardado
-  no dé falsa alarma. Un handle sin `getFile` (dobles de test) no se comprueba. **Límites:**
+  (intención `overwriteAnyway`). El cambio **solo se adopta como referencia tras una
+  escritura correcta** (`writeToHandle`): si el permiso se rechaza, se cancela la pregunta de
+  firma o la escritura falla, el siguiente Save vuelve a preguntar. Justo antes de
+  `createWritable`, `deliver` relee el archivo y lo compara con lo que vio `prepare`
+  (`Placement.seen`): si cambió mientras el motor trabajaba no se escribe y se vuelve a
+  preguntar (`how: 'changedOnDisk'`; tras un permiso concedido no hace falta activación). Si la
+  lectura falla el destino es `unverified` (un tipo propio, no un overwrite disfrazado): se
+  descarga y la línea dice "Could not check whether the opened file changed on disk, so x.pdf
+  was downloaded instead.". Un fallo de lectura **no se queda fijado**: cada guardado reintenta
+  y la primera lectura buena pasa a ser la referencia si falló al abrir. Si la acción es una
+  copia, la pregunta de firma solo ofrece **Cancel** y **Save copy anyway** (descarga): nada
+  que escriba sobre el archivo abierto. Un handle sin `getFile` (dobles de test) no se comprueba. **Límites:**
   `lastModified`+`size` no detecta un cambio que conserve ambos; y entre la comprobación y el
   `close()` del `writable` queda una ventana de milisegundos (el navegador no ofrece un
   compare-and-swap). **No se maneja un worker del motor colgado:** exigiría reiniciar el worker

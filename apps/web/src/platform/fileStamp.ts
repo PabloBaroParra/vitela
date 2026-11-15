@@ -7,7 +7,7 @@
 
 import type { WritableFileHandle } from './fileHandle';
 
-interface FileStamp {
+export interface FileStamp {
   readonly lastModified: number;
   readonly size: number;
 }
@@ -15,14 +15,16 @@ interface FileStamp {
 /**
  * `unchanged`: same as when it was opened (or the handle cannot be read, so
  * there is nothing to compare). `changed`: someone else wrote it. `unknown`:
- * the file could not be read, then or now, so nothing can be said.
+ * the file cannot be read right now, so nothing can be said (a later check
+ * tries again).
  */
 export type FileCheck = 'unchanged' | 'changed' | 'unknown';
 
 /** One baseline per handle; a promise, so a check made right after opening waits for it. */
 const baselines = new WeakMap<WritableFileHandle, Promise<FileStamp | null>>();
 
-async function read(handle: WritableFileHandle): Promise<FileStamp | null> {
+/** The file's current stamp; `null` when it cannot be read. */
+export async function readFileStamp(handle: WritableFileHandle): Promise<FileStamp | null> {
   try {
     const file = await handle.getFile?.();
     return file ? { lastModified: file.lastModified, size: file.size } : null;
@@ -31,23 +33,37 @@ async function read(handle: WritableFileHandle): Promise<FileStamp | null> {
   }
 }
 
-/** Takes the file's current state as the one the user opened. Call it when the document is opened. */
-export function recordFileStamp(handle: WritableFileHandle): void {
-  if (handle.getFile) baselines.set(handle, read(handle));
+export function sameStamp(a: FileStamp, b: FileStamp): boolean {
+  return a.lastModified === b.lastModified && a.size === b.size;
 }
 
-/** Takes the file as it is now as the baseline: after our own write, or once the user accepted the change. */
+/** Takes the file's current state as the one the user opened. Call it when the document is opened. */
+export function recordFileStamp(handle: WritableFileHandle): void {
+  if (handle.getFile) baselines.set(handle, readFileStamp(handle));
+}
+
+/** Takes the file as it is now as the baseline: only after our own write succeeded. */
 export async function adoptCurrentFile(handle: WritableFileHandle): Promise<void> {
   if (!handle.getFile) return;
-  const now = read(handle);
+  const now = readFileStamp(handle);
   baselines.set(handle, now);
   await now;
 }
 
-/** Compares the file on disk with the recorded baseline. */
+/**
+ * Compares the file on disk with the recorded baseline. A baseline that could
+ * not be read at open is not kept as "unknown" forever: the first successful
+ * read since then becomes the baseline.
+ */
 export async function checkFileStamp(handle: WritableFileHandle): Promise<FileCheck> {
   if (!handle.getFile) return 'unchanged';
-  const [before, now] = await Promise.all([baselines.get(handle), read(handle)]);
-  if (!before || !now) return 'unknown';
-  return before.lastModified === now.lastModified && before.size === now.size ? 'unchanged' : 'changed';
+  const recorded = baselines.get(handle);
+  if (!recorded) return 'unknown';
+  const [before, now] = await Promise.all([recorded, readFileStamp(handle)]);
+  if (!now) return 'unknown';
+  if (!before) {
+    baselines.set(handle, Promise.resolve(now));
+    return 'unchanged';
+  }
+  return sameStamp(before, now) ? 'unchanged' : 'changed';
 }

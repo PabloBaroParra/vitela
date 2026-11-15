@@ -14,8 +14,6 @@ interface SaveBytesRequest {
   readonly handle: WritableFileHandle | undefined;
   /** What the user answered when asked, at the click, to write over `handle`. */
   readonly permission: PermissionState;
-  /** The opened file could not be checked for outside changes: never write over it. */
-  readonly unverified?: boolean;
   readonly download?: (bytes: Uint8Array, name: string) => void;
 }
 
@@ -24,16 +22,11 @@ export async function saveBytes({
   name,
   handle,
   permission,
-  unverified = false,
   download = downloadBytes,
 }: SaveBytesRequest): Promise<SaveOutcome> {
   if (!handle) {
     download(bytes, name);
     return { how: 'downloaded', name, fellBack: null };
-  }
-  if (unverified) {
-    download(bytes, name);
-    return { how: 'downloaded', name, fellBack: 'unverified' };
   }
   if (permission === 'granted') {
     if (await writeToHandle(handle, bytes)) return { how: 'wrote', name: handle.name };

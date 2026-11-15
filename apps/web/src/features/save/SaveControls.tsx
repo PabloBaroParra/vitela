@@ -36,7 +36,12 @@ export function SaveControls({ session, documentName }: SaveControlsProps) {
       </button>
       <SaveStatus activity={activity} documentName={documentName} dirty={dirty} />
       {activity.kind === 'confirmSignatures' && (
-        <SignatureDialog onSaveAnyway={confirmSignatures} onSaveCopy={saveSignedCopy} onCancel={cancelSignatures} />
+        <SignatureDialog
+          forCopy={activity.forCopy}
+          onSaveAnyway={confirmSignatures}
+          onSaveCopy={saveSignedCopy}
+          onCancel={cancelSignatures}
+        />
       )}
       {activity.kind === 'confirmChangedOnDisk' && (
         <ChangedOnDiskDialog onOverwrite={overwriteChanged} onSaveCopy={saveChangedCopy} onCancel={cancelChanged} />

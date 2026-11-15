@@ -147,8 +147,13 @@ one of three ways:
   `size` differs from what `platform/fileStamp.ts` recorded at open), nothing is
   written: a dialog (`ChangedOnDiskDialog`, Cancel focused) offers **Cancel**,
   **Save a copy** (a download; the file is not touched) and **Overwrite**. The
-  check is part of `prepare`, before the engine. If it cannot be made (`getFile`
-  fails) the document is downloaded and the status says why. After a successful
+  check is part of `prepare`, after the write-permission prompt and before the
+  engine, and is repeated right before the write: if the file moved while the
+  engine worked, nothing is written and the dialog shows again. Choosing
+  Overwrite only counts once the write succeeded. If the file cannot be read
+  (`getFile` fails) the document is downloaded and the status says why; the next
+  save tries again. On a signed document, a copy's signature question offers only
+  Cancel and "Save copy anyway". After a successful
   write the recorded state is refreshed, so the next save does not false-alarm.
 - **As a copy** (`saveCopy.ts`), only from the signature question: always a
   download named `name (copy).pdf`. It deliberately does not use

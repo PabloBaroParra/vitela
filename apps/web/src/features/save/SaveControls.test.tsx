@@ -297,6 +297,20 @@ describe('SaveControls', () => {
       expect(intents).toEqual(['overwrite', 'overwriteAnyway']);
     });
 
+    it('a copy of a signed, changed file cannot offer to overwrite: only Cancel and Save copy anyway', async () => {
+      const intents: SaveIntent[] = [];
+      renderControls(signedEngine(), changedDelivery({ how: 'copied', name: 'a (copy).pdf' }, intents));
+      fireEvent.click(saveButton());
+      await screen.findByRole('dialog', { name: CHANGED_TITLE });
+      fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
+
+      const dialog = await screen.findByRole('dialog', { name: SIGNATURE_TITLE });
+      expect([...dialog.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Cancel', 'Save copy anyway']);
+      fireEvent.click(screen.getByRole('button', { name: 'Save copy anyway' }));
+      expect(await screen.findByText('Downloaded a copy as a (copy).pdf. The opened file was not changed.')).toBeTruthy();
+      expect(intents).toEqual(['overwrite', 'copy', 'copy']);
+    });
+
     it('Save a copy downloads a copy and leaves the file alone', async () => {
       const intents: SaveIntent[] = [];
       renderControls(

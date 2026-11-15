@@ -7,9 +7,10 @@
 // `prepare` also looks at the opened file: if it changed on disk since the
 // document was opened, nothing is written until the user has been asked.
 
-import { adoptCurrentFile, checkFileStamp } from '../../platform/fileStamp';
+import { checkFileStamp, readFileStamp, sameStamp, type FileStamp } from '../../platform/fileStamp';
 import { ensureWritePermission } from '../../platform/fileWrite';
 import type { WritableFileHandle } from '../../platform/fileHandle';
+import { downloadBytes } from './download';
 import type { SaveOutcome } from './outcome';
 import { saveBytes } from './saveBytes';
 import { saveCopy } from './saveCopy';
@@ -28,14 +29,19 @@ export type Placement =
       readonly handle: WritableFileHandle | undefined;
       /** The answer to the write-permission request made at the click. */
       readonly permission: PermissionState;
-      /** The file could not be checked for outside changes, so it is not written over: download. */
-      readonly unverified?: true;
+      /** The file as `prepare` saw it: if it moved before the write, nothing is written. */
+      readonly seen?: FileStamp;
     }
+  /** The opened file could not be checked for outside changes, so it is not written over: download. */
+  | { readonly kind: 'unverified' }
   /** A new copy, always downloaded: see saveCopy.ts for why. */
   | { readonly kind: 'copy' };
 
 /** What `prepare` found: a placement, or that the opened file changed on disk and the user must decide. */
 export type Destination = Placement | { readonly kind: 'changedOnDisk' };
+
+/** What `deliver` did: an outcome, or that the file changed while the bytes were being built. */
+export type Delivered = SaveOutcome | { readonly how: 'changedOnDisk' };
 
 /** The document a save is for. */
 export interface SaveSource {
@@ -49,7 +55,7 @@ export interface DeliverRequest {
   readonly destination: Placement;
 }
 
-export type Deliver = (request: DeliverRequest) => Promise<SaveOutcome>;
+export type Deliver = (request: DeliverRequest) => Promise<Delivered>;
 
 export interface Delivery {
   /** `null` when the user dismissed a dialog: the save is cancelled. */
@@ -61,24 +67,42 @@ async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destinat
   if (intent === 'copy') return { kind: 'copy' };
   const { fileHandle } = source;
   if (!fileHandle) return { kind: 'overwrite', handle: undefined, permission: 'granted' };
-  // Look at the file first: no point asking for permission to overwrite what the user may not want to.
-  if (intent === 'overwriteAnyway') await adoptCurrentFile(fileHandle);
+  // The permission prompt needs the click's activation, so it comes before any file read.
+  const permission = await ensureWritePermission(fileHandle);
+  // Refused: the save is a download, and a download overwrites nothing.
+  if (permission !== 'granted') return { kind: 'overwrite', handle: fileHandle, permission };
+  if (intent === 'overwriteAnyway') {
+    // The user accepted the change, but it is only adopted once the write succeeded.
+    const seen = await readFileStamp(fileHandle);
+    return seen || !fileHandle.getFile
+      ? { kind: 'overwrite', handle: fileHandle, permission, seen: seen ?? undefined }
+      : { kind: 'unverified' };
+  }
   const check = await checkFileStamp(fileHandle);
   if (check === 'changed') return { kind: 'changedOnDisk' };
-  if (check === 'unknown') return { kind: 'overwrite', handle: fileHandle, permission: 'granted', unverified: true };
-  return { kind: 'overwrite', handle: fileHandle, permission: await ensureWritePermission(fileHandle) };
+  if (check === 'unknown') return { kind: 'unverified' };
+  const seen = await readFileStamp(fileHandle);
+  return { kind: 'overwrite', handle: fileHandle, permission, seen: seen ?? undefined };
 }
 
-const deliver: Deliver = ({ bytes, name, destination }) =>
-  destination.kind === 'copy'
-    ? Promise.resolve(saveCopy({ bytes, name }))
-    : saveBytes({
-        bytes,
-        name,
-        handle: destination.handle,
-        permission: destination.permission,
-        unverified: destination.unverified,
-      });
+async function deliver({ bytes, name, destination }: DeliverRequest): Promise<Delivered> {
+  switch (destination.kind) {
+    case 'copy':
+      return saveCopy({ bytes, name });
+    case 'unverified':
+      downloadBytes(bytes, name);
+      return { how: 'downloaded', name, fellBack: 'unverified' };
+    case 'overwrite': {
+      const { handle, permission, seen } = destination;
+      // The engine may have taken a while: look again right before writing.
+      if (handle && permission === 'granted' && seen) {
+        const now = await readFileStamp(handle);
+        if (!now || !sameStamp(seen, now)) return { how: 'changedOnDisk' };
+      }
+      return saveBytes({ bytes, name, handle, permission });
+    }
+  }
+}
 
 /** The delivery the app uses: the browser's file APIs and a download. */
 export const browserDelivery: Delivery = { prepare, deliver };

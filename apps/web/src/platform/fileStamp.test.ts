@@ -47,12 +47,15 @@ describe('file stamp', () => {
     expect(await checkFileStamp(handle)).toBe('unknown');
   });
 
-  it('is unknown when the file could not be read at open, even if it reads now', async () => {
+  it('does not latch a failed read at open: the next check reads again and takes the file as the baseline', async () => {
     const disk: { lastModified: number; size: number; fail?: boolean } = { lastModified: 1000, size: 50, fail: true };
     const handle = diskHandle(disk);
     recordFileStamp(handle);
-    disk.fail = false;
     expect(await checkFileStamp(handle)).toBe('unknown');
+    disk.fail = false;
+    expect(await checkFileStamp(handle)).toBe('unchanged');
+    disk.lastModified = 2000;
+    expect(await checkFileStamp(handle)).toBe('changed');
   });
 
   it('is unknown for a handle nothing was recorded for', async () => {
@@ -75,13 +78,13 @@ describe('file stamp', () => {
     expect(await checkFileStamp(handle)).toBe('unchanged');
   });
 
-  it('adopting a file that cannot be read leaves it unknown', async () => {
+  it('adopting a file that cannot be read is not latched either: a later read becomes the baseline', async () => {
     const disk: { lastModified: number; size: number; fail?: boolean } = { lastModified: 1000, size: 50 };
     const handle = diskHandle(disk);
     recordFileStamp(handle);
     disk.fail = true;
     await adoptCurrentFile(handle);
     disk.fail = false;
-    expect(await checkFileStamp(handle)).toBe('unknown');
+    expect(await checkFileStamp(handle)).toBe('unchanged');
   });
 });
