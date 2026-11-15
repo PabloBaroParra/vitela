@@ -38,7 +38,7 @@ describe('browserDelivery.prepare', () => {
     const picker = vi.fn(async () => picked);
     win.showSaveFilePicker = picker;
     const fileHandle = { name: 'a.pdf' } as WritableFileHandle;
-    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle })).toEqual({ kind: 'copy', handle: undefined });
+    expect(await browserDelivery.prepare('copy', { name: 'a.pdf', fileHandle })).toEqual({ kind: 'copy' });
     expect(picker).not.toHaveBeenCalled();
   });
 });

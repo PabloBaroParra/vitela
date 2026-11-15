@@ -22,14 +22,8 @@ export type Destination =
       /** The answer to the write-permission request made at the click. */
       readonly permission: PermissionState;
     }
-  | {
-      readonly kind: 'copy';
-      /**
-       * Always none: a copy is a download. Chromium's save dialog truncates an
-       * existing file it hands back, so it could empty the opened file itself.
-       */
-      readonly handle: WritableFileHandle | undefined;
-    };
+  /** A new copy, always downloaded: see saveCopy.ts for why. */
+  | { readonly kind: 'copy' };
 
 /** The document a save is for. */
 export interface SaveSource {
@@ -52,14 +46,14 @@ export interface Delivery {
 }
 
 async function prepare(intent: SaveIntent, source: SaveSource): Promise<Destination | null> {
-  if (intent === 'copy') return { kind: 'copy', handle: undefined };
+  if (intent === 'copy') return { kind: 'copy' };
   const { fileHandle } = source;
   return { kind: 'overwrite', handle: fileHandle, permission: fileHandle ? await ensureWritePermission(fileHandle) : 'granted' };
 }
 
 const deliver: Deliver = ({ bytes, name, destination }) =>
   destination.kind === 'copy'
-    ? saveCopy({ bytes, name, handle: destination.handle })
+    ? Promise.resolve(saveCopy({ bytes, name }))
     : saveBytes({ bytes, name, handle: destination.handle, permission: destination.permission });
 
 /** The delivery the app uses: the browser's file APIs and a download. */

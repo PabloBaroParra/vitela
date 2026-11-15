@@ -13,8 +13,6 @@ export interface WritableFileHandle {
     /** Drops the swap file without replacing the original. */
     abort?(reason?: unknown): Promise<void>;
   }>;
-  /** Whether both handles name the same file; not every browser has it. */
-  isSameEntry?(other: unknown): Promise<boolean>;
   queryPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;
   requestPermission?(descriptor: { mode: 'readwrite' }): Promise<PermissionState>;
 }

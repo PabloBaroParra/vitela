@@ -124,7 +124,7 @@ describe('SaveControls', () => {
     await screen.findByRole('dialog', { name: SIGNATURE_TITLE });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save a copy' }));
-    expect(await screen.findByText('Saved a copy as a (copy).pdf. The opened file was not changed.')).toBeTruthy();
+    expect(await screen.findByText('Downloaded a copy as a (copy).pdf. The opened file was not changed.')).toBeTruthy();
     expect(asked).toEqual([false, true]);
     expect(intents).toEqual(['overwrite', 'copy']);
   });
@@ -145,13 +145,6 @@ describe('SaveControls', () => {
     expect(await screen.findByText('Save cancelled.')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(asked).toEqual([false]);
-  });
-
-  it('a copy that could not be written says so, not "over the opened file"', async () => {
-    const outcome: SaveOutcome = { how: 'downloaded', name: 'a (copy).pdf', fellBack: 'copy' };
-    renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(outcome));
-    fireEvent.click(saveButton());
-    expect(await screen.findByText('Could not write the copy to the file you chose, so a (copy).pdf was downloaded instead.')).toBeTruthy();
   });
 
   it('Cancel on the signature question saves nothing', async () => {

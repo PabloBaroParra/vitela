@@ -5,7 +5,7 @@ import type { Engine } from '../../core/types';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
-import { browserDelivery, type DeliverRequest, type Delivery, type Destination, type SaveIntent } from './delivery';
+import { type DeliverRequest, type Delivery, type Destination, type SaveIntent } from './delivery';
 import type { SaveOutcome } from './outcome';
 import { useSave } from './useSave';
 
@@ -126,7 +126,7 @@ describe('useSave', () => {
   it('"save a copy" from the signature question prepares a COPY first, then saves with the acknowledgement', async () => {
     const log: Log = [];
     const { engine, asked } = savingEngine(log, signed);
-    const copy: Destination = { kind: 'copy', handle: undefined };
+    const copy: Destination = { kind: 'copy' };
     const { prepared, calls, delivery } = deliveries(log, copy);
     const { result } = renderHook(() => useSave(engine, document, delivery));
     act(() => result.current.save());
@@ -255,29 +255,5 @@ describe('useSave', () => {
     await act(async () => release());
     expect(calls.map((c) => c.name)).toEqual(['b.pdf']);
     expect(result.current.activity.kind).toBe('done');
-  });
-
-  it('a failed engine save after the copy target was picked writes nothing to that file', async () => {
-    const created: string[] = [];
-    const target = {
-      kind: 'file',
-      name: 'chosen.pdf',
-      createWritable: async () => (created.push('createWritable'), { write: async () => {}, close: async () => {} }),
-    } as unknown as WritableFileHandle;
-    const win = window as unknown as { showSaveFilePicker?: unknown };
-    win.showSaveFilePicker = async () => target;
-    try {
-      const engine = fakeEngine({
-        saveToBytes: async () => {
-          throw new EngineError('Internal', 'boom');
-        },
-      });
-      const { result } = renderHook(() => useSave(engine, document, browserDelivery));
-      act(() => result.current.saveSignedCopy());
-      await waitFor(() => expect(result.current.activity.kind).toBe('failed'));
-      expect(created).toEqual([]);
-    } finally {
-      delete win.showSaveFilePicker;
-    }
   });
 });

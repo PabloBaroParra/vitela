@@ -61,7 +61,7 @@ function outcomeText(outcome: SaveOutcome): string {
     case 'wrote':
       return `Saved over ${outcome.name}.`;
     case 'copied':
-      return `Saved a copy as ${outcome.name}. The opened file was not changed.`;
+      return `Downloaded a copy as ${outcome.name}. The opened file was not changed.`;
     case 'cancelled':
       return 'Save cancelled.';
     case 'downloaded':
@@ -70,8 +70,6 @@ function outcomeText(outcome: SaveOutcome): string {
           return `Permission to write over the opened file was refused, so ${outcome.name} was downloaded instead.`;
         case 'write':
           return `Could not write over the opened file, so ${outcome.name} was downloaded instead.`;
-        case 'copy':
-          return `Could not write the copy to the file you chose, so ${outcome.name} was downloaded instead.`;
         case null:
           return `Downloaded ${outcome.name}.`;
       }
