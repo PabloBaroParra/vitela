@@ -43,8 +43,8 @@ export function SignatureDialog({ onProceed, onCancel }: SignatureDialogProps) {
       </h2>
       <div id={bodyId} className="dialog__body">
         <p>
-          The signature stays in the file, but PDF readers will report it as invalid because the content it covers
-          changes.
+          Saving rewrites the file, so the signature no longer matches it. The signature is not removed: PDF readers
+          will report it as invalid.
         </p>
         <p className="dialog__hint">To keep a copy that still verifies, cancel and save to a different file.</p>
       </div>
