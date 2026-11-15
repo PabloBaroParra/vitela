@@ -616,6 +616,17 @@ open-unsaved-discard = Descartar
 open-unsaved-save = Guardar
 open-unsaved-kept = Se han conservado los cambios sin guardar.
 
+## Crash recovery: offered on startup when a previous session closed
+## unexpectedly with unsaved changes
+
+recovery-title = ¿Recuperar los cambios sin guardar?
+recovery-detail = Vitela se cerró inesperadamente mientras «{ $name }» tenía cambios sin guardar. Se puede restaurar una copia guardada el { $time }.
+recovery-discard = Descartar
+recovery-restore = Restaurar
+recovery-restored = Se han recuperado los cambios sin guardar. Guarda el documento para conservarlos.
+recovery-kept = Se ha conservado la copia recuperada para el próximo inicio.
+recovery-unreadable = La copia recuperada no se pudo abrir y se ha descartado.
+
 ## Opening documents: password prompt for an encrypted PDF
 
 open-password-title = Se necesita una contraseña

@@ -64,6 +64,8 @@ pub(super) struct EditState {
     /// those — carrying the one the session already had is what keeps the
     /// Organize base block titled with the user's file after a page move.
     base_name: String,
+    /// The refresh reopens from bytes too, which `show_document` takes as new.
+    unsaved_base: bool,
     save_backing: Option<SaveBacking>,
     imported_sources: Vec<ImportedSource>,
     content_checkpoints: pdf_save::Checkpoints<SaveBacking>,
@@ -116,6 +118,7 @@ pub(super) fn take_edit_state(viewer: &Viewer) -> Option<EditState> {
     Some(EditState {
         document_model: session.document_model.take(),
         base_name: session.base_name.clone(),
+        unsaved_base: session.unsaved_base,
         save_backing: session.save_backing.take(),
         imported_sources: std::mem::take(&mut session.imported_sources),
         // Kept with the backing it belongs to: the refresh reopens from bytes
@@ -163,6 +166,7 @@ pub(super) fn restore_edit_state(viewer: &Viewer, preserved: Option<EditState>) 
                 session.backend_pages = backend_page_order(preserved.document_model.as_ref());
                 session.document_model = preserved.document_model;
                 session.base_name = preserved.base_name;
+                session.unsaved_base = preserved.unsaved_base;
                 session.save_backing = preserved.save_backing;
                 session.imported_sources = preserved.imported_sources;
                 session.content_checkpoints = preserved.content_checkpoints;

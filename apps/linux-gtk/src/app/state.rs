@@ -163,6 +163,10 @@ pub(crate) struct Viewer {
     /// owned by `signature::update_draw_signature_control`.
     pub(crate) draw_signature: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
+    /// This window's autosave: its recovery entry and the timer that writes
+    /// it. Beside `state` rather than in it, because it outlives every
+    /// document the window shows — one entry per window, not per document.
+    pub(crate) recovery: crate::app::recovery::Recovery,
 }
 
 impl Viewer {
@@ -1461,6 +1465,15 @@ pub(crate) struct DocumentSession {
     /// (`document::restore_edit_state`), which reopens from bytes that carry
     /// no name of their own.
     pub(crate) base_name: String,
+    /// The file this document was opened from or last saved to, when there
+    /// is one — `None` for the sample and for a document that only ever
+    /// existed in memory.
+    ///
+    /// What the Save chooser suggests, and what a recovery entry records so
+    /// that a restored document — which reopens from in-memory bytes — still
+    /// knows where it belongs. Carried across a preview refresh like
+    /// `base_name`, for the same reason.
+    pub(crate) origin_path: Option<PathBuf>,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
@@ -1555,6 +1568,11 @@ pub(crate) struct DocumentSession {
     /// its own reopen (`document::restore_edit_state`), because the bytes it
     /// showed were never written anywhere.
     pub(crate) unsaved_to_disk: bool,
+    /// The bytes this session opened from were never written to its file —
+    /// a crash-recovery restore (`recovery::restore`). Unlike
+    /// `unsaved_to_disk` no undo can take it back, so it alone keeps Save lit
+    /// with an empty history. Only a disk save's fresh session clears it.
+    pub(crate) unsaved_base: bool,
     pub(crate) edit_revision: u64,
     pub(crate) next_annotation_id: u64,
     // There is no `next_page_id` beside these two, and deliberately so: page
@@ -1801,6 +1819,8 @@ pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
     /// See [`DocumentSession::base_name`], which this becomes.
     pub(crate) name: String,
+    /// See [`DocumentSession::origin_path`], which this becomes.
+    pub(crate) origin_path: Option<PathBuf>,
     pub(crate) page_geometry: Vec<PageGeometry>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,

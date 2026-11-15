@@ -54,6 +54,8 @@ pub(super) fn spawn_write<W>(
             match result {
                 Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
                     show_document(&viewer, generation, reopened);
+                    // The work the recovery entry protected is on disk now.
+                    crate::app::recovery::forget(&viewer);
                     viewer.status.set_text(&operation.done());
                     // Last: the continuation may replace this document, and
                     // its own status text should be what remains on screen.

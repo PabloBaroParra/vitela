@@ -16,7 +16,7 @@ use super::super::document::open_document;
 use super::super::state::{
     DocumentSource, ImportedSource, OpenedDocument, SaveBacking, SessionToken, Viewer,
 };
-use super::chooser::{choose_destination, confirm_signature_loss};
+use super::chooser::{choose_destination_from, confirm_signature_loss};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
@@ -39,10 +39,19 @@ pub(crate) fn show_save_chooser_then(
     if !commit_open_retype(viewer) {
         return;
     }
-    choose_destination(
+    // A document restored after a crash reopens from in-memory bytes, so
+    // this is the only way its Save still points at the file it came from.
+    let origin = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.origin_path.clone());
+    choose_destination_from(
         window,
         viewer,
         SAVE,
+        origin.as_deref(),
         Rc::new(move |window, viewer, destination| {
             save_current_to(window, viewer, destination, after_save.clone());
         }),
