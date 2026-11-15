@@ -19,31 +19,22 @@ public sealed partial class MainWindow
     {
         /// <summary>No image selected, or nothing may be edited.</summary>
         Nothing,
-        /// <summary>Selected, and both commands are available.</summary>
+        /// <summary>Selected, and both commands are available, whatever the image is encoded as.</summary>
         Ready,
-        /// <summary>Selected, but its bytes cannot be read back, so a swap could not be undone.</summary>
-        NoReplace,
-        /// <summary>Selected, and it already carries an unsaved edit. Outranks <see cref="NoReplace"/>.</summary>
+        /// <summary>Selected, and it already carries an unsaved edit.</summary>
         PendingEdit,
     }
 
     private const string NoImageSelectedHint = "Click an image on the page to select it.";
     private const string ImageSelectedHint = "Image selected — replace or delete it.";
-    private const string ImageSelectedNoReplaceHint = "Image selected — move, resize or delete it. It cannot be replaced: "
-        + "its current encoding cannot be read back, so the swap could not be undone.";
     private const string ImagePendingEditHint = "This image has an unsaved edit — move, resize or delete it. Save before replacing it.";
-
-    /// <summary>Images whose replacement the core refused before any picker opened.</summary>
-    private readonly HashSet<(uint Page, ulong Image)> _replaceRefusedImages = [];
 
     private ImageControls CurrentImageControls()
     {
         if (_session is null || !ContentEditButton.IsEnabled || !_contentEditMode || _selectedContentImage is not { } image)
             return ImageControls.Nothing;
         var key = (image.PageIndex, image.Id);
-        return _pendingImageEdits.Contains(key) ? ImageControls.PendingEdit
-            : _replaceRefusedImages.Contains(key) ? ImageControls.NoReplace
-            : ImageControls.Ready;
+        return _pendingImageEdits.Contains(key) ? ImageControls.PendingEdit : ImageControls.Ready;
     }
 
     private void UpdateImageCard()
@@ -52,12 +43,11 @@ public sealed partial class MainWindow
         var idle = !_isBusy && !_editingImage;
         // A pending move or resize folds a deletion into itself in the core,
         // so only Replace — which needs the file's own bytes — waits for a save.
-        DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.NoReplace or ImageControls.PendingEdit;
+        DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.PendingEdit;
         ReplaceImageButton.IsEnabled = idle && controls == ImageControls.Ready;
         _editImageHint.Text = controls switch
         {
             ImageControls.Ready => ImageSelectedHint,
-            ImageControls.NoReplace => ImageSelectedNoReplaceHint,
             ImageControls.PendingEdit => ImagePendingEditHint,
             _ => NoImageSelectedHint,
         };
@@ -87,25 +77,6 @@ public sealed partial class MainWindow
         var current = images.Value!.FirstOrDefault(image => image.Id == selected.Id && image.Bounds == selected.Bounds);
         if (current is null) AnnotationStatus.Text = "The page changed — select the image again.";
         return current;
-    }
-
-    /// <summary>
-    /// Asks the core, as soon as an image is selected, whether it could be
-    /// replaced — so an unrecoverable encoding greys Replace out and says why
-    /// before anyone reaches for a file.
-    /// </summary>
-    private async Task ProbeImageReplacementAsync(ContentImage selected)
-    {
-        if (_session is null) return;
-        var sessionId = _session.SessionId;
-        var key = (selected.PageIndex, selected.Id);
-        if (_replaceRefusedImages.Contains(key) || _pendingImageEdits.Contains(key)) return;
-        var current = await CurrentContentImageAsync(sessionId, selected);
-        if (current is null || !ReferenceEquals(_selectedContentImage, selected)) return;
-        var probe = await _facade.PrepareImageReplacementAsync(sessionId, current);
-        if (probe.IsSuccess || _session?.SessionId != sessionId || !ReferenceEquals(_selectedContentImage, selected)) return;
-        _replaceRefusedImages.Add(key);
-        UpdateImageCard();
     }
 
     private async void DeleteImageButton_Click(object sender, RoutedEventArgs e) => await DeleteSelectedImageAsync();

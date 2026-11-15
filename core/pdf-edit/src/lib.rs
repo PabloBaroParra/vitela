@@ -73,7 +73,7 @@ mod fixture;
 
 pub use clipboard::{copy_selection, paste_clip, pasted_content};
 pub use edit::{
-    image_source_bytes, inserted_font_text_bbox, move_image, move_text_run, remove_image,
+    check_image_source, inserted_font_text_bbox, move_image, move_text_run, remove_image,
     remove_text_run, replace_image_source, replace_text_run, replace_text_run_with_inserted_font,
     resize_image, text_run_bbox,
 };

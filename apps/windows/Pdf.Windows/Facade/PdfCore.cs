@@ -107,7 +107,13 @@ internal interface IPdfCore
     /// </remarks>
     PdfCorePageContent ReadPageContent(IPdfCoreDocument document, uint pageIndex);
 
-    byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image);
+    /// <summary>
+    /// Throws when <paramref name="image"/> cannot be replaced now: the document
+    /// forbids content changes, the image already has an unsaved edit, or the
+    /// page no longer paints it. Every encoding is replaceable, because undo
+    /// restores the original exactly.
+    /// </summary>
+    void CheckImageReplacement(IPdfCoreDocument document, PdfCoreContentImage image);
 
     /// <summary>
     /// The vector paths a page paints — table borders, rules, shaded boxes —
@@ -533,7 +539,7 @@ internal abstract record PdfCoreEdit
     public sealed record InsertImage(PdfCoreContentImage Item, byte[] Source) : PdfCoreEdit;
     public sealed record ResizeImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
     public sealed record MoveImage(PdfCoreContentImage Item, PdfCoreRect Rect) : PdfCoreEdit;
-    public sealed record ReplaceImageSource(PdfCoreContentImage Item, byte[] Before, byte[] After) : PdfCoreEdit;
+    public sealed record ReplaceImageSource(PdfCoreContentImage Item, byte[] After) : PdfCoreEdit;
     public sealed record RemoveImage(PdfCoreContentImage Item) : PdfCoreEdit;
     /// <summary>Moves a path; only the origin of <c>To</c> is read.</summary>
     public sealed record MovePath(PdfCoreContentPath Item, PdfCoreRect To) : PdfCoreEdit;

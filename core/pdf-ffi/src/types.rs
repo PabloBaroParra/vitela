@@ -978,9 +978,11 @@ pub enum FfiEditCommand {
         item: FfiContentImageItem,
         to: FfiRect,
     },
+    /// Swaps the image's picture for `after`, an encoded PNG or JPEG file.
+    /// Undo puts the original back exactly as the file holds it, whatever
+    /// it is encoded as, so nothing about the old picture is sent.
     ReplaceImageSource {
         item: FfiContentImageItem,
-        before: Vec<u8>,
         after: Vec<u8>,
     },
     /// Moves a path so its box sits at `to`'s origin; its size is kept.

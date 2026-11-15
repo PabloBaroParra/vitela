@@ -18,7 +18,7 @@ extension UniFfiPdfCoreClient {
 
     func imageReplacementRefusal(document: any PdfDocument, image: ContentImage) -> String? {
         guard let handle = try? handle(of: document) else { return "The document is no longer open." }
-        guard (try? handle.imageSourceBytes(item: FfiContentImageItem(image))) != nil else { return Self.replaceRefusal(handle) }
+        guard (try? handle.checkImageReplacement(item: FfiContentImageItem(image))) != nil else { return Self.replaceRefusal(handle) }
         return nil
     }
 
@@ -95,13 +95,14 @@ private extension UniFfiPdfCoreClient {
 }
 
 private extension UniFfiPdfCoreClient {
-    /// `before` is read here, at apply time, not carried from the check: an
-    /// edit may have landed in between, and the undo must restore what the
-    /// page holds now — Android's reasoning.
+    /// Checked again here, at apply time, not carried from the check: an edit
+    /// may have landed in between — Android's reasoning. Nothing of the old
+    /// picture is sent: undo restores the original exactly.
     func replaceImage(handle: DocumentHandle, image: ContentImage, with bytes: Data) throws {
         let item = FfiContentImageItem(image)
         do {
-            try Vitela.applyEdit(handle: handle, command: .replaceImageSource(item: item, before: handle.imageSourceBytes(item: item), after: bytes))
+            try handle.checkImageReplacement(item: item)
+            try Vitela.applyEdit(handle: handle, command: .replaceImageSource(item: item, after: bytes))
         } catch FfiError.InvalidImage {
             throw EditFailure.failed(ContentEditing.notAnImage)
         } catch FfiError.UnsupportedOperation {
@@ -135,7 +136,7 @@ private extension UniFfiPdfCoreClient {
 
 private extension FfiEditCommand {
     /// `nil` for an edit that needs more than its own values: an insertion
-    /// the page's names, a replace the old picture, a watermark the core's look.
+    /// the page's names, a replace the core's check, a watermark the core's look.
     init?(_ edit: ContentEdit) {
         switch edit {
         case let .retypeText(run, text):

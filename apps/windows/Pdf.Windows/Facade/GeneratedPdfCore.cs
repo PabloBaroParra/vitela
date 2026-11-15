@@ -247,9 +247,9 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
             _ => FfiPathPaint.FillAndStroke,
         });
 
-    public byte[] ImageSourceBytes(IPdfCoreDocument document, PdfCoreContentImage image)
+    public void CheckImageReplacement(IPdfCoreDocument document, PdfCoreContentImage image)
     {
-        try { return ((GeneratedDocument)document).Handle.ImageSourceBytes(new FfiContentImageItem(
+        try { ((GeneratedDocument)document).Handle.CheckImageReplacement(new FfiContentImageItem(
             image.Id, image.PageIndex, Rect(image.Bbox), image.ResourceXObjectName)); }
         catch (FfiException error) { throw Translate(error); }
     }
@@ -547,7 +547,7 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
         PdfCoreEdit.RemovePath value => new FfiEditCommand.RemovePath(ContentPath(value.Item)),
         PdfCoreEdit.ReplaceImageSource value => new FfiEditCommand.ReplaceImageSource(
             new FfiContentImageItem(value.Item.Id, value.Item.PageIndex, Rect(value.Item.Bbox), value.Item.ResourceXObjectName),
-            value.Before, value.After),
+            value.After),
         PdfCoreEdit.AddWatermark value => new FfiEditCommand.AddWatermark(new FfiWatermark(
             [.. value.Watermark.Pages],
             value.Watermark.Text,

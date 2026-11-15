@@ -287,7 +287,6 @@ impl From<pdf_edit::EditError> for FfiError {
             other @ (E::CompositeFontNotEditable { .. }
             | E::FontSubstitutionNotApplicable { .. }
             | E::TextRunNotMovable { .. }
-            | E::ImageSourceNotRecoverable { .. }
             | E::UnsupportedContentStreamFilter { .. }
             | E::PageContentTooLarge { .. }
             | E::AmbiguousItem { .. }

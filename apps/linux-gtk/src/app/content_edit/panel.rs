@@ -80,29 +80,7 @@ pub(crate) const NO_IMAGE_SELECTED: &str = "edit-no-image-selected";
 pub(crate) const NO_SHAPE_SELECTED: &str = "edit-no-shape-selected";
 pub(crate) const IMAGE_SELECTED: &str = "edit-image-selected";
 
-/// The third state of the same pair (T-204): an image is selected and three
-/// of its four operations are available, but replacing it is not.
-///
-/// `pdf-edit` can only record a replacement it could also undo, and undo
-/// means putting the original picture back — so an image whose encoding it
-/// cannot read back (`EditError::ImageSourceNotRecoverable`: an `Indexed` or
-/// `DeviceCMYK` colour space, 16-bit samples, a `/Decode` array, JPEG2000,
-/// an inline image whose colour space names a page resource, …) has no
-/// `before` to carry and the replace is refused outright.
-///
-/// It is said **here**, beside a greyed-out button, rather than only as the
-/// status line the refusal used to be, for the reason this whole module
-/// exists: a control that does nothing with no stated reason reads as broken.
-/// And it is said *instead of* letting the file picker open — being asked to
-/// choose a replacement and only then being told none was ever possible is
-/// the same refusal delivered as a failure.
-///
-/// Says nothing about how the image is stored, and that is the point: this
-/// is the same sentence whether the samples sit in an XObject or inline in
-/// the content stream. What decides is the encoding, not the packaging.
-pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str = "edit-image-no-replace";
-
-/// The fourth state, and the only temporary one: this image already carries
+/// The third state, and the only temporary one: this image already carries
 /// an edit that has not reached disk, so **nothing** can be recorded against
 /// it until a save and reopen.
 ///
@@ -119,9 +97,8 @@ pub(crate) const IMAGE_SELECTED_NO_REPLACE: &str = "edit-image-no-replace";
 /// control's explanation or from the status line after a drag — hears the
 /// same words.
 ///
-/// **This one must never be latched.** Unlike
-/// [`IMAGE_SELECTED_NO_REPLACE`], which is a property of bytes that will not
-/// change, this state ends the moment the document is saved and reopened:
+/// **This one must never be latched.** This state ends the moment the
+/// document is saved and reopened:
 /// `write::preview::edits` carries `document_model` — and with it the
 /// `EditLog` this reads — across the refresh, so the answer has to be
 /// recomputed from that log every time, never remembered on the selection.

@@ -246,7 +246,6 @@ edit-text-editing = Retyping text — press Enter to keep it or Esc to cancel, o
 edit-paragraph-editing = Retyping a paragraph — Enter starts a new line, Ctrl+Enter or clicking away keeps it, Esc cancels.
 edit-no-image-selected = Click an image on the page to select it.
 edit-image-selected = Image selected — replace or delete it.
-edit-image-no-replace = Image selected — move, resize or delete it. It cannot be replaced: its current encoding cannot be read back, so the swap could not be undone.
 edit-image-pending = This image has an unsaved edit — move, resize or delete it, or save before replacing it.
 edit-no-shape-selected = Click a line, border or shaded box on the page to select it.
 edit-shape-selected = Shape selected — drag it, drag a corner to resize it, or press Delete.

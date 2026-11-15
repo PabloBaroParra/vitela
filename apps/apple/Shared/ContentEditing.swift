@@ -15,7 +15,7 @@ enum ContentEditing {
     static let imageInsertPrompt = "Click the page where the image's top-left corner should go."
     static let notAnImage = "This file is not a PNG or JPEG image."
     /// Android's: names what the reader can do about it.
-    static let replaceRefused = "This image cannot be replaced. Save first if it already has a pending edit; some original encodings cannot be restored by Undo and are refused."
+    static let replaceRefused = "This image cannot be replaced. Save first if it already has a pending edit."
     static let insertCancelled = "Insert cancelled."
     static let insertEmpty = "Enter a nonempty single line of text."
     static let insertSizeInvalid = "Text size must be between 1 and 72 pt."

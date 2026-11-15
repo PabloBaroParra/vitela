@@ -27,11 +27,6 @@ struct ContentEditState {
     /// Images moved, resized or deleted since the last save, by page and id:
     /// their replace waits for a save. Move, resize and delete do not.
     var editedImages = Set<ContentImageKey>()
-    /// Images the core was asked about on selection, and those it said it
-    /// could not read back for a replace — asked once per image, since it is
-    /// a property of the bytes, and forgotten with every new revision.
-    var replaceChecked = Set<ContentImageKey>()
-    var unreplaceableImages = Set<ContentImageKey>()
     /// The vector path clicked last, whose handles show (B25 T-206).
     var selectedPath: ContentPath?
     /// A press on a path: a move, or a reshape by the selected path's corner.

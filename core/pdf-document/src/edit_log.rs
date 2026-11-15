@@ -292,13 +292,18 @@ pub enum Command {
         item: ImageItem,
         to: Rect,
     },
-    /// Swaps the bytes behind an existing image, keeping its resource name
-    /// and its place on the page. Unlike geometry and text, the previous
-    /// value is not part of `ImageItem`, so `before` is stored explicitly —
-    /// it is the only way undo can restore the original image.
+    /// Swaps the bytes behind an existing image for `after`, an encoded
+    /// PNG or JPEG file, keeping its place on the page.
+    ///
+    /// There is no `before`. Like every page-content edit this one is inert
+    /// on the model: the queued entry *is* the edit, so undo drops it from
+    /// the queue and the file's own image — whatever it is encoded as — is
+    /// what the next save writes, byte for byte. Undo across an in-memory
+    /// checkpoint steps back to the base the replacement was queued against,
+    /// which still holds the original. A re-encoded copy of the old picture
+    /// would only ever be a lossier version of what is already there.
     ReplaceImageSource {
         item: ImageItem,
-        before: Vec<u8>,
         after: Vec<u8>,
     },
     /// Repositions an existing vector path (B25 P1) — `item.bbox` is where
@@ -1120,15 +1125,10 @@ impl Command {
                     to: item.bbox,
                 }
             }
-            Command::ReplaceImageSource {
-                item,
-                before,
-                after,
-            } => Command::ReplaceImageSource {
-                item: item.clone(),
-                before: after.clone(),
-                after: before.clone(),
-            },
+            // Its own inverse, and never written as one: undo pops the
+            // replacement out of the queue instead, which leaves the file's
+            // original image in place. See the variant's doc.
+            Command::ReplaceImageSource { .. } => self.clone(),
             // Only the origin of `to` is read, so the untouched size rides
             // along — the same swap `MoveTextRun` makes.
             Command::MovePath { item, to } => {
@@ -2679,7 +2679,6 @@ mod tests {
             },
             Command::ReplaceImageSource {
                 item: sample_image(),
-                before: vec![0x89, b'P'],
                 after: vec![0xff, 0xd8],
             },
             Command::AddWatermark(sample_watermark()),
@@ -2904,26 +2903,23 @@ mod tests {
         assert_eq!(to, sample_image().bbox);
     }
 
-    /// Image bytes are not part of `ImageItem`, so unlike geometry and text
-    /// this one genuinely needs both halves stored — undo cannot re-derive
-    /// the replaced image from anywhere else.
+    /// Undoing a replacement takes it out of the queue rather than queueing
+    /// a second replacement back to the old picture: with nothing queued,
+    /// the save writes the file's own image, however it is encoded.
     #[test]
-    fn the_inverse_of_an_image_source_replacement_swaps_the_bytes() {
-        let inverse = Command::ReplaceImageSource {
+    fn undoing_an_image_source_replacement_leaves_nothing_queued() {
+        let replacement = Command::ReplaceImageSource {
             item: sample_image(),
-            before: vec![0x89, b'P'],
             after: vec![0xff, 0xd8],
-        }
-        .inverse();
+        };
+        let mut document = one_page_document();
+        let mut log = EditLog::new();
 
-        assert_eq!(
-            inverse,
-            Command::ReplaceImageSource {
-                item: sample_image(),
-                before: vec![0xff, 0xd8],
-                after: vec![0x89, b'P'],
-            }
-        );
+        assert!(log.apply(&mut document, replacement.clone()));
+        assert!(log.undo(&mut document));
+        assert!(log.entries().is_empty());
+        assert!(log.redo(&mut document));
+        assert_eq!(log.entries(), &[replacement]);
     }
 
     /// An insertion styled after another run is undone like any insertion:

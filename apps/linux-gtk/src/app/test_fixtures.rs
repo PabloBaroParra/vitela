@@ -205,6 +205,23 @@ pub(crate) fn checkpointable_session(lines: &[&str]) -> DocumentSession {
     session
 }
 
+/// A session over [`gen_fixtures::content_edit::build_any_encoding_image_page_document`],
+/// opened the way [`checkpointable_session`] opens its page of text.
+pub(crate) fn any_encoding_session() -> DocumentSession {
+    let mut fixture = gen_fixtures::content_edit::build_any_encoding_image_page_document();
+    let mut bytes = Vec::new();
+    fixture.save_to(&mut bytes).expect("serialize the fixture");
+    let (base, _) = pdf_manip::open_document_from_bytes(&bytes, None).expect("the fixture opens");
+    let document = pdf_save::document_from_lopdf(&base, None).expect("the fixture reads");
+    let mut session = model_session(document);
+    session.save_backing = Some(crate::app::state::SaveBacking {
+        base: base.into(),
+        original_bytes: bytes.into(),
+        password: None,
+    });
+    session
+}
+
 /// The text runs page 0 of `session` shows, its pending edits layered on —
 /// what the canvas hit-tests and what a gesture hands back to `record`.
 pub(crate) fn shown_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun> {
@@ -220,10 +237,10 @@ pub(crate) fn shown_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun
     .text_runs
 }
 
-/// The text runs page 0 holds once `session` is saved and the bytes reopened.
-pub(crate) fn saved_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun> {
+/// The bytes `session` saves to.
+pub(crate) fn saved_bytes(session: &DocumentSession) -> Vec<u8> {
     let backing = session.save_backing.as_ref().expect("a backing");
-    let bytes = pdf_save::save_document(pdf_save::SaveInput {
+    pdf_save::save_document(pdf_save::SaveInput {
         document: session.document_model.as_ref().expect("a model"),
         base: &backing.base,
         original_bytes: Some(&backing.original_bytes),
@@ -231,7 +248,12 @@ pub(crate) fn saved_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun
         signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
         imported_sources: pdf_save::ImportedSources::none(),
     })
-    .expect("the session saves");
+    .expect("the session saves")
+}
+
+/// The text runs page 0 holds once `session` is saved and the bytes reopened.
+pub(crate) fn saved_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun> {
+    let bytes = saved_bytes(session);
     let (reopened, _) =
         pdf_manip::open_document_from_bytes(&bytes, None).expect("the save reopens");
     pdf_edit::read_page_content(reopened.as_lopdf(), PageId(0))

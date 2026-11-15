@@ -539,10 +539,10 @@ stale. Save to keep the deletion.
 
 **Replace image** swaps the image selected on the canvas for a PNG or JPEG. The
 chosen image keeps its position and dimensions; a different aspect ratio
-stretches to that rectangle. Original bytes are recovered through Rust as soon as
-the image is selected, again before the picker opens and at submission, including
-on imported pages. Encodings that cannot round-trip without loss grey Replace out
-with an explanation, so undo can always restore the source. A pending move or
+stretches to that rectangle. Rust checks the image before the picker opens and
+again at submission, including on imported pages. Every encoding is replaceable:
+undo drops the queued replacement, so the original comes back exactly as the
+file stored it. A pending move or
 resize disables Replace until a save; the image can still be dragged, resized
 or deleted again, each folding into the queued edit as one undo step, and the
 selection frame follows the image to where it now is. Replacement requires

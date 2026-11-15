@@ -7,9 +7,9 @@ namespace Pdf.Windows;
 /// keeping its position and size.
 /// </summary>
 /// <remarks>
-/// The core is asked before the picker opens (T-204): an image with a pending
-/// edit, or one whose encoding cannot be read back for undo, is refused
-/// without spending the reader's effort on choosing a file first.
+/// The core is asked before the picker opens: an image with a pending edit is
+/// refused without spending the reader's effort on choosing a file first.
+/// Every encoding is replaceable — undo restores the original exactly.
 /// </remarks>
 public sealed partial class MainWindow
 {
@@ -36,7 +36,6 @@ public sealed partial class MainWindow
             if (_session?.SessionId != sessionId) return;
             if (!prepared.IsSuccess)
             {
-                _replaceRefusedImages.Add(key);
                 AnnotationStatus.Text = prepared.Error!.Message;
                 return;
             }

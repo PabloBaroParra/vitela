@@ -144,7 +144,6 @@ public sealed partial class MainWindow
             ?? throw new Exception("Inserted image is not at its click's top-left corner.");
         _selectedContentImage = image;
         RedrawContentImageSelection();
-        await ProbeImageReplacementAsync(image);
         if (CurrentImageControls() != ImageControls.Ready || !DeleteImageButton.IsEnabled || !ReplaceImageButton.IsEnabled
             || _editImageHint.Text != ImageSelectedHint)
             throw new Exception($"Selected image card is {CurrentImageControls()}, not Ready.");

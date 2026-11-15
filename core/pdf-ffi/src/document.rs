@@ -381,13 +381,8 @@ impl DocumentState {
                 item: self.image_item(item)?,
                 to: to.into(),
             },
-            FfiEditCommand::ReplaceImageSource {
-                item,
-                before,
-                after,
-            } => Command::ReplaceImageSource {
+            FfiEditCommand::ReplaceImageSource { item, after } => Command::ReplaceImageSource {
                 item: self.image_item(item)?,
-                before,
                 after,
             },
             FfiEditCommand::MovePath { item, to } => Command::MovePath {
@@ -1263,13 +1258,14 @@ impl DocumentHandle {
             .collect())
     }
 
-    /// Reads the original image as PNG/JPEG for an undoable source replacement.
-    /// Refuses pending edits and encodings that cannot round-trip without loss.
-    pub fn image_source_bytes(&self, item: FfiContentImageItem) -> Result<Vec<u8>, FfiError> {
+    /// Whether `item` could be replaced now, asked before a shell opens its
+    /// file picker. Refuses a document that forbids content changes, an
+    /// image that already has an unsaved edit, and an item the page no
+    /// longer paints. Every encoding is replaceable: undo restores the
+    /// original exactly, so nothing about the old picture is read.
+    pub fn check_image_replacement(&self, item: FfiContentImageItem) -> Result<(), FfiError> {
         let state = self.lock();
-        if !content_editing_is_allowed(&state.document)
-            || !text_extraction_is_allowed(&state.document)
-        {
+        if !content_editing_is_allowed(&state.document) {
             return Err(FfiError::UnsupportedOperation {
                 detail: "image replacement is not permitted".to_string(),
             });
@@ -1299,7 +1295,7 @@ impl DocumentHandle {
         state.with_imported_sources(|sources| {
             match pdf_save::page_backing(&state.document, item.page, &state.base, sources)? {
                 pdf_save::origin::PageBacking::Object { document, object } => {
-                    pdf_edit::image_source_bytes(document.as_lopdf(), object, &item)
+                    pdf_edit::check_image_source(document.as_lopdf(), object, &item)
                         .map_err(FfiError::from)
                 }
                 pdf_save::origin::PageBacking::Empty => Err(FfiError::UnsupportedOperation {

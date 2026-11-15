@@ -89,10 +89,6 @@ public sealed partial class MainWindow
             return;
         }
 
-        if (!ReferenceEquals(hit, _selectedContentImage))
-        {
-            _ = ProbeImageReplacementAsync(hit);
-        }
         ClearContentPathSelection();
         _selectedContentImage = hit;
         ClaimPageFocus();
@@ -215,7 +211,6 @@ public sealed partial class MainWindow
         ClearContentImageSelection();
         ClearContentPathSelection();
         _pendingImageEdits.Clear();
-        _replaceRefusedImages.Clear();
     }
 
     private void ClearContentImageSelection()

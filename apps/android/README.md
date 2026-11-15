@@ -493,18 +493,18 @@ tap queues one delete; a refusal is reported in the status line. The delete
 redraws the page and re-reads it, so the outline goes with the image; the gate
 is the same `content_editing_allowed`. An image with a pending move or resize can
 be deleted: the core folds the delete into the queued edit (B25 T-207), so it
-stays one undo step. Only **Replace** below still needs a save first: its
-original is read through `image_source_bytes`, which refuses an image with a
-pending edit and has no checkpoint of its own.
+stays one undo step. Only **Replace** below still needs a save first:
+`check_image_replacement` refuses an image with a pending edit and has no
+checkpoint of its own.
 
 **Replace** in that dialog swaps the image's picture for a PNG or JPEG, keeping
 its box: a different aspect ratio stretches to it (`ReplaceImageSource`). The
-core first reads the original back through `image_source_bytes`, before any
-picker opens, as the Windows shell does: an image with a pending edit, or an
-original whose encoding Undo could not restore without loss, is refused there
-and reported in the status line, so the reader never picks a file for nothing.
-The original is read again when the file lands, so the undo restores what the
-page holds then. A dismissed picker or an unreadable file replaces nothing; a
+core first checks the image through `check_image_replacement`, before any
+picker opens, as the Windows shell does: an image with a pending edit is
+refused there and reported in the status line, so the reader never picks a file
+for nothing. Every encoding is replaceable, because Undo drops the queued
+replacement and the original comes back exactly as the file stored it. The
+check runs again when the file lands. A dismissed picker or an unreadable file replaces nothing; a
 file that is not PNG or JPEG is refused by the core. The pick is spent before
 the core answers, so a second one queues nothing, and an undo or redo while the
 picker is open drops the replacement, since the image it held may have
