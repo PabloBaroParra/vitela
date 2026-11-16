@@ -35,7 +35,7 @@ public sealed partial class MainWindow
             // A recorded edit remains undoable even when refreshing its preview fails.
             _contentEditedPages.Add(pageIndex);
             CancelContentEditor();
-            _pageContent.Remove(pageIndex);
+            ForgetPageContent(pageIndex);
             if (pageIndex < _slots.Count) ClearContentOutlines(_slots[(int)pageIndex]);
             InvalidatePageRender(pageIndex);
             RedrawAnnotations();

@@ -47,6 +47,13 @@ public sealed partial class MainWindow
     /// <summary>Whether the press content-edit mode claimed found an inline editor open, read before it committed it.</summary>
     private bool _contentPressEditorOpen;
 
+    /// <summary>
+    /// Where the pointer last rested on a page, in page space, kept until it
+    /// leaves that page — so a hover an edit dropped can be found again
+    /// without the pointer moving.
+    /// </summary>
+    private (uint Page, AnnotationPoint Point)? _contentHoverPointer;
+
     /// <summary>The page whose surface shows the move cursor, or <c>null</c>.</summary>
     private PageSlot? _moveCursorSlot;
 
@@ -93,10 +100,15 @@ public sealed partial class MainWindow
         _ => false,
     };
 
-    /// <summary>Follows the pointer to <paramref name="point"/> on a page.</summary>
-    private void TrackContentHover(PageSlot slot, int pageIndex, AnnotationPoint point)
+    /// <summary>
+    /// Follows the pointer to <paramref name="point"/> on a page;
+    /// <paramref name="refind"/> lets the outer band count with nothing
+    /// hovered, for <see cref="RestoreContentHoverSoon"/>.
+    /// </summary>
+    private void TrackContentHover(PageSlot slot, int pageIndex, AnnotationPoint point, bool refind = false)
     {
         var page = (uint)pageIndex;
+        _contentHoverPointer = (page, point);
         if (!ContentHover.MayHover(_contentEditMode && !_organizing, _contentInsertKind is not null, ContentEditorOpen,
                 _hand.SpaceHeld || _hand.Dragging))
         {
@@ -111,7 +123,7 @@ public sealed partial class MainWindow
         if (!_pageContent.TryGetValue(page, out var state) || state.Content is not { } content) return;
         var reach = HandleReachPx / slot.Scale;
         var hover = ContentHover.Resolve(page, at => ContentMemberAt(content, at, reach), _contentHover, point, slot.Scale, reach,
-            member => CarriesHandles(page, member));
+            member => CarriesHandles(page, member), refind);
         if (hover == _contentHover) return;
         _contentHover = hover;
         ShowContentHover();
@@ -120,7 +132,39 @@ public sealed partial class MainWindow
     /// <summary>The pointer left a page: whatever it rested on there is no longer under it.</summary>
     private void LeaveContentHover(uint pageIndex)
     {
+        if (_contentHoverPointer?.Page == pageIndex) _contentHoverPointer = null;
         if (_contentHover?.PageIndex == pageIndex) ClearContentHover();
+    }
+
+    /// <summary>
+    /// Drops one page's parsed content — an edit was recorded on it, a step
+    /// was undone or redone, the core wrote a checkpoint — and with it the
+    /// hover, its outline and its move cursor. Content ids are positional, so
+    /// after a re-parse the hover's ids could name different items; the next
+    /// pointer move, or <see cref="RestoreContentHoverSoon"/>, finds it again.
+    /// </summary>
+    private void ForgetPageContent(uint pageIndex)
+    {
+        _pageContent.Remove(pageIndex);
+        ClearContentHover();
+    }
+
+    /// <summary>
+    /// Finds the hover again where the pointer last rested once
+    /// <paramref name="pageIndex"/> was parsed again — so the outline and the
+    /// move cursor follow an item just moved by its border, even by the outer
+    /// band, without the pointer moving. Every gate of
+    /// <see cref="TrackContentHover"/> still applies.
+    /// </summary>
+    private void RestoreContentHoverSoon(uint pageIndex)
+    {
+        if (_contentHoverPointer?.Page != pageIndex) return;
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (_contentHover is not null || _contentHoverPointer is not { } pointer || pointer.Page != pageIndex
+                || _session is null || pageIndex >= _session.Pages.Count || pageIndex >= _slots.Count) return;
+            TrackContentHover(_slots[(int)pageIndex], (int)pageIndex, pointer.Point, refind: true);
+        });
     }
 
     /// <summary>Drops the hover and its outline — the mode went off, an insert kind or an editor took the pointer.</summary>
@@ -133,8 +177,13 @@ public sealed partial class MainWindow
     /// <summary>The hover, when its page is laid out and nothing rules it out; a drag rules out only the outline.</summary>
     private ContentHoverState? ShownContentHover() =>
         _contentHover is { } hover && _contentEditMode && hover.PageIndex < _slots.Count && _session is not null
-            && hover.PageIndex < _session.Pages.Count && !ContentEditorOpen
+            && hover.PageIndex < _session.Pages.Count && !ContentEditorOpen && IsCurrent(hover)
             ? hover : null;
+
+    /// <summary>Whether the hovered item is still on its page as parsed now, the same id in the same place.</summary>
+    private bool IsCurrent(ContentHoverState hover) =>
+        _pageContent.TryGetValue(hover.PageIndex, out var state) && state.Content is { } content
+        && ContentHover.StillCurrent(content, hover.Member) is not null;
 
     /// <summary>Places the hover outline where the hovered item is drawn now, or takes it off the page, and the move cursor with it.</summary>
     private void ShowContentHover()

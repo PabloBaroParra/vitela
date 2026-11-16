@@ -62,6 +62,8 @@ public sealed partial class MainWindow
         if (state is null || state.ContentBaseGeneration == _contentBaseGeneration) return;
         _contentBaseGeneration = state.ContentBaseGeneration;
         _pendingRunBounds.Clear();
+        // The hovered block's box may have been one of those estimates.
+        ClearContentHover();
         if (_contentEditedPages.Count > 0) InvalidateContentEditedPages();
     }
 
@@ -194,7 +196,7 @@ public sealed partial class MainWindow
             // The core reads a page with its pending edits applied, so the
             // parsed content of an edited page describes the step just undone
             // or redone — a moved block where it no longer is. Read it again.
-            _pageContent.Remove(pageIndex);
+            ForgetPageContent(pageIndex);
             if (pageIndex < _slots.Count)
             {
                 ClearContentOutlines(_slots[(int)pageIndex]);

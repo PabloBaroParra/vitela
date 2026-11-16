@@ -129,7 +129,7 @@ public sealed partial class MainWindow
         if (_session?.SessionId != editor.SessionId) return;
         // A recorded edit remains undoable even if its preview refresh failed.
         _contentEditedPages.Add(pageIndex);
-        _pageContent.Remove(pageIndex);
+        ForgetPageContent(pageIndex);
         if (pageIndex < _slots.Count) ClearContentOutlines(_slots[(int)pageIndex]);
         InvalidatePageCharacters(pageIndex);
         InvalidatePageRender(pageIndex);

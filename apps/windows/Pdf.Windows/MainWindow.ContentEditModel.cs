@@ -83,6 +83,7 @@ public sealed partial class MainWindow
 
         state.Content = result.Value;
         DrawContentOutlines(pageIndex);
+        RestoreContentHoverSoon(pageIndex);
         return state.Content;
     }
 

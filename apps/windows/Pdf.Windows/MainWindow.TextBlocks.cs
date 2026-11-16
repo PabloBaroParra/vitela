@@ -315,7 +315,7 @@ public sealed partial class MainWindow
     /// <summary>Drops one page's parsed content and its estimated boxes, then reads it again.</summary>
     private async Task RereadPageContentAsync(uint pageIndex)
     {
-        _pageContent.Remove(pageIndex);
+        ForgetPageContent(pageIndex);
         foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == pageIndex).ToArray())
             _pendingRunBounds.Remove(key);
         if (pageIndex < _slots.Count) ClearContentOutlines(_slots[(int)pageIndex]);

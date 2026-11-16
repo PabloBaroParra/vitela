@@ -119,7 +119,7 @@ public sealed partial class MainWindow
     private void AfterImageEdit(uint pageIndex)
     {
         CancelContentEditor();
-        _pageContent.Remove(pageIndex);
+        ForgetPageContent(pageIndex);
         foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == pageIndex).ToArray())
             _pendingRunBounds.Remove(key);
         InvalidatePageRender(pageIndex);
