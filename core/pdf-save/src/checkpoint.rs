@@ -610,14 +610,31 @@ fn rebind_item(held: Item, content: &mut impl FnMut(PageId) -> Option<PageConten
             // (`/VClip{n}`). Such an image is found by its box instead.
             // An inline image has no name at all, and a queued replacement
             // writes it as a new XObject: it too is found by its box.
+            //
+            // Only when nothing at its origin still has its source: an image
+            // the write left as it was is that one, not a same-size
+            // neighbour that would make the two ambiguous.
             let by_box = pdf_edit::pending_log_index(item.id).is_some()
                 || item.source == pdf_document::ImageSource::Inline;
-            nearest(
-                &page.images,
-                item,
-                |image| image.source == item.source || (by_box && same_size(image.bbox, item.bbox)),
-                |image| image.bbox,
-            )
+            // Found by its box, it must also keep its size: a different-size
+            // image with its source at its origin is a neighbour, not it.
+            let same_source = |image: &ImageItem| {
+                image.source == item.source && (!by_box || same_size(image.bbox, item.bbox))
+            };
+            let exact = page
+                .images
+                .iter()
+                .any(|image| same_source(image) && near(image.bbox, item.bbox));
+            if exact || !by_box {
+                nearest(&page.images, item, same_source, |image| image.bbox)
+            } else {
+                nearest(
+                    &page.images,
+                    item,
+                    |image| same_size(image.bbox, item.bbox),
+                    |image| image.bbox,
+                )
+            }
             .map(Item::Image)
         }),
         Item::Path(item) => content(item.page).and_then(|page| {
@@ -775,16 +792,18 @@ fn nearest<T: Clone>(
     bbox: impl Fn(&T) -> Rect,
 ) -> Option<T> {
     let origin = bbox(held);
-    let mut close = candidates.iter().filter(|candidate| {
-        let rect = bbox(candidate);
-        same(candidate)
-            && (rect.x - origin.x).abs() <= REBIND_TOLERANCE
-            && (rect.y - origin.y).abs() <= REBIND_TOLERANCE
-    });
+    let mut close = candidates
+        .iter()
+        .filter(|candidate| same(candidate) && near(bbox(candidate), origin));
     match (close.next(), close.next()) {
         (Some(only), None) => Some(only.clone()),
         _ => None,
     }
+}
+
+/// Whether `rect` starts at `origin`, within [`REBIND_TOLERANCE`].
+fn near(rect: Rect, origin: Rect) -> bool {
+    (rect.x - origin.x).abs() <= REBIND_TOLERANCE && (rect.y - origin.y).abs() <= REBIND_TOLERANCE
 }
 
 /// Whether two boxes have the same size, within [`REBIND_TOLERANCE`].
@@ -849,5 +868,129 @@ mod tests {
         assert!(matches!(item.source, ImageSource::Resource(_)), "{item:?}");
         assert_eq!(item.bbox, inline.bbox);
         assert_eq!(aliases.len(), 1);
+    }
+
+    /// A page painting an image XObject and then an inline (`BI … EI`) image
+    /// of the same size at the same origin, (100, 600), 100x100 points.
+    fn inline_image_over_a_same_size_xobject() -> LopdfDocument {
+        xobject_then_inline_image(100)
+    }
+
+    /// A 100x100 image XObject at (100, 600), then an inline image `side`
+    /// points square at the same origin.
+    fn xobject_then_inline_image(side: u32) -> LopdfDocument {
+        use lopdf::{dictionary, Object, Stream};
+
+        let mut fixture = lopdf::Document::with_version("1.5");
+        let pages_id = fixture.new_object_id();
+        let xobject_id = fixture.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject", "Subtype" => "Image", "Width" => 2,
+                "Height" => 2, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+            },
+            vec![0, 255, 255, 0],
+        ));
+        let resources_id = fixture.add_object(dictionary! {
+            "XObject" => dictionary! { "Im0" => xobject_id },
+        });
+        let mut content = b"q 100 0 0 100 100 600 cm /Im0 Do Q\n".to_vec();
+        content.extend_from_slice(
+            format!("q {side} 0 0 {side} 100 600 cm BI /W 2 /H 2 /CS /G /BPC 8 ID ").as_bytes(),
+        );
+        content.extend_from_slice(&[0, 255, 255, 0]);
+        content.extend_from_slice(b" EI Q\n");
+        let content_id = fixture.add_object(Stream::new(dictionary! {}, content));
+        let page_id = fixture.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
+            "Resources" => resources_id,
+            "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        });
+        fixture.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages", "Kids" => vec![page_id.into()], "Count" => 1,
+            }),
+        );
+        let catalog_id =
+            fixture.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        fixture.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        fixture.save_to(&mut bytes).expect("the fixture serializes");
+        pdf_manip::open_document_from_bytes(&bytes, None)
+            .expect("it opens")
+            .0
+    }
+
+    /// An inline image that is still inline after a rewrite is rebound to
+    /// itself, even with a same-size XObject at the same origin: an exact
+    /// source match outranks one found by its box, so the two are not
+    /// ambiguous and the edit is not refused.
+    #[test]
+    fn an_inline_image_beside_a_same_size_xobject_is_rebound_to_itself() {
+        let base = inline_image_over_a_same_size_xobject();
+        let document = document_from_lopdf(&base, None).expect("it reads");
+        let images = read_page_content_of(&document, PageId(0), &base, ImportedSources::none())
+            .expect("the page reads")
+            .images;
+        assert_eq!(images.len(), 2, "{images:?}");
+        assert!(matches!(images[0].source, ImageSource::Resource(_)));
+        let inline = images[1].clone();
+        assert_eq!(inline.source, ImageSource::Inline);
+        assert!(same_size(images[0].bbox, inline.bbox));
+        // What a caller held before the rewrite renumbered the page.
+        let held = ImageItem {
+            id: pdf_document::ContentItemId(inline.id.0 + 7),
+            ..inline.clone()
+        };
+
+        let (rebound, aliases) = rebind_against(
+            &document,
+            &base,
+            Command::MoveImage {
+                item: held.clone(),
+                to: held.bbox,
+            },
+        );
+
+        let Command::MoveImage { item, .. } = rebound else {
+            unreachable!("rebinding keeps the command's kind");
+        };
+        assert_eq!(item, inline);
+        assert_eq!(aliases.len(), 1);
+    }
+
+    /// A held inline image that a rewrite turned into an XObject is not
+    /// rebound to a different-size inline image that starts at its origin.
+    #[test]
+    fn an_inline_image_is_not_rebound_to_a_different_size_inline_neighbour() {
+        let base = xobject_then_inline_image(50);
+        let document = document_from_lopdf(&base, None).expect("it reads");
+        let images = read_page_content_of(&document, PageId(0), &base, ImportedSources::none())
+            .expect("the page reads")
+            .images;
+        assert_eq!(images.len(), 2, "{images:?}");
+        let other = images[1].clone();
+        assert_eq!(other.source, ImageSource::Inline);
+        assert!(!same_size(images[0].bbox, other.bbox));
+        // The held inline image was 100x100; only its XObject is left.
+        let held = ImageItem {
+            id: pdf_document::ContentItemId(other.id.0 + 7),
+            source: ImageSource::Inline,
+            ..images[0].clone()
+        };
+
+        let (rebound, _) = rebind_against(
+            &document,
+            &base,
+            Command::MoveImage {
+                item: held.clone(),
+                to: held.bbox,
+            },
+        );
+
+        let Command::MoveImage { item, .. } = rebound else {
+            unreachable!("rebinding keeps the command's kind");
+        };
+        assert_ne!(item, other);
     }
 }

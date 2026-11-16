@@ -255,6 +255,33 @@ pub(crate) fn shown_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun
     .text_runs
 }
 
+/// The images page 0 of `session` shows, its pending edits layered on.
+pub(crate) fn shown_images(session: &DocumentSession) -> Vec<pdf_document::ImageItem> {
+    let document = session.document_model.as_ref().expect("a model");
+    let backing = session.save_backing.as_ref().expect("a backing");
+    pdf_save::read_pending_page_content_of(
+        document,
+        PageId(0),
+        &backing.base,
+        pdf_save::ImportedSources::none(),
+    )
+    .expect("the page reads")
+    .images
+}
+
+/// Rules a checkpoint out for `session` by adding an imported PDF to it —
+/// one of the things `pdf_save::checkpoint::may_checkpoint` refuses on.
+pub(crate) fn forbid_checkpoints(session: &mut DocumentSession) {
+    let document = (*session.save_backing.as_ref().expect("a backing").base).clone();
+    session
+        .imported_sources
+        .push(crate::app::state::ImportedSource {
+            id: pdf_document::ImportedDocumentId(0),
+            document,
+            name: "imported.pdf".to_string(),
+        });
+}
+
 /// The bytes `session` saves to.
 pub(crate) fn saved_bytes(session: &DocumentSession) -> Vec<u8> {
     let backing = session.save_backing.as_ref().expect("a backing");

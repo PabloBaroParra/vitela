@@ -270,10 +270,7 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 /// ([`edits_a_replaced_inline_image`]); where none may be taken it is
 /// refused and nothing changes.
 pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
-    let checkpoint_first = session
-        .document_model
-        .as_ref()
-        .is_some_and(|document| edits_a_replaced_inline_image(document, &command));
+    let checkpoint_first = edits_a_replaced_inline_image(session, &command);
     record_content(session, command, checkpoint_first)
 }
 
@@ -288,7 +285,11 @@ pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<
 ///
 /// Keyed on the queued replacement rather than on any queued edit: a move or
 /// resize keeps the image inline, and an edit after one folds into it.
-fn edits_a_replaced_inline_image(document: &Document, command: &Command) -> bool {
+///
+/// Decided on the target as `pdf_save::checkpoint::record` will try it —
+/// dealiased: the queued replacement names the image the last checkpoint
+/// rebound, and a caller may still hold the one from before it.
+fn edits_a_replaced_inline_image(session: &DocumentSession, command: &Command) -> bool {
     let target = match command {
         Command::MoveImage { item, .. }
         | Command::ResizeImage { item, .. }
@@ -296,6 +297,10 @@ fn edits_a_replaced_inline_image(document: &Document, command: &Command) -> bool
         | Command::ReplaceImageSource { item, .. } => item,
         _ => return false,
     };
+    let Some(document) = session.document_model.as_ref() else {
+        return false;
+    };
+    let target = super::image::dealiased(session, target.clone());
     document.pending_edits.entries().iter().any(|queued| {
         matches!(queued,
             Command::ReplaceImageSource { item, .. }
@@ -310,7 +315,7 @@ fn edits_a_replaced_inline_image(document: &Document, command: &Command) -> bool
 fn no_checkpoint_refusal(command: &Command) -> &'static str {
     match command {
         Command::ReplaceImageSource { .. } => super::panel::IMAGE_PENDING_EDIT,
-        _ => "edit-image-replaced-unsaved",
+        _ => super::panel::IMAGE_REPLACED_UNSAVED,
     }
 }
 
