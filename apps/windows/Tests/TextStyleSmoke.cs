@@ -25,7 +25,7 @@ public partial class App : Application
                 "PASS a selected block turns bold, the Bold toggle shows it pressed and the block stays selected for a second "
                 + "press; a selection splitting a run in the open editor is refused; a selection covering one run whole "
                 + "restyles only that run and leaves its block selected; a press with the caret in the editor reopens it "
-                + "over the restyled text in its new weight; a native bold with no regular face is pressed and disabled; "
+                + "over the restyled text in its new weight; text typed just before a toggle survives it; a native bold with no regular face is pressed and disabled; "
                 + "the save reopens with every look.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "text-style-smoke.log"), "FAIL " + error); }
@@ -86,12 +86,26 @@ public sealed partial class MainWindow
         await ToggleTextStyleAsync(TextStyleToggle.Bold);
         if (!AnnotationStatus.Text.Contains("cannot be made regular")) throw new Exception($"A fixed bold was not refused: {AnnotationStatus.Text}");
 
+
         var saved = await _facade.ShareBytesAsync(_session!.SessionId);
         if (!saved.IsSuccess) throw new Exception(saved.Error!.Message);
         await OpenTextStyleSmokeAsync(saved.Value!);
         SetContentEditMode(true);
         await RequireLookAsync("Hello", bold: false, italic: false, underline: true);
         await RequireLookAsync(" world", bold: false, italic: true, underline: true);
+
+        // Typed, then toggled before the typing pause runs out: the text survives.
+        SelectTextBlock(await StyleBlockAsync("Hello world"));
+        await RetypeSelectedTextBlockAsync();
+        var typing = _pump.Box ?? throw new Exception("No editor over the block.");
+        typing.Box.Text = "Hello world!";
+        typing.Box.Select(typing.Box.Text.Length, 0);
+        await ToggleTextStyleAsync(TextStyleToggle.Bold);
+        var typed = (await _facade.PageContentAsync(_session!.SessionId, 0)).Value!.TextRuns.FirstOrDefault(run => run.Text == "Hello world!")
+            ?? throw new Exception($"Text typed just before a toggle was lost. Status: {AnnotationStatus.Text}");
+        if ((await _facade.TextStyleButtonsAsync(_session.SessionId, [typed])).Value?.Look.Bold != true)
+            throw new Exception($"The typed text was not restyled. Status: {AnnotationStatus.Text}");
+        await CommitContentEditorAsync();
     }
 
     private async Task<ContentTextBlock> StyleBlockAsync(string text) =>

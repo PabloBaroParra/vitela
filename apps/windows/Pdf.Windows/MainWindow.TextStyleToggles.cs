@@ -264,7 +264,25 @@ public sealed partial class MainWindow
         var (caret, length) = (editor.Box.SelectionStart, editor.Box.SelectionLength);
         var blockRuns = editor.Block?.Runs ?? [editor.Run];
         var blockBounds = BoundsOf(editor.Run);
-        await _pump.DrainAsync();
+        // Nothing typed during the restyle can land against the runs it is
+        // about to replace: the editor takes no keys and its pause cannot fire.
+        editor.Box.IsReadOnly = true;
+        try
+        {
+            await RestyleFlushedEditorAsync(sessionId, editor, target, style, page, caret, length, blockRuns, blockBounds);
+        }
+        finally
+        {
+            if (ReferenceEquals(_pump.Box, editor)) editor.Box.IsReadOnly = false;
+        }
+    }
+
+    private async Task RestyleFlushedEditorAsync(string sessionId, ContentEditor editor, TextStyleTarget target,
+        TextStyleToggle style, uint page, int caret, int length, IReadOnlyList<ContentTextRun> blockRuns, AnnotationRect blockBounds)
+    {
+        // Text typed inside the pause reaches the document before the runs
+        // are read. A refused write keeps the editor and its error as they are.
+        if (!await _pump.FlushAsync()) return;
         if (_session?.SessionId != sessionId || !ReferenceEquals(_pump.Box, editor)) return;
 
         // A block retyped as the reader typed is one run now; the others are
@@ -282,18 +300,30 @@ public sealed partial class MainWindow
 
         var result = await _facade.ToggleTextStyleAsync(sessionId, runs, style);
         if (_session?.SessionId != sessionId) return;
-        if (!result.IsSuccess)
+
+        // Closed either way: a failure can come after the facade recorded the
+        // restyle, leaving the editor on stale runs. A refused close keeps it.
+        await _pump.CommitAsync();
+        var refusal = ReferenceEquals(_pump.Box, editor) ? AnnotationStatus.Text : null;
+        if (result.IsSuccess)
         {
-            // Nothing changed, so the editor stays open as it was.
+            await AfterTextBlockEditAsync(page, result, TextRestyledStatus);
+        }
+        else
+        {
+            await RereadPageContentAsync(page);
+            InvalidatePageRender(page);
+            await RefreshAnnotationStateAsync();
             AnnotationStatus.Text = result.Error!.Message;
+        }
+        if (refusal is not null)
+        {
+            AnnotationStatus.Text = refusal;
             return;
         }
 
-        // Every write was drained above, so this only takes the box off.
-        await _pump.CommitAsync();
-        await AfterTextBlockEditAsync(page, result, TextRestyledStatus);
         ReselectRestyledBlock(page, blockRuns, blockBounds);
-        if (target.Scope != TextStyleScope.Editor || _selectedTextBlock is not { } restyled
+        if (!result.IsSuccess || target.Scope != TextStyleScope.Editor || _selectedTextBlock is not { } restyled
             || restyled.First.RequiresFontSubstitution)
         {
             return;
