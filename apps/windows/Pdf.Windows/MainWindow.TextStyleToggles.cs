@@ -39,6 +39,9 @@ public sealed partial class MainWindow
 
     /// <summary>Bumped per read, so a read that lands late never paints over a newer one.</summary>
     private uint _textStyleRequest;
+    // True while a restyle runs in the open editor; its key handler drops
+    // Enter and Escape until then.
+    private bool _restyleInEditor;
 
     /// <summary>The target the buttons were last read for, so a caret move re-reads only when it changes it.</summary>
     private string? _textStyleShown;
@@ -267,12 +270,14 @@ public sealed partial class MainWindow
         // Nothing typed during the restyle can land against the runs it is
         // about to replace: the editor takes no keys and its pause cannot fire.
         editor.Box.IsReadOnly = true;
+        _restyleInEditor = true;
         try
         {
             await RestyleFlushedEditorAsync(sessionId, editor, target, style, page, caret, length, blockRuns, blockBounds);
         }
         finally
         {
+            _restyleInEditor = false;
             if (ReferenceEquals(_pump.Box, editor)) editor.Box.IsReadOnly = false;
         }
     }
@@ -303,8 +308,10 @@ public sealed partial class MainWindow
 
         // Closed either way: a failure can come after the facade recorded the
         // restyle, leaving the editor on stale runs. A refused close keeps it.
-        await _pump.CommitAsync();
-        var refusal = ReferenceEquals(_pump.Box, editor) ? AnnotationStatus.Text : null;
+        // An editor already gone is neither closed again nor reopened.
+        var stillOpen = ReferenceEquals(_pump.Box, editor);
+        if (stillOpen) await _pump.CommitAsync();
+        var refusal = stillOpen && ReferenceEquals(_pump.Box, editor) ? AnnotationStatus.Text : null;
         if (result.IsSuccess)
         {
             await AfterTextBlockEditAsync(page, result, TextRestyledStatus);
@@ -321,6 +328,7 @@ public sealed partial class MainWindow
             AnnotationStatus.Text = refusal;
             return;
         }
+        if (!stillOpen) return;
 
         ReselectRestyledBlock(page, blockRuns, blockBounds);
         if (!result.IsSuccess || target.Scope != TextStyleScope.Editor || _selectedTextBlock is not { } restyled

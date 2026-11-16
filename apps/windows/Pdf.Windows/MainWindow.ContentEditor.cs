@@ -196,6 +196,14 @@ public sealed partial class MainWindow
 
     private void ContentEditor_KeyDown(object sender, KeyRoutedEventArgs args)
     {
+        // A read-only box still sees Enter and Escape: while a restyle runs in
+        // it, a commit or undo here would land on the restyle, not the typing.
+        if (_restyleInEditor && args.Key is VirtualKey.Enter or VirtualKey.Escape)
+        {
+            args.Handled = true;
+            return;
+        }
+
         // Whatever was refused is being retyped, so let the pump try again.
         _pump.Retry();
 
