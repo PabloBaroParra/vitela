@@ -196,10 +196,6 @@ fn claim(
             session.selected_image = Some(SelectedImage {
                 page_index,
                 item: item.clone(),
-                // Unknown until something asks, and asking costs a full
-                // decode — see the field's own doc. A fresh selection is
-                // optimistic; `replace_selected` is where the question gets
-                // put, and where a "no" gets recorded.
             });
             session.image_drag = Some(ImageDrag {
                 page_index,

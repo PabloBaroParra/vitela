@@ -306,3 +306,45 @@ fn the_replacement_check_refuses_a_pending_edit_until_it_is_undone() {
     assert!(undo(&handle));
     assert!(handle.check_image_replacement(target).is_ok());
 }
+
+/// Shells insert a new image with `id: 0`, the same id the page's first
+/// original image reads with. The pending insert is a different image, so it
+/// must not make that original look as if it had an edit queued.
+#[test]
+fn a_pending_insert_does_not_block_the_original_that_shares_its_id() {
+    let handle =
+        open_from_bytes(bytes(gen_fixtures::build_image_page_document()), None).expect("open");
+    let original = handle.read_page_content(0).expect("read").images.remove(0);
+    assert_eq!(original.id, 0);
+    apply_edit(
+        &handle,
+        FfiEditCommand::InsertImage {
+            item: FfiContentImageItem {
+                id: 0,
+                page: 0,
+                bbox: FfiRect {
+                    x: 300.0,
+                    y: 300.0,
+                    width: 40.0,
+                    height: 20.0,
+                },
+                resource_xobject_name: Some("VitelaImageRegression".to_string()),
+            },
+            source: Some(gen_fixtures::replacement_image_png_bytes()),
+        },
+    )
+    .expect("insert");
+
+    assert!(handle.check_image_replacement(original).is_ok());
+    let added = handle
+        .read_page_content(0)
+        .expect("read after insert")
+        .images
+        .into_iter()
+        .find(|image| image.resource_xobject_name.as_deref() == Some("VitelaImageRegression"))
+        .expect("the inserted image reads back");
+    assert!(
+        handle.check_image_replacement(added).is_err(),
+        "an image that only exists as a pending insert cannot be replaced yet"
+    );
+}

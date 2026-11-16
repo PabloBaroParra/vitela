@@ -42,7 +42,8 @@ public sealed partial class MainWindow
         var controls = CurrentImageControls();
         var idle = !_isBusy && !_editingImage;
         // A pending move or resize folds a deletion into itself in the core,
-        // so only Replace — which needs the file's own bytes — waits for a save.
+        // so only Replace — which the core refuses while an edit is queued —
+        // waits for a save.
         DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.PendingEdit;
         ReplaceImageButton.IsEnabled = idle && controls == ImageControls.Ready;
         _editImageHint.Text = controls switch

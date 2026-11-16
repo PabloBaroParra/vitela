@@ -203,8 +203,8 @@ extension UniFfiContentEditIntegrationTests {
         }
     }
 
-    /// A Flate-encoded image the core can read back has its picture replaced
-    /// against the real core, as one undoable step.
+    /// A Flate-encoded image has its picture replaced against the real core,
+    /// as one undoable step.
     func testAFlateImageIsReplaced() throws {
         let png = try Self.bluePng()
         try offMain {

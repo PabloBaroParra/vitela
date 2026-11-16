@@ -1277,9 +1277,13 @@ impl DocumentHandle {
             .entries()
             .iter()
             .any(|command| {
+                // `InsertImage` is left out on purpose: shells record an
+                // insert with `id: 0`, which is also the id the page's first
+                // original image reads with. The inserted image itself is
+                // still refused below — the page it is checked against does
+                // not paint it yet.
                 let target = match command {
-                    Command::InsertImage { item, .. }
-                    | Command::RemoveImage { item, .. }
+                    Command::RemoveImage { item, .. }
                     | Command::MoveImage { item, .. }
                     | Command::ResizeImage { item, .. }
                     | Command::ReplaceImageSource { item, .. } => item,

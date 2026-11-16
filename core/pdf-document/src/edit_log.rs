@@ -972,6 +972,10 @@ impl Command {
     }
 
     /// Computes the inverse command — applying it undoes `self`.
+    ///
+    /// `ReplaceImageSource` is its own inverse: like every page-content
+    /// command it is inert on the model, and undo works by popping it off
+    /// the queue, so no "put the old picture back" command is ever written.
     pub fn inverse(&self) -> Command {
         match self {
             Command::AddAnnotation(annotation) => Command::RemoveAnnotation(annotation.clone()),
