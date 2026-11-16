@@ -689,13 +689,8 @@ fn map_targets(command: Command, map: &mut dyn FnMut(Item) -> Item) -> Command {
             item: image(item, map),
             to,
         },
-        Command::ReplaceImageSource {
-            item,
-            before,
-            after,
-        } => Command::ReplaceImageSource {
+        Command::ReplaceImageSource { item, after } => Command::ReplaceImageSource {
             item: image(item, map),
-            before,
             after,
         },
         Command::MovePath { item, to } => Command::MovePath {

@@ -1229,10 +1229,6 @@ fn replacing_a_target_image_preserves_its_geometry_and_the_control_image() {
         &mut document,
         Command::ReplaceImageSource {
             item: target.clone(),
-            before: image_stream_bytes(
-                &base,
-                target.resource_xobject_name().expect("a resource image"),
-            ),
             after: gen_fixtures::content_edit::replacement_image_png_bytes(),
         },
     );
@@ -1340,10 +1336,10 @@ fn an_unsigned_document_reports_no_signature_invalidation() {
     assert!(!warned);
 }
 
-/// The whole T-203 round trip in one file: the inline image is read back as
-/// a picture, replaced, and the saved-and-reopened document paints the
-/// replacement in the same place — as an XObject, because that is the one
-/// thing replacing cannot keep inline.
+/// The whole T-203 round trip in one file: the inline image is replaced, and
+/// the saved-and-reopened document paints the replacement in the same place
+/// — as an XObject, because that is the one thing replacing cannot keep
+/// inline.
 #[test]
 fn replacing_an_inline_image_reaches_the_saved_file_as_a_resource() {
     let (mut document, base, original_bytes) = roundtrip_inline_image_document("replace-inline");
@@ -1351,27 +1347,10 @@ fn replacing_an_inline_image_reaches_the_saved_file_as_a_resource() {
     let target = before.images[0].clone();
     assert_eq!(target.source, pdf_document::ImageSource::Inline);
 
-    // The `before` a shell would record for undo: the samples as a picture.
-    let page_object = *base
-        .as_lopdf()
-        .get_pages()
-        .get(&1)
-        .expect("first page exists");
-    let recovered = pdf_edit::image_source_bytes(base.as_lopdf(), page_object, &target)
-        .expect("an unfiltered DeviceGray inline image is readable");
-    let decoded = image::load_from_memory(&recovered).expect("a png");
-    assert_eq!((decoded.width(), decoded.height()), (2, 2));
-    assert_eq!(
-        decoded.to_luma8().into_raw(),
-        gen_fixtures::content_edit::INLINE_IMAGE_SAMPLES.to_vec(),
-        "the samples come back as themselves, `EI` bytes and all"
-    );
-
     apply_command(
         &mut document,
         Command::ReplaceImageSource {
             item: target.clone(),
-            before: recovered,
             after: gen_fixtures::content_edit::replacement_image_png_bytes(),
         },
     );

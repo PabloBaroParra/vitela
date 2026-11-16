@@ -40,38 +40,6 @@ pub(super) fn validate_insert_image(
     Ok(())
 }
 
-/// Reads back `item`'s current bytes, so a replace can carry them as
-/// `Command::ReplaceImageSource`'s `before` — the only way undo can restore
-/// the image being overwritten. Refuses with `EditError::
-/// ImageSourceNotRecoverable` for an encoding `pdf-edit` cannot read back
-/// (see [`pdf_edit::image_source_bytes`]'s own doc for exactly which ones),
-/// which this module's caller turns into refusing the whole replace rather
-/// than recording a command undo could never restore.
-pub(super) fn current_source_bytes(
-    probe: PageProbe<'_>,
-    item: &ImageItem,
-) -> Result<Vec<u8>, EditError> {
-    pdf_edit::image_source_bytes(probe.document, probe.object, item)
-}
-
-/// Whether `error` says this *image* can never be replaced, as opposed to
-/// something about this one attempt (T-204).
-///
-/// The distinction is what makes the refusal worth remembering. A
-/// replacement file that will not decode, a stale item, an image that
-/// already has an edit queued — those are all answers about *now*, and the
-/// next attempt can succeed. [`EditError::ImageSourceNotRecoverable`] is an
-/// answer about the picture already on the page: its encoding is what it is,
-/// nothing the user can do from here changes it, and every further attempt
-/// would be refused identically.
-///
-/// Only that one, and deliberately narrowly: latching on an error that could
-/// have gone the other way would leave a live control dead for the rest of
-/// the selection with a sentence that is not true.
-pub(super) fn is_unreplaceable(error: &EditError) -> bool {
-    matches!(error, EditError::ImageSourceNotRecoverable { .. })
-}
-
 /// Whether `item` already has a content command recorded against it in
 /// `document`'s `EditLog`.
 ///
@@ -554,7 +522,7 @@ mod tests {
         .is_ok());
     }
 
-    // --- validate_replace / current_source_bytes --------------------------
+    // --- validate_replace ---------------------------------------------------
 
     #[test]
     fn a_representable_replace_validates_successfully() {
@@ -567,17 +535,6 @@ mod tests {
             &gen_fixtures::content_edit::replacement_image_png_bytes()
         )
         .is_ok());
-    }
-
-    #[test]
-    fn current_source_bytes_reads_back_the_images_current_bytes() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let item = first_image(&base);
-
-        let bytes =
-            current_source_bytes(probe_of(&base), &item).expect("recoverable fixture image");
-
-        assert!(image::load_from_memory(&bytes).is_ok());
     }
 
     // --- inline images (T-204) -------------------------------------------
@@ -616,36 +573,34 @@ mod tests {
         assert!(model::reserved_xobject_resource_names(&document.pending_edits).is_empty());
     }
 
-    // --- is_unreplaceable (T-204) ----------------------------------------
+    // --- replacing any encoding --------------------------------------------
 
-    /// The one error that says something about the *image* rather than
-    /// about this attempt, taken from the real call rather than constructed
-    /// by hand — a fixture the crate can actually produce is the only
-    /// version of this test that stays true if the classification moves.
+    /// Replace no longer reads the old picture back, so an image stored in
+    /// an encoding no picture file can carry — `ICCBased`, a JPEG with a
+    /// separate `/SMask`, `Indexed`, an inline image naming a page colour
+    /// space — validates like any other.
     #[test]
-    fn an_image_that_cannot_be_read_back_is_unreplaceable() {
-        let base = gen_fixtures::content_edit::build_unreadable_inline_image_page_document();
-        let item = first_image(&base);
+    fn every_encoding_validates_a_replacement() {
+        let base = gen_fixtures::content_edit::build_any_encoding_image_page_document();
+        let images = pdf_edit::read_page_content(&base, PageId(0))
+            .expect("page 0 parses")
+            .images;
+        assert_eq!(
+            images.len(),
+            gen_fixtures::content_edit::ANY_ENCODING_IMAGES.len()
+        );
 
-        let error = current_source_bytes(probe_of(&base), &item)
-            .expect_err("a colour space naming a page resource is not readable from the stream");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-        assert!(is_unreplaceable(&error));
-    }
-
-    /// A refusal about *this attempt* must not latch: the replacement file
-    /// is the user's next move, and greying the button out would strand a
-    /// working image behind a sentence blaming its encoding.
-    #[test]
-    fn a_refusal_about_the_attempt_is_not_unreplaceable() {
-        let base = gen_fixtures::content_edit::build_image_page_document();
-        let item = first_image(&base);
-
-        let error = validate_replace(probe_of(&base), &item, b"not an image at all")
-            .expect_err("undecodable replacement bytes");
-
-        assert!(!is_unreplaceable(&error));
+        for (item, kind) in images
+            .iter()
+            .zip(gen_fixtures::content_edit::ANY_ENCODING_IMAGES)
+        {
+            validate_replace(
+                probe_of(&base),
+                item,
+                &gen_fixtures::content_edit::replacement_image_png_bytes(),
+            )
+            .unwrap_or_else(|error| panic!("{kind} must be replaceable: {error}"));
+        }
     }
 
     // --- image_already_edited ----------------------------------------

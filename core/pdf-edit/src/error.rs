@@ -59,17 +59,6 @@ pub enum EditError {
     FontResourceMissing { resource_font_name: String },
     /// Image bytes could not be decoded as a supported format (PNG/JPEG).
     InvalidImage(String),
-    /// An existing image's stream is encoded in a way
-    /// [`crate::image_source_bytes`] cannot read back — a `/ColorSpace` or
-    /// bit depth beyond 8-bit `DeviceGray`/`DeviceRGB`, an `/SMask` that does
-    /// not match its base image, or a filter beyond `DCTDecode`/
-    /// `FlateDecode`/`LZWDecode`/`ASCII85Decode`. Replacing this image is
-    /// refused rather than recorded without a way for undo to restore it.
-    ///
-    /// `image` names the image the way the page holds it — `/Im0` for a
-    /// resource, `stored inline` for one whose samples live in the content
-    /// stream and that therefore has no name to give.
-    ImageSourceNotRecoverable { image: String },
     /// An operation only an image XObject supports was aimed at an inline
     /// image, whose samples are bytes inside the content stream rather than
     /// a shared, named object. `operation` names what was attempted.
@@ -187,11 +176,6 @@ impl fmt::Display for EditError {
                 write!(f, "font resource {resource_font_name} is missing")
             }
             EditError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
-            EditError::ImageSourceNotRecoverable { image } => write!(
-                f,
-                "image {image} is encoded in a way this version cannot read back, so \
-                 replacing it cannot be undone safely"
-            ),
             EditError::InlineImageNotSupported { operation } => write!(
                 f,
                 "{operation} is not supported for an image stored inline in the page's \

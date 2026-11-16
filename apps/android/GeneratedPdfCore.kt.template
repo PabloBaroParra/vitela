@@ -586,10 +586,10 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         else -> "These items cannot be $verb."
     }
 
-    // The original is read only to learn it can be: the core refuses an image
-    // with a pending edit, and an encoding an undo could not restore.
+    // The core refuses an image with a pending edit. Every encoding is
+    // replaceable: undo restores the original exactly.
     override fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> = try {
-        handle.imageSourceBytes(image.toFfi())
+        handle.checkImageReplacement(image.toFfi())
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
         PdfCoreResult.Failure(PdfCoreError.Failed(imageReplacementRefusal()))
@@ -597,11 +597,12 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    // `before` is read again here, not carried from the check: an edit may have
-    // landed in between, and the undo must restore what the page holds now.
+    // Checked again here, not carried from the check: an edit may have landed
+    // in between.
     override fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> = try {
         val item = image.toFfi()
-        ffiApplyEdit(handle, FfiEditCommand.ReplaceImageSource(item, handle.imageSourceBytes(item), imageBytes))
+        handle.checkImageReplacement(item)
+        ffiApplyEdit(handle, FfiEditCommand.ReplaceImageSource(item, imageBytes))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.InvalidImage) {
         PdfCoreResult.Failure(PdfCoreError.Failed(NOT_AN_IMAGE))
@@ -614,7 +615,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     // The core's sentences are a developer's; this one names what the reader can do.
     private fun imageReplacementRefusal(): String =
         if (handle.contentEditingAllowed()) {
-            "This image cannot be replaced. Save first if it already has a pending edit; some original encodings cannot be restored by Undo and are refused."
+            "This image cannot be replaced. Save first if it already has a pending edit."
         } else {
             "This document does not permit content changes."
         }

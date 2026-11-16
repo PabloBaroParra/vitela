@@ -547,7 +547,6 @@ mod tests {
                 bbox: run.bbox,
                 source: ImageSource::Resource("Im1".to_string()),
             },
-            replace_refused: false,
         });
 
         open_editor_at(

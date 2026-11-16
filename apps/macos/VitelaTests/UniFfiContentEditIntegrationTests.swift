@@ -194,17 +194,17 @@ extension UniFfiContentEditIntegrationTests {
             XCTAssertEqual(added.bbox.width / added.bbox.height, 2, accuracy: 0.01, "the PNG's own proportions")
 
             XCTAssertTrue(store.canUndo)
-            // A just-inserted image has a pending edit, and the unfiltered
-            // original cannot be read back losslessly: the core refuses both.
+            // A just-inserted image has a pending edit, so the core refuses
+            // it; the original is replaceable whatever its encoding.
             let document = try XCTUnwrap(store.document)
             XCTAssertEqual(store.client.imageReplacementRefusal(document: document, image: added), ContentEditing.replaceRefused)
             let raw = try XCTUnwrap(images.first { $0.resourceXObjectName == "Im1" })
-            XCTAssertEqual(store.client.imageReplacementRefusal(document: document, image: raw), ContentEditing.replaceRefused)
+            XCTAssertNil(store.client.imageReplacementRefusal(document: document, image: raw))
         }
     }
 
-    /// A Flate-encoded image the core can read back has its picture replaced
-    /// against the real core, as one undoable step.
+    /// A Flate-encoded image has its picture replaced against the real core,
+    /// as one undoable step.
     func testAFlateImageIsReplaced() throws {
         let png = try Self.bluePng()
         try offMain {

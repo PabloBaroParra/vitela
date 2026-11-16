@@ -236,7 +236,6 @@ edit-text-editing = Reescribiendo texto: pulsa Intro para conservarlo o Esc para
 edit-paragraph-editing = Reescribiendo un párrafo: Intro empieza una línea nueva, Ctrl+Intro o hacer clic fuera lo conserva, Esc cancela.
 edit-no-image-selected = Haz clic en una imagen de la página para seleccionarla.
 edit-image-selected = Imagen seleccionada: puedes reemplazarla o eliminarla.
-edit-image-no-replace = Imagen seleccionada: puedes moverla, cambiar su tamaño o eliminarla. No se puede reemplazar porque no es posible recuperar su codificación actual para deshacer el cambio.
 edit-image-pending = Esta imagen tiene un cambio sin guardar: puedes moverla, cambiar su tamaño o eliminarla, o guardar antes de reemplazarla.
 edit-no-shape-selected = Haz clic en una línea, un borde o un recuadro sombreado de la página para seleccionarlo.
 edit-shape-selected = Forma seleccionada: arrástrala para moverla, arrastra una esquina para cambiar su tamaño o pulsa Supr.

@@ -23,13 +23,9 @@ struct ImageDrag: Equatable {
 /// Windows' `MainWindow.ImageGestures.cs` / `PdfDocumentFacade.Images.cs`,
 /// Linux's `content_edit/image.rs`.
 extension ViewerStore {
-    /// Only a replace still waits for a save: the core reads the original
-    /// picture back for its undo, and an unsaved edit has none in the file.
+    /// Only a replace still waits for a save: it is checked against the
+    /// file, and an unsaved edit is not in the file yet.
     static let imageAgain = "Save before replacing this image: it has an unsaved move, resize or deletion."
-    /// Linux's `IMAGE_SELECTED_NO_REPLACE` and Windows' hint, said when the
-    /// image is selected rather than after a file was picked for it.
-    static let imageSelectedNoReplace = "Image selected — move, resize or delete it. It cannot be replaced: "
-        + "its current encoding cannot be read back, so the swap could not be undone."
 
     var selectedContentImage: ContentImage? { contentEdit.selectedImage }
 
@@ -54,17 +50,8 @@ extension ViewerStore {
         guard let hit else { return false }
         contentEdit.selectedPath = nil
         contentEdit.selectedImage = hit
-        let key = ContentImageKey(page: hit.page, id: hit.id)
-        if !contentEdit.replaceChecked.contains(key), let document {
-            contentEdit.replaceChecked.insert(key)
-            if client.imageReplacementRefusal(document: document, image: hit) != nil {
-                contentEdit.unreplaceableImages.insert(key)
-            }
-        }
         contentEdit.imageDrag = ImageDrag(image: hit, origin: point, current: point, corner: hit == selected ? corner : nil)
-        editStatus = contentEdit.unreplaceableImages.contains(key)
-            ? Self.imageSelectedNoReplace
-            : "Image selected. Drag it to move it, a corner to resize it, or delete it."
+        editStatus = "Image selected. Drag it to move it, a corner to resize it, or delete it."
         return true
     }
 
@@ -97,13 +84,12 @@ extension ViewerStore {
     }
 
     /// Whether Replace Image… is offered for the selected image: not one held
-    /// since an edit, nor one the core already said it cannot read back —
-    /// Windows' `ImageControls.Ready`. `selectedImageReplacementRefusal`
-    /// still asks the core again when the button is pressed.
+    /// since an edit — Windows' `ImageControls.Ready`. Every encoding is
+    /// replaceable; `selectedImageReplacementRefusal` still asks the core
+    /// when the button is pressed.
     var canReplaceSelectedImage: Bool {
         guard contentEditMode, let image = contentEdit.selectedImage else { return false }
-        let key = ContentImageKey(page: image.page, id: image.id)
-        return !contentEdit.editedImages.contains(key) && !contentEdit.unreplaceableImages.contains(key)
+        return !contentEdit.editedImages.contains(ContentImageKey(page: image.page, id: image.id))
     }
 
     /// The image an edit just landed on, selected again at its new box once
@@ -115,8 +101,8 @@ extension ViewerStore {
     }
 
     /// Replace Image… may go ahead for the selected image: not one held since
-    /// an edit, and not one the core will not read back for undo. Main
-    /// thread, like the other permission questions.
+    /// an edit, and not one the core refuses. Main thread, like the other
+    /// permission questions.
     func selectedImageReplacementRefusal() -> String? {
         guard contentEditMode, let document, let image = contentEdit.selectedImage else { return "Select an image first." }
         if contentEdit.editedImages.contains(ContentImageKey(page: image.page, id: image.id)) { return Self.imageAgain }
@@ -155,8 +141,6 @@ extension ViewerStore {
             for image in selection.images { contentEdit.editedImages.insert(ContentImageKey(page: image.page, id: image.id)) }
         case .refresh:
             contentEdit.editedImages = []
-            contentEdit.replaceChecked = []
-            contentEdit.unreplaceableImages = []
         default:
             break
         }

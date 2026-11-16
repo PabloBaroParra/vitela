@@ -211,36 +211,129 @@ pub fn build_inline_image_page_document() -> Document {
     doc
 }
 
-/// A single-page document whose one image is paintable but **not readable
-/// back**: an inline image whose `/CS` names an entry in the page's
-/// `/ColorSpace` dictionary instead of a device colour space.
+/// The one text run [`build_any_encoding_image_page_document`] paints.
+pub const ANY_ENCODING_CAPTION: &str = "Caption";
+
+/// The images [`build_any_encoding_image_page_document`] paints, in paint
+/// order — which is also the order a page read lists them in.
+pub const ANY_ENCODING_IMAGES: [&str; 4] = [
+    "ICCBased RGB XObject",
+    "DCTDecode XObject with an /SMask",
+    "Indexed XObject",
+    "inline image with a named /CS",
+];
+
+/// A single-page document whose images are stored in encodings that no
+/// picture file can carry back unchanged: an `ICCBased` RGB XObject whose
+/// profile is its own stream, a JPEG with its alpha in a separate `/SMask`,
+/// an `Indexed` XObject, and an inline image whose `/CS` names an entry in
+/// the page's `/ColorSpace` dictionary.
 ///
-/// The distinction it exists to test is the one T-204's UI turns into a
-/// sentence. Nothing is wrong with this image — a viewer paints it, and this
-/// shell can still move, resize and delete it, because all three rewrite the
-/// operator and copy the samples byte for byte. What it cannot do is
-/// *replace* it: `pdf_edit::image_source_bytes` reads an inline image from
-/// the stream alone, and the stream alone does not say how many components
-/// `/Cs1` has, so there is no `before` for undo to restore and the whole
-/// replace is refused with `EditError::ImageSourceNotRecoverable`.
+/// Replacing any of them must work, and undoing the replacement must put
+/// back the original objects and operators exactly as the file held them —
+/// which is only possible because undo drops the queued edit instead of
+/// writing a re-encoded copy of the old picture.
 ///
-/// `/Cs1` is deliberately left undefined in `/Resources`: the refusal comes
-/// from the colour space not being derivable from the stream, so a defined
-/// one would only make the fixture longer without changing the answer.
-pub fn build_unreadable_inline_image_page_document() -> Document {
+/// One line of Helvetica text, [`ANY_ENCODING_CAPTION`], is painted too: a
+/// run retyped and then moved is what makes the core take an in-memory
+/// checkpoint, so a test can undo a replacement across one.
+pub fn build_any_encoding_image_page_document() -> Document {
     let mut doc = Document::with_version("1.5");
     doc.reference_table.cross_reference_type = XrefType::CrossReferenceTable;
     let pages_id = doc.new_object_id();
 
-    let mut content = Vec::new();
-    content.extend_from_slice(b"q 100 0 0 100 100 600 cm BI /W 2 /H 2 /CS /Cs1 /BPC 8 /L 4 ID ");
-    content.extend_from_slice(INLINE_IMAGE_SAMPLES);
+    let mut profile = Stream::new(
+        dictionary! { "N" => 3, "Alternate" => "DeviceRGB" },
+        b"not a real ICC profile, only its bytes matter here".to_vec(),
+    );
+    profile.compress().expect("compress fixture ICC profile");
+    let profile_id = doc.add_object(profile);
+    let mut icc = Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 4, "Height" => 4,
+            "ColorSpace" => vec![Object::Name(b"ICCBased".to_vec()), profile_id.into()],
+            "BitsPerComponent" => 8,
+        },
+        target_image_pixels(),
+    );
+    icc.compress().expect("compress fixture ICC image");
+    let icc_id = doc.add_object(icc);
+
+    let mut mask = Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 4, "Height" => 4,
+            "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8,
+        },
+        (0..16u8).map(|alpha| alpha * 16).collect(),
+    );
+    mask.compress().expect("compress fixture soft mask");
+    let mask_id = doc.add_object(mask);
+    let dct_id = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 4, "Height" => 4,
+            "ColorSpace" => "DeviceRGB", "BitsPerComponent" => 8,
+            "Filter" => "DCTDecode", "SMask" => mask_id,
+        },
+        jpeg_bytes(&control_image_pixels()),
+    ));
+
+    let palette = Object::String(
+        vec![0xff, 0x00, 0x00, 0x00, 0x00, 0xff],
+        lopdf::StringFormat::Hexadecimal,
+    );
+    let indexed_space = vec![
+        Object::Name(b"Indexed".to_vec()),
+        Object::Name(b"DeviceRGB".to_vec()),
+        1.into(),
+        palette,
+    ];
+    let indexed_id = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject", "Subtype" => "Image", "Width" => 2, "Height" => 2,
+            "ColorSpace" => indexed_space.clone(), "BitsPerComponent" => 8,
+        },
+        vec![0, 1, 1, 0],
+    ));
+
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica",
+    });
+    let resources_id = doc.add_object(dictionary! {
+        "Font" => dictionary! { "F1" => font_id },
+        "XObject" => dictionary! {
+            "ImIcc" => icc_id,
+            "ImDctMask" => dct_id,
+            "ImIndexed" => indexed_id,
+        },
+        "ColorSpace" => dictionary! { "Cs1" => indexed_space },
+    });
+
+    let painted: Content<Vec<Operation>> = Content {
+        operations: [
+            paint_image("ImIcc", 80, 40, 100, 600),
+            paint_image("ImDctMask", 60, 60, 300, 600),
+            paint_image("ImIndexed", 50, 50, 100, 400),
+            vec![
+                Operation::new("BT", vec![]),
+                Operation::new("Tf", vec!["F1".into(), 24.into()]),
+                Operation::new("Td", vec![100.into(), 300.into()]),
+                Operation::new("Tj", vec![Object::string_literal(ANY_ENCODING_CAPTION)]),
+                Operation::new("ET", vec![]),
+            ],
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    };
+    let mut content = painted.encode().expect("encode the XObject paints");
+    content.extend_from_slice(b"q 40 0 0 40 300 400 cm BI /W 2 /H 2 /CS /Cs1 /BPC 8 /L 4 ID ");
+    content.extend_from_slice(&[0, 1, 1, 0]);
     content.extend_from_slice(b" EI Q\n");
 
     let content_id = doc.add_object(Stream::new(dictionary! {}, content));
     let page_id = doc.add_object(dictionary! {
         "Type" => "Page", "Parent" => pages_id, "Contents" => content_id,
-        "Resources" => dictionary! {},
+        "Resources" => resources_id,
         "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
     });
     doc.objects.insert(
@@ -252,6 +345,19 @@ pub fn build_unreadable_inline_image_page_document() -> Document {
     let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
     doc.trailer.set("Root", catalog_id);
     doc
+}
+
+/// A 4x4 baseline JPEG of `pixels` (RGB, row-major).
+fn jpeg_bytes(pixels: &[u8]) -> Vec<u8> {
+    let image = image::RgbImage::from_raw(4, 4, pixels.to_vec()).expect("4x4 RGB pixels");
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Jpeg,
+        )
+        .expect("encode fixture JPEG");
+    bytes
 }
 
 fn checkerboard_pixels(side: u32, light: u8, dark: u8) -> Vec<u8> {

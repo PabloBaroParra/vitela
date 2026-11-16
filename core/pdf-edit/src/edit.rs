@@ -1040,283 +1040,25 @@ fn free_xobject_name(document: &Document, resources: &Dictionary) -> String {
     }
 }
 
-/// Reads back the bytes behind an existing image, re-encoded as PNG when the
-/// stream is not already a standalone encoded file — so a shell can carry
-/// them as `Command::ReplaceImageSource`'s `before`, which is the only way
-/// undo can restore the image [`replace_image_source`] just overwrote.
+/// Whether `item` still names an image on `page_object` whose source
+/// [`replace_image_source`] can swap: the paint operation resolves and, for a
+/// `Do`, its name is an image XObject in scope.
 ///
-/// Supports exactly what this crate's own writers ([`crate::insert::image_xobject`]
-/// and `replace_image_source` itself) ever produce — 8-bit `DeviceGray`/
-/// `DeviceRGB` samples (optionally `FlateDecode`/`LZWDecode`/`ASCII85Decode`d)
-/// with an optional 8-bit `DeviceGray` `/SMask` for alpha — plus `DCTDecode`
-/// (JPEG) streams, which need no re-encoding at all since `image` decodes
-/// JPEG directly. Anything else (`Indexed`, `DeviceCMYK`, 16-bit samples,
-/// `CCITTFaxDecode`, `JBIG2Decode`, `JPXDecode`, a mismatched `/SMask`, a
-/// `/Decode` or `/Mask` entry, an `/SMask` on a `DCTDecode` stream, ...) is
-/// refused with [`EditError::ImageSourceNotRecoverable`] rather than guessed
-/// at — the same posture [`EditError::EncodingGap`] takes for text this
-/// crate cannot re-represent.
-///
-/// The test for "supported" is not "can these bytes be read" but **"does
-/// undo restore the same image"**: the bytes returned here come back through
-/// [`replace_image_source`], so anything the round trip would drop on the
-/// floor — the alpha of a JPEG that keeps it in a separate `/SMask`, a
-/// `/Decode` array that remaps every sample, a `/Mask`'s transparency — has
-/// to be refused here, not silently returned as a `before` that restores a
-/// visibly different image.
-///
-/// An inline image is read through exactly the same rules, by reading its
-/// `BI` dictionary as the image XObject dictionary it abbreviates (see
-/// [`crate::parse::inline::InlineImage::as_image_stream`]). It has no
-/// `/SMask` to mismatch, and it very often has no filter at all, so in
-/// practice it is the *easier* of the two to read back — what refuses is
-/// what would refuse for an XObject too: a colour space that is not 8-bit
-/// `DeviceGray`/`DeviceRGB` (including one that names a page resource,
-/// which this cannot resolve), a filter outside the supported set, or a
-/// `/D` array.
-pub fn image_source_bytes(
+/// Reads nothing of the picture itself, so it answers the same for every
+/// encoding. Replacing does not need the old picture back: undo drops the
+/// queued replacement, and the file's own image is what is left.
+pub fn check_image_source(
     document: &Document,
     page_object: ObjectId,
     item: &ImageItem,
-) -> Result<Vec<u8>, EditError> {
+) -> Result<(), EditError> {
     let located = read_located_content(document, page_object)?;
     let target = resolve_image(&located, item)?;
-
-    match &item.source {
-        ImageSource::Resource(name) => {
-            let resources = scope_resources(document, page_object, &target.form_path);
-            let object_id = image_xobject_id_in(document, &resources, name)?;
-            let stream = document.get_object(object_id)?.as_stream()?;
-            decode_image_source(document, stream, name)
-        }
-        // The samples are in the content stream rather than in an object,
-        // and that is the only difference that matters here: read as the
-        // XObject the same dictionary describes, an inline image is exactly
-        // as recoverable — or as unrecoverable — as any other.
-        ImageSource::Inline => {
-            let stream = scope_stream(document, &located, &target.form_path, target.stream_index)?;
-            let inline = crate::parse::inline::parse(&stream.bytes, target.operation_span.start)?;
-            let as_xobject = inline
-                .as_image_stream(&stream.bytes)
-                .ok_or_else(|| unrecoverable(INLINE))?;
-            decode_image_source(document, &as_xobject, INLINE)
-        }
+    if let ImageSource::Resource(name) = &item.source {
+        let resources = scope_resources(document, page_object, &target.form_path);
+        image_xobject_id_in(document, &resources, name)?;
     }
-}
-
-/// How the refusal names an image that has no name: the label
-/// [`EditError::ImageSourceNotRecoverable`] carries for an inline image.
-const INLINE: &str = "stored inline";
-
-fn unrecoverable(image: &str) -> EditError {
-    EditError::ImageSourceNotRecoverable {
-        image: image.to_string(),
-    }
-}
-
-/// A filter [`lopdf::Stream::decompressed_content`] can actually invert —
-/// the set this crate's own compressed writes ever use, not every filter the
-/// PDF spec defines.
-fn is_stream_filter(filter: &[u8]) -> bool {
-    matches!(filter, b"FlateDecode" | b"LZWDecode" | b"ASCII85Decode")
-}
-
-/// Sample semantics that live in the dictionary rather than in the samples,
-/// and that a re-encode reading only the samples therefore loses: `/Decode`
-/// remaps every component on the way out (`[1 0 1 0 1 0]` paints a
-/// `DeviceRGB` image inverted), and `/Mask` carries stencil or colour-key
-/// transparency. Neither survives the trip back through
-/// [`replace_image_source`], and neither is anything this crate's own
-/// writers emit, so an image carrying one is refused instead of read back
-/// into a `before` that undo would restore looking different.
-fn has_unreadable_sample_semantics(stream: &lopdf::Stream) -> bool {
-    stream.dict.has(b"Decode") || stream.dict.has(b"Mask")
-}
-
-fn decode_image_source(
-    document: &Document,
-    stream: &lopdf::Stream,
-    image: &str,
-) -> Result<Vec<u8>, EditError> {
-    match stream.filters().ok().as_deref() {
-        // Already an encoded JPEG file byte for byte — `image` decodes it
-        // directly, so there is nothing to reconstruct.
-        Some([b"DCTDecode"]) => {
-            // ...but only when the file's own bytes are the whole image. A
-            // JPEG has no alpha channel of its own, so an `/SMask` beside it
-            // is transparency that returning the JPEG alone would drop:
-            // `replace_image_source` rebuilds `/SMask` from the replacement
-            // file's channels and removes it when there are none, so undoing
-            // with these bytes would restore the image opaque.
-            if stream.dict.has(b"SMask") || has_unreadable_sample_semantics(stream) {
-                return Err(unrecoverable(image));
-            }
-            image::load_from_memory(&stream.content).map_err(|_| unrecoverable(image))?;
-            Ok(stream.content.clone())
-        }
-        Some(filters) if filters.iter().all(|filter| is_stream_filter(filter)) => {
-            encode_raw_samples(document, stream, image)
-        }
-        None => encode_raw_samples(document, stream, image),
-        _ => Err(unrecoverable(image)),
-    }
-}
-
-/// A stream's declared `/ColorSpace`, resolved through one level of
-/// indirection — the shape every image this crate writes uses, and the
-/// common shape everything else uses too.
-fn resolved_name(document: &Document, object: &Object) -> Option<Vec<u8>> {
-    match object {
-        Object::Name(name) => Some(name.clone()),
-        Object::Reference(id) => document
-            .get_object(*id)
-            .ok()
-            .and_then(|resolved| resolved.as_name().ok())
-            .map(<[u8]>::to_vec),
-        _ => None,
-    }
-}
-
-/// Reads an 8-bit `DeviceGray` or `DeviceRGB` image stream's already
-/// filter-decodable samples and its optional `/SMask`, then re-encodes both
-/// together as one PNG (with an alpha channel when a mask was present).
-fn encode_raw_samples(
-    document: &Document,
-    stream: &lopdf::Stream,
-    image: &str,
-) -> Result<Vec<u8>, EditError> {
-    let refuse = || unrecoverable(image);
-
-    // Both planes come back already proven to hold exactly
-    // `width * height * components` samples, so the zips below cannot
-    // silently pair a short mask against a full image.
-    let (width, height, components, samples) = decode_plane(document, stream, refuse)?;
-
-    let alpha = match stream.dict.get(b"SMask") {
-        Ok(Object::Reference(id)) => {
-            let smask = document
-                .get_object(*id)
-                .map_err(|_| refuse())?
-                .as_stream()
-                .map_err(|_| refuse())?;
-            let (mask_width, mask_height, mask_components, mask_samples) =
-                decode_plane(document, smask, refuse)?;
-            if mask_width != width || mask_height != height || mask_components != 1 {
-                return Err(refuse());
-            }
-            Some(mask_samples)
-        }
-        Ok(_) => return Err(refuse()),
-        Err(_) => None,
-    };
-
-    let dynamic = match (components, alpha) {
-        (1, None) => image::DynamicImage::ImageLuma8(
-            image::GrayImage::from_raw(width, height, samples).ok_or_else(refuse)?,
-        ),
-        (1, Some(mask)) => {
-            let rgba: Vec<u8> = samples
-                .iter()
-                .zip(mask.iter())
-                .flat_map(|(gray, a)| [*gray, *gray, *gray, *a])
-                .collect();
-            image::DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(width, height, rgba).ok_or_else(refuse)?,
-            )
-        }
-        (3, None) => image::DynamicImage::ImageRgb8(
-            image::RgbImage::from_raw(width, height, samples).ok_or_else(refuse)?,
-        ),
-        (3, Some(mask)) => {
-            let rgba: Vec<u8> = samples
-                .as_chunks::<3>()
-                .0
-                .iter()
-                .zip(mask.iter())
-                .flat_map(|(rgb, a)| [rgb[0], rgb[1], rgb[2], *a])
-                .collect();
-            image::DynamicImage::ImageRgba8(
-                image::RgbaImage::from_raw(width, height, rgba).ok_or_else(refuse)?,
-            )
-        }
-        _ => return Err(refuse()),
-    };
-
-    let mut bytes = Vec::new();
-    dynamic
-        .write_to(
-            &mut std::io::Cursor::new(&mut bytes),
-            image::ImageFormat::Png,
-        )
-        .map_err(|_| refuse())?;
-    Ok(bytes)
-}
-
-/// A `/Width` or `/Height` that can actually be used as one: present,
-/// positive, and inside `u32`. A negative or absurd value would otherwise
-/// wrap on the cast into a plausible-looking size and then multiply out into
-/// a sample count that overflows.
-fn dimension(dict: &Dictionary, key: &[u8]) -> Option<u32> {
-    let value = dict.get(key).and_then(Object::as_i64).ok()?;
-    u32::try_from(value).ok().filter(|size| *size > 0)
-}
-
-/// One image plane's dimensions, component count (1 for `DeviceGray`, 3 for
-/// `DeviceRGB`) and decoded 8-bit samples — the common read both
-/// [`encode_raw_samples`] and its `/SMask` lookup need.
-///
-/// The samples are proven to be exactly the `width * height * components`
-/// the dictionary promised before they are returned, so a caller may treat
-/// the length as a fact rather than re-deriving it.
-fn decode_plane(
-    document: &Document,
-    stream: &lopdf::Stream,
-    refuse: impl Fn() -> EditError,
-) -> Result<(u32, u32, usize, Vec<u8>), EditError> {
-    if has_unreadable_sample_semantics(stream) {
-        return Err(refuse());
-    }
-    let width = dimension(&stream.dict, b"Width").ok_or_else(&refuse)?;
-    let height = dimension(&stream.dict, b"Height").ok_or_else(&refuse)?;
-    let bpc = stream
-        .dict
-        .get(b"BitsPerComponent")
-        .and_then(Object::as_i64)
-        .map_err(|_| refuse())?;
-    if bpc != 8 {
-        return Err(refuse());
-    }
-    let color_space = stream
-        .dict
-        .get(b"ColorSpace")
-        .ok()
-        .and_then(|object| resolved_name(document, object));
-    let components = match color_space.as_deref() {
-        Some(b"DeviceGray") => 1,
-        Some(b"DeviceRGB") => 3,
-        _ => return Err(refuse()),
-    };
-    let expected_len = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|pixels| pixels.checked_mul(components))
-        .ok_or_else(&refuse)?;
-
-    // Decode against a ceiling the dictionary's own `/Width`x`/Height` sets,
-    // rather than `get_plain_content`'s deliberately unbounded read: a
-    // stream that inflates far past the size it declares is damaged or a
-    // decompression bomb either way, and this crate already refuses page
-    // content on the same grounds (`parse::filter`'s
-    // `MAX_PAGE_CONTENT_BYTES`). The allowance over `expected_len` is one
-    // byte per row, which is exactly what a PNG predictor's per-row filter
-    // tag costs before `lopdf` strips it back off.
-    let limit = expected_len.saturating_add(height as usize);
-    let samples = stream
-        .get_plain_content_with_limit(limit)
-        .map_err(|_| refuse())?;
-    if samples.len() != expected_len {
-        return Err(refuse());
-    }
-    Ok((width, height, components, samples))
+    Ok(())
 }
 
 /// The shared body of move and resize: leave the placement that is already
@@ -3539,44 +3281,6 @@ q ",
         );
     }
 
-    /// The samples come back as the picture they are, `EI` bytes and all —
-    /// the whole point of measuring the image instead of scanning for its
-    /// terminator.
-    #[test]
-    fn an_inline_images_source_reads_back_as_its_own_pixels() {
-        let (document, page) = image_document(INLINE_TRAP);
-        let target = image_of(&document, 0);
-
-        let bytes = image_source_bytes(&document, page, &target).expect("readable");
-
-        let decoded = image::load_from_memory(&bytes).expect("a png");
-        assert_eq!((decoded.width(), decoded.height()), (2, 2));
-        assert_eq!(
-            decoded.to_luma8().into_raw(),
-            b" EI ".to_vec(),
-            "the four samples are the four bytes the stream holds"
-        );
-    }
-
-    /// An inline image whose colour space names a page resource is not
-    /// readable from the stream alone, and the refusal says so with the
-    /// label an image with no name gets.
-    #[test]
-    fn an_unreadable_inline_image_is_refused_by_name() {
-        let (document, page) =
-            image_document(b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /Cs1 /BPC 8 /L 3 ID abc EI Q");
-        let target = image_of(&document, 0);
-
-        let error = image_source_bytes(&document, page, &target).expect_err("no component count");
-
-        assert_eq!(
-            error,
-            EditError::ImageSourceNotRecoverable {
-                image: "stored inline".to_string()
-            }
-        );
-    }
-
     /// Replacing is the one edit that cannot keep the image inline: the
     /// samples *are* the operation, so the replacement becomes a resource
     /// and the span becomes a `Do` on it.
@@ -3640,7 +3344,6 @@ q ",
             document.get_dictionary_mut(parent).unwrap().set("Count", 2);
             let original_stream = document.get_object(shared).unwrap().clone();
             let target = image_of(&document, 0);
-            let original = image_source_bytes(&document, sibling_id, &target).unwrap();
 
             replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false)).unwrap();
 
@@ -3654,10 +3357,6 @@ q ",
                 .remove(0);
             assert_eq!(sibling_image.bbox, target.bbox);
             assert_eq!(sibling_image.source, ImageSource::Inline);
-            assert_eq!(
-                image_source_bytes(&document, sibling_id, &sibling_image).unwrap(),
-                original
-            );
             assert_eq!(document.get_object(shared).unwrap(), &original_stream);
         }
     }
@@ -3890,375 +3589,163 @@ q ",
         );
     }
 
-    // --- image_source_bytes ------------------------------------------------
+    // --- check_image_source ------------------------------------------------
 
-    /// Builds a one-page document with `/Im1` set to `pixels` (`DeviceRGB`,
-    /// `width`x`height`, 8bpc), forcibly `FlateDecode`d regardless of size —
-    /// `Stream::compress` only applies when it saves bytes, and a test-sized
-    /// image rarely does, so the filter is set by hand here to exercise
-    /// [`decode_image_source`]'s Flate branch rather than its no-filter one.
-    fn flate_image_document(width: i64, height: i64, pixels: Vec<u8>) -> (Document, ObjectId) {
-        use flate2::write::ZlibEncoder;
-        use flate2::Compression;
-        use std::io::Write;
-
-        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::default());
-        encoder.write_all(&pixels).expect("compress fixture pixels");
-        let compressed = encoder.finish().expect("finish fixture compression");
-
-        let stream = Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Image",
-                "Width" => width,
-                "Height" => height,
-                "ColorSpace" => "DeviceRGB",
-                "BitsPerComponent" => 8,
-                "Filter" => "FlateDecode",
-            },
-            compressed,
-        );
-        let resources = dictionary! { "XObject" => dictionary! { "Im1" => stream } };
-        image_document_with_resources(b"q 10 0 0 10 0 0 cm /Im1 Do Q", resources)
-    }
-
-    fn image_document_with_resources(
-        content: &[u8],
-        resources: Dictionary,
+    /// A one-page document whose `/Im1` is `stream`, painted once.
+    /// `extra` may add objects the stream refers to (a profile, a soft mask)
+    /// before the stream itself is registered.
+    fn single_image_document(
+        mut stream: Stream,
+        extra: impl FnOnce(&mut Document, &mut Stream),
     ) -> (Document, ObjectId) {
-        fixture::document_with_content(content, resources)
-    }
-
-    fn decoded_rgb_pixels(png: &[u8]) -> Vec<u8> {
-        image::load_from_memory(png)
-            .expect("decode png")
-            .to_rgb8()
-            .into_raw()
-    }
-
-    /// An 8-bit `DeviceGray` plane, the shape a `/SMask` takes.
-    fn gray_mask_stream(width: i64, height: i64, samples: Vec<u8>) -> Stream {
-        Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Image",
-                "Width" => width,
-                "Height" => height,
-                "ColorSpace" => "DeviceGray",
-                "BitsPerComponent" => 8,
-            },
-            samples,
-        )
-    }
-
-    /// Sets `key` on `/Im1`'s own stream dictionary after the fact — the
-    /// entries these tests care about (`/SMask`, `/Decode`, `/Mask`) all live
-    /// there, and building them into `dictionary!` up front would mean
-    /// duplicating the whole fixture per entry.
-    fn set_on_image_dict(
-        document: &mut Document,
-        page: ObjectId,
-        target: &ImageItem,
-        key: &str,
-        value: Object,
-    ) {
-        let object_id = image_xobject_id(
-            document,
-            page,
-            target.resource_xobject_name().expect("a resource image"),
-        )
-        .expect("Im1 is an indirect object");
-        document
-            .get_object_mut(object_id)
-            .expect("image xobject")
-            .as_stream_mut()
-            .expect("image stream")
-            .dict
-            .set(key, value);
-    }
-
-    /// A one-page document whose `/Im1` is a 4x4 `DCTDecode` stream, plus the
-    /// JPEG bytes it holds.
-    fn dct_image_document() -> (Document, ObjectId, Vec<u8>) {
-        use image::{ImageFormat, RgbImage};
-        use std::io::Cursor;
-
-        let mut jpeg = Cursor::new(Vec::new());
-        RgbImage::from_pixel(4, 4, image::Rgb([200, 100, 50]))
-            .write_to(&mut jpeg, ImageFormat::Jpeg)
-            .expect("encode jpeg fixture");
-        let jpeg = jpeg.into_inner();
-
-        let stream = Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Image",
-                "Width" => 4,
-                "Height" => 4,
-                "ColorSpace" => "DeviceRGB",
-                "BitsPerComponent" => 8,
-                "Filter" => "DCTDecode",
-            },
-            jpeg.clone(),
+        let (mut document, page) =
+            fixture::document_with_content(b"q 10 0 0 10 0 0 cm /Im1 Do Q", dictionary! {});
+        extra(&mut document, &mut stream);
+        let image_id = document.add_object(stream);
+        document.get_dictionary_mut(page).expect("page").set(
+            "Resources",
+            dictionary! { "XObject" => dictionary! { "Im1" => image_id } },
         );
-        let resources = dictionary! { "XObject" => dictionary! { "Im1" => stream } };
-        let (document, page) =
-            image_document_with_resources(b"q 10 0 0 10 0 0 cm /Im1 Do Q", resources);
-        (document, page, jpeg)
+        (document, page)
+    }
+
+    fn image_stream(color_space: Object, extra: Dictionary, content: Vec<u8>) -> Stream {
+        let mut dict = dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => 2,
+            "Height" => 2,
+            "ColorSpace" => color_space,
+            "BitsPerComponent" => 8,
+        };
+        for (key, value) in extra.iter() {
+            dict.set(key.clone(), value.clone());
+        }
+        Stream::new(dict, content)
+    }
+
+    /// Encodings no picture file can carry back unchanged — every one of
+    /// which used to refuse a replacement, because undo was thought to need
+    /// the old picture as a file. It does not: undo drops the queued edit,
+    /// and the original is still in the document.
+    fn every_kind_of_original() -> Vec<(&'static str, Stream)> {
+        vec![
+            (
+                "DeviceCMYK",
+                image_stream("DeviceCMYK".into(), dictionary! {}, vec![0; 16]),
+            ),
+            (
+                "CCITTFaxDecode",
+                image_stream(
+                    "DeviceGray".into(),
+                    dictionary! { "Filter" => "CCITTFaxDecode" },
+                    vec![0; 4],
+                ),
+            ),
+            (
+                "an inverting /Decode",
+                image_stream(
+                    "DeviceRGB".into(),
+                    dictionary! {
+                        "Decode" => vec![1.into(), 0.into(), 1.into(), 0.into(), 1.into(), 0.into()],
+                    },
+                    vec![7; 12],
+                ),
+            ),
+            (
+                "Indexed",
+                image_stream(
+                    Object::Array(vec![
+                        "Indexed".into(),
+                        "DeviceRGB".into(),
+                        1.into(),
+                        Object::string_literal(vec![255, 0, 0, 0, 0, 255]),
+                    ]),
+                    dictionary! {},
+                    vec![0, 1, 1, 0],
+                ),
+            ),
+            (
+                "a nonsensical size",
+                image_stream(
+                    "DeviceRGB".into(),
+                    dictionary! { "Width" => -1 },
+                    vec![0; 12],
+                ),
+            ),
+            (
+                "ICCBased with a soft mask",
+                image_stream("DeviceRGB".into(), dictionary! {}, vec![9; 12]),
+            ),
+        ]
     }
 
     #[test]
-    fn reading_back_an_unfiltered_rgb_images_bytes_round_trips_its_pixels() {
-        // `fixture::image_resources`'s `Im1` is 2x2 `DeviceRGB`, uncompressed
-        // — the no-filter branch.
-        let (document, page) = image_document(b"q 10 0 0 10 0 0 cm /Im1 Do Q");
-        let target = image_of(&document, 0);
-
-        let png = image_source_bytes(&document, page, &target).expect("recoverable");
-
-        assert_eq!(decoded_rgb_pixels(&png), vec![0u8; 12]);
-    }
-
-    #[test]
-    fn reading_back_a_flate_decoded_rgb_images_bytes_round_trips_its_pixels() {
-        let pixels: Vec<u8> = (0..2 * 3 * 3).map(|n| n as u8).collect();
-        let (document, page) = flate_image_document(2, 3, pixels.clone());
-        let target = image_of(&document, 0);
-
-        let png = image_source_bytes(&document, page, &target).expect("recoverable");
-
-        assert_eq!(decoded_rgb_pixels(&png), pixels);
-    }
-
-    #[test]
-    fn reading_back_an_image_with_a_soft_mask_preserves_its_alpha() {
-        let pixels = vec![10u8, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120];
-        let (mut document, page) = flate_image_document(2, 2, pixels.clone());
-        let target = image_of(&document, 0);
-
-        let alpha = vec![255u8, 200, 100, 0];
-        let mask_id = document.add_object(gray_mask_stream(2, 2, alpha.clone()));
-        set_on_image_dict(
-            &mut document,
-            page,
-            &target,
-            "SMask",
-            Object::Reference(mask_id),
-        );
-
-        let png = image_source_bytes(&document, page, &target).expect("recoverable");
-        let decoded = image::load_from_memory(&png)
-            .expect("decode png")
-            .to_rgba8();
-
-        assert_eq!(decoded_rgb_pixels(&png), pixels);
-        assert_eq!(decoded.pixels().map(|p| p[3]).collect::<Vec<_>>(), alpha);
-    }
-
-    /// A `/SMask` whose plane is a different size than the image it masks
-    /// cannot be paired with it sample for sample, so the read is refused
-    /// rather than zipped into whichever of the two runs out first.
-    #[test]
-    fn a_soft_mask_that_does_not_match_its_base_image_is_refused() {
-        let (mut document, page) = flate_image_document(2, 2, vec![0u8; 12]);
-        let target = image_of(&document, 0);
-
-        let mask_id = document.add_object(gray_mask_stream(4, 4, vec![255u8; 16]));
-        set_on_image_dict(
-            &mut document,
-            page,
-            &target,
-            "SMask",
-            Object::Reference(mask_id),
-        );
-
-        let error = image_source_bytes(&document, page, &target)
-            .expect_err("a 4x4 mask does not describe a 2x2 image");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-    }
-
-    #[test]
-    fn reading_back_a_dct_encoded_images_bytes_needs_no_re_encoding() {
-        let (document, page, jpeg) = dct_image_document();
-        let target = image_of(&document, 0);
-
-        let bytes = image_source_bytes(&document, page, &target).expect("recoverable");
-
-        assert_eq!(bytes, jpeg, "an already-JPEG stream is returned untouched");
-    }
-
-    /// The JPEG bytes alone are not the whole image when a `/SMask` carries
-    /// its alpha: `replace_image_source` rebuilds `/SMask` from the
-    /// replacement file's own channels, and a JPEG has none, so undoing with
-    /// these bytes would restore the image opaque. Refused instead.
-    #[test]
-    fn a_dct_encoded_image_with_a_soft_mask_is_refused_rather_than_read_back_opaque() {
-        let (mut document, page, _) = dct_image_document();
-        let target = image_of(&document, 0);
-
-        let mask_id = document.add_object(gray_mask_stream(4, 4, vec![128u8; 16]));
-        set_on_image_dict(
-            &mut document,
-            page,
-            &target,
-            "SMask",
-            Object::Reference(mask_id),
-        );
-
-        let error = image_source_bytes(&document, page, &target)
-            .expect_err("a JPEG cannot carry a separate soft mask's alpha back");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-    }
-
-    /// `/Decode` remaps every sample on the way to the page — `[1 0 1 0 1 0]`
-    /// paints a `DeviceRGB` image inverted — and nothing in the re-encoded
-    /// PNG records that, so undo would restore the image in the wrong
-    /// colours. Refused on both paths.
-    #[test]
-    fn a_decode_array_is_refused_rather_than_re_encoded_without_it() {
-        let (mut document, page) = flate_image_document(2, 2, vec![7u8; 12]);
-        let target = image_of(&document, 0);
-
-        set_on_image_dict(
-            &mut document,
-            page,
-            &target,
-            "Decode",
-            Object::Array(vec![
-                1.into(),
-                0.into(),
-                1.into(),
-                0.into(),
-                1.into(),
-                0.into(),
-            ]),
-        );
-
-        let error = image_source_bytes(&document, page, &target)
-            .expect_err("an inverting /Decode is not reproducible in a PNG");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-    }
-
-    /// `/Mask` is transparency the samples do not carry, and
-    /// `replace_image_source` never writes one back, so reading the samples
-    /// alone would hand undo an image that restores fully opaque.
-    #[test]
-    fn a_stencil_mask_is_refused_rather_than_dropping_its_transparency() {
-        let (mut document, page, _) = dct_image_document();
-        let target = image_of(&document, 0);
-
-        let stencil_id = document.add_object(gray_mask_stream(4, 4, vec![0u8; 16]));
-        set_on_image_dict(
-            &mut document,
-            page,
-            &target,
-            "Mask",
-            Object::Reference(stencil_id),
-        );
-
-        let error = image_source_bytes(&document, page, &target)
-            .expect_err("a /Mask's transparency does not survive the round trip");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-    }
-
-    /// A `/Width` that cannot be a width is refused at the dictionary rather
-    /// than wrapped into a plausible `u32` and multiplied out into a sample
-    /// count that overflows.
-    #[test]
-    fn a_nonsensical_declared_size_is_refused_rather_than_overflowing() {
-        for (width, height) in [(-1i64, 2i64), (2, 0), (i64::from(u32::MAX) + 1, 2)] {
-            let stream = Stream::new(
-                dictionary! {
-                    "Type" => "XObject",
-                    "Subtype" => "Image",
-                    "Width" => width,
-                    "Height" => height,
-                    "ColorSpace" => "DeviceRGB",
-                    "BitsPerComponent" => 8,
-                },
-                vec![0u8; 12],
-            );
-            let resources = dictionary! { "XObject" => dictionary! { "Im1" => stream } };
-            let (document, page) =
-                image_document_with_resources(b"q 10 0 0 10 0 0 cm /Im1 Do Q", resources);
+    fn every_encoding_is_replaceable_and_its_original_objects_are_left_alone() {
+        for (kind, stream) in every_kind_of_original() {
+            let (mut document, page) = single_image_document(stream, |document, stream| {
+                if kind == "ICCBased with a soft mask" {
+                    let profile =
+                        document.add_object(Stream::new(dictionary! { "N" => 3 }, vec![1, 2, 3]));
+                    let mask = document.add_object(image_stream(
+                        "DeviceGray".into(),
+                        dictionary! {},
+                        vec![255, 128, 64, 0],
+                    ));
+                    stream.dict.set(
+                        "ColorSpace",
+                        vec![Object::Name(b"ICCBased".to_vec()), profile.into()],
+                    );
+                    stream.dict.set("SMask", mask);
+                }
+            });
             let target = image_of(&document, 0);
+            let original_id = image_xobject_id(&document, page, "Im1").expect("registered");
+            let original = document.objects.clone();
 
-            let error = image_source_bytes(&document, page, &target)
-                .expect_err("a nonsensical size is not readable");
+            check_image_source(&document, page, &target)
+                .unwrap_or_else(|error| panic!("{kind} must be replaceable: {error}"));
+            replace_image_source(&mut document, page, &target, &png_bytes(8, 4, false))
+                .unwrap_or_else(|error| panic!("{kind} must be replaced: {error}"));
 
-            assert!(
-                matches!(error, EditError::ImageSourceNotRecoverable { .. }),
-                "{width}x{height} must be refused, not read"
+            assert_ne!(
+                image_xobject_id(&document, page, "Im1").expect("still registered"),
+                original_id,
+                "{kind}: the name now paints the replacement"
             );
+            for (id, object) in &original {
+                if *id == page {
+                    // The page's resource table is the one thing a
+                    // replacement rewrites.
+                    continue;
+                }
+                assert_eq!(
+                    document.get_object(*id).expect("never removed"),
+                    object,
+                    "{kind}: object {id:?} was changed in place"
+                );
+            }
         }
     }
 
-    /// A stream that inflates far past the size its own dictionary declares
-    /// is damaged or a decompression bomb; either way it is refused without
-    /// materialising the whole expansion.
     #[test]
-    fn a_stream_that_inflates_past_its_declared_size_is_refused() {
-        // Declares 2x2 `DeviceRGB` (12 bytes) but inflates to 1 MiB.
-        let (document, page) = flate_image_document(2, 2, vec![0u8; 1024 * 1024]);
-        let target = image_of(&document, 0);
+    fn check_image_source_accepts_an_inline_image_whatever_its_colour_space() {
+        let named: &[u8] = b"q 10 0 0 10 0 0 cm BI /W 1 /H 1 /CS /Cs1 /BPC 8 /L 3 ID abc EI Q";
+        for content in [INLINE_TRAP, named] {
+            let (document, page) = image_document(content);
+            let target = image_of(&document, 0);
 
-        let error = image_source_bytes(&document, page, &target)
-            .expect_err("12 declared bytes must not decode into a megabyte");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
+            check_image_source(&document, page, &target).expect("an inline image is replaceable");
+        }
     }
 
     #[test]
-    fn an_unsupported_color_space_is_refused_rather_than_guessed_at() {
-        let stream = Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Image",
-                "Width" => 2,
-                "Height" => 2,
-                "ColorSpace" => "DeviceCMYK",
-                "BitsPerComponent" => 8,
-            },
-            vec![0u8; 16],
-        );
-        let resources = dictionary! { "XObject" => dictionary! { "Im1" => stream } };
-        let (document, page) =
-            image_document_with_resources(b"q 10 0 0 10 0 0 cm /Im1 Do Q", resources);
-        let target = image_of(&document, 0);
+    fn check_image_source_refuses_an_item_the_page_no_longer_paints() {
+        let (document, page) = image_document(b"q 10 0 0 10 0 0 cm /Im1 Do Q");
+        let mut stale = image_of(&document, 0);
+        stale.bbox.x += 50.0;
 
-        let error =
-            image_source_bytes(&document, page, &target).expect_err("CMYK is not recoverable");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
-    }
-
-    #[test]
-    fn an_unsupported_filter_is_refused_rather_than_guessed_at() {
-        let stream = Stream::new(
-            dictionary! {
-                "Type" => "XObject",
-                "Subtype" => "Image",
-                "Width" => 2,
-                "Height" => 2,
-                "ColorSpace" => "DeviceGray",
-                "BitsPerComponent" => 8,
-                "Filter" => "CCITTFaxDecode",
-            },
-            vec![0u8; 4],
-        );
-        let resources = dictionary! { "XObject" => dictionary! { "Im1" => stream } };
-        let (document, page) =
-            image_document_with_resources(b"q 10 0 0 10 0 0 cm /Im1 Do Q", resources);
-        let target = image_of(&document, 0);
-
-        let error =
-            image_source_bytes(&document, page, &target).expect_err("CCITT is not recoverable");
-
-        assert!(matches!(error, EditError::ImageSourceNotRecoverable { .. }));
+        assert!(check_image_source(&document, page, &stale).is_err());
     }
 
     fn image_xobject(document: &Document) -> Dictionary {

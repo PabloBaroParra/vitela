@@ -591,7 +591,6 @@ mod tests {
             },
             Command::ReplaceImageSource {
                 item: sample_image(),
-                before: Vec::new(),
                 after: Vec::new(),
             },
         ] {

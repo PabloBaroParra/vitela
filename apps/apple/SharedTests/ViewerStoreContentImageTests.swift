@@ -108,13 +108,13 @@ final class ViewerStoreContentImageTests: XCTestCase {
 
     // MARK: - Replacing and inserting images
 
-    func testAnImageTheCoreCannotReadBackSaysSoWhenSelected() {
+    func testSelectingAnImageDoesNotAskTheCoreAboutReplacing() {
         let (client, store) = withPhoto()
         client.imageReplaceRefusal = ContentEditing.replaceRefused
         drag(store, from: PdfPoint(x: 150, y: 150), to: PdfPoint(x: 150, y: 150))
 
-        XCTAssertEqual(store.editStatus, ViewerStore.imageSelectedNoReplace)
-        XCTAssertFalse(store.canReplaceSelectedImage)
+        XCTAssertEqual(store.editStatus, "Image selected. Drag it to move it, a corner to resize it, or delete it.")
+        XCTAssertTrue(store.canReplaceSelectedImage, "every encoding is replaceable; the core is asked when Replace is pressed")
     }
 
     func testAReplaceableImageIsOfferedUntilItIsEdited() {
