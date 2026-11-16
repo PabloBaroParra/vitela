@@ -1,5 +1,7 @@
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
@@ -20,6 +22,12 @@ namespace Pdf.Windows;
 /// <see cref="ContentHover"/>; this half keeps the state and places the one
 /// outline element through the page placement, so it holds on a rotated page
 /// and at any zoom.
+///
+/// A band <see cref="ContentHover.BorderBandPx"/> wide either side of the
+/// outline is the item's border: the page shows the move cursor there, and a
+/// press there moves the whole item through the drag its kind already has —
+/// never a marquee, even where the band reaches outside the item's own box.
+/// The corners of a selected image or shape keep their resize handles.
 /// </remarks>
 public sealed partial class MainWindow
 {
@@ -35,6 +43,14 @@ public sealed partial class MainWindow
 
     /// <summary>The one hover outline, moved between pages' content canvases as the pointer goes.</summary>
     private readonly Rectangle _contentHoverOutline = new() { Stroke = HandleBrush, StrokeThickness = 1, IsHitTestVisible = false };
+
+    /// <summary>Whether the press content-edit mode claimed found an inline editor open, read before it committed it.</summary>
+    private bool _contentPressEditorOpen;
+
+    /// <summary>The page whose surface shows the move cursor, or <c>null</c>.</summary>
+    private PageSlot? _moveCursorSlot;
+
+    private InputCursor? _moveCursor;
 
     /// <summary>Three pixels on, two off: the resting outline of an item nobody is pointing at.</summary>
     private static Rectangle RestingOutline() =>
@@ -114,12 +130,18 @@ public sealed partial class MainWindow
         ShowContentHover();
     }
 
-    /// <summary>Places the hover outline where the hovered item is drawn now, or takes it off the page.</summary>
+    /// <summary>The hover, when its page is laid out and nothing rules it out; a drag rules out only the outline.</summary>
+    private ContentHoverState? ShownContentHover() =>
+        _contentHover is { } hover && _contentEditMode && hover.PageIndex < _slots.Count && _session is not null
+            && hover.PageIndex < _session.Pages.Count && !ContentEditorOpen
+            ? hover : null;
+
+    /// <summary>Places the hover outline where the hovered item is drawn now, or takes it off the page, and the move cursor with it.</summary>
     private void ShowContentHover()
     {
+        ShowMoveCursor();
         var outline = _contentHoverOutline;
-        if (_contentHover is not { } hover || !_contentEditMode || hover.PageIndex >= _slots.Count || _session is null
-            || hover.PageIndex >= _session.Pages.Count || ContentDragging || ContentEditorOpen)
+        if (ShownContentHover() is not { } hover || ContentDragging)
         {
             (outline.Parent as Panel)?.Children.Remove(outline);
             return;
@@ -131,5 +153,86 @@ public sealed partial class MainWindow
             slot.Content.Children.Add(outline);
         }
         PlaceOverPage(outline, slot, (int)hover.PageIndex, ContentHover.OutlineRect(hover.Member.Bounds, slot.Scale));
+    }
+
+    /// <summary>
+    /// The move cursor on the hovered page while the pointer is on the border
+    /// band. It stays through the drag that band starts: the surface holds
+    /// the pointer capture, so it is the element the cursor is read from.
+    /// </summary>
+    private void ShowMoveCursor()
+    {
+        var wanted = ShownContentHover() is { } hover && ContentHover.ShowsMoveCursor(hover.Zone) ? _slots[(int)hover.PageIndex] : null;
+        if (ReferenceEquals(wanted, _moveCursorSlot) || ProtectedCursorProperty is null) return;
+        if (_moveCursorSlot is { } previous) ProtectedCursorProperty.SetValue(previous.Annotations, null);
+        if (wanted is not null)
+        {
+            _moveCursor ??= InputSystemCursor.Create(InputSystemCursorShape.SizeAll);
+            ProtectedCursorProperty.SetValue(wanted.Annotations, _moveCursor);
+        }
+        _moveCursorSlot = wanted;
+    }
+
+    /// <summary>
+    /// The hovered item, when <paramref name="point"/> is on its border band
+    /// and it is still on the page as <paramref name="content"/> has it now —
+    /// same id, same box — picked from that content rather than from the
+    /// snapshot the hover holds. Never while an inline editor is or was open
+    /// for this press.
+    /// </summary>
+    private ContentHoverMember? ContentBorderMember(uint pageIndex, PageContent content, AnnotationPoint point, double reach)
+    {
+        if (_contentPressEditorOpen || ContentEditorOpen || pageIndex >= _slots.Count) return null;
+        if (_contentHover is not { } hover || hover.PageIndex != pageIndex) return null;
+        if (ContentHover.StillCurrent(content, hover.Member) is not { } member) return null;
+        var zone = ContentHover.ZoneOf(member.Bounds, point, _slots[(int)pageIndex].Scale, reach, CarriesHandles(pageIndex, member));
+        return zone == ContentHoverZone.Border ? member : null;
+    }
+
+    /// <summary>
+    /// A press on the hovered item's border band: the whole item moves, each
+    /// kind through its own drag. A text block released without moving is
+    /// selected — a click there is aimed at the block, even off its box.
+    /// </summary>
+    private bool BeginContentBorderMove(PageSlot slot, uint pageIndex, string sessionId, PageContent content,
+        AnnotationPoint point, PointerRoutedEventArgs? args)
+    {
+        if (ContentBorderMember(pageIndex, content, point, HandleReachPx / slot.Scale) is not { } member) return false;
+        switch (member)
+        {
+            case { Image: { } image }:
+                ClearTextBlockSelection();
+                ClearContentPathSelection();
+                _selectedContentImage = image;
+                ClaimPageFocus();
+                _contentImageDrag = new(sessionId, image, point, point, Corner: null);
+                break;
+            case { Path: { } path }:
+                ClearTextBlockSelection();
+                if (_selectedContentImage is not null) ClearContentImageSelection();
+                _selectedContentPath = path;
+                ClaimPageFocus();
+                _contentPathDrag = new(sessionId, path, point, point, Corner: null);
+                break;
+            case { Block: { } block }:
+                if (_selectedContentImage is not null) ClearContentImageSelection();
+                ClearContentPathSelection();
+                if (!_contentPointerDown)
+                {
+                    // Released before the page content arrived: a click.
+                    RedrawContentImageSelection();
+                    SelectTextBlock(block);
+                    return true;
+                }
+                _textBlockDrag = new(sessionId, block, point, point, Dragging: false);
+                break;
+            default:
+                return false;
+        }
+        // No pointer in the smoke harness, which drives the gesture by points.
+        if (args is not null) slot.Annotations.CapturePointer(args.Pointer);
+        RedrawContentImageSelection();
+        UpdateShapeCard();
+        return true;
     }
 }

@@ -73,7 +73,10 @@ public sealed partial class MainWindow
         if (_contentPressShift)
         {
             var current = SelectionToExtend(page);
-            if (hit is not null) SetContentSelection(Toggled(current, hit));
+            // The outer half of the hovered item's border band lies off its
+            // box, where the hit-test finds nothing; a press there still
+            // means the item.
+            if ((hit ?? ContentBorderMember(page, content, point, reach)) is { } member) SetContentSelection(Toggled(current, member));
             else
             {
                 // SHIFT on empty page: a marquee that adds to what is selected.
@@ -91,6 +94,11 @@ public sealed partial class MainWindow
         }
 
         ClearContentSelection();
+        // The border band round the hovered item moves the whole item, even
+        // off its own box, where the asks below would find nothing and start
+        // a marquee. A selected image's or shape's corners kept their handles
+        // above.
+        if (BeginContentBorderMove(slot, page, sessionId, content, point, args)) return true;
         if (hit is not null) return false;
 
         ClearTextBlockSelection();

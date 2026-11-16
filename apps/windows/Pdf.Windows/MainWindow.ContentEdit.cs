@@ -148,6 +148,9 @@ public sealed partial class MainWindow
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _contentPointerDown = true;
         _contentPressShift = args.KeyModifiers.HasFlag(global::Windows.System.VirtualKeyModifiers.Shift);
+        // Read before the press commits it: a press that resolves an open
+        // editor never also moves an item by its border.
+        _contentPressEditorOpen = ContentEditorOpen;
         _ = BeginContentGestureAsync(slot, pageIndex, point, args);
         return true;
     }

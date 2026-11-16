@@ -209,6 +209,9 @@ public sealed partial class MainWindow
         };
         if (shape is { } wanted)
         {
+            // The hand owns the pointer: a content item's move cursor on the
+            // page below would show through the hand's.
+            ClearContentHover();
             if (!_handCursorShown)
             {
                 _savedScrollerCursor = ProtectedCursorProperty.GetValue(PageScroller) as InputCursor;
