@@ -235,3 +235,45 @@ fn a_retyped_run_can_be_restyled_before_the_save() {
     let saved = reopened(&handle);
     assert!(now(&saved, "Howdy").bold);
 }
+
+/// A shell whose editor writes as the reader types (Windows) restyles the
+/// block it is retyping, then types on into it from the runs as they read
+/// now: the text and the restyle both save, and typing on folds into one step.
+#[test]
+fn a_live_editor_types_on_into_a_block_it_restyled() {
+    use pdf_ffi::{read_page_text_blocks, retype_text_block};
+    let handle = hello_with_bold_sibling();
+    let block = |handle: &DocumentHandle| {
+        read_page_text_blocks(handle, 0).expect("blocks")[0]
+            .runs
+            .clone()
+    };
+
+    retype_text_block(&handle, block(&handle), "Hello world".to_string(), false).expect("typed");
+    let restyles = block(&handle)
+        .into_iter()
+        .map(|item| FfiTextRunRestyle {
+            item,
+            from: plain(),
+            to: look(true, false, false),
+        })
+        .collect();
+    restyle_text_runs(&handle, restyles).expect("restyled");
+    retype_text_block(&handle, block(&handle), "Hello world!".to_string(), false)
+        .expect("typed on");
+    retype_text_block(&handle, block(&handle), "Hello world!!".to_string(), false)
+        .expect("typed on again");
+
+    let saved = reopened(&handle);
+    let runs = block(&saved);
+    assert_eq!(
+        read_page_text_blocks(&saved, 0).unwrap()[0].text,
+        "Hello world!!"
+    );
+    assert!(runs.iter().all(|run| now(&saved, &run.text).bold));
+    let mut steps = 0;
+    while undo(&handle) {
+        steps += 1;
+    }
+    assert_eq!(steps, 3, "typed, restyled, typed on");
+}
