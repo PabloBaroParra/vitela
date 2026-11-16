@@ -223,11 +223,16 @@ pub(crate) enum ImageControls {
     /// image is encoded as: replacing never reads the old picture back,
     /// because undo drops the queued replacement and leaves the file's own.
     Ready,
-    /// Selected, and it already carries an edit that has not reached disk.
-    /// Moving, resizing and deleting stay on — the core folds them into the
-    /// queued edit (B25 T-207) — but replacing is off until a save: the
-    /// replacement is validated against the file, which does not hold the
-    /// edit yet.
+    /// Selected, and it already carries an edit that has not reached disk,
+    /// in a session that may not checkpoint. Moving, resizing and deleting
+    /// stay on — the core folds them into the queued edit (B25 T-207) —
+    /// except for an inline image whose queued edit is a replacement: those
+    /// three are refused with [`panel::IMAGE_REPLACED_UNSAVED`] until a save,
+    /// because only a checkpoint could rebind them to the new picture. And
+    /// replacing is off until a save: the replacement is validated against
+    /// the file, which does not hold the edit yet. Where the session may
+    /// checkpoint, the core writes the queue into a new in-memory base and
+    /// retries the replacement there (`checkpoint`), so the image is `Ready`.
     ///
     /// The one state here that is temporary, which is why the whole enum is
     /// recomputed rather than cached: a save→reopen clears the `EditLog`
@@ -243,9 +248,12 @@ impl ImageControls {
         matches!(self, Self::Ready | Self::PendingEdit)
     }
 
-    /// Replacing needs a selection with nothing queued against it: the
-    /// replacement is validated against the file, which does not hold a
-    /// queued edit yet.
+    /// Replacing is on only in the `Ready` state: a selection with nothing
+    /// queued against it, or one in a session that may checkpoint
+    /// (`image_controls` resolves both to `Ready`). A queued edit in a session
+    /// that may not is `PendingEdit`, and stays off until a save: the
+    /// replacement is validated against the file, which does not hold that
+    /// edit yet.
     pub(crate) fn replace_enabled(self) -> bool {
         matches!(self, Self::Ready)
     }
@@ -286,7 +294,9 @@ pub(crate) fn image_controls(
     let Some(document) = session.document_model.as_ref() else {
         return ImageControls::Nothing;
     };
-    if command::image_already_edited(document, &selected.item) {
+    if command::image_already_edited(document, &selected.item)
+        && !checkpoint::may_checkpoint(session)
+    {
         return ImageControls::PendingEdit;
     }
     ImageControls::Ready
@@ -1058,6 +1068,67 @@ mod tests {
             let item = an_image(1);
             let mut session = selecting(item.clone());
             queue_move(&mut session, &item);
+
+            let controls = image_controls(Some(&session));
+
+            assert_eq!(controls, ImageControls::PendingEdit);
+            assert!(controls.delete_enabled());
+            assert!(!controls.replace_enabled());
+        }
+
+        /// The image of a file opened from real bytes, selected, with a move
+        /// queued against it through the core — the state a finished drag
+        /// leaves. `refuse_checkpoints` adds an imported PDF, which is one of
+        /// the things that rules a checkpoint out.
+        fn moved_and_selected(refuse_checkpoints: bool) -> DocumentSession {
+            let mut session = crate::app::test_fixtures::image_page_session();
+            let item = crate::app::test_fixtures::shown_images(&session).remove(0);
+            crate::app::content_edit::command::record(
+                &mut session,
+                Command::MoveImage {
+                    item: item.clone(),
+                    to: Rect {
+                        x: 200.0,
+                        ..item.bbox
+                    },
+                },
+            )
+            .expect("the move records");
+            if refuse_checkpoints {
+                crate::app::test_fixtures::forbid_checkpoints(&mut session);
+            }
+            let shown = crate::app::test_fixtures::shown_images(&session).remove(0);
+            session.selected_image = Some(SelectedImage {
+                page_index: 0,
+                item: shown,
+            });
+            session
+        }
+
+        /// A queued edit no longer takes Replace where the session may
+        /// checkpoint: the replacement is retried against a base the queue
+        /// was written into (`super::super::checkpoint`).
+        #[test]
+        fn a_queued_edit_keeps_replace_where_a_checkpoint_may_be_taken() {
+            let session = moved_and_selected(false);
+            assert!(crate::app::content_edit::checkpoint::may_checkpoint(
+                &session
+            ));
+
+            let controls = image_controls(Some(&session));
+
+            assert_eq!(controls, ImageControls::Ready);
+            assert!(controls.replace_enabled());
+        }
+
+        /// Where no checkpoint may be taken the old rule holds: Replace is
+        /// off until a save, Delete stays on.
+        #[test]
+        fn a_queued_edit_takes_replace_where_no_checkpoint_may_be_taken() {
+            let session = moved_and_selected(true);
+            assert!(!crate::app::content_edit::checkpoint::may_checkpoint(
+                &session
+            ));
 
             let controls = image_controls(Some(&session));
 

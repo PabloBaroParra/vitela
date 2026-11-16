@@ -208,7 +208,25 @@ pub(crate) fn checkpointable_session(lines: &[&str]) -> DocumentSession {
 /// A session over [`gen_fixtures::content_edit::build_any_encoding_image_page_document`],
 /// opened the way [`checkpointable_session`] opens its page of text.
 pub(crate) fn any_encoding_session() -> DocumentSession {
-    let mut fixture = gen_fixtures::content_edit::build_any_encoding_image_page_document();
+    opened_session(gen_fixtures::content_edit::build_any_encoding_image_page_document())
+}
+
+/// A session over [`gen_fixtures::content_edit::build_image_page_document`]'s
+/// one plain image, opened the way [`checkpointable_session`] opens its page
+/// of text, so an edit of that image can checkpoint.
+pub(crate) fn image_page_session() -> DocumentSession {
+    opened_session(gen_fixtures::content_edit::build_image_page_document())
+}
+
+/// A session over [`gen_fixtures::content_edit::build_inline_image_page_document`]:
+/// an inline (`BI … EI`) image painted before a control XObject.
+pub(crate) fn inline_image_session() -> DocumentSession {
+    opened_session(gen_fixtures::content_edit::build_inline_image_page_document())
+}
+
+/// A session over `fixture` opened the way `document::open` opens a file:
+/// the model read from the parse, and a backing holding the real bytes.
+fn opened_session(mut fixture: lopdf::Document) -> DocumentSession {
     let mut bytes = Vec::new();
     fixture.save_to(&mut bytes).expect("serialize the fixture");
     let (base, _) = pdf_manip::open_document_from_bytes(&bytes, None).expect("the fixture opens");
@@ -235,6 +253,33 @@ pub(crate) fn shown_runs(session: &DocumentSession) -> Vec<pdf_document::TextRun
     )
     .expect("the page reads")
     .text_runs
+}
+
+/// The images page 0 of `session` shows, its pending edits layered on.
+pub(crate) fn shown_images(session: &DocumentSession) -> Vec<pdf_document::ImageItem> {
+    let document = session.document_model.as_ref().expect("a model");
+    let backing = session.save_backing.as_ref().expect("a backing");
+    pdf_save::read_pending_page_content_of(
+        document,
+        PageId(0),
+        &backing.base,
+        pdf_save::ImportedSources::none(),
+    )
+    .expect("the page reads")
+    .images
+}
+
+/// Rules a checkpoint out for `session` by adding an imported PDF to it —
+/// one of the things `pdf_save::checkpoint::may_checkpoint` refuses on.
+pub(crate) fn forbid_checkpoints(session: &mut DocumentSession) {
+    let document = (*session.save_backing.as_ref().expect("a backing").base).clone();
+    session
+        .imported_sources
+        .push(crate::app::state::ImportedSource {
+            id: pdf_document::ImportedDocumentId(0),
+            document,
+            name: "imported.pdf".to_string(),
+        });
 }
 
 /// The bytes `session` saves to.

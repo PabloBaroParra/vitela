@@ -264,8 +264,67 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 /// the queue is written into a new in-memory base, which becomes
 /// `save_backing`, and every page's parsed content is forgotten, since it
 /// names the old base.
+///
+/// An edit of an inline image with a replacement queued against it is
+/// recorded after a checkpoint even though the file accepts it
+/// ([`edits_a_replaced_inline_image`]); where none may be taken it is
+/// refused and nothing changes.
 pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
-    record_checkpointed(session, command, |live, command| {
+    let checkpoint_first = edits_a_replaced_inline_image(session, &command);
+    record_content(session, command, checkpoint_first)
+}
+
+/// Whether `command` moves, resizes, removes or replaces an inline
+/// (`BI … EI`) image that a queued replacement already names.
+///
+/// The file still holds such an image as it was, so it accepts the edit —
+/// but the queued replacement writes it as an XObject (`pdf-edit`'s
+/// `replace_inline_image_source`), and a save replaying a later command that
+/// names the inline image finds nothing there, failing the whole save. Written
+/// into a new base first, the image is the XObject and the edit finds it.
+///
+/// Keyed on the queued replacement rather than on any queued edit: a move or
+/// resize keeps the image inline, and an edit after one folds into it.
+///
+/// Decided on the target as `pdf_save::checkpoint::record` will try it —
+/// dealiased: the queued replacement names the image the last checkpoint
+/// rebound, and a caller may still hold the one from before it.
+fn edits_a_replaced_inline_image(session: &DocumentSession, command: &Command) -> bool {
+    let target = match command {
+        Command::MoveImage { item, .. }
+        | Command::ResizeImage { item, .. }
+        | Command::RemoveImage { item, .. }
+        | Command::ReplaceImageSource { item, .. } => item,
+        _ => return false,
+    };
+    let Some(document) = session.document_model.as_ref() else {
+        return false;
+    };
+    let target = super::image::dealiased(session, target.clone());
+    document.pending_edits.entries().iter().any(|queued| {
+        matches!(queued,
+            Command::ReplaceImageSource { item, .. }
+                if item.source == pdf_document::ImageSource::Inline
+                    && item.id == target.id
+                    && item.page == target.page)
+    })
+}
+
+/// The message id [`record`] refuses an edit with when that edit needs a
+/// checkpoint first and the session may not take one.
+fn no_checkpoint_refusal(command: &Command) -> &'static str {
+    match command {
+        Command::ReplaceImageSource { .. } => super::panel::IMAGE_PENDING_EDIT,
+        _ => super::panel::IMAGE_REPLACED_UNSAVED,
+    }
+}
+
+fn record_content(
+    session: &mut DocumentSession,
+    command: Command,
+    checkpoint_first: bool,
+) -> Result<(), String> {
+    record_checkpointed(session, command, checkpoint_first, |live, command| {
         live.record(|document, base, sources| {
             pdf_save::record_content_command(document, base, sources, command)
         })
@@ -281,7 +340,7 @@ pub(super) fn record_batch(
     batch: Option<Command>,
 ) -> Result<(), String> {
     let batch = batch.ok_or_else(|| tr("edit-no-text-there"))?;
-    record_checkpointed(session, batch, |live, batch| {
+    record_checkpointed(session, batch, false, |live, batch| {
         live.record(|document, base, sources| {
             pdf_save::record_content_batch(document, base, sources, batch)
         })
@@ -410,14 +469,38 @@ pub(super) fn paste(
 /// Records `command` through `apply` by way of `pdf_save::checkpoint::record`:
 /// dealiased, tried as it stands, and retried once after a checkpoint when
 /// `apply` refuses it and the session may take one.
+///
+/// With `checkpoint_first` the checkpoint is taken before `command` is tried
+/// at all. Where none may be taken, the refusal says so; where one was taken
+/// and the edit still failed against the new base, that failure is what
+/// comes back — an undecodable picture, say — not the refusal.
 fn record_checkpointed(
     session: &mut DocumentSession,
     command: Command,
-    apply: impl FnMut(&mut Live<'_>, Command) -> Result<(), pdf_save::RecordError>,
+    checkpoint_first: bool,
+    mut apply: impl FnMut(&mut Live<'_>, Command) -> Result<(), pdf_save::RecordError>,
 ) -> Result<(), String> {
     let generation = session.content_checkpoints.generation();
     let mut live = Live::of(session).ok_or_else(|| tr("edit-open-to-edit"))?;
-    pdf_save::checkpoint::record(&mut live, command, apply).map_err(|error| error.to_string())?;
+    if checkpoint_first {
+        let command = pdf_save::CheckpointSession::checkpoints(&live).dealias(command);
+        let refusal = pdf_save::RecordError::Refused(tr(no_checkpoint_refusal(&command)));
+        // `retry_after_checkpoint` hands back `refusal` whatever went wrong;
+        // `apply` only runs once the checkpoint is taken, so its own error is
+        // the one worth reporting.
+        let mut failure = None;
+        pdf_save::checkpoint::retry_after_checkpoint(
+            &mut live,
+            command,
+            refusal,
+            |live, command| {
+                apply(live, command).inspect_err(|error| failure = Some(error.to_string()))
+            },
+        )
+        .map_err(|refusal| failure.take().unwrap_or_else(|| refusal.to_string()))
+    } else {
+        pdf_save::checkpoint::record(&mut live, command, apply).map_err(|error| error.to_string())
+    }?;
     if session.content_checkpoints.generation() != generation {
         forget_page_content(session);
     }

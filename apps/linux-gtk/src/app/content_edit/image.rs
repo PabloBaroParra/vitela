@@ -16,11 +16,11 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, PageId, Rect};
 
 use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
-use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
+use crate::app::state::{AnnotationDragMode, DocumentSession, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
@@ -275,10 +275,13 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
 
     let to = committed_rect(&drag);
 
-    // Recorded through the core's queue policy (`pdf_save::record`): an
-    // image moved or resized again before a save folds into its queued edit,
-    // keeping the snapshot the file holds, so it is one undo step and the
-    // save can still find it (B25 T-207).
+    // Recorded through the core's queue policy (`command::record`): an
+    // image moved or resized again before a save usually folds into its
+    // queued edit, keeping the snapshot the file holds, so it is one undo
+    // step and the save can still find it (B25 T-207). Not always: an inline
+    // image with a queued replacement is written into a new base first and
+    // the edit recorded there as a step of its own, and where the queue
+    // refuses an edit the core may retry it after a checkpoint too.
     let result = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -288,13 +291,18 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
         if result.is_ok() {
             // The pending overlay reads the image back at `to` under the
             // same id, so the selection follows it there and the next drag
-            // starts from what is painted.
+            // starts from what is painted — as the image the last checkpoint
+            // rebound it to, when recording took one.
+            let rebound = dealiased(session, drag.item.clone());
             if let Some(selected) = session
                 .selected_image
                 .as_mut()
                 .filter(|selected| selected.item.id == drag.item.id)
             {
-                selected.item.bbox = to;
+                selected.item = ImageItem {
+                    bbox: to,
+                    ..rebound
+                };
             }
         }
         result.map(|()| message_for(drag.mode))
@@ -376,9 +384,9 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
 
-    // An image with an edit already queued is refused before the picker:
-    // its replacement would be validated against the file, which does not
-    // hold that edit yet.
+    // An image with an edit already queued, in a session that may not
+    // checkpoint, is refused before the picker: its replacement would be
+    // validated against the file, which does not hold that edit yet.
     //
     // The card's Replace button is already insensitive in this state
     // (`super::image_controls` resolves it to `ImageControls::PendingEdit`,
@@ -433,10 +441,9 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
 /// Validates and records `after` as the selected image's new source, once
 /// [`replace_selected`]'s file dialog has resolved.
 ///
-/// Mirrors `delete_selected`'s take-then-put-back shape: a refusal — the
-/// selection changed while the dialog was open, the image already has a
-/// pending edit, or `after` is not decodable — leaves the selection exactly
-/// as it was rather than dropping it silently.
+/// A refusal — the image already has a pending edit in a session that may
+/// not checkpoint, or `after` is not decodable — leaves the selection
+/// exactly as it was rather than dropping it silently.
 ///
 /// Nothing of the old picture is read: undo drops the queued replacement,
 /// and the file's own image, whatever it is encoded as, is what is left.
@@ -451,59 +458,10 @@ pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(selected) = session.selected_image.take() else {
+        let Some(result) = record_replacement(session, after) else {
             return;
         };
-        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-            return;
-        };
-        // Resolved while the model is still borrowed immutably — see
-        // `page_probe`.
-        let Some(probe) = session.document_model.as_ref().and_then(|document| {
-            super::page_probe(
-                document,
-                base,
-                &session.imported_sources,
-                selected.item.page,
-            )
-        }) else {
-            return;
-        };
-        let document = session
-            .document_model
-            .as_mut()
-            .expect("content_edit_refusal already required a model");
-
-        if command::image_already_edited(document, &selected.item) {
-            // Same reason `finish_image_drag` refuses this — see its
-            // comment: a command carrying the pre-edit snapshot of an image
-            // that already has a queued edit would fail to resolve at save
-            // time and take the whole save down with it.
-            session.selected_image = Some(selected);
-            Err(crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT))
-        } else {
-            match command::validate_replace(probe, &selected.item, &after) {
-                Ok(()) => {
-                    command::apply_command(
-                        document,
-                        Command::ReplaceImageSource {
-                            item: selected.item.clone(),
-                            after,
-                        },
-                    );
-                    session.edit_revision += 1;
-                    // See `finish_image_drag`: dirty at record time, not at
-                    // refresh time.
-                    session.unsaved_to_disk = true;
-                    session.selected_image = Some(selected);
-                    Ok(())
-                }
-                Err(error) => {
-                    session.selected_image = Some(selected);
-                    Err(error.to_string())
-                }
-            }
-        }
+        result
     };
 
     match result {
@@ -512,6 +470,128 @@ pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
+}
+
+/// [`apply_replacement`]'s session half: records `after` as the selected
+/// image's new source. `None` when there is nothing to replace — no
+/// selection, no model or nothing to validate against.
+///
+/// An image with nothing queued against it is validated against its page as
+/// the file holds it and recorded, as it always was. One that already has a
+/// pending edit — a replacement, a move, a resize, or an image a pending
+/// insertion added — goes through the core's queue policy instead
+/// (`command::record`), and only where the session may checkpoint: the core
+/// validates the replacement against the file, and when the file does not
+/// hold the image as the reader sees it, writes the queue into a new
+/// in-memory base, rebinds the image there and validates the replacement
+/// against that. Where no checkpoint may be taken, the old refusal stands:
+/// a command carrying the pre-edit snapshot of an image that already has a
+/// queued edit could fail to resolve at save time and take the whole save
+/// down with it.
+fn record_replacement(session: &mut DocumentSession, after: Vec<u8>) -> Option<Result<(), String>> {
+    let selected = session.selected_image.as_ref()?.item.clone();
+    let document = session.document_model.as_ref()?;
+    if command::image_already_edited(document, &selected) {
+        if !super::checkpoint::may_checkpoint(session) {
+            return Some(Err(tr(super::panel::IMAGE_PENDING_EDIT)));
+        }
+        // The item `record` will name: the one the last checkpoint rebound
+        // the held selection to, if it did.
+        let held = dealiased(session, selected);
+        // A second replacement of an inline image is written into a new base
+        // first (`command::record`): the first one writes it as an XObject.
+        let result = command::record(
+            session,
+            Command::ReplaceImageSource {
+                item: held.clone(),
+                after,
+            },
+        );
+        if result.is_ok() {
+            // A checkpoint taken by this replacement swapped the base and
+            // rebound the image into it: the selection follows, so the next
+            // edit of it names an image the live base holds.
+            let rebound = dealiased(session, held);
+            if let Some(selected) = session.selected_image.as_mut() {
+                selected.item = rebound;
+            }
+        }
+        return Some(result);
+    }
+
+    let base = &session.save_backing.as_ref()?.base;
+    // Resolved while the model is still borrowed immutably — see
+    // `page_probe`.
+    let probe = super::page_probe(document, base, &session.imported_sources, selected.page)?;
+    if let Err(error) = command::validate_replace(probe, &selected, &after) {
+        return Some(Err(error.to_string()));
+    }
+    let document = session.document_model.as_mut()?;
+    command::apply_command(
+        document,
+        Command::ReplaceImageSource {
+            item: selected,
+            after,
+        },
+    );
+    session.edit_revision += 1;
+    // See `finish_image_drag`: dirty at record time, not at refresh time.
+    session.unsaved_to_disk = true;
+    Some(Ok(()))
+}
+
+/// `item` as the session's last checkpoint rebound it, or `item` itself.
+pub(super) fn dealiased(session: &DocumentSession, item: ImageItem) -> ImageItem {
+    match session
+        .content_checkpoints
+        .dealias(Command::RemoveImage { item, source: None })
+    {
+        Command::RemoveImage { item, .. } => item,
+        _ => unreachable!("dealiasing keeps the command's kind"),
+    }
+}
+
+/// Moves the selected image onto the item the live page content holds at
+/// the same place, after an undo or redo stepped across a checkpoint and
+/// swapped the base under it. The selection named the image as the base it
+/// left held it — an XObject a checkpoint rebound an inline image to, or
+/// the reverse — so the next edit of it would name an image this base does
+/// not hold. Exactly one image at the same page and box is reselected;
+/// anything else drops the selection.
+pub(crate) fn reselect_after_base_swap(session: &mut DocumentSession) {
+    let Some(selected) = session.selected_image.take() else {
+        return;
+    };
+    session.selected_image =
+        image_at(session, selected.item.page, selected.item.bbox).map(|item| SelectedImage {
+            page_index: selected.page_index,
+            item,
+        });
+}
+
+/// The one image `page` shows at `bbox`, read from the live base with the
+/// queue applied, or `None` when there is none or several.
+fn image_at(session: &DocumentSession, page: PageId, bbox: Rect) -> Option<ImageItem> {
+    let document = session.document_model.as_ref()?;
+    let base = &session.save_backing.as_ref()?.base;
+    let sources: Vec<_> = session
+        .imported_sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    let content = pdf_save::read_pending_page_content_of(
+        document,
+        page,
+        base,
+        pdf_save::ImportedSources::new(&sources),
+    )
+    .ok()?;
+    let mut hits = content
+        .images
+        .into_iter()
+        .filter(|image| image.bbox == bbox);
+    let hit = hits.next()?;
+    hits.next().is_none().then_some(hit)
 }
 
 /// The PNG/JPEG filter every picture chooser in this shell opens with —
@@ -813,5 +893,600 @@ mod tests {
             }
             other => panic!("expected ResizeImage, got {other:?}"),
         }
+    }
+
+    // --- replacing an image that already has a pending edit ---------------
+
+    /// A PNG of `width` x `height` pixels, so each picture a test swaps in
+    /// can be told apart in the saved file by its size alone.
+    fn a_png(width: u32, height: u32) -> Vec<u8> {
+        use ::image::{DynamicImage, ImageFormat, RgbImage};
+        let mut png = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(
+            width,
+            height,
+            ::image::Rgb([200, 30, 30]),
+        ))
+        .write_to(&mut png, ImageFormat::Png)
+        .expect("encodes");
+        png.into_inner()
+    }
+
+    /// Every image page 0 paints once `session` is saved and reopened: where
+    /// it is, and the pixel size of the picture behind it.
+    fn saved_pictures(
+        session: &crate::app::state::DocumentSession,
+    ) -> Vec<(pdf_document::Rect, (i64, i64))> {
+        let bytes = crate::app::test_fixtures::saved_bytes(session);
+        let saved = lopdf::Document::load_mem(&bytes).expect("the save reloads");
+        let page = *saved.get_pages().get(&1).expect("a first page");
+        pdf_edit::read_page_content(&saved, pdf_document::PageId(0))
+            .expect("the saved page parses")
+            .images
+            .into_iter()
+            .map(|image| {
+                let pdf_document::ImageSource::Resource(name) = &image.source else {
+                    panic!("an inline image: {image:?}");
+                };
+                (image.bbox, xobject_size(&saved, page, name))
+            })
+            .collect()
+    }
+
+    fn xobject_size(saved: &lopdf::Document, page: lopdf::ObjectId, name: &str) -> (i64, i64) {
+        let page = saved
+            .get_dictionary(page)
+            .expect("the page is a dictionary");
+        let entry = |dictionary: &lopdf::Dictionary, key: &[u8]| -> lopdf::Object {
+            let object = dictionary.get(key).expect("the key is there");
+            saved.dereference(object).expect("it resolves").1.clone()
+        };
+        let resources = entry(page, b"Resources");
+        let xobjects = entry(resources.as_dict().expect("a dictionary"), b"XObject");
+        let picture = entry(xobjects.as_dict().expect("a dictionary"), name.as_bytes());
+        let dict = &picture.as_stream().expect("an image stream").dict;
+        let number = |key: &[u8]| {
+            dict.get(key)
+                .and_then(lopdf::Object::as_i64)
+                .expect("a size")
+        };
+        (number(b"Width"), number(b"Height"))
+    }
+
+    /// Installs `session` with the image it shows first selected, the
+    /// preview rebuild a replacement asks for held off — it would run on
+    /// whichever test owns the GTK thread next.
+    fn replacing_in(mut session: crate::app::state::DocumentSession) -> crate::app::BuiltUi {
+        let built = crate::app::ui_tests::built_ui();
+        let item = crate::app::test_fixtures::shown_images(&session).remove(0);
+        session.selected_image = Some(crate::app::state::SelectedImage {
+            page_index: 0,
+            item,
+        });
+        let mut state = built.viewer.state.borrow_mut();
+        state.session = Some(session);
+        state.preview_refresh_in_flight = true;
+        drop(state);
+        crate::app::update_content_edit_controls(&built.viewer);
+        built
+    }
+
+    fn close_replacing(built: crate::app::BuiltUi) {
+        let mut state = built.viewer.state.borrow_mut();
+        state.session = None;
+        state.preview_refresh_in_flight = false;
+        state.preview_refresh_pending = None;
+        drop(state);
+        built.window.close();
+    }
+
+    /// The reader's report: an image replaced once could not be replaced
+    /// again until the file was saved. Both replacements record now, the
+    /// save writes the second picture, and undo steps back one replacement
+    /// at a time.
+    #[gtk::test]
+    fn gtk_ui_an_image_is_replaced_twice_and_undone_one_step_at_a_time() {
+        use crate::app::annotations::command::step_session;
+
+        let built = replacing_in(crate::app::test_fixtures::image_page_session());
+        let original = saved_pictures(built.viewer.state.borrow().session.as_ref().expect("open"));
+        assert_eq!(original.len(), 1, "{original:?}");
+        let place = original[0].0;
+
+        apply_replacement(&built.viewer, a_png(2, 3));
+        crate::app::update_content_edit_controls(&built.viewer);
+        assert!(
+            built.viewer.replace_image_button.is_sensitive(),
+            "Replace is still offered after a replacement"
+        );
+        apply_replacement(&built.viewer, a_png(5, 7));
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            assert!(session.selected_image.is_some(), "the image stays selected");
+            assert_eq!(saved_pictures(session), [(place, (5, 7))]);
+
+            assert!(step_session(session, true).is_some(), "undo once");
+            assert_eq!(saved_pictures(session), [(place, (2, 3))]);
+            assert!(step_session(session, true).is_some(), "undo twice");
+            assert_eq!(saved_pictures(session), original);
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// An inline (`BI … EI`) image replaced twice. The first replacement
+    /// turns it into a resource only when written, so the second, recorded
+    /// against the untouched file, would name an inline image no save can
+    /// find: it goes through a checkpoint instead, and undo still steps back
+    /// one replacement at a time.
+    #[gtk::test]
+    fn gtk_ui_an_inline_image_is_replaced_twice_and_undone_one_step_at_a_time() {
+        use crate::app::annotations::command::step_session;
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        assert_eq!(inline.source, pdf_document::ImageSource::Inline);
+        let built = replacing_in(session);
+
+        apply_replacement(&built.viewer, a_png(2, 3));
+        apply_replacement(&built.viewer, a_png(5, 7));
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let first = |session: &crate::app::state::DocumentSession| {
+                saved_pictures(session).into_iter().next()
+            };
+            assert_eq!(first(session), Some((inline.bbox, (5, 7))));
+
+            assert!(step_session(session, true).is_some(), "undo once");
+            assert_eq!(first(session), Some((inline.bbox, (2, 3))));
+            assert!(step_session(session, true).is_some(), "undo twice");
+            assert_eq!(
+                crate::app::test_fixtures::shown_images(session)
+                    .remove(0)
+                    .source,
+                pdf_document::ImageSource::Inline
+            );
+            let bytes = crate::app::test_fixtures::saved_bytes(session);
+            let saved = lopdf::Document::load_mem(&bytes).expect("the save reloads");
+            let images = pdf_edit::read_page_content(&saved, pdf_document::PageId(0))
+                .expect("the saved page parses")
+                .images;
+            assert_eq!(images[0].source, pdf_document::ImageSource::Inline);
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// Undo stepping back across the checkpoint the second replacement took
+    /// swaps the base back to the file's own. The selection still named the
+    /// XObject that checkpoint rebound the image to, which the live base does
+    /// not hold, so the next Replace failed until the image was reselected:
+    /// it follows the image back to the inline one at the same place.
+    #[gtk::test]
+    fn gtk_ui_undo_across_a_checkpoint_reselects_the_image_the_live_base_holds() {
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+        apply_replacement(&built.viewer, a_png(5, 7));
+        crate::app::annotations::update_annotation_controls(&built.viewer);
+
+        built.viewer.undo_action.activate(None);
+        built.viewer.undo_action.activate(None);
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("still open");
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+            let live = crate::app::test_fixtures::shown_images(session).remove(0);
+            assert_eq!(live.source, ImageSource::Inline);
+            assert_eq!(
+                session
+                    .selected_image
+                    .as_ref()
+                    .map(|selected| &selected.item),
+                Some(&live),
+                "the selection names the image the live base holds"
+            );
+        }
+
+        apply_replacement(&built.viewer, a_png(6, 9));
+        let pictures = saved_pictures(built.viewer.state.borrow().session.as_ref().expect("open"));
+        assert!(pictures.contains(&(inline.bbox, (6, 9))), "{pictures:?}");
+
+        close_replacing(built);
+    }
+
+    /// Drags the selected image of `built` by `mode`, from `origin` to
+    /// `current`, the way a pointer release finishes it.
+    fn drag_selected(
+        built: &crate::app::BuiltUi,
+        mode: crate::app::state::AnnotationDragMode,
+        origin: (f64, f64),
+        current: (f64, f64),
+    ) {
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("open");
+            let item = session
+                .selected_image
+                .as_ref()
+                .expect("selected")
+                .item
+                .clone();
+            session.image_drag = Some(crate::app::state::ImageDrag {
+                page_index: 0,
+                item,
+                mode,
+                origin,
+                current,
+            });
+        }
+        assert!(finish_image_drag(&built.viewer));
+    }
+
+    /// The pending edits of `built`'s session.
+    fn queued(built: &crate::app::BuiltUi) -> Vec<pdf_document::Command> {
+        built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("open")
+            .document_model
+            .as_ref()
+            .expect("a model")
+            .pending_edits
+            .entries()
+            .to_vec()
+    }
+
+    /// An inline image replaced and then moved before a save. The
+    /// replacement writes it as an XObject, so a move recorded against the
+    /// untouched file would name an inline image no save can find: the move
+    /// goes through a checkpoint, the save puts the new picture where the
+    /// move put it, and undo steps back one edit at a time.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_moved_and_saved() {
+        use crate::app::annotations::command::step_session;
+        use crate::app::state::AnnotationDragMode;
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+
+        let origin = (inline.bbox.x + 1.0, inline.bbox.y + 1.0);
+        drag_selected(
+            &built,
+            AnnotationDragMode::Move,
+            origin,
+            (origin.0 + 20.0, origin.1 - 25.0),
+        );
+        let moved = pdf_document::Rect {
+            x: inline.bbox.x + 20.0,
+            y: inline.bbox.y - 25.0,
+            ..inline.bbox
+        };
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let selected = session
+                .selected_image
+                .as_ref()
+                .expect("the image stays selected")
+                .item
+                .clone();
+            assert!(
+                crate::app::test_fixtures::shown_images(session).contains(&selected),
+                "the selection follows the image into the new base: {selected:?}"
+            );
+            let pictures = saved_pictures(session);
+            assert!(pictures.contains(&(moved, (2, 3))), "{pictures:?}");
+            assert!(
+                !pictures.iter().any(|(place, _)| *place == inline.bbox),
+                "{pictures:?}"
+            );
+
+            assert!(step_session(session, true).is_some(), "undo the move");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert_eq!(
+                crate::app::test_fixtures::shown_images(session)
+                    .remove(0)
+                    .source,
+                pdf_document::ImageSource::Inline
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// The same, resized instead of moved.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_resized_and_saved() {
+        use crate::app::annotations::command::step_session;
+        use crate::app::state::{AnnotationDragMode, Corner};
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+
+        let corner = (
+            inline.bbox.x + inline.bbox.width,
+            inline.bbox.y + inline.bbox.height,
+        );
+        drag_selected(
+            &built,
+            AnnotationDragMode::Resize(Corner::TopRight),
+            corner,
+            (corner.0 + 20.0, corner.1 + 10.0),
+        );
+        let resized = pdf_document::Rect {
+            width: inline.bbox.width + 20.0,
+            height: inline.bbox.height + 10.0,
+            ..inline.bbox
+        };
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let pictures = saved_pictures(session);
+            assert!(pictures.contains(&(resized, (2, 3))), "{pictures:?}");
+
+            assert!(step_session(session, true).is_some(), "undo the resize");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// The same, deleted instead: the save holds no trace of it.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_deleted_and_saved() {
+        use crate::app::annotations::command::step_session;
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+
+        delete_selected(&built.viewer);
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let pictures = saved_pictures(session);
+            assert_eq!(pictures.len(), 1, "only the control is left: {pictures:?}");
+            assert!(
+                !pictures
+                    .iter()
+                    .any(|(place, size)| *place == inline.bbox || *size == (2, 3)),
+                "{pictures:?}"
+            );
+
+            assert!(step_session(session, true).is_some(), "undo the removal");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// Where no checkpoint may be taken, a replaced inline image refuses to
+    /// move rather than queue a move no save can replay.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_not_moved_where_no_checkpoint_may_be_taken() {
+        use crate::app::state::AnnotationDragMode;
+
+        let mut session = crate::app::test_fixtures::inline_image_session();
+        crate::app::test_fixtures::forbid_checkpoints(&mut session);
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+        assert_eq!(queued(&built).len(), 1, "the first replacement records");
+
+        let origin = (inline.bbox.x + 1.0, inline.bbox.y + 1.0);
+        drag_selected(
+            &built,
+            AnnotationDragMode::Move,
+            origin,
+            (origin.0 + 20.0, origin.1 - 25.0),
+        );
+
+        assert_eq!(
+            built.viewer.status.text(),
+            tr(super::super::panel::IMAGE_REPLACED_UNSAVED)
+        );
+        assert_eq!(queued(&built).len(), 1, "the move is not queued");
+
+        close_replacing(built);
+    }
+
+    /// An undecodable second replacement of an inline image goes through a
+    /// checkpoint like any other, and says why it failed — not that the
+    /// image has an unsaved edit, which a checkpoint already dealt with.
+    #[gtk::test]
+    fn gtk_ui_an_undecodable_second_replacement_of_an_inline_image_says_why() {
+        let built = replacing_in(crate::app::test_fixtures::inline_image_session());
+        apply_replacement(&built.viewer, a_png(2, 3));
+        built.viewer.status.set_text("");
+
+        apply_replacement(&built.viewer, b"not a picture".to_vec());
+
+        let status = built.viewer.status.text();
+        assert!(!status.is_empty());
+        assert_ne!(status, tr(super::super::panel::IMAGE_PENDING_EDIT));
+        assert_eq!(queued(&built).len(), 1, "the queue is left as it was");
+
+        close_replacing(built);
+    }
+
+    /// An image moved and then replaced: the replacement names the image
+    /// where the move put it, which the file does not hold yet, so it goes
+    /// through a checkpoint — and the selection follows the image into the
+    /// new base, so a second replacement still lands on it.
+    #[gtk::test]
+    fn gtk_ui_a_moved_image_is_replaced_through_a_checkpoint() {
+        use crate::app::annotations::command::step_session;
+        use pdf_document::Command;
+
+        let mut session = crate::app::test_fixtures::image_page_session();
+        let item = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let moved_to = pdf_document::Rect {
+            x: 250.0,
+            y: 300.0,
+            ..item.bbox
+        };
+        command::record(
+            &mut session,
+            Command::MoveImage {
+                item: item.clone(),
+                to: moved_to,
+            },
+        )
+        .expect("the move records");
+        let built = replacing_in(session);
+        assert!(built.viewer.replace_image_button.is_sensitive());
+
+        apply_replacement(&built.viewer, a_png(2, 3));
+        apply_replacement(&built.viewer, a_png(5, 7));
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            assert_eq!(session.content_checkpoints.generation(), 1);
+            let selected = session
+                .selected_image
+                .as_ref()
+                .expect("the image stays selected")
+                .item
+                .clone();
+            assert!(
+                crate::app::test_fixtures::shown_images(session).contains(&selected),
+                "the selection names an image the live base shows: {selected:?}"
+            );
+            assert_eq!(saved_pictures(session), [(moved_to, (5, 7))]);
+
+            assert!(step_session(session, true).is_some());
+            assert_eq!(saved_pictures(session), [(moved_to, (2, 3))]);
+            assert!(step_session(session, true).is_some());
+            assert_eq!(saved_pictures(session), [(moved_to, (4, 4))]);
+            assert!(step_session(session, true).is_some());
+            assert_eq!(saved_pictures(session), [(item.bbox, (4, 4))]);
+        }
+
+        close_replacing(built);
+    }
+
+    /// An image added with Add image and not saved is replaced through a
+    /// checkpoint that writes the insertion into the base first.
+    #[gtk::test]
+    fn gtk_ui_an_inserted_image_is_replaced_through_a_checkpoint() {
+        use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageId, Rect};
+
+        let mut session = crate::app::test_fixtures::image_page_session();
+        let original = saved_pictures(&session);
+        let place = Rect {
+            x: 100.0,
+            y: 300.0,
+            width: 80.0,
+            height: 40.0,
+        };
+        command::apply_command(
+            session.document_model.as_mut().expect("a model"),
+            Command::InsertImage {
+                item: ImageItem {
+                    id: ContentItemId(0),
+                    page: PageId(0),
+                    bbox: place,
+                    source: ImageSource::Resource("XIns1".to_string()),
+                },
+                source: Some(a_png(2, 3)),
+            },
+        );
+        let inserted = crate::app::test_fixtures::shown_images(&session)
+            .into_iter()
+            .find(|image| image.bbox == place)
+            .expect("the insertion shows");
+        let built = replacing_in(session);
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("open");
+            session.selected_image.as_mut().expect("selected").item = inserted;
+        }
+        crate::app::update_content_edit_controls(&built.viewer);
+        assert!(built.viewer.replace_image_button.is_sensitive());
+
+        apply_replacement(&built.viewer, a_png(5, 7));
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("still open");
+            assert_eq!(session.content_checkpoints.generation(), 1);
+            let mut pictures = saved_pictures(session);
+            pictures.retain(|picture| !original.contains(picture));
+            assert_eq!(pictures, [(place, (5, 7))]);
+        }
+
+        close_replacing(built);
+    }
+
+    /// Where no checkpoint may be taken, a second replacement is still
+    /// refused and the queue is left as it was.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_image_is_not_replaced_again_where_no_checkpoint_may_be_taken() {
+        let mut session = crate::app::test_fixtures::image_page_session();
+        crate::app::test_fixtures::forbid_checkpoints(&mut session);
+        let built = replacing_in(session);
+
+        apply_replacement(&built.viewer, a_png(2, 3));
+        crate::app::update_content_edit_controls(&built.viewer);
+        assert!(!built.viewer.replace_image_button.is_sensitive());
+        apply_replacement(&built.viewer, a_png(5, 7));
+
+        assert_eq!(
+            built.viewer.status.text(),
+            tr(super::super::panel::IMAGE_PENDING_EDIT)
+        );
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("still open");
+            assert_eq!(
+                session
+                    .document_model
+                    .as_ref()
+                    .expect("a model")
+                    .pending_edits
+                    .entries()
+                    .len(),
+                1
+            );
+            assert!(session.selected_image.is_some());
+        }
+
+        close_replacing(built);
     }
 }

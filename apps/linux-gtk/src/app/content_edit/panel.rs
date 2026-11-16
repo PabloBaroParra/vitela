@@ -104,6 +104,12 @@ pub(crate) const IMAGE_SELECTED: &str = "edit-image-selected";
 /// recomputed from that log every time, never remembered on the selection.
 pub(crate) const IMAGE_PENDING_EDIT: &str = "edit-image-pending";
 
+/// Why an inline image with a queued replacement is not moved, resized or
+/// deleted where the session may not checkpoint: the replacement writes it
+/// as an XObject, so an edit naming the inline image could not be replayed
+/// by a save (`command::record`).
+pub(crate) const IMAGE_REPLACED_UNSAVED: &str = "edit-image-replaced-unsaved";
+
 /// The text card's twin of the two above, maintained by the same call.
 ///
 /// Three states, Windows' three sentences: nothing picked yet — describing
