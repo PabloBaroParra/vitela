@@ -33,7 +33,7 @@ function Invoke-Command([string]$Id) {
 $return = Find-Element 'ReturnToDocumentButton'
 if ($null -ne $return -and -not $return.Current.IsOffscreen) { Invoke-Command 'ReturnToDocumentButton' }
 if ((Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf') { throw 'Never edit a user document in this smoke test.' }
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 if ((Find-Element 'UndoButton').Current.IsEnabled) { throw 'The sample must be unchanged.' }
 foreach ($id in @('MetadataTitle', 'MetadataAuthor', 'MetadataSubject', 'MetadataKeywords', 'MetadataCreator', 'MetadataProducer', 'MetadataCreated', 'MetadataModified')) {
     if ($null -eq (Find-Element $id) -or -not (Find-Element $id).Current.IsEnabled) { throw "Missing/enabled-state mismatch: $id" }

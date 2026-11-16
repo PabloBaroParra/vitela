@@ -95,7 +95,7 @@ if ($initialCount -lt 1) { throw 'Expected visible sample page cards.' }
 if ((Find-Element 'OrganizeSplitButton').Current.IsEnabled -ne ($initialCount -gt 1)) { throw 'Split gate disagrees with page count.' }
 'PASS Dedicated Organize heading, ordered actions, isolated screen, history/output/import gates'
 
-(Find-Element 'HomeRailButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Home').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 Wait-State { $return = Find-Element 'ReturnToDocumentButton'; $null -ne $return -and -not $return.Current.IsOffscreen } 'Home did not retain an organize session.'
 $heading = Find-Element 'OrganizeHeading'
 if ($null -ne $heading -and -not $heading.Current.IsOffscreen) { throw 'Organize screen leaked into Home.' }

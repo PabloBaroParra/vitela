@@ -49,7 +49,7 @@ if ((Find-Element 'DocumentTitle').Current.Name -ne 'Vitela sample.pdf' -or (Fin
 Invoke-Button 'SaveButton'
 Cancel-Picker
 'PASS native Save picker cancellation and control recovery'
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 $title = Find-Element 'MetadataTitle'
 $original = $title.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value
 $title.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetValue('Lifecycle picker smoke')

@@ -49,34 +49,50 @@ if ((Read-Text 'PageCounter') -notmatch '^\d+ / \d+$') { throw "Page indicator m
 if ((Read-Text 'ZoomLevel') -notmatch '^\d+%$') { throw "Zoom indicator must read 'N%': $(Read-Text 'ZoomLevel')" }
 'PASS Page and zoom indicators use the Linux readout'
 
-$keys = @('Annotate', 'Edit', 'Comments', 'Sign')
-foreach ($key in $keys) {
-    $tab = Find-Element "ToolsTab_$key"
-    if ($null -eq $tab -or $tab.Current.IsOffscreen) { throw "Missing tools tab: $key" }
-    # Repeat the active-tab click: it must never leave all tabs unchecked.
+# The mode bar picks the tools page; Protect is a plain button and never the checked tab.
+$modes = @('Home', 'Edit', 'Annotate', 'Organize', 'Sign')
+foreach ($id in @($modes | ForEach-Object { "Mode_$_" }) + 'Mode_Protect') {
+    $tab = Find-Element $id
+    if ($null -eq $tab -or $tab.Current.IsOffscreen -or -not $tab.Current.IsEnabled) { throw "Missing mode-bar tab: $id" }
+}
+$protectToggle = $null
+if ((Find-Element 'Mode_Protect').TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$protectToggle)) {
+    throw 'Protect must be a plain button, not a toggle tab.'
+}
+foreach ($id in @('ToolsTabStrip', 'ToolsPage_Comments')) {
+    if ($null -ne (Find-Element $id)) { throw "The tools panel must have no tab strip or Comments page: $id" }
+}
+foreach ($key in @('Annotate', 'Edit', 'Sign')) {
+    $tab = Find-Element "Mode_$key"
+    # Repeat the current-mode click: it must never leave every tab unchecked.
     for ($click = 0; $click -lt 2; $click++) {
         $tab.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-        Start-Sleep -Milliseconds 150
-        foreach ($other in $keys) {
-            $pattern = (Find-Element "ToolsTab_$other").GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+        Start-Sleep -Milliseconds 300
+        foreach ($other in $modes) {
+            $pattern = (Find-Element "Mode_$other").GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
             $expected = if ($other -eq $key) { [System.Windows.Automation.ToggleState]::On }
                 else { [System.Windows.Automation.ToggleState]::Off }
-            if ($pattern.Current.ToggleState -ne $expected) { throw "Tools tab selection disagrees at $key / $other" }
+            if ($pattern.Current.ToggleState -ne $expected) { throw "Mode-bar selection disagrees at $key / $other" }
         }
-        $comments = Find-Element 'CommentsList'
-        if ($key -eq 'Comments') {
-            if ($null -eq $comments -or $comments.Current.IsOffscreen) {
-                throw 'Comments tab must show the comment list.'
-            }
-        } elseif ($null -ne $comments -and -not $comments.Current.IsOffscreen) {
-            throw 'Comments list leaked into another tools page.'
+        # At the foot of Annotate, so it may sit below the panel's fold: present, not necessarily on screen.
+        $comments = Find-Element 'CommentsHeading'
+        if ($key -eq 'Annotate') {
+            if ($null -eq $comments) { throw 'Annotate must show the Comments section.' }
+        } elseif ($null -ne $comments) {
+            throw 'Comments section leaked into another tools page.'
         }
     }
 }
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
-'PASS All four tools tabs and active-tab reassertion'
+(Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+'PASS Mode-bar tabs, current-mode reassertion and Comments under Annotate'
 
-(Find-Element 'ToolsTab_Edit').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Edit').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+Start-Sleep -Milliseconds 300
+# The Edit mode arms Edit content, as the GTK bar's does; turn it off for the checks below.
+$editContent = (Find-Element 'ContentEditButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
+if ($editContent.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) { throw 'The Edit mode must arm Edit content.' }
+$editContent.Toggle()
+Start-Sleep -Milliseconds 150
 foreach ($entry in @(@('EditPanelHeading', 'Edit PDF'), @('EditTextCardHeading', 'Text'), @('EditImagesCardHeading', 'Images'),
     @('ContentEditButton', 'Edit content'), @('InsertTextButton', 'Insert text'), @('DeleteTextButton', 'Delete text'),
     @('InsertImageButton', 'Insert image'), @('ReplaceImageButton', 'Replace image'), @('DeleteImageButton', 'Delete image'))) {
@@ -89,7 +105,7 @@ $notice = Find-Element 'EditAvailability'
 if ($null -ne $notice -and -not $notice.Current.IsOffscreen) { throw 'Editable sample must not show an availability notice.' }
 $mode = Find-Element 'ContentEditButton'
 if ((Find-Element 'DeleteTextButton').Current.IsEnabled) { throw 'Delete text must require an open inline target.' }
-if ((Find-Element 'EditTextCardHint').Current.Name -ne 'Click a text run to retype it in place.') { throw 'Missing text selection guidance.' }
+if ((Find-Element 'EditTextCardHint').Current.Name -ne 'Click text to select it; double-click to retype it in place.') { throw 'Missing text selection guidance.' }
 if (-not $mode.Current.IsEnabled) { throw 'Content editing must be available for the sample.' }
 $mode.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 Start-Sleep -Milliseconds 150
@@ -119,7 +135,7 @@ if ((Get-Toggle 'InsertImageButton') -ne $on -or (Get-Toggle 'InsertTextButton')
 $mode.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 Start-Sleep -Milliseconds 150
 if ((Get-Toggle 'ContentEditButton') -ne $off -or (Get-Toggle 'InsertImageButton') -ne $off) { throw 'Leaving Edit content must disarm the insert kind.' }
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 'PASS Insert text/image arm by click, imply Edit content, exclude each other; image commands follow the selection'
 
 foreach ($id in @('PreviousAnnotationButton', 'NudgeButton', 'GrowButton', 'AnnotationColorButton', 'DeleteAnnotationButton')) {
@@ -146,7 +162,7 @@ foreach ($armed in @('HighlightButton', 'UnderlineButton')) {
 (Find-Element 'UnderlineButton').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 'PASS Annotation selection gates, Restyle label and mutually exclusive tools'
 
-(Find-Element 'ToolsTab_Sign').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Sign').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 $certificate = Find-Element 'ChooseSigningCertificate'
 if ($null -eq $certificate -or $certificate.Current.IsOffscreen -or -not $certificate.Current.IsEnabled -or
     $certificate.Current.Name -ne ('Choose signing certificate (.pfx)' + [char]0x2026)) { throw 'PFX signing command is missing or disabled for the sample.' }
@@ -177,12 +193,12 @@ foreach ($sourceId in @('ChooseSigningCertificate', 'ChooseCardCertificate')) {
         if (-not (Find-Element $id).Current.IsEnabled) { throw "Signing source did not recover after cancellation: $id" }
     }
 }
-(Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+(Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
 'PASS Signing panel, source eligibility gates, unsigned indicator, native PFX/token module pickers and cancellation'
 
 if ($TestComputerSigning) {
     # Opt-in: requires at least one usable certificate in CurrentUser/My; never signs with a user's key.
-    (Find-Element 'ToolsTab_Sign').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    (Find-Element 'Mode_Sign').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     (Find-Element 'ChooseComputerCertificate').GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
     $cancel = $null
     for ($attempt = 0; $attempt -lt 100 -and $null -eq $cancel; $attempt++) {
@@ -208,7 +224,7 @@ if ($TestComputerSigning) {
         (Find-Element 'AnnotationStatus').Current.Name -ne 'Signing cancelled.') {
         throw 'Computer identity Cancel changed the sample, history or cancellation status.'
     }
-    (Find-Element 'ToolsTab_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
+    (Find-Element 'Mode_Annotate').GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle()
     'PASS Actual Windows personal-store discovery, identity selection gates and cancellation without private-key use'
 }
 
