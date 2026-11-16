@@ -216,19 +216,26 @@ status stay in a bottom status region, outside the document canvas. Long message
 ellipsize instead of forcing the window wider; hover over either line to read its
 full text. Status lines declare polite live regions for assistive technology.
 
-The persistent application rail separates Home/Recent/My files from document
-destinations. Home preserves the open document and offers a **Return to document**
-button; document destinations request a PDF first when none is open. The tools
-column has Annotate, Edit, Comments and Fill & Sign pages. Existing controls retain
-their handlers and permissions; Comments lists saved comments and pending session notes.
-The icon-and-label tab strip wraps within the tools column. Clicking the active
-tab keeps it active; rail and Home destinations select that same page, never a
-second independently tracked view. Switching a tools tab updates the rail selection;
-returning from Home or Organize restores the selected tools page rather than marking
-Annotate unconditionally. Comments has no rail entry, so it leaves the document-tool
-rail buttons unselected. Inactive pages take no layout space.
-`Tests/ToolNavigationSmoke.targets` covers native tab clicks, rail navigation,
-Home/Recent and Organize returns, document replacement and unchanged edit history.
+The **mode bar** across the top of the window (`MainWindow.ModeBar.cs`, ported
+from Linux's `mode_bar.rs`) holds Home, Edit, Annotate, Organize, Sign and
+Protect as one wrapping row of tabs above the views, next to the Vitela mark.
+Home preserves the open document and offers a **Return to document** button;
+document modes request a PDF first when none is open, and apply only when that
+pick actually opens one. The bar stores no current mode: the checked tab is
+derived from the screen on display and the tools panel's page
+(`Viewer/ShellModes.cs`, unit tested), so a screen changed from anywhere else —
+the palette, a Home tool, a shortcut, an open landing, Organize returning or
+refusing — still shows as its mode. Protect opens its dialog over the current
+screen, so it is a plain button and never the checked tab. Recent and My files
+are no longer separate entries: Home shows the recent list, and **Open file**,
+Home's quick actions and Ctrl+O open a PDF. The tools column has Edit, Annotate
+and Fill & Sign pages with no tab strip of its own; the mode bar picks the page.
+Comments is a section at the foot of Annotate, under the document properties,
+listing saved comments and pending session notes. Existing controls retain their
+handlers and permissions. Returning from Home or Organize restores the selected
+tools page. Inactive pages take no layout space.
+`Tests/ToolNavigationSmoke.targets` covers real mode-bar clicks, the busy/dialog
+guard, Home and Organize returns, document replacement and unchanged edit history.
 **Ctrl+K** opens the command palette over Home, the editor or Organize: type to
 find any command (English titles; English and Spanish synonyms, accents optional),
 Up/Down to choose, Enter to run, Esc or a click outside to close. While open it
@@ -241,7 +248,7 @@ each screen, search, run, recents, focus return, Ctrl+Z/Ctrl+Y in the query
 leaving the document's history alone, Delete and Ctrl+End in the list reaching
 nothing behind it, a row allowed since it was drawn redrawing instead of
 running, and Edit from Organize keeping its own scroll. Every door into
-Organize (rail, Home tool, palette) refuses with the same content-permission
+Organize (mode bar, Home tool, palette) refuses with the same content-permission
 sentence.
 **Signing** appears above Form fields on Fill & Sign. Choose a `.pfx` or `.p12`
 certificate, unlock it (empty passwords are accepted), select an identity and
@@ -424,7 +431,7 @@ file opens register with that OS-owned history; Windows privacy settings still
 govern it. The shortcut update time supplies the opened date. Cards render their
 first page independently of the editor session; encrypted/unreadable thumbnails
 leave a placeholder and never prompt for a password. Search filters file names
-and hides empty groups. The rail's Recent action focuses the first matching card.
+and hides empty groups.
 A card's context menu (right-click, Shift+F10) or the Delete key offers **Remove
 from Recent**. That never edits the shared OS history, which Explorer reads too:
 Vitela records the path and time in `%LOCALAPPDATA%\Vitela\hidden-recents.txt`
@@ -448,7 +455,7 @@ unfolds it, and the toggle reopens at the last width. Focused dividers also resp
 The canvas absorbs window resizes; the column rule lives in `Viewer/SideColumn.cs` and is unit tested.
 
 The editor toolbar wraps whole Document, Output, History, Position, Zoom, Fit,
-Panels and Find groups, in Linux's order. Every rail, tab, tool tile, toolbar,
+Panels and Find groups, in Linux's order. Every mode-bar tab, tool tile, toolbar,
 Edit and Organize icon is the shared `assets/icons` drawing Linux uses, tinted
 per role (`MainWindow.Icons.cs`, `Viewer/ShellIcons.cs`): neutral, accent and
 muted follow the palette in both themes, a disabled control's icon goes muted,
