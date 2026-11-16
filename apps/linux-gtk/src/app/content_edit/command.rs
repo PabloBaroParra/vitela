@@ -310,8 +310,8 @@ fn edits_a_replaced_inline_image(session: &DocumentSession, command: &Command) -
     })
 }
 
-/// What an edit [`record`] has to checkpoint first is refused with where no
-/// checkpoint may be taken. Returns a message id.
+/// The message id [`record`] refuses an edit with when that edit needs a
+/// checkpoint first and the session may not take one.
 fn no_checkpoint_refusal(command: &Command) -> &'static str {
     match command {
         Command::ReplaceImageSource { .. } => super::panel::IMAGE_PENDING_EDIT,

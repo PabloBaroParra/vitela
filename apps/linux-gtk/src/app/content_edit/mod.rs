@@ -225,7 +225,10 @@ pub(crate) enum ImageControls {
     Ready,
     /// Selected, and it already carries an edit that has not reached disk,
     /// in a session that may not checkpoint. Moving, resizing and deleting
-    /// stay on — the core folds them into the queued edit (B25 T-207) — but
+    /// stay on — the core folds them into the queued edit (B25 T-207) —
+    /// except for an inline image whose queued edit is a replacement: those
+    /// three are refused with [`panel::IMAGE_REPLACED_UNSAVED`] until a save,
+    /// because only a checkpoint could rebind them to the new picture. And
     /// replacing is off until a save: the replacement is validated against
     /// the file, which does not hold the edit yet. Where the session may
     /// checkpoint, the core writes the queue into a new in-memory base and

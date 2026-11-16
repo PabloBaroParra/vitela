@@ -16,7 +16,7 @@
 
 use gtk::prelude::*;
 use gtk::{gio, ApplicationWindow, FileDialog, FileFilter};
-use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, Rect};
+use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, PageId, Rect};
 
 use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
@@ -551,6 +551,49 @@ pub(super) fn dealiased(session: &DocumentSession, item: ImageItem) -> ImageItem
     }
 }
 
+/// Moves the selected image onto the item the live page content holds at
+/// the same place, after an undo or redo stepped across a checkpoint and
+/// swapped the base under it. The selection named the image as the base it
+/// left held it — an XObject a checkpoint rebound an inline image to, or
+/// the reverse — so the next edit of it would name an image this base does
+/// not hold. Exactly one image at the same page and box is reselected;
+/// anything else drops the selection.
+pub(crate) fn reselect_after_base_swap(session: &mut DocumentSession) {
+    let Some(selected) = session.selected_image.take() else {
+        return;
+    };
+    session.selected_image =
+        image_at(session, selected.item.page, selected.item.bbox).map(|item| SelectedImage {
+            page_index: selected.page_index,
+            item,
+        });
+}
+
+/// The one image `page` shows at `bbox`, read from the live base with the
+/// queue applied, or `None` when there is none or several.
+fn image_at(session: &DocumentSession, page: PageId, bbox: Rect) -> Option<ImageItem> {
+    let document = session.document_model.as_ref()?;
+    let base = &session.save_backing.as_ref()?.base;
+    let sources: Vec<_> = session
+        .imported_sources
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    let content = pdf_save::read_pending_page_content_of(
+        document,
+        page,
+        base,
+        pdf_save::ImportedSources::new(&sources),
+    )
+    .ok()?;
+    let mut hits = content
+        .images
+        .into_iter()
+        .filter(|image| image.bbox == bbox);
+    let hit = hits.next()?;
+    hits.next().is_none().then_some(hit)
+}
+
 /// The PNG/JPEG filter every picture chooser in this shell opens with —
 /// Replace image, Insert image and the picture watermark.
 pub(crate) fn picture_filter() -> FileFilter {
@@ -1016,6 +1059,46 @@ mod tests {
             assert_eq!(images[0].source, pdf_document::ImageSource::Inline);
             assert!(!crate::app::content_edit::checkpoint::can_undo(session));
         }
+
+        close_replacing(built);
+    }
+
+    /// Undo stepping back across the checkpoint the second replacement took
+    /// swaps the base back to the file's own. The selection still named the
+    /// XObject that checkpoint rebound the image to, which the live base does
+    /// not hold, so the next Replace failed until the image was reselected:
+    /// it follows the image back to the inline one at the same place.
+    #[gtk::test]
+    fn gtk_ui_undo_across_a_checkpoint_reselects_the_image_the_live_base_holds() {
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = crate::app::test_fixtures::shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        apply_replacement(&built.viewer, a_png(2, 3));
+        apply_replacement(&built.viewer, a_png(5, 7));
+        crate::app::annotations::update_annotation_controls(&built.viewer);
+
+        built.viewer.undo_action.activate(None);
+        built.viewer.undo_action.activate(None);
+
+        {
+            let state = built.viewer.state.borrow();
+            let session = state.session.as_ref().expect("still open");
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+            let live = crate::app::test_fixtures::shown_images(session).remove(0);
+            assert_eq!(live.source, ImageSource::Inline);
+            assert_eq!(
+                session
+                    .selected_image
+                    .as_ref()
+                    .map(|selected| &selected.item),
+                Some(&live),
+                "the selection names the image the live base holds"
+            );
+        }
+
+        apply_replacement(&built.viewer, a_png(6, 9));
+        let pictures = saved_pictures(built.viewer.state.borrow().session.as_ref().expect("open"));
+        assert!(pictures.contains(&(inline.bbox, (6, 9))), "{pictures:?}");
 
         close_replacing(built);
     }

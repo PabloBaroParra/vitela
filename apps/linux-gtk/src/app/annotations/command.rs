@@ -98,6 +98,8 @@ fn history(viewer: &Viewer, undo: bool) {
             // The step crossed a checkpoint and swapped the base: every page's
             // parsed content names the one it left.
             crate::app::content_edit::checkpoint::forget_page_content(session);
+            // The selected image names the item as the base it left held it.
+            crate::app::content_edit::image::reselect_after_base_swap(session);
         }
         if is_content_edit {
             // A selected text block is a snapshot of the page content this
