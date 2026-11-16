@@ -20,6 +20,8 @@ public sealed partial class MainWindow
         var annotations = _annotationState is { } state && state.SessionId == session?.SessionId ? state : null;
         var forms = _formFieldState is { } fields && fields.SessionId == session?.SessionId ? fields : null;
         var signing = _signingState is { } sign && sign.SessionId == session?.SessionId ? sign : null;
+        // The search's own permission question (/P bit 5), asked of the facade as text selection asks it.
+        var extraction = session is null ? null : _facade.SelectionAllowed(session.SessionId);
         return new PaletteContext(
             HasDocument: session is not null,
             PageCount: (int)(session?.PageCount ?? 0),
@@ -29,103 +31,99 @@ public sealed partial class MainWindow
             SigningLoaded: signing is not null,
             SigningRefusal: signing?.Refusal,
             CanUndo: UndoButton.IsEnabled,
-            CanRedo: RedoButton.IsEnabled);
+            CanRedo: RedoButton.IsEnabled,
+            TextExtractionRefusal: extraction is { IsSuccess: false } ? extraction.Error!.Message : null);
     }
 
     /// <summary>
-    /// Runs <paramref name="entry"/> unless its gate refuses it now; then the
-    /// refusal goes to the status line and nothing runs. Returns whether it ran.
+    /// Runs <paramref name="entry"/> unless the shell is busy, a dialog is up
+    /// or a picker is open — the rail's own guard, which every entry keeps,
+    /// screen switches included. An entry whose button turns out to be off
+    /// once its screen is up says so on the status line. Returns whether it
+    /// ran; only then does it count as recent.
     /// </summary>
     private async Task<bool> RunPaletteEntryAsync(PaletteEntry entry)
     {
-        if (entry.Refusal(PaletteContextNow()) is { } refusal)
-        {
-            AnnotationStatus.Text = refusal;
-            return false;
-        }
-        await RunPaletteCommandAsync(entry.Command);
-        return true;
+        if (_isBusy || _dialogOpen || _shellPickingFile) return false;
+        if (await RunPaletteCommandAsync(entry.Command)) return true;
+        AnnotationStatus.Text = $"{entry.Title.TrimEnd('…')} is not available right now.";
+        return false;
     }
 
-    private async Task RunPaletteCommandAsync(PaletteCommand command)
+    /// <summary>Runs <paramref name="command"/>; false when the button it walks through was off.</summary>
+    private async Task<bool> RunPaletteCommandAsync(PaletteCommand command)
     {
         var args = new RoutedEventArgs();
         switch (command)
         {
-            case PaletteCommand.ModeHome: ShowHomeView("Home"); break;
-            case PaletteCommand.ModeEdit: await NavigateToToolAsync("Edit", args); break;
-            case PaletteCommand.ModeAnnotate: await NavigateToToolAsync("Annotate", args); break;
-            case PaletteCommand.ModeOrganize: await NavigateToToolAsync("Organize", args); break;
-            case PaletteCommand.ModeSign: await NavigateToToolAsync("Sign", args); break;
-            case PaletteCommand.ModeProtect: await NavigateToToolAsync("Protect", args); break;
+            case PaletteCommand.ModeHome: ShowHomeView("Home"); return true;
+            case PaletteCommand.ModeEdit: await NavigateToToolAsync("Edit", args); return true;
+            case PaletteCommand.ModeAnnotate: await NavigateToToolAsync("Annotate", args); return true;
+            case PaletteCommand.ModeOrganize: await NavigateToToolAsync("Organize", args); return true;
+            case PaletteCommand.ModeSign: await NavigateToToolAsync("Sign", args); return true;
+            case PaletteCommand.ModeProtect: await NavigateToToolAsync("Protect", args); return true;
 
-            case PaletteCommand.Open: await PickShellDocumentAsync(); break;
-            case PaletteCommand.New: await CreateNewDocumentAsync(); break;
+            case PaletteCommand.Open: await PickShellDocumentAsync(); return true;
+            case PaletteCommand.New: await CreateNewDocumentAsync(); return true;
             // The Ctrl+S / Ctrl+P accelerators' own guards.
-            case PaletteCommand.Save:
-                if (!_isBusy && !_dialogOpen && !_shellPickingFile && SaveButton.IsEnabled) await SaveToPickedFileAsync();
-                break;
-            case PaletteCommand.Print:
-                if (!_isBusy && !_dialogOpen && !_shellPickingFile && _session is { PageCount: > 0 }) PrintButton_Click(PrintButton, args);
-                break;
+            case PaletteCommand.Save: return await SaveFromShellAsync();
+            case PaletteCommand.Print: return PrintFromShell();
 
             // Organize has its own history buttons, which also re-read the page layout.
-            case PaletteCommand.Undo: await RunPaletteHistoryAsync(undo: true); break;
-            case PaletteCommand.Redo: await RunPaletteHistoryAsync(undo: false); break;
-            case PaletteCommand.Find: ShowFindFlyout(); break;
+            case PaletteCommand.Undo: return await RunPaletteHistoryAsync(undo: true);
+            case PaletteCommand.Redo: return await RunPaletteHistoryAsync(undo: false);
+            case PaletteCommand.Find: return ShowFindFlyout();
 
-            case PaletteCommand.Highlight: ArmPaletteToggle("Annotate", HighlightButton, HighlightButton_Click); break;
-            case PaletteCommand.Underline: ArmPaletteToggle("Annotate", UnderlineButton, UnderlineButton_Click); break;
-            case PaletteCommand.Strikeout: ArmPaletteToggle("Annotate", StrikeoutButton, StrikeoutButton_Click); break;
-            case PaletteCommand.Ink: ArmPaletteToggle("Annotate", InkButton, InkButton_Click); break;
-            case PaletteCommand.Note: ArmPaletteToggle("Annotate", NoteButton, NoteButton_Click); break;
-            case PaletteCommand.TextBox: ArmPaletteToggle("Annotate", FreeTextButton, FreeTextButton_Click); break;
-            case PaletteCommand.Shape: ArmPaletteToggle("Annotate", ShapeButton, ShapeButton_Click); break;
-            case PaletteCommand.Stamp: ArmPaletteToggle("Annotate", StampButton, StampButton_Click); break;
+            case PaletteCommand.Highlight: return ArmPaletteToggle("Annotate", HighlightButton, HighlightButton_Click);
+            case PaletteCommand.Underline: return ArmPaletteToggle("Annotate", UnderlineButton, UnderlineButton_Click);
+            case PaletteCommand.Strikeout: return ArmPaletteToggle("Annotate", StrikeoutButton, StrikeoutButton_Click);
+            case PaletteCommand.Ink: return ArmPaletteToggle("Annotate", InkButton, InkButton_Click);
+            case PaletteCommand.Note: return ArmPaletteToggle("Annotate", NoteButton, NoteButton_Click);
+            case PaletteCommand.TextBox: return ArmPaletteToggle("Annotate", FreeTextButton, FreeTextButton_Click);
+            case PaletteCommand.Shape: return ArmPaletteToggle("Annotate", ShapeButton, ShapeButton_Click);
+            case PaletteCommand.Stamp: return ArmPaletteToggle("Annotate", StampButton, StampButton_Click);
 
-            case PaletteCommand.TextField: ArmPaletteToggle("Sign", PlaceTextFieldButton, PlaceTextFieldButton_Click); break;
-            case PaletteCommand.Checkbox: ArmPaletteToggle("Sign", PlaceCheckboxButton, PlaceCheckboxButton_Click); break;
-            case PaletteCommand.RadioGroup: ArmPaletteToggle("Sign", PlaceRadioGroupButton, PlaceRadioGroupButton_Click); break;
-            case PaletteCommand.Dropdown: ArmPaletteToggle("Sign", PlaceDropdownButton, PlaceDropdownButton_Click); break;
+            case PaletteCommand.TextField: return ArmPaletteToggle("Sign", PlaceTextFieldButton, PlaceTextFieldButton_Click);
+            case PaletteCommand.Checkbox: return ArmPaletteToggle("Sign", PlaceCheckboxButton, PlaceCheckboxButton_Click);
+            case PaletteCommand.RadioGroup: return ArmPaletteToggle("Sign", PlaceRadioGroupButton, PlaceRadioGroupButton_Click);
+            case PaletteCommand.Dropdown: return ArmPaletteToggle("Sign", PlaceDropdownButton, PlaceDropdownButton_Click);
 
-            case PaletteCommand.ExportImages: ExportImagesButton_Click(ExportImagesButton, args); break;
+            case PaletteCommand.ExportImages: return ClickIfEnabled(ExportImagesButton, ExportImagesButton_Click);
             case PaletteCommand.Watermark:
                 ShowPaletteToolsPage("Edit");
-                if (AddWatermarkButton.IsEnabled) AddWatermarkButton_Click(AddWatermarkButton, args);
-                break;
+                return ClickIfEnabled(AddWatermarkButton, AddWatermarkButton_Click);
             // A Home tool: from a cold start the rail's door picks a file first.
-            case PaletteCommand.Compress: await NavigateToToolAsync("Compress", args); break;
+            case PaletteCommand.Compress: await NavigateToToolAsync("Compress", args); return true;
 
             // Add PDFs reports its progress, and offers its cancel, in the Organize header.
             case PaletteCommand.AddPdfs:
                 if (!_organizing) await EnterOrganizeViewAsync();
-                if (_organizing && OrganizeAddPdfsButton.IsEnabled) OrganizeAddPdfsButton_Click(OrganizeAddPdfsButton, args);
-                break;
-            case PaletteCommand.Extract: ExtractPagesButton_Click(ExtractPagesButton, args); break;
-            case PaletteCommand.Split: SplitPagesButton_Click(SplitPagesButton, args); break;
+                return _organizing && ClickIfEnabled(OrganizeAddPdfsButton, OrganizeAddPdfsButton_Click);
+            case PaletteCommand.Extract: return ClickIfEnabled(ExtractPagesButton, ExtractPagesButton_Click);
+            case PaletteCommand.Split: return ClickIfEnabled(SplitPagesButton, SplitPagesButton_Click);
 
             // The signing buttons live on Fill & Sign, and a drawn signature is
             // disarmed as soon as that page is left, so all four start there.
-            case PaletteCommand.SignWithFile: RunPaletteSigning(_chooseSigningCertificate); break;
-            case PaletteCommand.SignWithToken: RunPaletteSigning(_chooseCardCertificate); break;
-            case PaletteCommand.SignWithSystemCertificate: RunPaletteSigning(_chooseComputerCertificate); break;
+            case PaletteCommand.SignWithFile: return RunPaletteSigning(_chooseSigningCertificate);
+            case PaletteCommand.SignWithToken: return RunPaletteSigning(_chooseCardCertificate);
+            case PaletteCommand.SignWithSystemCertificate: return RunPaletteSigning(_chooseComputerCertificate);
             case PaletteCommand.DrawSignature:
                 ShowPaletteToolsPage("Sign");
-                DrawSignatureButton_Click(_drawSignatureButton, args);
-                break;
+                return ClickIfEnabled(_drawSignatureButton, DrawSignatureButton_Click);
             default: throw new ArgumentOutOfRangeException(nameof(command), command, null);
         }
     }
 
-    private async Task RunPaletteHistoryAsync(bool undo)
+    private async Task<bool> RunPaletteHistoryAsync(bool undo)
     {
         if (_organizing)
         {
             await RunOrganizeHistoryAsync(undo);
-            return;
+            return true;
         }
-        if (_isBusy || _dialogOpen || !(undo ? UndoButton.IsEnabled : RedoButton.IsEnabled)) return;
+        if (_isBusy || _dialogOpen || !(undo ? UndoButton.IsEnabled : RedoButton.IsEnabled)) return false;
         await ApplyHistoryAndMetadataAsync(undo);
+        return true;
     }
 
     /// <summary>Shows the editor with <paramref name="page"/> up on the tools panel, leaving Organize or Home first.</summary>
@@ -140,19 +138,29 @@ public sealed partial class MainWindow
     /// <summary>
     /// Switches a tool's toggle on and runs its own Click handler — exactly
     /// what a click on it does. Already on stays on; a disabled toggle (its
-    /// gate refused after the screen switch) is left alone.
+    /// gate refused after the screen switch) is left alone and reported.
     /// </summary>
-    private void ArmPaletteToggle(string page, ToggleButton button, RoutedEventHandler click)
+    private bool ArmPaletteToggle(string page, ToggleButton button, RoutedEventHandler click)
     {
         ShowPaletteToolsPage(page);
-        if (!button.IsEnabled || button.IsChecked == true) return;
+        if (!button.IsEnabled) return false;
+        if (button.IsChecked == true) return true;
         button.IsChecked = true;
         click(button, new RoutedEventArgs());
+        return true;
     }
 
-    private void RunPaletteSigning(Microsoft.UI.Xaml.Controls.Button source)
+    /// <summary>What a click on <paramref name="button"/> does, unless it is off.</summary>
+    private static bool ClickIfEnabled(ButtonBase button, RoutedEventHandler click)
+    {
+        if (!button.IsEnabled) return false;
+        click(button, new RoutedEventArgs());
+        return true;
+    }
+
+    private bool RunPaletteSigning(Microsoft.UI.Xaml.Controls.Button source)
     {
         ShowPaletteToolsPage("Sign");
-        if (source.IsEnabled) ChooseSigningCertificate_Click(source, new RoutedEventArgs());
+        return ClickIfEnabled(source, ChooseSigningCertificate_Click);
     }
 }

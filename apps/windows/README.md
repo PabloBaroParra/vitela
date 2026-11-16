@@ -231,7 +231,8 @@ rail buttons unselected. Inactive pages take no layout space.
 Home/Recent and Organize returns, document replacement and unchanged edit history.
 **Ctrl+K** opens the command palette over Home, the editor or Organize: type to
 find any command (English titles; English and Spanish synonyms, accents optional),
-Up/Down to choose, Enter to run, Esc or a click outside to close. A command that
+Up/Down to choose, Enter to run, Esc or a click outside to close. While open it
+is modal: other Ctrl shortcuts and dropped files are ignored. A command that
 cannot run now stays listed, dimmed, with its button's reason. Each entry runs
 the handler its button already calls (`MainWindow.PaletteCommands.cs`); the
 matcher, recents and catalog are pure (`Viewer/Palette*.cs`) and covered by the

@@ -33,16 +33,17 @@ public sealed partial class MainWindow
         ShowFindFlyout();
     }
 
-    /// <summary>Ctrl+F and the palette's Find entry: the editor, with the Find popup open.</summary>
-    private void ShowFindFlyout()
+    /// <summary>Ctrl+F and the palette's Find entry: the editor, with the Find popup open. Returns whether it opened.</summary>
+    private bool ShowFindFlyout()
     {
-        if (_session is null || _isBusy || _dialogOpen || !_findDocumentButton.IsEnabled) return;
+        if (_session is null || _isBusy || _dialogOpen || !_findDocumentButton.IsEnabled) return false;
         if (_organizing)
         {
             LeaveOrganizeView();
         }
         ShowEditorView();
         _documentFindFlyout.ShowAt(_findDocumentButton);
+        return true;
     }
 
     private async void SearchBox_KeyDown(object sender, KeyRoutedEventArgs e)

@@ -47,6 +47,8 @@ internal static class PaletteCatalogTests
         ContentAndFormRefusalsUseTheirButtonsReasons();
         SplitNeedsTwoPages();
         SigningEntriesStateTheSigningRefusal();
+        OrganizeAsksTheOpenRefusal();
+        FindAsksTheTextExtractionRefusal();
         return Task.CompletedTask;
     }
 
@@ -76,7 +78,8 @@ internal static class PaletteCatalogTests
         SigningLoaded: true,
         SigningRefusal: null,
         CanUndo: true,
-        CanRedo: true);
+        CanRedo: true,
+        TextExtractionRefusal: null);
 
     private static string? Refusal(PaletteCommand command, PaletteContext context) => Entry(command).Refusal(context);
 
@@ -317,6 +320,24 @@ internal static class PaletteCatalogTests
         foreach (var command in new[] { PaletteCommand.SignWithFile, PaletteCommand.SignWithToken, PaletteCommand.SignWithSystemCertificate })
             Equal("This document does not permit signing.", Refusal(command, refused), command.ToString());
         Equal(null, Refusal(PaletteCommand.DrawSignature, refused), "drawing asks the annotation permission");
+    }
+
+    /// <summary>
+    /// GTK <c>organize::open_refusal</c>: opening Organize asks the content
+    /// permission, worded as the Edit page's own content refusal.
+    /// </summary>
+    private static void OrganizeAsksTheOpenRefusal()
+    {
+        Equal(PaletteCatalog.ContentRefusal, Refusal(PaletteCommand.ModeOrganize, Allowed() with { ContentEditingAllowed = false }), "organize refused");
+        Equal(null, Refusal(PaletteCommand.ModeOrganize, PaletteContext.NoDocument), "no document: the rail picks one first");
+    }
+
+    /// <summary>GTK <c>text_extraction_refusal</c>: Find states the search's own refusal.</summary>
+    private static void FindAsksTheTextExtractionRefusal()
+    {
+        const string refusal = "This document does not permit copying or extracting its text.";
+        Equal(refusal, Refusal(PaletteCommand.Find, Allowed() with { TextExtractionRefusal = refusal }), "find refused");
+        Equal("Open a PDF before searching.", Refusal(PaletteCommand.Find, PaletteContext.NoDocument with { TextExtractionRefusal = refusal }), "no document first");
     }
 
     private static string FindRepoFile(params string[] parts)

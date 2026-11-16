@@ -31,6 +31,7 @@ internal enum PaletteCommand
 /// <param name="FormStructureAllowed">The form snapshot's structure permission; null until it arrives.</param>
 /// <param name="SigningLoaded">Whether the signing snapshot for this session has arrived.</param>
 /// <param name="SigningRefusal">The core's signing refusal, when it has one.</param>
+/// <param name="TextExtractionRefusal">The search's own refusal (<c>/P</c> bit 5), when the document has one.</param>
 internal sealed record PaletteContext(
     bool HasDocument,
     int PageCount,
@@ -40,9 +41,10 @@ internal sealed record PaletteContext(
     bool SigningLoaded,
     string? SigningRefusal,
     bool CanUndo,
-    bool CanRedo)
+    bool CanRedo,
+    string? TextExtractionRefusal)
 {
-    public static readonly PaletteContext NoDocument = new(false, 0, null, false, null, false, null, false, false);
+    public static readonly PaletteContext NoDocument = new(false, 0, null, false, null, false, null, false, false, null);
 
     public bool HasPages => HasDocument && PageCount > 0;
 }
@@ -198,17 +200,20 @@ internal static class PaletteCatalog
     /// Each command's gate, in the order its button's own gate asks it. Modes
     /// are navigation: with no document the rail picks one first, so they
     /// are never refused for its absence (decision 3's exception); Compress
-    /// likewise, as a Home tool.
+    /// likewise, as a Home tool. With a document, Organize and Protect state
+    /// their door's refusal (GTK <c>mode_refusal</c>: Organize asks
+    /// <c>organize::open_refusal</c>, the content permission).
     /// </summary>
     public static string? Refusal(PaletteCommand command, PaletteContext context) => command switch
     {
         PaletteCommand.ModeHome or PaletteCommand.ModeEdit or PaletteCommand.ModeAnnotate
-            or PaletteCommand.ModeOrganize or PaletteCommand.ModeSign => null,
+            or PaletteCommand.ModeSign => null,
+        PaletteCommand.ModeOrganize => context.HasDocument && !context.ContentEditingAllowed ? ContentRefusal : null,
         PaletteCommand.ModeProtect => context.HasDocument && !context.ContentEditingAllowed ? ProtectRefusal : null,
         PaletteCommand.Open or PaletteCommand.New or PaletteCommand.Compress => null,
         PaletteCommand.Save => Pages(context, "Open a PDF before saving."),
         PaletteCommand.Print => Pages(context, "Open a PDF before printing."),
-        PaletteCommand.Find => Pages(context, "Open a PDF before searching."),
+        PaletteCommand.Find => Pages(context, "Open a PDF before searching.") ?? context.TextExtractionRefusal,
         PaletteCommand.Undo => context.CanUndo ? null : "Nothing to undo.",
         PaletteCommand.Redo => context.CanRedo ? null : "Nothing to redo.",
         PaletteCommand.Highlight or PaletteCommand.Underline or PaletteCommand.Strikeout or PaletteCommand.Ink

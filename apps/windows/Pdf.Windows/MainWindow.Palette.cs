@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Viewer;
@@ -20,6 +21,11 @@ namespace Pdf.Windows;
 /// Ctrl+Z/Ctrl+Y win over the Undo/Redo buttons' accelerators — measured by
 /// <c>Tests/CommandPaletteSmoke</c>. Marking accelerator processing handled
 /// there instead, as a first attempt did, also cancelled the box's own undo.
+///
+/// Otherwise the palette is modal, like the GTK dialog it ports: the other
+/// Ctrl+letter shortcuts and a file dropped on the scrim do nothing while it
+/// is open (<see cref="PaletteLayer_ProcessKeyboardAccelerators"/>,
+/// <c>Window_Drop</c>), so no flow starts under rows drawn for another state.
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -28,6 +34,10 @@ public sealed partial class MainWindow
     private IReadOnlyList<PaletteResult> _paletteShown = [];
     /// <summary>The element that had the focus when the palette opened.</summary>
     private WeakReference<UIElement>? _palettePreviousFocus;
+    /// <summary>The session the rows on screen were drawn for.</summary>
+    private string? _paletteSessionId;
+    /// <summary>A palette-launched command is still awaiting; Ctrl+K stays shut until it ends.</summary>
+    private bool _paletteCommandRunning;
 
     private bool IsPaletteOpen => PaletteLayer.Visibility == Visibility.Visible;
 
@@ -47,7 +57,7 @@ public sealed partial class MainWindow
     /// </summary>
     private void OpenPalette()
     {
-        if (IsPaletteOpen || _isBusy || _dialogOpen || _shellPickingFile || Content.XamlRoot is not { } root) return;
+        if (IsPaletteOpen || _paletteCommandRunning || _isBusy || _dialogOpen || _shellPickingFile || Content.XamlRoot is not { } root) return;
         _palettePreviousFocus = FocusManager.GetFocusedElement(root) is UIElement focused ? new(focused) : null;
         // Setting an already empty box raises no TextChanged; the list must still be current.
         PaletteSearchBox.Text = "";
@@ -61,8 +71,11 @@ public sealed partial class MainWindow
     /// Hides the palette and gives the focus back explicitly. The focus moves
     /// before the layer collapses: collapsing the focused search box would
     /// leave WinUI to pick the next focus itself, and bringing that into view
-    /// can scroll the page — the jump the GTK content editor once had. The
-    /// page scroller's offsets are pinned across the move for the same reason.
+    /// can scroll the page — the jump the GTK content editor once had. When
+    /// the remembered element is gone, the page (or the current rail button)
+    /// takes it instead. The page scroller's offsets are pinned across the
+    /// move for the same reason, checked once the layout has run: a
+    /// bring-into-view lands in the layout pass, not in <c>Focus</c>.
     /// </summary>
     private void ClosePalette()
     {
@@ -71,10 +84,39 @@ public sealed partial class MainWindow
         _palettePreviousFocus?.TryGetTarget(out previous);
         _palettePreviousFocus = null;
         var (left, top) = (PageScroller.HorizontalOffset, PageScroller.VerticalOffset);
-        if (previous is not null && IsFocusableAfterPalette(previous)) previous.Focus(FocusState.Programmatic);
+        if (previous is null || !IsFocusableAfterPalette(previous) || !previous.Focus(FocusState.Programmatic))
+            FocusAfterPaletteFallback();
         PaletteLayer.Visibility = Visibility.Collapsed;
-        if (PageScroller.HorizontalOffset != left || PageScroller.VerticalOffset != top)
-            PageScroller.ChangeView(left, top, null, disableAnimation: true);
+        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            if (!IsPaletteOpen && (PageScroller.HorizontalOffset != left || PageScroller.VerticalOffset != top))
+                PageScroller.ChangeView(left, top, null, disableAnimation: true);
+        });
+    }
+
+    /// <summary>The page when it is on screen, otherwise the rail button of the screen that is.</summary>
+    private void FocusAfterPaletteFallback()
+    {
+        if (IsFocusableAfterPalette(PageScroller) && PageScroller.Focus(FocusState.Programmatic)) return;
+        AppRail.Children.OfType<ToggleButton>().FirstOrDefault(button => button.IsChecked == true)?.Focus(FocusState.Programmatic);
+    }
+
+    /// <summary>
+    /// Raised on the focused element's ancestors before any accelerator runs.
+    /// While the palette is open every Ctrl+letter shortcut is swallowed here
+    /// except Ctrl+K (which closes it) and, in the search box, the box's own
+    /// Ctrl+A/C/V/X/Z/Y — leaving those unhandled is what lets the box keep
+    /// them (see the class summary). Other keys are not touched: the box
+    /// needs its caret keys, and the window's plain-key accelerators already
+    /// decline in a text box.
+    /// </summary>
+    private void PaletteLayer_ProcessKeyboardAccelerators(UIElement sender, ProcessKeyboardAcceleratorEventArgs args)
+    {
+        if (!IsPaletteOpen || !args.Modifiers.HasFlag(VirtualKeyModifiers.Control)) return;
+        if (args.Key is < VirtualKey.A or > VirtualKey.Z || args.Key == VirtualKey.K) return;
+        var textEditing = args.Key is VirtualKey.A or VirtualKey.C or VirtualKey.V or VirtualKey.X or VirtualKey.Z or VirtualKey.Y;
+        if (textEditing && TextInputHasFocus()) return;
+        args.Handled = true;
     }
 
     /// <summary>Whether <paramref name="element"/> is still on screen in this window and outside the palette.</summary>
@@ -104,6 +146,7 @@ public sealed partial class MainWindow
     private void RefillPalette()
     {
         var query = PaletteSearchBox.Text;
+        _paletteSessionId = _session?.SessionId;
         var found = PaletteCatalog.Search(query, PaletteContextNow());
         _paletteShown = string.IsNullOrWhiteSpace(query) ? _paletteRecents.Order(found, result => result.Entry.Id) : found;
         PaletteList.Items.Clear();
@@ -159,22 +202,40 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Runs the row at <paramref name="index"/>. A refused row does nothing
-    /// and the palette stays open with its reason on screen. Otherwise the
-    /// palette closes first, focus handed back, so a flow that opens a dialog
-    /// or a picker, or switches screens, starts from the window as it was;
-    /// the entry counts as recent only once it actually ran.
+    /// Runs the row at <paramref name="index"/>. Its availability is asked
+    /// again against the state now, not the one the rows were drawn with:
+    /// when that answer changed, or another document is open, the rows are
+    /// redrawn and nothing runs, so what runs is what is on screen. A refused
+    /// row does nothing and the palette stays open with its reason on screen.
+    /// Otherwise the palette closes first, focus handed back, so a flow that
+    /// opens a dialog or a picker, or switches screens, starts from the window
+    /// as it was; the entry counts as recent only once it actually ran.
     /// </summary>
     private async void ActivatePaletteRow(int index)
     {
-        if (index < 0 || index >= _paletteShown.Count) return;
-        var result = _paletteShown[index];
-        if (result.Refusal is not null)
+        if (_paletteCommandRunning || index < 0 || index >= _paletteShown.Count) return;
+        var shown = _paletteShown[index];
+        var refusal = shown.Entry.Refusal(PaletteContextNow());
+        var otherDocument = _session?.SessionId != _paletteSessionId;
+        if (otherDocument || refusal != shown.Refusal)
+        {
+            RefillPalette();
+            SelectPaletteRow(_paletteShown.ToList().FindIndex(result => result.Entry.Id == shown.Entry.Id));
+        }
+        if (otherDocument || refusal is not null)
         {
             PaletteSearchBox.Focus(FocusState.Programmatic);
             return;
         }
         ClosePalette();
-        if (await RunPaletteEntryAsync(result.Entry)) _paletteRecents.Record(result.Entry.Id);
+        _paletteCommandRunning = true;
+        try
+        {
+            if (await RunPaletteEntryAsync(shown.Entry)) _paletteRecents.Record(shown.Entry.Id);
+        }
+        finally
+        {
+            _paletteCommandRunning = false;
+        }
     }
 }
