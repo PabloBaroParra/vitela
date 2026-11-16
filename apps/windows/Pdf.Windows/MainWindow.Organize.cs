@@ -61,7 +61,7 @@ public sealed partial class MainWindow
         }
 
         if (_isBusy || _organizeBusy || _dialogOpen) return;
-        // Every door (rail, Home tool, palette) refuses with the palette's sentence.
+        // Every door (mode bar, Home tool, palette) refuses with the palette's sentence.
         if (PaletteCatalog.OrganizeOpenRefusal(_session.ContentEditingAllowed) is { } refusal)
         {
             OrganizeButton.IsChecked = false;
@@ -88,7 +88,6 @@ public sealed partial class MainWindow
         OrganizePanel.Visibility = Visibility.Visible;
         EditorView.Visibility = Visibility.Collapsed;
         HomeView.Visibility = Visibility.Collapsed;
-        MarkRailDestination("Organize");
         UpdateOrganizeHeader();
         UpdatePageNavigationControls();
         AnnotationStatus.Text = "Drag a page to move it. Changes are one undo step each.";

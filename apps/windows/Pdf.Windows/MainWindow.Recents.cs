@@ -107,7 +107,6 @@ public sealed partial class MainWindow
             _recentGroups.Add((group, cards));
         }
         ApplyHomeFilter();
-        if (_railDestination == "Recent" && HomeView.Visibility == Visibility.Visible) FocusFirstRecentCard();
         // Sequential: do not queue eight thumbnail opens ahead of the user's document.
         foreach (var preview in previews)
         {

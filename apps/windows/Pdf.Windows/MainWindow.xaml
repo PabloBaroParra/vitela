@@ -19,7 +19,7 @@
         onto the empty state is the whole point. Same reason the page overlay
         Canvas carries one.
     -->
-    <Grid x:Name="ShellRoot" RowDefinitions="*,Auto" ColumnDefinitions="Auto,*" KeyboardAcceleratorPlacementMode="Hidden"
+    <Grid x:Name="ShellRoot" RowDefinitions="Auto,*,Auto" KeyboardAcceleratorPlacementMode="Hidden"
           Background="{ThemeResource VitelaWindowBackgroundBrush}" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop" Loaded="ShellRoot_Loaded">
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="ShellOpen_Invoked" />
@@ -32,25 +32,20 @@
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
             <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="CommandPalette_Invoked" />
         </Grid.KeyboardAccelerators>
-        <Border Grid.Row="0" Grid.Column="0" Width="176" Style="{StaticResource RailContainerStyle}">
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-            <StackPanel x:Name="AppRail" Padding="12" Spacing="4" AutomationProperties.Name="Vitela sections">
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="2,2,2,8">
+        <!--
+            The mode bar (GTK mode_bar.rs): Home, Edit, Annotate, Organize, Sign
+            and Protect as one row of tabs above the views. MainWindow.ModeBar.cs
+            fills it and derives the checked tab from the screen; it stores none.
+        -->
+        <Border Grid.Row="0" Style="{StaticResource ModeBarStyle}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                <StackPanel Orientation="Horizontal" Spacing="8" Padding="2" VerticalAlignment="Center">
                     <Image Source="{ThemeResource AppMarkImageSource}" Width="24" Height="24" AutomationProperties.AccessibilityView="Raw" />
                     <TextBlock Text="Vitela" Style="{StaticResource BrandWordStyle}" />
                 </StackPanel>
-                <ToggleButton x:Name="HomeRailButton" Style="{StaticResource RailItemStyle}" Content="Home" Tag="Home" IsChecked="True" Click="RailButton_Click" />
-                <ToggleButton x:Name="RecentRailButton" Style="{StaticResource RailItemStyle}" Content="Recent" Tag="Recent" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="My files" Tag="Files" Click="RailButton_Click" />
-                <Border Style="{StaticResource RailSeparatorStyle}" />
-                <!-- Same order as Home's Tools card and the Linux rail. -->
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Edit PDF" Tag="Edit" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Annotate" Tag="Annotate" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Sign" Tag="Sign" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Organize pages" Tag="Organize" Click="RailButton_Click" />
-                <ToggleButton Style="{StaticResource RailItemStyle}" Content="Protect" Tag="Protect" Click="RailButton_Click" />
-            </StackPanel>
-        </ScrollViewer>
+                <viewer:ToolbarPanel x:Name="ModeBar" Grid.Column="1" VerticalAlignment="Center"
+                                     AutomationProperties.Name="Vitela sections" />
+            </Grid>
         </Border>
         <!--
             HomeView is a UserControl only so the header can stay put while the
@@ -60,7 +55,7 @@
             width, which collapsed the star columns and clipped the right column
             in the first Windows Home. HomeLayout reflows the columns instead.
         -->
-        <UserControl x:Name="HomeView" Grid.Column="1" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <UserControl x:Name="HomeView" Grid.Row="1" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
         <Grid RowDefinitions="Auto,*" Background="{ThemeResource VitelaWindowBackgroundBrush}">
             <Border Style="{StaticResource HomeHeaderStyle}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -114,7 +109,7 @@
             </ScrollViewer>
         </Grid>
         </UserControl>
-        <Grid x:Name="EditorView" Grid.Column="1" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
+        <Grid x:Name="EditorView" Grid.Row="1" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
         <Border Grid.Row="0" Style="{StaticResource EditorToolbarStyle}">
         <viewer:ToolbarPanel x:Name="EditorToolbar">
             <Button x:Name="OpenButton" Click="OpenButton_Click" ToolTipService.ToolTip="Open a PDF (Ctrl+O)">
@@ -319,7 +314,7 @@
             </ScrollViewer>
         </Grid>
         </Grid>
-        <Grid x:Name="OrganizePanel" Grid.Column="1" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
+        <Grid x:Name="OrganizePanel" Grid.Row="1" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
               Visibility="Collapsed" RowSpacing="12" Loaded="OrganizePanel_Loaded">
             <StackPanel Spacing="12">
                 <TextBlock x:Name="OrganizeHeading" Text="Organize pages" Style="{StaticResource OrganizeHeadingStyle}" />
@@ -364,7 +359,7 @@
             <GridView x:Name="OrganizeGrid" Grid.Row="4" Visibility="Collapsed" SelectionMode="None" CanDragItems="True" CanReorderItems="True" AllowDrop="True"
                       DragOver="OrganizeGrid_DragOver" DragItemsStarting="OrganizeGrid_DragItemsStarting" DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
         </Grid>
-        <Border Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource StatusBarStyle}"
+        <Border Grid.Row="2" Style="{StaticResource StatusBarStyle}"
                 AutomationProperties.Name="Status">
             <StackPanel Spacing="4">
                 <TextBlock x:Name="AnnotationStatus" Style="{StaticResource StatusTextStyle}" Text="Choose a PDF file to view, or open the built-in sample."
@@ -382,7 +377,7 @@
             click outside the card and closes the palette; the card keeps Tab
             inside it. Behaviour lives in MainWindow.Palette.cs.
         -->
-        <Grid x:Name="PaletteLayer" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed"
+        <Grid x:Name="PaletteLayer" Grid.RowSpan="3" Visibility="Collapsed"
               ProcessKeyboardAccelerators="PaletteLayer_ProcessKeyboardAccelerators">
             <Rectangle x:Name="PaletteScrim" Fill="{ThemeResource VitelaWindowBackgroundBrush}" Opacity="0.55"
                        PointerPressed="PaletteScrim_PointerPressed" />

@@ -133,7 +133,7 @@ public sealed partial class MainWindow
 
         await OpenDocumentAsync("Saved comments", await File.ReadAllBytesAsync(Path.Combine(output, "note-history-fixture.pdf")));
         await RefreshAnnotationStateAsync();
-        SelectToolPage("Comments");
+        SelectToolPage("Annotate"); // Comments is a section of Annotate.
         var savedComment = _annotationState!.Comments.Single(comment => comment.Contents == "  First line\rSecond line  ");
         if (savedComment.AnnotationId is not null || _annotationState.Annotations.Count != 0)
             throw new Exception("Saved comment became an editable session annotation.");

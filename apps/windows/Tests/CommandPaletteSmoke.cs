@@ -28,7 +28,7 @@ public partial class App : Application
                 "PASS Home card lists Ctrl+K; Ctrl+K from Home, editor and Organize; whole catalog on an empty query; refused rows stay open with their reason; " +
                 "accent-free Spanish search; arrows, Enter and Esc; focus returns on close; Ctrl+Z/Ctrl+Y edit the query, not the document; Ctrl+O/Ctrl+F ignored while open; " +
                 "tool and form entries arm their buttons; recents first; Undo runs through the history; a refused-then-allowed row redraws without running; " +
-                "Tab+Delete and Ctrl+End in the list leave the page alone; Edit from Organize keeps its own scroll.");
+                "Tab+Delete and Ctrl+End in the list leave the page alone; the focus fallback lands on the checked mode tab; Edit from Organize keeps its own scroll.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "command-palette-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -92,6 +92,13 @@ public sealed partial class MainWindow
         await PaletteKeyAsync(PaletteVkEscape);
         await Wait(() => !IsPaletteOpen, "Esc closes the palette");
         await Wait(() => HomeSearchBox.FocusState != FocusState.Unfocused, "Focus returns to the Home search box");
+        // With no page on screen and the remembered element gone, the checked mode tab takes the focus.
+        FocusAfterPaletteFallback();
+        var homeTab = _modeButtons.Single(entry => entry.Mode == ShellMode.Home).Button;
+        await Wait(() => homeTab.FocusState != FocusState.Unfocused, "The palette's focus fallback lands on the checked Home tab");
+        // Put the focus back where the rest of the run expects it.
+        HomeSearchBox.Focus(FocusState.Programmatic);
+        await Wait(() => HomeSearchBox.FocusState != FocusState.Unfocused, "Focus goes back to the Home search box");
 
         // A document with one undoable edit.
         await OpenDocumentAsync(SampleDisplayName, await File.ReadAllBytesAsync(SamplePath));
@@ -171,11 +178,12 @@ public sealed partial class MainWindow
         Check(selected is not null && DeleteAnnotationButton.IsEnabled, "An annotation is selected for Delete");
         // A probe on the window root sees every Delete / Ctrl+End accelerator the page would.
         var probed = 0;
+        var reached = new HashSet<global::Windows.System.VirtualKey>();
         var probes = new List<Microsoft.UI.Xaml.Input.KeyboardAccelerator>();
         foreach (var (key, modifiers) in new[] { (global::Windows.System.VirtualKey.Delete, global::Windows.System.VirtualKeyModifiers.None), (global::Windows.System.VirtualKey.End, global::Windows.System.VirtualKeyModifiers.Control) })
         {
             var probe = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = modifiers };
-            probe.Invoked += (_, _) => probed++;
+            probe.Invoked += (_, args) => { probed++; reached.Add(args.KeyboardAccelerator.Key); };
             ((UIElement)Content).KeyboardAccelerators.Add(probe);
             probes.Add(probe);
         }
@@ -206,10 +214,12 @@ public sealed partial class MainWindow
         // Control: with the palette shut the same keys do reach the window's accelerators.
         await PaletteKeyAsync(PaletteVkDelete);
         await PaletteChordAsync((char)PaletteVkEnd);
-        await Wait(() => probed == 2, $"Delete and Ctrl+End reach the window once the palette is closed ({probed})");
+        // By key, not by count: from a focused button outside any scroller WinUI raises an
+        // unhandled window accelerator twice, and Ctrl+End reaches it only outside a scroller.
+        await Wait(() => reached.Count == 2, $"Delete and Ctrl+End reach the window once the palette is closed ({string.Join(", ", reached)})");
         foreach (var probe in probes) ((UIElement)Content).KeyboardAccelerators.Remove(probe);
 
-        // A command's own scroll survives the close: Edit from Organize lands where the rail's Edit lands.
+        // A command's own scroll survives the close: Edit from Organize lands where the mode bar's Edit lands.
         Check(PageScroller.ScrollableHeight > 0, "The sample scrolls, so the landing check means something");
         {
             async Task<double> EditFromOrganizeAsync(bool palette)
@@ -228,15 +238,15 @@ public sealed partial class MainWindow
                     await Wait(() => FirstId() == "mode.edit", "edit ranks Edit first");
                     await PaletteKeyAsync(PaletteVkReturn);
                 }
-                else await NavigateToToolAsync("Edit", new RoutedEventArgs());
+                else await OpenModeAsync(ShellMode.Edit, new RoutedEventArgs());
                 await Wait(() => !_organizing && !_paletteCommandRunning, "Edit leaves Organize");
                 await Task.Delay(600);
                 return PageScroller.VerticalOffset;
             }
-            var railLanding = await EditFromOrganizeAsync(palette: false);
+            var tabLanding = await EditFromOrganizeAsync(palette: false);
             var paletteLanding = await EditFromOrganizeAsync(palette: true);
-            Check(railLanding < PageScroller.ScrollableHeight / 2, $"The rail's Edit lands near the top after a reorganize ({railLanding})");
-            Check(Math.Abs(railLanding - paletteLanding) < 1, $"Edit from the palette lands where the rail's does ({paletteLanding} vs {railLanding})");
+            Check(tabLanding < PageScroller.ScrollableHeight / 2, $"The Edit tab lands near the top after a reorganize ({tabLanding})");
+            Check(Math.Abs(tabLanding - paletteLanding) < 1, $"Edit from the palette lands where the Edit tab's does ({paletteLanding} vs {tabLanding})");
         }
 
         await PaletteChordAsync('K');

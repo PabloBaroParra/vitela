@@ -1,41 +1,26 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
-using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
-/// <summary>Window-local view navigation. Switching Home never replaces a session.</summary>
+/// <summary>
+/// Window-local view navigation. Switching Home never replaces a session.
+/// The mode bar (MainWindow.ModeBar.cs) follows these views; nothing here tells it.
+/// </summary>
 public sealed partial class MainWindow
 {
     private bool _shellInitialized;
     private bool _shellPickingFile;
-    private string _railDestination = "Home";
 
     private void ShellRoot_Loaded(object sender, RoutedEventArgs e)
     {
         if (_shellInitialized) return;
         _shellInitialized = true;
-        foreach (var button in AppRail.Children.OfType<ToggleButton>())
-        {
-            var label = (string)button.Content;
-            var icon = (string)button.Tag switch
-            {
-                "Home" => ShellIcon.Home, "Recent" => ShellIcon.Recent, "Files" => ShellIcon.Files,
-                "Annotate" => ShellIcon.Annotate, "Edit" => ShellIcon.Edit, "Organize" => ShellIcon.Organize,
-                "Sign" => ShellIcon.Sign, _ => ShellIcon.Protect,
-            };
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            // RAIL_ICON_PX in NEUTRAL_TINT (shell.rs).
-            row.Children.Add(ShellIconImage(icon, 16, IconTint.Neutral, button));
-            row.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
-            button.Content = row;
-            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, label);
-        }
         BuildEditorToolbar();
         BuildToolPages();
+        BuildModeBar();
         BuildHomeTools();
         InitializeRecents();
         SetBusy(false);
@@ -46,26 +31,17 @@ public sealed partial class MainWindow
 
     private void SetNavigationEnabled(bool enabled)
     {
-        foreach (var button in AppRail.Children.OfType<ToggleButton>()) button.IsEnabled = enabled;
+        SetModeBarEnabled(enabled);
         HomeView.IsEnabled = enabled;
     }
 
-    private void MarkRailDestination(string destination)
-    {
-        _railDestination = destination;
-        foreach (var button in AppRail.Children.OfType<ToggleButton>())
-            button.IsChecked = (string)button.Tag == destination;
-    }
-
-    private void ShowHomeView(string destination)
+    private void ShowHomeView()
     {
         EditorView.Visibility = Visibility.Collapsed;
         OrganizePanel.Visibility = Visibility.Collapsed;
         HomeView.Visibility = Visibility.Visible;
         ReturnToDocumentButton.Visibility = _session is null ? Visibility.Collapsed : Visibility.Visible;
-        MarkRailDestination(destination);
         _ = RefreshRecentFilesAsync();
-        if (destination == "Recent") FocusFirstRecentCard();
     }
 
     private void ShowEditorView()
@@ -74,7 +50,6 @@ public sealed partial class MainWindow
         HomeView.Visibility = Visibility.Collapsed;
         EditorView.Visibility = _organizing ? Visibility.Collapsed : Visibility.Visible;
         OrganizePanel.Visibility = _organizing ? Visibility.Visible : Visibility.Collapsed;
-        MarkRailDestination(_organizing ? "Organize" : _selectedToolPage);
     }
 
     private void ReturnToDocument_Click(object sender, RoutedEventArgs e)
@@ -112,32 +87,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private async void RailButton_Click(object sender, RoutedEventArgs e)
-    {
-        if (_isBusy || _dialogOpen || _shellPickingFile) return;
-        var destination = (string)((ToggleButton)sender).Tag;
-        if (destination is "Home" or "Recent")
-        {
-            ShowHomeView(destination);
-            return;
-        }
-        if (destination == "Files")
-        {
-            var previous = _railDestination;
-            MarkRailDestination(await PickShellDocumentAsync() ? "Files" : previous);
-            return;
-        }
-        await NavigateToToolAsync(destination, e);
-    }
-
     private async Task NavigateToToolAsync(string destination, RoutedEventArgs e)
     {
         if (_isBusy || _dialogOpen || _shellPickingFile) return;
-        if (_session is null && !await PickShellDocumentAsync())
-        {
-            MarkRailDestination(_railDestination);
-            return;
-        }
+        // Windows keeps no pending tool: the tool below is applied in this same
+        // continuation, and only when the pick installed a new session. A
+        // dismissed picker, a failed open or an abandoned password prompt ends
+        // here, so no later open can inherit it (GTK abandon_pending_tool).
+        if (_session is null && !await PickShellDocumentAsync()) return;
 
         ShowEditorView();
         // Open installs the session before the async permission snapshot reaches
@@ -151,7 +108,6 @@ public sealed partial class MainWindow
             return;
         }
         LeaveOrganizeView();
-        MarkRailDestination(destination);
         SetToolsPanelVisible(true);
         if (destination == "Protect")
         {

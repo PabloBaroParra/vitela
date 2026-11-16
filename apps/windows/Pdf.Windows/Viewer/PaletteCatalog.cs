@@ -105,7 +105,7 @@ internal static class PaletteCatalog
 
     /// <summary>
     /// Why Organize cannot open on a document right now, or null when it can:
-    /// the one gate every door into Organize asks — the rail, Home's tool and
+    /// the one gate every door into Organize asks — the mode bar, Home's tool and
     /// this palette (GTK <c>organize::open_refusal</c>, the content permission).
     /// </summary>
     public static string? OrganizeOpenRefusal(bool contentEditingAllowed) => contentEditingAllowed ? null : ContentRefusal;
@@ -205,7 +205,7 @@ internal static class PaletteCatalog
 
     /// <summary>
     /// Each command's gate, in the order its button's own gate asks it. Modes
-    /// are navigation: with no document the rail picks one first, so they
+    /// are navigation: with no document the mode picks one first, so they
     /// are never refused for its absence (decision 3's exception); Compress
     /// likewise, as a Home tool. With a document, Organize and Protect state
     /// their door's refusal (GTK <c>mode_refusal</c>: Organize asks

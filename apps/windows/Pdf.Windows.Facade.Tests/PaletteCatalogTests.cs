@@ -238,7 +238,7 @@ internal static class PaletteCatalogTests
     {
         var none = PaletteContext.NoDocument;
         foreach (var entry in PaletteCatalog.Entries.Where(entry => entry.Category == PaletteCategory.Mode))
-            Equal(null, entry.Refusal(none), $"{entry.Id} must stay available: the rail picks a file first");
+            Equal(null, entry.Refusal(none), $"{entry.Id} must stay available: the mode picks a file first");
         foreach (var command in new[] { PaletteCommand.Open, PaletteCommand.New, PaletteCommand.Compress })
             Equal(null, Refusal(command, none), command.ToString());
         foreach (var (command, reason) in new[]
@@ -329,7 +329,7 @@ internal static class PaletteCatalogTests
     private static void OrganizeAsksTheOpenRefusal()
     {
         Equal(PaletteCatalog.ContentRefusal, Refusal(PaletteCommand.ModeOrganize, Allowed() with { ContentEditingAllowed = false }), "organize refused");
-        Equal(null, Refusal(PaletteCommand.ModeOrganize, PaletteContext.NoDocument), "no document: the rail picks one first");
+        Equal(null, Refusal(PaletteCommand.ModeOrganize, PaletteContext.NoDocument), "no document: the mode picks one first");
         // The one gate every door into Organize asks (GTK organize::open_refusal).
         Equal(PaletteCatalog.ContentRefusal, PaletteCatalog.OrganizeOpenRefusal(contentEditingAllowed: false), "the door refuses");
         Equal(null, PaletteCatalog.OrganizeOpenRefusal(contentEditingAllowed: true), "the door opens");

@@ -37,7 +37,7 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// Runs <paramref name="entry"/> unless the shell is busy, a dialog is up
-    /// or a picker is open — the rail's own guard, which every entry keeps,
+    /// or a picker is open — the mode bar's own guard, which every entry keeps,
     /// screen switches included. An entry whose button turns out to be off
     /// once its screen is up says so on the status line. Returns whether it
     /// ran; only then does it count as recent.
@@ -56,12 +56,13 @@ public sealed partial class MainWindow
         var args = new RoutedEventArgs();
         switch (command)
         {
-            case PaletteCommand.ModeHome: ShowHomeView("Home"); return true;
-            case PaletteCommand.ModeEdit: await NavigateToToolAsync("Edit", args); return true;
-            case PaletteCommand.ModeAnnotate: await NavigateToToolAsync("Annotate", args); return true;
-            case PaletteCommand.ModeOrganize: await NavigateToToolAsync("Organize", args); return true;
-            case PaletteCommand.ModeSign: await NavigateToToolAsync("Sign", args); return true;
-            case PaletteCommand.ModeProtect: await NavigateToToolAsync("Protect", args); return true;
+            // The mode bar's own tab action, so a mode picked here lands where its tab does.
+            case PaletteCommand.ModeHome: await OpenModeAsync(ShellMode.Home, args); return true;
+            case PaletteCommand.ModeEdit: await OpenModeAsync(ShellMode.Edit, args); return true;
+            case PaletteCommand.ModeAnnotate: await OpenModeAsync(ShellMode.Annotate, args); return true;
+            case PaletteCommand.ModeOrganize: await OpenModeAsync(ShellMode.Organize, args); return true;
+            case PaletteCommand.ModeSign: await OpenModeAsync(ShellMode.Sign, args); return true;
+            case PaletteCommand.ModeProtect: await OpenModeAsync(ShellMode.Protect, args); return true;
 
             case PaletteCommand.Open: await PickShellDocumentAsync(); return true;
             case PaletteCommand.New: await CreateNewDocumentAsync(); return true;
@@ -92,7 +93,7 @@ public sealed partial class MainWindow
             case PaletteCommand.Watermark:
                 ShowPaletteToolsPage("Edit");
                 return ClickIfEnabled(AddWatermarkButton, AddWatermarkButton_Click);
-            // A Home tool: from a cold start the rail's door picks a file first.
+            // A Home tool: from a cold start its door picks a file first, as a mode's does.
             case PaletteCommand.Compress: await NavigateToToolAsync("Compress", args); return true;
 
             // Add PDFs reports its progress, and offers its cancel, in the Organize header.

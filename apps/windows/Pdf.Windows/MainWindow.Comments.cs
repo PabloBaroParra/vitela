@@ -10,10 +10,15 @@ public sealed partial class MainWindow
     private readonly StackPanel _commentsList = new() { Spacing = 8 };
     private IReadOnlyList<Comment>? _shownComments;
 
+    /// <summary>A section at the foot of the Annotate page, under the document properties: a comment is an annotation.</summary>
     private void BuildCommentsPanel()
     {
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_commentsList, "CommentsList");
-        _toolPages["Comments"].Children.Add(_commentsList);
+        var heading = new TextBlock { Text = "Comments", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(heading, "CommentsHeading");
+        var page = _toolPages[Viewer.ShellModes.AnnotatePage];
+        page.Children.Add(heading);
+        page.Children.Add(_commentsList);
         UpdateCommentsPanel(null);
     }
 

@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -22,7 +24,7 @@ public partial class App : Application
         try
         {
             await _window.ToolNavigationSmokeAsync();
-            File.WriteAllText(log, "PASS tools-tab clicks/reclicks synchronize rail; Edit content preserves selection; Home/Recent return; document replacement; Organize return/toggle; rail navigation; Comments clears unrelated rail selection; hidden views preserve destination; unchanged session/history.");
+            File.WriteAllText(log, "PASS mode-bar clicks/reclicks follow the tools page; Edit arms content editing; Comments is a section of Annotate; Home returns; document replacement; Organize return/toggle; mode-bar navigation from Organize; the guard refuses a click and resyncs the tab; Protect is never checked; unchanged session/history.");
         }
         catch (Exception error) { File.WriteAllText(log, "FAIL " + error); }
         finally { _window.Close(); }
@@ -42,54 +44,83 @@ public sealed partial class MainWindow
             for (var i = 0; i < 200 && !predicate(); i++) await Task.Delay(25);
             Check(predicate(), message);
         }
-        static void Toggle(ToggleButton button) =>
-            ((IToggleProvider)new ToggleButtonAutomationPeer(button).GetPattern(PatternInterface.Toggle)).Toggle();
-        void CheckRail(string destination)
+        ButtonBase Tab(ShellMode mode) => _modeButtons.Single(entry => entry.Mode == mode).Button;
+        // A real UI Automation click, as a screen reader or test-*.ps1 sends it.
+        void Click(ShellMode mode)
         {
-            Check(_railDestination == destination, $"Rail destination must be {destination}, not {_railDestination}.");
-            foreach (var button in AppRail.Children.OfType<ToggleButton>())
-                Check(button.IsChecked == ((string)button.Tag == destination), $"Wrong rail highlight: {button.Tag} for {destination}.");
+            if (Tab(mode) is ToggleButton toggle)
+                ((IToggleProvider)new ToggleButtonAutomationPeer(toggle).GetPattern(PatternInterface.Toggle)).Toggle();
+            else
+                ((IInvokeProvider)new ButtonAutomationPeer((Button)Tab(mode)).GetPattern(PatternInterface.Invoke)).Invoke();
         }
+        bool ShowsMode(ShellMode expected) =>
+            _modeButtons.All(entry => entry.Button is not ToggleButton toggle || toggle.IsChecked == (entry.Mode == expected));
+        void CheckMode(ShellMode expected)
+        {
+            foreach (var (mode, button) in _modeButtons)
+                if (button is ToggleButton toggle)
+                    Check(toggle.IsChecked == (mode == expected), $"Wrong mode-bar tab: {mode} for {expected}.");
+        }
+        bool OnTool(string key) => _selectedToolPage == key && EditorView.Visibility == Visibility.Visible;
         void CheckTool(string key)
         {
-            Check(_selectedToolPage == key, "Selected tools-page owner disagrees.");
+            Check(_selectedToolPage == key, $"Selected tools-page owner disagrees: {_selectedToolPage}, not {key}.");
             foreach (var (name, page) in _toolPages)
                 Check(page.Visibility == (name == key ? Visibility.Visible : Visibility.Collapsed), $"Wrong tools page: {name}.");
-            foreach (var tab in _toolsTabStrip.Children.OfType<ToggleButton>())
-                Check(tab.IsChecked == ((string)tab.Tag == key), $"Wrong tools tab: {tab.Tag}.");
-            CheckRail(key);
+            CheckMode(ShellModes.Current(ShellScreen.Editor, key)!.Value);
         }
 
         await Wait(() => _shellInitialized && Content.XamlRoot is not null, "Window not loaded.");
+        CheckMode(ShellMode.Home);
+        Check(Tab(ShellMode.Protect) is Button, "Protect must be a plain button, never a place.");
+        Check(_toolPages.Keys.Order().SequenceEqual(new[] { "Annotate", "Edit", "Sign" }),
+            "The tools panel must have exactly the Edit, Annotate and Sign pages.");
+        Check(_toolPages[ShellModes.AnnotatePage].Children.Contains(_commentsList), "Comments must be a section of the Annotate page.");
+
         var sample = await File.ReadAllBytesAsync(SamplePath);
         await OpenDocumentAsync(SampleDisplayName, sample);
         await RefreshAnnotationStateAsync();
         CheckTool("Annotate");
         var session = _session!.SessionId;
 
-        foreach (var key in new[] { "Edit", "Annotate", "Sign", "Comments", "Edit" })
+        foreach (var (mode, key) in new[] { (ShellMode.Edit, "Edit"), (ShellMode.Annotate, "Annotate"), (ShellMode.Sign, "Sign"), (ShellMode.Edit, "Edit") })
         {
-            var tab = _toolsTabStrip.Children.OfType<ToggleButton>().Single(t => (string)t.Tag == key);
-            Toggle(tab);
-            CheckTool(key);
-            Toggle(tab);
-            CheckTool(key);
+            // Twice: clicking the current mode must never leave every tab unchecked.
+            for (var click = 0; click < 2; click++)
+            {
+                Click(mode);
+                await Wait(() => OnTool(key) && ShowsMode(mode), $"The {mode} tab did not land on its page.");
+                CheckTool(key);
+            }
         }
-        Toggle(ContentEditButton);
-        Check(_contentEditMode && ContentEditButton.IsChecked == true, "Content editing did not arm.");
+        Check(_contentEditMode && ContentEditButton.IsChecked == true, "The Edit mode did not arm content editing.");
+
+        Click(ShellMode.Home);
+        await Wait(() => HomeView.Visibility == Visibility.Visible, "The Home tab did not show Home.");
+        CheckMode(ShellMode.Home);
+        // A page chosen while Home is up moves no tab: the bar shows the screen, not the panel.
+        SelectToolPage("Sign");
+        CheckMode(ShellMode.Home);
+        ReturnToDocument_Click(ReturnToDocumentButton, new RoutedEventArgs());
+        CheckTool("Sign");
+        SelectToolPage("Edit");
         CheckTool("Edit");
-        foreach (var destination in new[] { "Home", "Recent" })
-        {
-            ShowHomeView(destination);
-            CheckRail(destination);
-            ReturnToDocument_Click(ReturnToDocumentButton, new RoutedEventArgs());
-            CheckTool("Edit");
-            Check(_contentEditMode, "Home return changed the editing mode.");
-        }
+        Check(_contentEditMode, "Home return changed the editing mode.");
         Check(_session.SessionId == session && !UndoButton.IsEnabled && !RedoButton.IsEnabled,
             "Navigation changed the document or history.");
 
-        ShowHomeView("Home");
+        // The bar's guard: a click while a dialog is up runs nothing, and the toggle it flipped is put back.
+        _dialogOpen = true;
+        try
+        {
+            Click(ShellMode.Home);
+            await Task.Delay(100);
+            Check(HomeView.Visibility == Visibility.Collapsed, "A guarded mode click switched the screen.");
+            CheckTool("Edit");
+        }
+        finally { _dialogOpen = false; }
+
+        ShowHomeView();
         await OpenDocumentAsync("Replacement sample", sample);
         await RefreshAnnotationStateAsync();
         CheckTool("Edit");
@@ -97,9 +128,9 @@ public sealed partial class MainWindow
 
         await EnterOrganizeViewAsync();
         Check(_organizing, "Organize did not open.");
-        CheckRail("Organize");
+        CheckMode(ShellMode.Organize);
         SelectToolPage("Sign");
-        CheckRail("Organize");
+        CheckMode(ShellMode.Organize);
         SelectToolPage("Edit");
         OrganizeReturnButton_Click(OrganizeReturnButton, new RoutedEventArgs());
         CheckTool("Edit");
@@ -107,20 +138,22 @@ public sealed partial class MainWindow
         OrganizeButton_Click(OrganizeButton, new RoutedEventArgs());
         CheckTool("Edit");
 
-        await EnterOrganizeViewAsync();
-        await NavigateToToolAsync("Sign", new RoutedEventArgs());
+        Click(ShellMode.Organize);
+        await Wait(() => _organizing && ShowsMode(ShellMode.Organize), "The Organize tab did not open Organize.");
+        Click(ShellMode.Sign);
+        await Wait(() => !_organizing && OnTool("Sign"), "The Sign tab did not leave Organize for Fill & Sign.");
         CheckTool("Sign");
-        await NavigateToToolAsync("Edit", new RoutedEventArgs());
+        Click(ShellMode.Edit);
+        await Wait(() => OnTool("Edit") && _contentEditMode, "The Edit tab did not leave for Edit with content editing armed.");
         CheckTool("Edit");
-        Check(_contentEditMode, "Edit rail navigation did not arm content editing.");
-        foreach (var destination in new[] { "Home", "Recent", "Files" })
-        {
-            ShowHomeView(destination);
-            SelectToolPage("Comments");
-            CheckRail(destination);
-            ReturnToDocument_Click(ReturnToDocumentButton, new RoutedEventArgs());
-            CheckTool("Comments");
-        }
+
+        // A screen changed by another door still shows as its mode.
+        await RunPaletteCommandAsync(PaletteCommand.ModeAnnotate);
+        CheckTool("Annotate");
+        await RunPaletteCommandAsync(PaletteCommand.ModeHome);
+        CheckMode(ShellMode.Home);
+        ReturnToDocument_Click(ReturnToDocumentButton, new RoutedEventArgs());
+        CheckTool("Annotate");
         Check(!UndoButton.IsEnabled && !RedoButton.IsEnabled, "Navigation changed native history.");
     }
 }
