@@ -255,6 +255,18 @@
                 <StackPanel x:Name="PageStack" HorizontalAlignment="Center" />
             </ScrollViewer>
             <!--
+                Edit content's floating quick actions, over the page view and
+                placed by MainWindow.QuickActions.cs. The canvas has no
+                background, so it takes no pointer input of its own.
+            -->
+            <Canvas x:Name="QuickActionsLayer" Grid.Column="2" SizeChanged="QuickActionsLayer_SizeChanged">
+                <Border x:Name="QuickActionsBar" Visibility="Collapsed" Background="{ThemeResource VitelaSurfaceBrush}"
+                        BorderBrush="{ThemeResource VitelaHairlineBrush}" BorderThickness="1" CornerRadius="10" Padding="3"
+                        AutomationProperties.Name="Quick actions">
+                    <StackPanel x:Name="QuickActionsButtons" Orientation="Horizontal" Spacing="2" />
+                </Border>
+            </Canvas>
+            <!--
                 Stands in for PageScroller while organizing. SelectionMode=None:
                 a card is acted on through its own buttons or by dragging it,
                 and a selection would only be a second, unused state.

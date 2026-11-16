@@ -66,6 +66,7 @@ public sealed partial class MainWindow
         // Armed, every click places something new: nothing on the page is
         // what a press would grab.
         if (_contentInsertKind is not null) ClearContentHover();
+        ScheduleQuickActions();
     }
 
     /// <summary>

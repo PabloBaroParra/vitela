@@ -216,6 +216,8 @@ public sealed partial class MainWindow
     /// </summary>
     private void UpdateContentEditOverlays(PageWindow visible)
     {
+        // Scrolled or zoomed: the bar follows the selection.
+        ScheduleQuickActions();
         if (!_contentEditMode)
         {
             return;
@@ -289,6 +291,7 @@ public sealed partial class MainWindow
         DrawContentSelection(slot, pageIndex);
         // On top of everything else, where the pointer rests.
         if (_contentHover?.PageIndex == pageIndex) ShowContentHover();
+        ScheduleQuickActions();
     }
 
     /// <summary>
@@ -320,6 +323,7 @@ public sealed partial class MainWindow
     private void ClearContentEditVisuals()
     {
         ClearContentHover();
+        ScheduleQuickActions();
         CancelContentEditor();
         CancelInsertEditor();
         foreach (var slot in _slots)

@@ -41,6 +41,7 @@ public sealed partial class MainWindow
         RefreshSessionCommands();
         // Busy is a gate, not a replacement for the current permission snapshot.
         UpdateAnnotationControls(_annotationState);
+        ScheduleQuickActions();
     }
 
     private void RefreshSessionCommands()

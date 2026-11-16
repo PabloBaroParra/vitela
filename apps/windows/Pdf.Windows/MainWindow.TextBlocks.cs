@@ -261,6 +261,19 @@ public sealed partial class MainWindow
     /// whenever the tools panel is folded or on another tab — which is how
     /// Delete first did nothing on a selected block.
     /// </remarks>
+    /// <summary>
+    /// What Delete removes right now — the selection, then a block, an image
+    /// or a shape, each under its card's own gate — or <c>null</c> when it
+    /// would remove nothing. The Delete key and the quick-action bar's Delete
+    /// both ask here.
+    /// </summary>
+    private Func<Task>? SelectedContentDeletion() =>
+        _contentSelection is not null ? DeleteContentSelectionAsync
+        : _selectedTextBlock is not null ? DeleteSelectedTextBlockAsync
+        : _selectedContentImage is not null && DeleteImageButton.IsEnabled ? DeleteSelectedImageAsync
+        : _selectedContentPath is not null && _deleteShapeButton.IsEnabled ? DeleteSelectedPathAsync
+        : null;
+
     private void WireTextBlockKeys()
     {
         // One Delete for whatever Edit content has selected — text, an image
@@ -269,26 +282,9 @@ public sealed partial class MainWindow
         delete.Invoked += async (_, args) =>
         {
             if (TextInputHasFocus() || IsPaletteOpen || !_contentEditMode || _pump.Box is not null) return;
-            if (_contentSelection is not null)
-            {
-                args.Handled = true;
-                await DeleteContentSelectionAsync();
-            }
-            else if (_selectedTextBlock is not null)
-            {
-                args.Handled = true;
-                await DeleteSelectedTextBlockAsync();
-            }
-            else if (_selectedContentImage is not null && DeleteImageButton.IsEnabled)
-            {
-                args.Handled = true;
-                await DeleteSelectedImageAsync();
-            }
-            else if (_selectedContentPath is not null && _deleteShapeButton.IsEnabled)
-            {
-                args.Handled = true;
-                await DeleteSelectedPathAsync();
-            }
+            if (SelectedContentDeletion() is not { } deletion) return;
+            args.Handled = true;
+            await deletion();
         };
         PageScroller.KeyboardAccelerators.Add(delete);
 

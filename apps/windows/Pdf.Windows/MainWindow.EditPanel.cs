@@ -38,6 +38,7 @@ public sealed partial class MainWindow
         // Keep the inline target when clicked, without removing keyboard access.
         DeleteTextButton.AllowFocusOnInteraction = false;
         WireTextBlockKeys();
+        BuildQuickActions();
         ToolbarIcon(InsertImageButton, ShellIcon.Image, "Insert image", "Click the page to insert a picture", "Insert image", EditIconSize, IconTint.Accent);
         ToolbarIcon(ReplaceImageButton, ShellIcon.Image, "Replace image", "Swap the selected image for a file on disk", "Replace image", EditIconSize, IconTint.Accent);
         ToolbarIcon(DeleteImageButton, ShellIcon.Delete, "Delete image", "Remove the selected image from the page", "Delete image", EditIconSize, IconTint.Accent);
@@ -117,5 +118,6 @@ public sealed partial class MainWindow
             : block is not null ? TextBlockSelectedHint
             : "Click text to select it; double-click to retype it in place.";
         UpdateTextStyleToggles();
+        ScheduleQuickActions();
     }
 }
