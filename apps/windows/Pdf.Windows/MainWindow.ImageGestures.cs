@@ -228,6 +228,18 @@ public sealed partial class MainWindow
         }
     }
 
+    /// <summary>The resting grey dashes round every image but the selected one, which draws its own frame.</summary>
+    private void DrawRestingImageOutlines(PageSlot slot, uint pageIndex, PageContent content)
+    {
+        foreach (var image in content.Images)
+        {
+            if (_selectedContentImage is { } selected && selected.PageIndex == pageIndex && selected.Id == image.Id) continue;
+            var outline = RestingOutline();
+            PlaceOverPage(outline, slot, (int)pageIndex, image.Bounds, minSide: 2);
+            slot.Content.Children.Add(outline);
+        }
+    }
+
     private void DrawContentImageSelection(PageSlot slot, uint pageIndex)
     {
         if (_selectedContentImage is not { } image || image.PageIndex != pageIndex)

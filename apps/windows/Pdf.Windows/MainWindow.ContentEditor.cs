@@ -177,6 +177,9 @@ public sealed partial class MainWindow
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
         PlaceEditor(slot, pageIndex, editor);
+        // The editor owns the pointer now; a press commits it, which can
+        // re-parse the page under whatever the hover held.
+        ClearContentHover();
         box.Focus(FocusState.Programmatic);
         // The caret lands where the reader clicked instead of the whole run
         // being selected: they asked to edit this text, not to replace it, and

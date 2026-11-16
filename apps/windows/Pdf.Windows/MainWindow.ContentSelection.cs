@@ -67,16 +67,13 @@ public sealed partial class MainWindow
             return false;
         }
 
-        var hitImage = content.Images.LastOrDefault(candidate => Contains(candidate.Bounds, point));
-        var hitBlock = ContentHitTest.TextRunAt(content.TextRuns, BoundsOf, point.X, point.Y) is { } run ? content.BlockOf(run) : null;
-        var hitPath = hitImage is null && hitBlock is null ? PathAt(content, point, reach) : null;
+        // The same hit-test the hover outline asks (MainWindow.ContentHover.cs).
+        var hit = ContentMemberAt(content, point, reach);
 
         if (_contentPressShift)
         {
             var current = SelectionToExtend(page);
-            if (hitImage is not null) SetContentSelection(current.Toggle(hitImage));
-            else if (hitBlock is not null) SetContentSelection(current.Toggle(hitBlock));
-            else if (hitPath is not null) SetContentSelection(current.Toggle(hitPath));
+            if (hit is not null) SetContentSelection(Toggled(current, hit));
             else
             {
                 // SHIFT on empty page: a marquee that adds to what is selected.
@@ -94,7 +91,7 @@ public sealed partial class MainWindow
         }
 
         ClearContentSelection();
-        if (hitImage is not null || hitBlock is not null || hitPath is not null) return false;
+        if (hit is not null) return false;
 
         ClearTextBlockSelection();
         if (_selectedContentImage is not null)
@@ -125,6 +122,14 @@ public sealed partial class MainWindow
         if (_selectedContentPath is { } path && path.PageIndex == page) start = start.Toggle(path);
         return start;
     }
+
+    private static ContentSelection Toggled(ContentSelection selection, ContentHoverMember member) => member switch
+    {
+        { Image: { } image } => selection.Toggle(image),
+        { Block: { } block } => selection.Toggle(block),
+        { Path: { } path } => selection.Toggle(path),
+        _ => selection,
+    };
 
     private void BeginSelectionGesture(PageSlot slot, string sessionId, uint page, SelectionGestureKind kind,
         AnnotationPoint point, PointerRoutedEventArgs? args, ContentSelection? baseSelection)

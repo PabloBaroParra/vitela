@@ -207,6 +207,7 @@ public sealed partial class MainWindow
             CancelPagePointerGesture(pageIndex);
             slot.Annotations.ReleasePointerCapture(args.Pointer);
         };
+        ConnectContentHover(slot, pageIndex);
         ConnectFileDrop(slot, pageIndex);
     }
 

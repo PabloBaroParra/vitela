@@ -277,10 +277,13 @@ public sealed partial class MainWindow
         {
             DrawTextBlockOutlines(slot, pageIndex, content);
             DrawContentPaths(slot, pageIndex, content);
+            DrawRestingImageOutlines(slot, pageIndex, content);
         }
 
         DrawContentImageSelection(slot, pageIndex);
         DrawContentSelection(slot, pageIndex);
+        // On top of everything else, where the pointer rests.
+        if (_contentHover?.PageIndex == pageIndex) ShowContentHover();
     }
 
     /// <summary>
@@ -311,6 +314,7 @@ public sealed partial class MainWindow
     /// <summary>Drops the outlines and the open editor, leaving the parsed content alone.</summary>
     private void ClearContentEditVisuals()
     {
+        ClearContentHover();
         CancelContentEditor();
         CancelInsertEditor();
         foreach (var slot in _slots)
