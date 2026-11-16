@@ -133,6 +133,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("hides removed recent cards until they are reopened", HiddenRecentsTests.RunAsync)
     ,("ranks palette commands accent-insensitively and keeps session recents first", PaletteMatcherTests.RunAsync)
     ,("lists every palette command once with synonyms, shortcuts and its button's gate", PaletteCatalogTests.RunAsync)
+    ,("derives the checked mode-bar mode from the screen and the tools page", ShellModeTests.RunAsync)
     ,("pans with Space+left or middle drag, leaving plain presses and text fields alone", HandToolTests.RunAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
     ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)
