@@ -353,7 +353,7 @@ fn a_pending_insert_does_not_block_the_original_that_shares_its_id() {
         .find(|image| image.resource_xobject_name.as_deref() == Some("VitelaImageRegression"))
         .expect("the inserted image reads back");
     assert!(
-        handle.check_image_replacement(added).is_err(),
-        "an image that only exists as a pending insert cannot be replaced yet"
+        handle.check_image_replacement(added).is_ok(),
+        "an image that only exists as a pending insert is replaced through a checkpoint"
     );
 }

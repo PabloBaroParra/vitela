@@ -9,9 +9,9 @@
 use gen_fixtures::content_edit as gen_fixtures;
 use lopdf::Document;
 use pdf_ffi::{
-    apply_edit, import_pdf, open_from_bytes, save_to_bytes, undo, DocumentHandle,
-    FfiContentImageItem, FfiEditCommand, FfiError, FfiRect, FfiSaveIntent,
-    FfiSignatureAcknowledgement,
+    apply_edit, copy_content_selection, import_pdf, open_from_bytes, paste_content, save_to_bytes,
+    undo, DocumentHandle, FfiContentImageItem, FfiContentSelection, FfiEditCommand, FfiError,
+    FfiRect, FfiSaveIntent, FfiSignatureAcknowledgement,
 };
 
 fn bytes(mut document: Document) -> Vec<u8> {
@@ -198,4 +198,52 @@ fn a_moved_image_is_replaced_before_saving() {
         .expect("a moved image may be replaced");
     replace(&handle, moved, a_png(5, 7)).expect("replacement");
     assert_eq!(saved_first_picture(&handle), (to, Some((5, 7))));
+}
+
+/// A pasted image is only a pending edit's: the file has nothing to check a
+/// replacement against. The shells select a lone pasted image as an image
+/// and offer Replace, so the check lets it through where the session may
+/// checkpoint and the replacement lands on the pasted copy.
+#[test]
+fn a_pasted_image_is_replaced_before_saving() {
+    let handle =
+        open_from_bytes(bytes(gen_fixtures::build_image_page_document()), None).expect("open");
+    let original = first_image(&handle);
+    let clip = copy_content_selection(
+        &handle,
+        FfiContentSelection {
+            runs: Vec::new(),
+            images: vec![original.clone()],
+            paths: Vec::new(),
+        },
+    )
+    .expect("copy");
+    paste_content(&handle, 0, clip, 300.0, 300.0).expect("paste");
+    let pasted = handle
+        .read_page_content(0)
+        .expect("read")
+        .images
+        .into_iter()
+        .find(|image| image.id != original.id)
+        .expect("the pasted copy reads back");
+
+    handle
+        .check_image_replacement(pasted.clone())
+        .expect("a pasted image may be replaced");
+    replace(&handle, pasted.clone(), a_png(5, 7)).expect("replacement");
+
+    let reopened = open_from_bytes(saved(&handle), None).expect("the save reopens");
+    let images = reopened.read_page_content(0).expect("reread").images;
+    assert_eq!(images.len(), 2, "the original and the pasted copy");
+    assert!(
+        images.iter().any(|image| image.bbox == original.bbox),
+        "the original stays where it was"
+    );
+    assert!(
+        images
+            .iter()
+            .any(|image| (image.bbox.x - pasted.bbox.x).abs() < 0.01
+                && (image.bbox.y - pasted.bbox.y).abs() < 0.01),
+        "the replaced copy stays where it was pasted"
+    );
 }

@@ -1265,10 +1265,10 @@ impl DocumentHandle {
     /// replaceable: undo restores the original exactly, so nothing about the
     /// old picture is read.
     ///
-    /// An image with an unsaved edit in a session that may checkpoint is
-    /// accepted without reading the file: the file does not hold it as the
-    /// reader sees it, and `apply_edit` writes the queue into a new base and
-    /// validates the replacement against that.
+    /// An image with an unsaved edit, or one a pending edit added, in a
+    /// session that may checkpoint is accepted without reading the file: the
+    /// file does not hold it as the reader sees it, and `apply_edit` writes
+    /// the queue into a new base and validates the replacement against that.
     pub fn check_image_replacement(&self, item: FfiContentImageItem) -> Result<(), FfiError> {
         let state = self.lock();
         if !content_editing_is_allowed(&state.document) {
@@ -1277,6 +1277,11 @@ impl DocumentHandle {
             });
         }
         let item = state.image_item(item)?;
+        // An image only a pending edit added — a paste — is not in the file
+        // to be checked against; a checkpoint writes it there first.
+        if pdf_edit::pending_log_index(item.id).is_some() && state.may_checkpoint() {
+            return Ok(());
+        }
         if state
             .document
             .pending_edits

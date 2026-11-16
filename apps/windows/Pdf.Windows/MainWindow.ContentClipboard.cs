@@ -167,6 +167,15 @@ public sealed partial class MainWindow
         if (_pageContent.TryGetValue(page, out var state) && state.Content is { } content
             && ContentSelection.Gather(content, landed, DrawnBounds).OnlyPending() is { IsEmpty: false } pasted)
         {
+            // One image alone is selected the way a click selects it, so the
+            // Images card offers Replace and Delete for it (GTK #598).
+            if (pasted.LoneImage is { } image)
+            {
+                _selectedContentImage = image;
+                RedrawContentImageSelection();
+                AnnotationStatus.Text = "Pasted an image — drag it into place, or replace it.";
+                return;
+            }
             SetContentSelection(pasted);
             AnnotationStatus.Text = $"Pasted {pasted.Count} {(pasted.Count == 1 ? "item" : "items")} — drag inside the dashed box to place them.";
         }
