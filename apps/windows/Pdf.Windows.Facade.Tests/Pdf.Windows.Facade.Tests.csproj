@@ -75,6 +75,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\FileDropRouting.cs" Link="Viewer\FileDropRouting.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentHitTest.cs" Link="Viewer\ContentHitTest.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\EditorRunSelection.cs" Link="Viewer\EditorRunSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentEditPump.cs" Link="Viewer\ContentEditPump.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\CompressionWording.cs" Link="Viewer\CompressionWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldChoices.cs" Link="Viewer\FormFieldChoices.cs" />

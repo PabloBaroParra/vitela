@@ -25,6 +25,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
     ("groups text runs into blocks and moves, deletes and retypes them whole", TextBlockParityTests.RunAsync),
     ("shows and toggles bold, italic and underline on existing text", TextStyleParityTests.RunAsync),
+    ("maps a retype editor selection onto the runs it covers whole", EditorRunSelectionTests.RunAsync),
     ("gathers multi-item selections and moves or deletes them as one edit", ContentSelectionParityTests.RunAsync),
     ("copies, cuts and pastes content selections at the cursor", ContentClipboardParityTests.RunAsync),
     ("refuses stale forbidden and core-refused image replacement", RefusesImageReplacementAsync),
