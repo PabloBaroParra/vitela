@@ -597,3 +597,82 @@ fn a_selection_holding_an_underlined_run_and_its_line_moves_and_deletes() {
     let removed = record(pdf_edit::remove_selection(&selection).unwrap()).unwrap();
     assert_eq!(line_count(&removed), 0);
 }
+
+impl Session {
+    /// The look the toggles show now: the queued restyle over the file's.
+    fn pending_look(&self, run: &TextRun) -> pdf_edit::RunLook {
+        pdf_save::pending_text_run_look_of(&self.document, &self.base, ImportedSources::none(), run)
+            .unwrap()
+            .expect("a run with a look")
+    }
+}
+
+#[test]
+fn the_pending_look_follows_a_queued_restyle_before_the_save() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    let hello = session.run("Hello");
+    assert_eq!(session.pending_look(&hello).look, look(false, false, false));
+
+    session
+        .record(restyle(
+            hello.clone(),
+            look(false, false, false),
+            look(true, false, true),
+        ))
+        .unwrap();
+
+    let now = session.pending_look(&session.run("Hello"));
+    assert_eq!(
+        now.look,
+        look(true, false, true),
+        "the queued look, not the file's"
+    );
+    assert!(
+        now.can_remove_bold,
+        "a bold this session put on can come off"
+    );
+    assert_eq!(
+        session.pending_look(&session.run(" world")).look,
+        look(false, false, false),
+        "another run keeps the file's look"
+    );
+}
+
+#[test]
+fn the_pending_look_reads_a_restyle_queued_inside_a_batch() {
+    let mut session = Session::open(pdf_bytes(HELLO, false));
+    let runs = session.runs();
+    pdf_save::record_content_batch(
+        &mut session.document,
+        &session.base,
+        ImportedSources::none(),
+        Command::Batch(
+            runs.iter()
+                .map(|run| {
+                    restyle(
+                        run.clone(),
+                        look(false, false, false),
+                        look(false, true, false),
+                    )
+                })
+                .collect(),
+        ),
+    )
+    .unwrap();
+
+    assert!(session.pending_look(&session.run(" world")).look.italic);
+}
+
+#[test]
+fn the_pending_look_keeps_a_native_bold_fixed() {
+    let lone = Session::open(lone_bold_pdf());
+    let now = lone.pending_look(&lone.run("Hello"));
+    assert!(
+        now.look.bold && !now.can_remove_bold,
+        "no regular sibling to go back to"
+    );
+    assert!(
+        now.can_remove_italic,
+        "a style the run lacks is always removable"
+    );
+}

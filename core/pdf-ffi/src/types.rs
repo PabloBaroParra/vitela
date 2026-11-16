@@ -13,6 +13,7 @@ use pdf_document::{
 
 use crate::form::{FfiFieldValue, FfiRadioOption, FfiTextStyle};
 use crate::placement::FfiPageRotation;
+use crate::text_style::FfiTextRunLook;
 
 /// Mirrors `pdf_document::PageSize`.
 #[derive(Debug, Clone, Copy, PartialEq, uniffi::Enum)]
@@ -961,6 +962,15 @@ pub enum FfiEditCommand {
     MoveTextRun {
         item: FfiContentTextRun,
         to: FfiRect,
+    },
+    /// Turns the run's bold, italic, underline or strikethrough on or off:
+    /// `from` is how it looked when the toggle was pressed
+    /// (`text_run_look`), `to` how it should look. Several runs as one undo
+    /// step go through `restyle_text_runs`.
+    RestyleTextRun {
+        item: FfiContentTextRun,
+        from: FfiTextRunLook,
+        to: FfiTextRunLook,
     },
     InsertImage {
         item: FfiContentImageItem,

@@ -365,6 +365,11 @@ impl DocumentState {
                 item: self.text_run(item)?,
                 to: to.into(),
             },
+            FfiEditCommand::RestyleTextRun { item, from, to } => Command::RestyleTextRun {
+                item: self.text_run(item)?,
+                from: from.into(),
+                to: to.into(),
+            },
             FfiEditCommand::InsertImage { item, source } => Command::InsertImage {
                 item: self.image_item(item)?,
                 source,
@@ -820,6 +825,7 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::InsertTextRun { .. }
             | FfiEditCommand::RemoveTextRun { .. }
             | FfiEditCommand::MoveTextRun { .. }
+            | FfiEditCommand::RestyleTextRun { .. }
             | FfiEditCommand::InsertImage { .. }
             | FfiEditCommand::RemoveImage { .. }
             | FfiEditCommand::MoveImage { .. }
@@ -887,6 +893,7 @@ fn is_annotation_command(command: &FfiEditCommand) -> bool {
             | FfiEditCommand::InsertTextRun { .. }
             | FfiEditCommand::RemoveTextRun { .. }
             | FfiEditCommand::MoveTextRun { .. }
+            | FfiEditCommand::RestyleTextRun { .. }
             | FfiEditCommand::InsertImage { .. }
             | FfiEditCommand::RemoveImage { .. }
             | FfiEditCommand::MoveImage { .. }
