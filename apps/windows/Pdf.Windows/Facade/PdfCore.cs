@@ -133,6 +133,20 @@ internal interface IPdfCore
     void ApplyTextBlockEdit(IPdfCoreDocument document, PdfCoreTextBlockEdit edit);
 
     /// <summary>
+    /// How <paramref name="run"/> looks with every pending edit in place — a
+    /// queued restyle included — and whether bold or italic can come off it;
+    /// <c>null</c> when its page has no content.
+    /// </summary>
+    TextRunLookState? ReadTextRunLook(IPdfCoreDocument document, PdfCoreContentTextRun run);
+
+    /// <summary>
+    /// Records bold/italic/underline restyles of existing runs: one is an
+    /// ordinary restyle (folded into one queued for the same run), several
+    /// are one undo step.
+    /// </summary>
+    void RestyleTextRuns(IPdfCoreDocument document, IReadOnlyList<PdfCoreTextRunRestyle> restyles);
+
+    /// <summary>
     /// Moves or removes a multi-item selection — text runs, images and paths
     /// of one page (B25 T-208) — as one undo step.
     /// </summary>
