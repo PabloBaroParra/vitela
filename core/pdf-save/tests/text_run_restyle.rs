@@ -430,9 +430,14 @@ fn restyling_several_runs_is_one_batch_that_folds_when_repeated() {
     )
     .unwrap();
 
+    let Command::Batch(mut last_first) = batch(plain, look(true, true, false)) else {
+        unreachable!()
+    };
+    last_first.reverse();
     assert_eq!(
         session.document.pending_edits.entries(),
-        [batch(plain, look(true, true, false))]
+        [Command::Batch(last_first)],
+        "one step, its runs in reverse paint order"
     );
     let saved = session.saved();
     assert_eq!(saved.look("Hello"), look(true, true, false));
@@ -675,4 +680,37 @@ fn the_pending_look_keeps_a_native_bold_fixed() {
         now.can_remove_italic,
         "a style the run lacks is always removable"
     );
+}
+
+#[test]
+fn a_line_turns_bold_in_a_sibling_face_as_one_batch() {
+    // "Hello" switching to the wider Helvetica-Bold pushes " world" along the
+    // line, so the batch is written last run first: each run is still where
+    // its snapshot says when its turn comes.
+    let mut session = Session::open(pdf_bytes(HELLO, true));
+    let runs = session.runs();
+    let batch = Command::Batch(
+        runs.iter()
+            .map(|run| {
+                restyle(
+                    run.clone(),
+                    look(false, false, false),
+                    look(true, false, false),
+                )
+            })
+            .collect(),
+    );
+
+    pdf_save::record_content_batch(
+        &mut session.document,
+        &session.base,
+        ImportedSources::none(),
+        batch,
+    )
+    .expect("both runs restyle");
+
+    let saved = session.saved();
+    assert_eq!(saved.run("Hello").resource_font_name, "F2");
+    assert_eq!(saved.run(" world").resource_font_name, "F2");
+    assert!(saved.look("Hello").bold && saved.look(" world").bold);
 }

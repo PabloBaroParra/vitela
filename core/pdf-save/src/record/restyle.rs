@@ -121,6 +121,32 @@ fn in_queued_batch(document: &Document, wanted: Target) -> bool {
     })
 }
 
+/// A batch of restyles written last run first.
+///
+/// A switch to a sibling face changes the run's advance, so every run painted
+/// after it on its line moves — and a batch child is found by the text, font
+/// and box its snapshot holds. Restyled last first, each run is still where
+/// its snapshot says when its turn comes: only runs already restyled have
+/// moved. A run's id is its place in the page's paint order (and a pending
+/// run, painted after the file's, has a larger one), so that order is the
+/// ids', descending. Any other batch is left as it is.
+pub(crate) fn in_paint_order(command: Command) -> Command {
+    match command {
+        Command::Batch(mut children)
+            if children
+                .iter()
+                .all(|child| matches!(child, Command::RestyleTextRun { .. })) =>
+        {
+            children.sort_by_key(|child| match child {
+                Command::RestyleTextRun { item, .. } => std::cmp::Reverse((item.page, item.id)),
+                _ => unreachable!("every child is a restyle"),
+            });
+            Command::Batch(children)
+        }
+        other => other,
+    }
+}
+
 /// A restyle child folded onto the queued one for the same run: the queued
 /// snapshot and `from`, the new `to`. `None` unless both are restyles.
 pub(super) fn with_original(next: &Command, earlier: &Command) -> Option<Command> {
