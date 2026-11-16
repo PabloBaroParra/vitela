@@ -87,6 +87,8 @@
     <Compile Include="..\Pdf.Windows\Viewer\ShellIcons.cs" Link="Viewer\ShellIcons.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PaletteMatcher.cs" Link="Viewer\PaletteMatcher.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PaletteRecents.cs" Link="Viewer\PaletteRecents.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\PaletteCatalog.cs" Link="Viewer\PaletteCatalog.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ShellShortcuts.cs" Link="Viewer\ShellShortcuts.cs" />
   </ItemGroup>
 
   <!-- The same embedded drawings the shell carries, so ShellIcons.Source resolves here too. -->

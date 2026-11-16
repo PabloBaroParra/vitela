@@ -30,6 +30,12 @@ public sealed partial class MainWindow
     private void FindDocument_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
+        ShowFindFlyout();
+    }
+
+    /// <summary>Ctrl+F and the palette's Find entry: the editor, with the Find popup open.</summary>
+    private void ShowFindFlyout()
+    {
         if (_session is null || _isBusy || _dialogOpen || !_findDocumentButton.IsEnabled) return;
         if (_organizing)
         {
