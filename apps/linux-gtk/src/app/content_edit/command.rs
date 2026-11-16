@@ -265,7 +265,28 @@ pub(super) fn apply_command(document: &mut Document, command: Command) {
 /// `save_backing`, and every page's parsed content is forgotten, since it
 /// names the old base.
 pub(super) fn record(session: &mut DocumentSession, command: Command) -> Result<(), String> {
-    record_checkpointed(session, command, |live, command| {
+    record_content(session, command, false)
+}
+
+/// [`record`], except the queue is written into a new in-memory base before
+/// `command` is recorded, even though the file would accept it as it stands.
+///
+/// For an edit the file accepts but no save could replay: a second
+/// replacement of an inline image, which the first one writes as an XObject.
+/// Where no checkpoint may be taken, it is refused and nothing changes.
+pub(super) fn record_after_checkpoint(
+    session: &mut DocumentSession,
+    command: Command,
+) -> Result<(), String> {
+    record_content(session, command, true)
+}
+
+fn record_content(
+    session: &mut DocumentSession,
+    command: Command,
+    checkpoint_first: bool,
+) -> Result<(), String> {
+    record_checkpointed(session, command, checkpoint_first, |live, command| {
         live.record(|document, base, sources| {
             pdf_save::record_content_command(document, base, sources, command)
         })
@@ -281,7 +302,7 @@ pub(super) fn record_batch(
     batch: Option<Command>,
 ) -> Result<(), String> {
     let batch = batch.ok_or_else(|| tr("edit-no-text-there"))?;
-    record_checkpointed(session, batch, |live, batch| {
+    record_checkpointed(session, batch, false, |live, batch| {
         live.record(|document, base, sources| {
             pdf_save::record_content_batch(document, base, sources, batch)
         })
@@ -413,11 +434,19 @@ pub(super) fn paste(
 fn record_checkpointed(
     session: &mut DocumentSession,
     command: Command,
+    checkpoint_first: bool,
     apply: impl FnMut(&mut Live<'_>, Command) -> Result<(), pdf_save::RecordError>,
 ) -> Result<(), String> {
     let generation = session.content_checkpoints.generation();
     let mut live = Live::of(session).ok_or_else(|| tr("edit-open-to-edit"))?;
-    pdf_save::checkpoint::record(&mut live, command, apply).map_err(|error| error.to_string())?;
+    if checkpoint_first {
+        let command = pdf_save::CheckpointSession::checkpoints(&live).dealias(command);
+        let refusal = pdf_save::RecordError::Refused(tr(super::panel::IMAGE_PENDING_EDIT));
+        pdf_save::checkpoint::retry_after_checkpoint(&mut live, command, refusal, apply)
+    } else {
+        pdf_save::checkpoint::record(&mut live, command, apply)
+    }
+    .map_err(|error| error.to_string())?;
     if session.content_checkpoints.generation() != generation {
         forget_page_content(session);
     }

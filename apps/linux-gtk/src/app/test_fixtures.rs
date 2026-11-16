@@ -208,7 +208,25 @@ pub(crate) fn checkpointable_session(lines: &[&str]) -> DocumentSession {
 /// A session over [`gen_fixtures::content_edit::build_any_encoding_image_page_document`],
 /// opened the way [`checkpointable_session`] opens its page of text.
 pub(crate) fn any_encoding_session() -> DocumentSession {
-    let mut fixture = gen_fixtures::content_edit::build_any_encoding_image_page_document();
+    opened_session(gen_fixtures::content_edit::build_any_encoding_image_page_document())
+}
+
+/// A session over [`gen_fixtures::content_edit::build_image_page_document`]'s
+/// one plain image, opened the way [`checkpointable_session`] opens its page
+/// of text, so an edit of that image can checkpoint.
+pub(crate) fn image_page_session() -> DocumentSession {
+    opened_session(gen_fixtures::content_edit::build_image_page_document())
+}
+
+/// A session over [`gen_fixtures::content_edit::build_inline_image_page_document`]:
+/// an inline (`BI … EI`) image painted before a control XObject.
+pub(crate) fn inline_image_session() -> DocumentSession {
+    opened_session(gen_fixtures::content_edit::build_inline_image_page_document())
+}
+
+/// A session over `fixture` opened the way `document::open` opens a file:
+/// the model read from the parse, and a backing holding the real bytes.
+fn opened_session(mut fixture: lopdf::Document) -> DocumentSession {
     let mut bytes = Vec::new();
     fixture.save_to(&mut bytes).expect("serialize the fixture");
     let (base, _) = pdf_manip::open_document_from_bytes(&bytes, None).expect("the fixture opens");

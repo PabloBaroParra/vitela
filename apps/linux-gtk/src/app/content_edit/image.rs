@@ -20,7 +20,7 @@ use pdf_document::{Command, ContentItemId, ImageItem, ImageSource, PageContent, 
 
 use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
-use crate::app::state::{AnnotationDragMode, ImageDrag, SelectedImage, Viewer};
+use crate::app::state::{AnnotationDragMode, DocumentSession, ImageDrag, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
@@ -376,9 +376,9 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
 
-    // An image with an edit already queued is refused before the picker:
-    // its replacement would be validated against the file, which does not
-    // hold that edit yet.
+    // An image with an edit already queued, in a session that may not
+    // checkpoint, is refused before the picker: its replacement would be
+    // validated against the file, which does not hold that edit yet.
     //
     // The card's Replace button is already insensitive in this state
     // (`super::image_controls` resolves it to `ImageControls::PendingEdit`,
@@ -433,10 +433,9 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
 /// Validates and records `after` as the selected image's new source, once
 /// [`replace_selected`]'s file dialog has resolved.
 ///
-/// Mirrors `delete_selected`'s take-then-put-back shape: a refusal — the
-/// selection changed while the dialog was open, the image already has a
-/// pending edit, or `after` is not decodable — leaves the selection exactly
-/// as it was rather than dropping it silently.
+/// A refusal — the image already has a pending edit in a session that may
+/// not checkpoint, or `after` is not decodable — leaves the selection
+/// exactly as it was rather than dropping it silently.
 ///
 /// Nothing of the old picture is read: undo drops the queued replacement,
 /// and the file's own image, whatever it is encoded as, is what is left.
@@ -451,59 +450,10 @@ pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
         let Some(session) = state.session.as_mut() else {
             return;
         };
-        let Some(selected) = session.selected_image.take() else {
+        let Some(result) = record_replacement(session, after) else {
             return;
         };
-        let Some(base) = session.save_backing.as_ref().map(|backing| &backing.base) else {
-            return;
-        };
-        // Resolved while the model is still borrowed immutably — see
-        // `page_probe`.
-        let Some(probe) = session.document_model.as_ref().and_then(|document| {
-            super::page_probe(
-                document,
-                base,
-                &session.imported_sources,
-                selected.item.page,
-            )
-        }) else {
-            return;
-        };
-        let document = session
-            .document_model
-            .as_mut()
-            .expect("content_edit_refusal already required a model");
-
-        if command::image_already_edited(document, &selected.item) {
-            // Same reason `finish_image_drag` refuses this — see its
-            // comment: a command carrying the pre-edit snapshot of an image
-            // that already has a queued edit would fail to resolve at save
-            // time and take the whole save down with it.
-            session.selected_image = Some(selected);
-            Err(crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT))
-        } else {
-            match command::validate_replace(probe, &selected.item, &after) {
-                Ok(()) => {
-                    command::apply_command(
-                        document,
-                        Command::ReplaceImageSource {
-                            item: selected.item.clone(),
-                            after,
-                        },
-                    );
-                    session.edit_revision += 1;
-                    // See `finish_image_drag`: dirty at record time, not at
-                    // refresh time.
-                    session.unsaved_to_disk = true;
-                    session.selected_image = Some(selected);
-                    Ok(())
-                }
-                Err(error) => {
-                    session.selected_image = Some(selected);
-                    Err(error.to_string())
-                }
-            }
-        }
+        result
     };
 
     match result {
@@ -512,6 +462,88 @@ pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
+}
+
+/// [`apply_replacement`]'s session half: records `after` as the selected
+/// image's new source. `None` when there is nothing to replace — no
+/// selection, no model or nothing to validate against.
+///
+/// An image with nothing queued against it is validated against its page as
+/// the file holds it and recorded, as it always was. One that already has a
+/// pending edit — a replacement, a move, a resize, or an image a pending
+/// insertion added — goes through the core's queue policy instead
+/// (`command::record`), and only where the session may checkpoint: the core
+/// validates the replacement against the file, and when the file does not
+/// hold the image as the reader sees it, writes the queue into a new
+/// in-memory base, rebinds the image there and validates the replacement
+/// against that. Where no checkpoint may be taken, the old refusal stands:
+/// a command carrying the pre-edit snapshot of an image that already has a
+/// queued edit could fail to resolve at save time and take the whole save
+/// down with it.
+fn record_replacement(session: &mut DocumentSession, after: Vec<u8>) -> Option<Result<(), String>> {
+    let selected = session.selected_image.as_ref()?.item.clone();
+    let document = session.document_model.as_ref()?;
+    if command::image_already_edited(document, &selected) {
+        if !super::checkpoint::may_checkpoint(session) {
+            return Some(Err(tr(super::panel::IMAGE_PENDING_EDIT)));
+        }
+        // The item `record` will name: the one the last checkpoint rebound
+        // the held selection to, if it did.
+        let held = dealiased(session, selected);
+        let replace = Command::ReplaceImageSource {
+            item: held.clone(),
+            after,
+        };
+        // The file still holds an inline image as it was, so it accepts the
+        // replacement — but a queued edit may write it as an XObject, and
+        // then no save finds it. Written into a new base first, it is found.
+        let result = if held.source == pdf_document::ImageSource::Inline {
+            command::record_after_checkpoint(session, replace)
+        } else {
+            command::record(session, replace)
+        };
+        if result.is_ok() {
+            // A checkpoint taken by this replacement swapped the base and
+            // rebound the image into it: the selection follows, so the next
+            // edit of it names an image the live base holds.
+            let rebound = dealiased(session, held);
+            if let Some(selected) = session.selected_image.as_mut() {
+                selected.item = rebound;
+            }
+        }
+        return Some(result);
+    }
+
+    let base = &session.save_backing.as_ref()?.base;
+    // Resolved while the model is still borrowed immutably — see
+    // `page_probe`.
+    let probe = super::page_probe(document, base, &session.imported_sources, selected.page)?;
+    if let Err(error) = command::validate_replace(probe, &selected, &after) {
+        return Some(Err(error.to_string()));
+    }
+    let document = session.document_model.as_mut()?;
+    command::apply_command(
+        document,
+        Command::ReplaceImageSource {
+            item: selected,
+            after,
+        },
+    );
+    session.edit_revision += 1;
+    // See `finish_image_drag`: dirty at record time, not at refresh time.
+    session.unsaved_to_disk = true;
+    Some(Ok(()))
+}
+
+/// `item` as the session's last checkpoint rebound it, or `item` itself.
+fn dealiased(session: &DocumentSession, item: ImageItem) -> ImageItem {
+    match session
+        .content_checkpoints
+        .dealias(Command::RemoveImage { item, source: None })
+    {
+        Command::RemoveImage { item, .. } => item,
+        _ => unreachable!("dealiasing keeps the command's kind"),
+    }
 }
 
 /// The PNG/JPEG filter every picture chooser in this shell opens with —

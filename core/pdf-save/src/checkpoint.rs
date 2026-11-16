@@ -608,11 +608,14 @@ fn rebind_item(held: Item, content: &mut impl FnMut(PageId) -> Option<PageConten
             // An image a pending edit added is named by what that edit holds
             // — a paste by its clip's resource — and the write renames it
             // (`/VClip{n}`). Such an image is found by its box instead.
-            let added = pdf_edit::pending_log_index(item.id).is_some();
+            // An inline image has no name at all, and a queued replacement
+            // writes it as a new XObject: it too is found by its box.
+            let by_box = pdf_edit::pending_log_index(item.id).is_some()
+                || item.source == pdf_document::ImageSource::Inline;
             nearest(
                 &page.images,
                 item,
-                |image| image.source == item.source || (added && same_size(image.bbox, item.bbox)),
+                |image| image.source == item.source || (by_box && same_size(image.bbox, item.bbox)),
                 |image| image.bbox,
             )
             .map(Item::Image)
@@ -794,4 +797,57 @@ fn step_log(document: &mut Document, step: fn(&mut EditLog, &mut Document) -> bo
     let stepped = step(&mut log, document);
     document.pending_edits = log;
     stepped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pdf_document::ImageSource;
+
+    /// An inline image a queued replacement wrote as an XObject is rebound
+    /// to that XObject, found by its box: it has no name to follow.
+    #[test]
+    fn an_inline_image_is_rebound_to_the_xobject_its_replacement_wrote() {
+        let mut fixture = gen_fixtures::content_edit::build_inline_image_page_document();
+        let mut bytes = Vec::new();
+        fixture.save_to(&mut bytes).expect("the fixture serializes");
+        let (base, _) = pdf_manip::open_document_from_bytes(&bytes, None).expect("it opens");
+        let mut document = document_from_lopdf(&base, None).expect("it reads");
+        let inline = read_page_content_of(&document, PageId(0), &base, ImportedSources::none())
+            .expect("the page reads")
+            .images
+            .remove(0);
+        assert_eq!(inline.source, ImageSource::Inline);
+        let replace = |item: ImageItem| Command::ReplaceImageSource {
+            item,
+            after: gen_fixtures::content_edit::replacement_image_png_bytes(),
+        };
+        crate::record_content_command(
+            &mut document,
+            &base,
+            ImportedSources::none(),
+            replace(inline.clone()),
+        )
+        .expect("the replacement records");
+        let written = save_document(SaveInput {
+            document: &document,
+            base: &base,
+            original_bytes: Some(&bytes),
+            intent: SaveIntent::Default,
+            signatures: SignatureAcknowledgement::Unacknowledged,
+            imported_sources: ImportedSources::none(),
+        })
+        .expect("the queue writes");
+        let (written, _) = pdf_manip::open_document_from_bytes(&written, None).expect("reopens");
+        let reread = document_from_lopdf(&written, None).expect("it reads");
+
+        let (rebound, aliases) = rebind_against(&reread, &written, replace(inline.clone()));
+
+        let Command::ReplaceImageSource { item, .. } = rebound else {
+            unreachable!("rebinding keeps the command's kind");
+        };
+        assert!(matches!(item.source, ImageSource::Resource(_)), "{item:?}");
+        assert_eq!(item.bbox, inline.bbox);
+        assert_eq!(aliases.len(), 1);
+    }
 }
