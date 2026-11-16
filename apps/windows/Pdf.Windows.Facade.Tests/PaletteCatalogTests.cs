@@ -330,6 +330,9 @@ internal static class PaletteCatalogTests
     {
         Equal(PaletteCatalog.ContentRefusal, Refusal(PaletteCommand.ModeOrganize, Allowed() with { ContentEditingAllowed = false }), "organize refused");
         Equal(null, Refusal(PaletteCommand.ModeOrganize, PaletteContext.NoDocument), "no document: the rail picks one first");
+        // The one gate every door into Organize asks (GTK organize::open_refusal).
+        Equal(PaletteCatalog.ContentRefusal, PaletteCatalog.OrganizeOpenRefusal(contentEditingAllowed: false), "the door refuses");
+        Equal(null, PaletteCatalog.OrganizeOpenRefusal(contentEditingAllowed: true), "the door opens");
     }
 
     /// <summary>GTK <c>text_extraction_refusal</c>: Find states the search's own refusal.</summary>

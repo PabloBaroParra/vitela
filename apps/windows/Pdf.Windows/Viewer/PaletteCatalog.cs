@@ -103,6 +103,13 @@ internal static class PaletteCatalog
     public const string StillOpening = "This document is still opening.";
     public const string SplitNeedsTwoPages = "Split needs a document with at least two pages.";
 
+    /// <summary>
+    /// Why Organize cannot open on a document right now, or null when it can:
+    /// the one gate every door into Organize asks — the rail, Home's tool and
+    /// this palette (GTK <c>organize::open_refusal</c>, the content permission).
+    /// </summary>
+    public static string? OrganizeOpenRefusal(bool contentEditingAllowed) => contentEditingAllowed ? null : ContentRefusal;
+
     /// <summary>Every command, in catalog order: modes, file, edit, annotate, forms, document, pages, sign.</summary>
     public static readonly IReadOnlyList<PaletteEntry> Entries =
     [
@@ -208,7 +215,7 @@ internal static class PaletteCatalog
     {
         PaletteCommand.ModeHome or PaletteCommand.ModeEdit or PaletteCommand.ModeAnnotate
             or PaletteCommand.ModeSign => null,
-        PaletteCommand.ModeOrganize => context.HasDocument && !context.ContentEditingAllowed ? ContentRefusal : null,
+        PaletteCommand.ModeOrganize => context.HasDocument ? OrganizeOpenRefusal(context.ContentEditingAllowed) : null,
         PaletteCommand.ModeProtect => context.HasDocument && !context.ContentEditingAllowed ? ProtectRefusal : null,
         PaletteCommand.Open or PaletteCommand.New or PaletteCommand.Compress => null,
         PaletteCommand.Save => Pages(context, "Open a PDF before saving."),
