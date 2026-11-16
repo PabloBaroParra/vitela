@@ -247,6 +247,7 @@ edit-paragraph-editing = Retyping a paragraph — Enter starts a new line, Ctrl+
 edit-no-image-selected = Click an image on the page to select it.
 edit-image-selected = Image selected — replace or delete it.
 edit-image-pending = This image has an unsaved edit — move, resize or delete it, or save before replacing it.
+edit-image-replaced-unsaved = This image was replaced and not yet saved — save the document before moving, resizing or deleting it.
 edit-no-shape-selected = Click a line, border or shaded box on the page to select it.
 edit-shape-selected = Shape selected — drag it, drag a corner to resize it, or press Delete.
 

@@ -237,6 +237,7 @@ edit-paragraph-editing = Reescribiendo un párrafo: Intro empieza una línea nue
 edit-no-image-selected = Haz clic en una imagen de la página para seleccionarla.
 edit-image-selected = Imagen seleccionada: puedes reemplazarla o eliminarla.
 edit-image-pending = Esta imagen tiene un cambio sin guardar: puedes moverla, cambiar su tamaño o eliminarla, o guardar antes de reemplazarla.
+edit-image-replaced-unsaved = Esta imagen se reemplazó y aún no se ha guardado: guarda el documento antes de moverla, cambiar su tamaño o eliminarla.
 edit-no-shape-selected = Haz clic en una línea, un borde o un recuadro sombreado de la página para seleccionarlo.
 edit-shape-selected = Forma seleccionada: arrástrala para moverla, arrastra una esquina para cambiar su tamaño o pulsa Supr.
 

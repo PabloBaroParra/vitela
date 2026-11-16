@@ -1691,6 +1691,251 @@ mod tests {
         close_replacing(built);
     }
 
+    /// Drags the selected image of `built` by `mode`, from `origin` to
+    /// `current`, the way a pointer release finishes it.
+    fn drag_selected(
+        built: &crate::app::BuiltUi,
+        mode: crate::app::state::AnnotationDragMode,
+        origin: (f64, f64),
+        current: (f64, f64),
+    ) {
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("open");
+            let item = session
+                .selected_image
+                .as_ref()
+                .expect("selected")
+                .item
+                .clone();
+            session.image_drag = Some(crate::app::state::ImageDrag {
+                page_index: 0,
+                item,
+                mode,
+                origin,
+                current,
+            });
+        }
+        assert!(image::finish_image_drag(&built.viewer));
+    }
+
+    /// The pending edits of `built`'s session.
+    fn queued(built: &crate::app::BuiltUi) -> Vec<pdf_document::Command> {
+        built
+            .viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("open")
+            .document_model
+            .as_ref()
+            .expect("a model")
+            .pending_edits
+            .entries()
+            .to_vec()
+    }
+
+    /// An inline image replaced and then moved before a save. The
+    /// replacement writes it as an XObject, so a move recorded against the
+    /// untouched file would name an inline image no save can find: the move
+    /// goes through a checkpoint, the save puts the new picture where the
+    /// move put it, and undo steps back one edit at a time.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_moved_and_saved() {
+        use crate::app::annotations::command::step_session;
+        use crate::app::state::AnnotationDragMode;
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        image::apply_replacement(&built.viewer, a_png(2, 3));
+
+        let origin = (inline.bbox.x + 1.0, inline.bbox.y + 1.0);
+        drag_selected(
+            &built,
+            AnnotationDragMode::Move,
+            origin,
+            (origin.0 + 20.0, origin.1 - 25.0),
+        );
+        let moved = pdf_document::Rect {
+            x: inline.bbox.x + 20.0,
+            y: inline.bbox.y - 25.0,
+            ..inline.bbox
+        };
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let selected = session
+                .selected_image
+                .as_ref()
+                .expect("the image stays selected")
+                .item
+                .clone();
+            assert!(
+                shown_images(session).contains(&selected),
+                "the selection follows the image into the new base: {selected:?}"
+            );
+            let pictures = saved_pictures(session);
+            assert!(pictures.contains(&(moved, (2, 3))), "{pictures:?}");
+            assert!(
+                !pictures.iter().any(|(place, _)| *place == inline.bbox),
+                "{pictures:?}"
+            );
+
+            assert!(step_session(session, true).is_some(), "undo the move");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert_eq!(
+                shown_images(session).remove(0).source,
+                pdf_document::ImageSource::Inline
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// The same, resized instead of moved.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_resized_and_saved() {
+        use crate::app::annotations::command::step_session;
+        use crate::app::state::{AnnotationDragMode, Corner};
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        image::apply_replacement(&built.viewer, a_png(2, 3));
+
+        let corner = (
+            inline.bbox.x + inline.bbox.width,
+            inline.bbox.y + inline.bbox.height,
+        );
+        drag_selected(
+            &built,
+            AnnotationDragMode::Resize(Corner::TopRight),
+            corner,
+            (corner.0 + 20.0, corner.1 + 10.0),
+        );
+        let resized = pdf_document::Rect {
+            width: inline.bbox.width + 20.0,
+            height: inline.bbox.height + 10.0,
+            ..inline.bbox
+        };
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let pictures = saved_pictures(session);
+            assert!(pictures.contains(&(resized, (2, 3))), "{pictures:?}");
+
+            assert!(step_session(session, true).is_some(), "undo the resize");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// The same, deleted instead: the save holds no trace of it.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_deleted_and_saved() {
+        use crate::app::annotations::command::step_session;
+
+        let session = crate::app::test_fixtures::inline_image_session();
+        let inline = shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        image::apply_replacement(&built.viewer, a_png(2, 3));
+
+        image::delete_selected(&built.viewer);
+
+        {
+            let mut state = built.viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("still open");
+            let pictures = saved_pictures(session);
+            assert_eq!(pictures.len(), 1, "only the control is left: {pictures:?}");
+            assert!(
+                !pictures
+                    .iter()
+                    .any(|(place, size)| *place == inline.bbox || *size == (2, 3)),
+                "{pictures:?}"
+            );
+
+            assert!(step_session(session, true).is_some(), "undo the removal");
+            assert!(saved_pictures(session).contains(&(inline.bbox, (2, 3))));
+            assert!(
+                step_session(session, true).is_some(),
+                "undo the replacement"
+            );
+            assert!(!crate::app::content_edit::checkpoint::can_undo(session));
+        }
+
+        close_replacing(built);
+    }
+
+    /// Where no checkpoint may be taken, a replaced inline image refuses to
+    /// move rather than queue a move no save can replay.
+    #[gtk::test]
+    fn gtk_ui_a_replaced_inline_image_is_not_moved_where_no_checkpoint_may_be_taken() {
+        use crate::app::state::AnnotationDragMode;
+
+        let mut session = crate::app::test_fixtures::inline_image_session();
+        session
+            .imported_sources
+            .push(crate::app::state::ImportedSource {
+                id: pdf_document::ImportedDocumentId(0),
+                document: (*session.save_backing.as_ref().expect("a backing").base).clone(),
+                name: "imported.pdf".to_string(),
+            });
+        let inline = shown_images(&session).remove(0);
+        let built = replacing_in(session);
+        image::apply_replacement(&built.viewer, a_png(2, 3));
+        assert_eq!(queued(&built).len(), 1, "the first replacement records");
+
+        let origin = (inline.bbox.x + 1.0, inline.bbox.y + 1.0);
+        drag_selected(
+            &built,
+            AnnotationDragMode::Move,
+            origin,
+            (origin.0 + 20.0, origin.1 - 25.0),
+        );
+
+        assert_eq!(
+            built.viewer.status.text(),
+            tr("edit-image-replaced-unsaved")
+        );
+        assert_eq!(queued(&built).len(), 1, "the move is not queued");
+
+        close_replacing(built);
+    }
+
+    /// An undecodable second replacement of an inline image goes through a
+    /// checkpoint like any other, and says why it failed — not that the
+    /// image has an unsaved edit, which a checkpoint already dealt with.
+    #[gtk::test]
+    fn gtk_ui_an_undecodable_second_replacement_of_an_inline_image_says_why() {
+        let built = replacing_in(crate::app::test_fixtures::inline_image_session());
+        image::apply_replacement(&built.viewer, a_png(2, 3));
+        built.viewer.status.set_text("");
+
+        image::apply_replacement(&built.viewer, b"not a picture".to_vec());
+
+        let status = built.viewer.status.text();
+        assert!(!status.is_empty());
+        assert_ne!(status, tr(panel::IMAGE_PENDING_EDIT));
+        assert_eq!(queued(&built).len(), 1, "the queue is left as it was");
+
+        close_replacing(built);
+    }
+
     /// An image moved and then replaced: the replacement names the image
     /// where the move put it, which the file does not hold yet, so it goes
     /// through a checkpoint — and the selection follows the image into the

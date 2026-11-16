@@ -288,13 +288,18 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
         if result.is_ok() {
             // The pending overlay reads the image back at `to` under the
             // same id, so the selection follows it there and the next drag
-            // starts from what is painted.
+            // starts from what is painted — as the image the last checkpoint
+            // rebound it to, when recording took one.
+            let rebound = dealiased(session, drag.item.clone());
             if let Some(selected) = session
                 .selected_image
                 .as_mut()
                 .filter(|selected| selected.item.id == drag.item.id)
             {
-                selected.item.bbox = to;
+                selected.item = ImageItem {
+                    bbox: to,
+                    ..rebound
+                };
             }
         }
         result.map(|()| message_for(drag.mode))
@@ -490,18 +495,15 @@ fn record_replacement(session: &mut DocumentSession, after: Vec<u8>) -> Option<R
         // The item `record` will name: the one the last checkpoint rebound
         // the held selection to, if it did.
         let held = dealiased(session, selected);
-        let replace = Command::ReplaceImageSource {
-            item: held.clone(),
-            after,
-        };
-        // The file still holds an inline image as it was, so it accepts the
-        // replacement — but a queued edit may write it as an XObject, and
-        // then no save finds it. Written into a new base first, it is found.
-        let result = if held.source == pdf_document::ImageSource::Inline {
-            command::record_after_checkpoint(session, replace)
-        } else {
-            command::record(session, replace)
-        };
+        // A second replacement of an inline image is written into a new base
+        // first (`command::record`): the first one writes it as an XObject.
+        let result = command::record(
+            session,
+            Command::ReplaceImageSource {
+                item: held.clone(),
+                after,
+            },
+        );
         if result.is_ok() {
             // A checkpoint taken by this replacement swapped the base and
             // rebound the image into it: the selection follows, so the next
