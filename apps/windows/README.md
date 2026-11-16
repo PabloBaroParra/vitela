@@ -229,6 +229,15 @@ Annotate unconditionally. Comments has no rail entry, so it leaves the document-
 rail buttons unselected. Inactive pages take no layout space.
 `Tests/ToolNavigationSmoke.targets` covers native tab clicks, rail navigation,
 Home/Recent and Organize returns, document replacement and unchanged edit history.
+**Ctrl+K** opens the command palette over Home, the editor or Organize: type to
+find any command (English titles; English and Spanish synonyms, accents optional),
+Up/Down to choose, Enter to run, Esc or a click outside to close. A command that
+cannot run now stays listed, dimmed, with its button's reason. Each entry runs
+the handler its button already calls (`MainWindow.PaletteCommands.cs`); the
+matcher, recents and catalog are pure (`Viewer/Palette*.cs`) and covered by the
+facade suite. `Tests/CommandPaletteSmoke.targets` injects real keys: open from
+each screen, search, run, recents, focus return, and Ctrl+Z/Ctrl+Y in the query
+leaving the document's history alone.
 **Signing** appears above Form fields on Fill & Sign. Choose a `.pfx` or `.p12`
 certificate, unlock it (empty passwords are accepted), select an identity and
 choose a signed PDF destination. Cancel leaves the document unchanged; password

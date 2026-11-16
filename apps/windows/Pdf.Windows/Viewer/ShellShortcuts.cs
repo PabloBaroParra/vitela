@@ -25,6 +25,8 @@ internal static class ShellShortcuts
     public static readonly ShellShortcut Print = new("Print", 'P');
     public static readonly ShellShortcut Undo = new("Undo", 'Z');
     public static readonly ShellShortcut Redo = new("Redo", 'Y');
+    /// <summary>Opens the command palette (B27), which reaches every other command.</summary>
+    public static readonly ShellShortcut CommandPalette = new("Command palette", 'K');
 
-    public static readonly IReadOnlyList<ShellShortcut> All = [Open, New, Save, Find, Print, Undo, Redo];
+    public static readonly IReadOnlyList<ShellShortcut> All = [Open, New, Save, Find, Print, Undo, Redo, CommandPalette];
 }
