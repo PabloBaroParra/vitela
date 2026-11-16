@@ -118,6 +118,8 @@ public sealed partial class MainWindow
     {
         if (_organizing)
         {
+            // Organize's own button, off while its grid is busy, is the gate here.
+            if (_organizeBusy || !(undo ? OrganizeUndoButton.IsEnabled : OrganizeRedoButton.IsEnabled)) return false;
             await RunOrganizeHistoryAsync(undo);
             return true;
         }

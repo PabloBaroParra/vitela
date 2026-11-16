@@ -27,7 +27,8 @@ public partial class App : Application
             File.WriteAllText(Path.Combine(output, "command-palette-smoke.log"),
                 "PASS Home card lists Ctrl+K; Ctrl+K from Home, editor and Organize; whole catalog on an empty query; refused rows stay open with their reason; " +
                 "accent-free Spanish search; arrows, Enter and Esc; focus returns on close; Ctrl+Z/Ctrl+Y edit the query, not the document; Ctrl+O/Ctrl+F ignored while open; " +
-                "tool and form entries arm their buttons; recents first; Undo runs through the history.");
+                "tool and form entries arm their buttons; recents first; Undo runs through the history; a refused-then-allowed row redraws without running; " +
+                "Tab+Delete and Ctrl+End in the list leave the page alone; Edit from Organize keeps its own scroll.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "command-palette-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -36,7 +37,8 @@ public partial class App : Application
 
 public sealed partial class MainWindow
 {
-    private const ushort PaletteVkControl = 0x11, PaletteVkReturn = 0x0D, PaletteVkEscape = 0x1B, PaletteVkUp = 0x26, PaletteVkDown = 0x28;
+    private const ushort PaletteVkControl = 0x11, PaletteVkReturn = 0x0D, PaletteVkEscape = 0x1B, PaletteVkUp = 0x26, PaletteVkDown = 0x28,
+        PaletteVkTab = 0x09, PaletteVkDelete = 0x2E, PaletteVkEnd = 0x23;
 
     internal async Task CommandPaletteSmokeAsync()
     {
@@ -141,6 +143,101 @@ public sealed partial class MainWindow
         await Wait(() => FirstId() == "edit.undo" && _paletteShown[0].Refusal is null, "Undo is available with an edit");
         await PaletteKeyAsync(PaletteVkReturn);
         await Wait(() => _annotationState!.Annotations.Count == annotations - 1, "Undo entry undoes the document edit");
+        await Wait(() => !_paletteCommandRunning && !UndoButton.IsEnabled, "Nothing is left to undo");
+
+        // Refused when drawn, allowed when chosen: Enter redraws and keeps the row, running nothing.
+        await PaletteChordAsync('K');
+        await Wait(() => IsPaletteOpen, "Palette reopens for the refused Undo");
+        await PaletteTypeAsync("undo");
+        await Wait(() => FirstId() == "edit.undo" && _paletteShown[0].Refusal == "Nothing to undo.", "Undo is drawn refused");
+        var before = _annotationState!.Annotations.Select(a => a.Id).ToHashSet();
+        await ApplyEditAsync(new PdfCoreEdit.Add(PdfCoreAnnotationKind.Shape, 0, new PdfCoreRect(40, 80, 100, 40), new PdfCoreColor(255, 220, 0)));
+        var withEdit = _annotationState!.Annotations.Count;
+        var added = _annotationState.Annotations.Single(a => !before.Contains(a.Id)).Id;
+        Check(UndoButton.IsEnabled, "The edit made under the palette is undoable");
+        await PaletteKeyAsync(PaletteVkReturn);
+        await Task.Delay(300);
+        Check(IsPaletteOpen && _annotationState!.Annotations.Count == withEdit, "A row that became allowed must not run on that Enter");
+        Check(PaletteList.SelectedIndex >= 0 && _paletteShown[PaletteList.SelectedIndex] is { Entry.Id: "edit.undo", Refusal: null }, "The redrawn Undo row stays selected, now allowed");
+        await PaletteKeyAsync(PaletteVkEscape);
+        await Wait(() => !IsPaletteOpen, "Esc closes the redrawn palette");
+
+        // Modal beyond Ctrl+letter: Tab into the list, then Delete and Ctrl+End stay in the palette.
+        // Delete's accelerator lives on the Annotate page's toolbar, live only while it is shown.
+        ShowPaletteToolsPage("Annotate");
+        await Task.Delay(300);
+        while (_selectedAnnotationId != added) NavigateAnnotation(forward: true);
+        var selected = _selectedAnnotationId;
+        Check(selected is not null && DeleteAnnotationButton.IsEnabled, "An annotation is selected for Delete");
+        // A probe on the window root sees every Delete / Ctrl+End accelerator the page would.
+        var probed = 0;
+        var probes = new List<Microsoft.UI.Xaml.Input.KeyboardAccelerator>();
+        foreach (var (key, modifiers) in new[] { (global::Windows.System.VirtualKey.Delete, global::Windows.System.VirtualKeyModifiers.None), (global::Windows.System.VirtualKey.End, global::Windows.System.VirtualKeyModifiers.Control) })
+        {
+            var probe = new Microsoft.UI.Xaml.Input.KeyboardAccelerator { Key = key, Modifiers = modifiers };
+            probe.Invoked += (_, _) => probed++;
+            ((UIElement)Content).KeyboardAccelerators.Add(probe);
+            probes.Add(probe);
+        }
+        PageScroller.Focus(FocusState.Programmatic);
+        await PaletteChordAsync('K');
+        await Wait(() => IsPaletteOpen && SearchFocused(), "Palette opens over the selection");
+        await Task.Delay(600);
+        var offset = PageScroller.VerticalOffset;
+        bool FocusInCard()
+        {
+            for (var node = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(Content.XamlRoot) as DependencyObject; node is not null; node = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(node))
+                if (ReferenceEquals(node, PaletteCard)) return true;
+            return false;
+        }
+        await PaletteKeyAsync(PaletteVkTab);
+        Check(FocusInCard() && !SearchFocused(), "Tab moves into the list");
+        await PaletteKeyAsync(PaletteVkDelete);
+        await PaletteChordAsync((char)PaletteVkEnd);
+        await Task.Delay(300);
+        Check(probed == 0, $"Delete and Ctrl+End in the list must reach no window accelerator ({probed} did)");
+        Check(IsPaletteOpen && _annotationState!.Annotations.Count == withEdit && _selectedAnnotationId == selected, "Delete in the list must not remove the selected annotation");
+        Check(PageScroller.VerticalOffset == offset, $"Ctrl+End in the list must not move the page ({offset} -> {PageScroller.VerticalOffset} of {PageScroller.ScrollableHeight})");
+        await PaletteKeyAsync(PaletteVkTab);
+        await PaletteKeyAsync(PaletteVkTab);
+        Check(FocusInCard(), "Tab stays inside the palette");
+        await PaletteKeyAsync(PaletteVkEscape);
+        await Wait(() => !IsPaletteOpen, "Esc closes the palette from the list");
+        // Control: with the palette shut the same keys do reach the window's accelerators.
+        await PaletteKeyAsync(PaletteVkDelete);
+        await PaletteChordAsync((char)PaletteVkEnd);
+        await Wait(() => probed == 2, $"Delete and Ctrl+End reach the window once the palette is closed ({probed})");
+        foreach (var probe in probes) ((UIElement)Content).KeyboardAccelerators.Remove(probe);
+
+        // A command's own scroll survives the close: Edit from Organize lands where the rail's Edit lands.
+        Check(PageScroller.ScrollableHeight > 0, "The sample scrolls, so the landing check means something");
+        {
+            async Task<double> EditFromOrganizeAsync(bool palette)
+            {
+                PageScroller.ChangeView(null, PageScroller.ScrollableHeight, null, disableAnimation: true);
+                await Wait(() => PageScroller.VerticalOffset > 0, "The page scrolls down");
+                await EnterOrganizeViewAsync();
+                await Wait(() => _organizing, "Organize opens");
+                // As after a page move in the grid: leaving re-shows the document from its first page.
+                _viewerStale = true;
+                if (palette)
+                {
+                    await PaletteChordAsync('K');
+                    await Wait(() => IsPaletteOpen, "Palette opens over Organize");
+                    await PaletteTypeAsync("edit");
+                    await Wait(() => FirstId() == "mode.edit", "edit ranks Edit first");
+                    await PaletteKeyAsync(PaletteVkReturn);
+                }
+                else await NavigateToToolAsync("Edit", new RoutedEventArgs());
+                await Wait(() => !_organizing && !_paletteCommandRunning, "Edit leaves Organize");
+                await Task.Delay(600);
+                return PageScroller.VerticalOffset;
+            }
+            var railLanding = await EditFromOrganizeAsync(palette: false);
+            var paletteLanding = await EditFromOrganizeAsync(palette: true);
+            Check(railLanding < PageScroller.ScrollableHeight / 2, $"The rail's Edit lands near the top after a reorganize ({railLanding})");
+            Check(Math.Abs(railLanding - paletteLanding) < 1, $"Edit from the palette lands where the rail's does ({paletteLanding} vs {railLanding})");
+        }
 
         await PaletteChordAsync('K');
         await Wait(() => IsPaletteOpen, "Palette reopens for Ctrl+K close");
@@ -166,16 +263,19 @@ public sealed partial class MainWindow
 
     private async Task PaletteKeyAsync(ushort key)
     {
-        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = key } } });
-        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = key, Flags = 0x0002 } } });
+        // Delete, End, Home and the arrows are extended keys; without the flag they read as the keypad's.
+        var extended = key is >= 0x21 and <= 0x2E ? 0x0001u : 0u;
+        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = key, Flags = extended } } });
+        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = key, Flags = extended | 0x0002 } } });
         await Task.Delay(200);
     }
 
     private async Task PaletteChordAsync(char letter)
     {
         PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = PaletteVkControl } } });
-        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = letter } } });
-        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = letter, Flags = 0x0002 } } });
+        var extended = letter is >= (char)0x21 and <= (char)0x2E ? 0x0001u : 0u;
+        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = letter, Flags = extended } } });
+        PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = letter, Flags = extended | 0x0002 } } });
         PaletteSend(new PaletteInput { Type = 1, Data = new PaletteInputData { Key = new PaletteKey { VirtualKey = PaletteVkControl, Flags = 0x0002 } } });
         await Task.Delay(250);
     }

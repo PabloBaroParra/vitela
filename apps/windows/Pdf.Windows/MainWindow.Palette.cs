@@ -22,10 +22,13 @@ namespace Pdf.Windows;
 /// <c>Tests/CommandPaletteSmoke</c>. Marking accelerator processing handled
 /// there instead, as a first attempt did, also cancelled the box's own undo.
 ///
-/// Otherwise the palette is modal, like the GTK dialog it ports: the other
-/// Ctrl+letter shortcuts and a file dropped on the scrim do nothing while it
-/// is open (<see cref="PaletteLayer_ProcessKeyboardAccelerators"/>,
-/// <c>Window_Drop</c>), so no flow starts under rows drawn for another state.
+/// Otherwise the palette is modal, like the GTK dialog it ports: the
+/// window's shortcuts — Ctrl+letters, Ctrl+Home/End/arrows, Delete, F2 —
+/// and a file dropped on the scrim do nothing while it is open
+/// (<see cref="PaletteLayer_ProcessKeyboardAccelerators"/>, <c>Window_Drop</c>,
+/// and an <see cref="IsPaletteOpen"/> check in each key handler behind it),
+/// so no flow starts under rows drawn for another state. Tab cycles inside
+/// the card (<c>TabFocusNavigation="Cycle"</c>).
 /// </summary>
 public sealed partial class MainWindow
 {
@@ -76,10 +79,13 @@ public sealed partial class MainWindow
     /// takes it instead. The page scroller's offsets are pinned across the
     /// move for the same reason, checked once the layout has run: a
     /// bring-into-view lands in the layout pass, not in <c>Focus</c>.
+    /// The returned task ends once that restore is done; an entry awaits it
+    /// before it runs, so the restore never undoes the command's own scroll
+    /// (Find's jump, Edit's landing at the top).
     /// </summary>
-    private void ClosePalette()
+    private Task ClosePaletteAsync()
     {
-        if (!IsPaletteOpen) return;
+        if (!IsPaletteOpen) return Task.CompletedTask;
         UIElement? previous = null;
         _palettePreviousFocus?.TryGetTarget(out previous);
         _palettePreviousFocus = null;
@@ -87,12 +93,19 @@ public sealed partial class MainWindow
         if (previous is null || !IsFocusableAfterPalette(previous) || !previous.Focus(FocusState.Programmatic))
             FocusAfterPaletteFallback();
         PaletteLayer.Visibility = Visibility.Collapsed;
-        DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        var restored = new TaskCompletionSource();
+        var queued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
             if (!IsPaletteOpen && (PageScroller.HorizontalOffset != left || PageScroller.VerticalOffset != top))
                 PageScroller.ChangeView(left, top, null, disableAnimation: true);
+            restored.SetResult();
         });
+        if (!queued) restored.SetResult();
+        return restored.Task;
     }
+
+    /// <summary>The plain close — Esc, Ctrl+K, a click outside: nothing runs after it.</summary>
+    private void ClosePalette() => _ = ClosePaletteAsync();
 
     /// <summary>The page when it is on screen, otherwise the rail button of the screen that is.</summary>
     private void FocusAfterPaletteFallback()
@@ -102,20 +115,28 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Raised on the focused element's ancestors before any accelerator runs.
-    /// While the palette is open every Ctrl+letter shortcut is swallowed here
-    /// except Ctrl+K (which closes it) and, in the search box, the box's own
-    /// Ctrl+A/C/V/X/Z/Y — leaving those unhandled is what lets the box keep
-    /// them (see the class summary). Other keys are not touched: the box
-    /// needs its caret keys, and the window's plain-key accelerators already
-    /// decline in a text box.
+    /// Raised on the focused element's ancestors before any accelerator runs;
+    /// the focus never leaves the card while it is open, so every window
+    /// shortcut passes here first. Ctrl+K (which closes it) and Tab always go
+    /// through. In the search box only the Ctrl+letter shortcuts are
+    /// swallowed, bar the box's own Ctrl+A/C/V/X/Z/Y — leaving those unhandled
+    /// is what lets the box keep them (see the class summary); its caret keys
+    /// go through, and the window handlers they could reach (Delete, F2,
+    /// Ctrl+Home/End page jumps) decline while the palette is open. Anywhere
+    /// else in the card — the list, after Tab — every key is swallowed, so
+    /// Delete or Ctrl+End never reaches the page. The arrows, Enter and Esc
+    /// were already taken by <see cref="PaletteCard_PreviewKeyDown"/>.
     /// </summary>
     private void PaletteLayer_ProcessKeyboardAccelerators(UIElement sender, ProcessKeyboardAcceleratorEventArgs args)
     {
-        if (!IsPaletteOpen || !args.Modifiers.HasFlag(VirtualKeyModifiers.Control)) return;
-        if (args.Key is < VirtualKey.A or > VirtualKey.Z || args.Key == VirtualKey.K) return;
-        var textEditing = args.Key is VirtualKey.A or VirtualKey.C or VirtualKey.V or VirtualKey.X or VirtualKey.Z or VirtualKey.Y;
-        if (textEditing && TextInputHasFocus()) return;
+        if (!IsPaletteOpen || args.Key == VirtualKey.Tab) return;
+        if (args.Modifiers.HasFlag(VirtualKeyModifiers.Control) && args.Key == VirtualKey.K) return;
+        if (TextInputHasFocus())
+        {
+            // The box keeps its caret and word keys (Ctrl+Left, Ctrl+Backspace…).
+            if (!args.Modifiers.HasFlag(VirtualKeyModifiers.Control) || args.Key is < VirtualKey.A or > VirtualKey.Z) return;
+            if (args.Key is VirtualKey.A or VirtualKey.C or VirtualKey.V or VirtualKey.X or VirtualKey.Z or VirtualKey.Y) return;
+        }
         args.Handled = true;
     }
 
@@ -204,33 +225,37 @@ public sealed partial class MainWindow
     /// <summary>
     /// Runs the row at <paramref name="index"/>. Its availability is asked
     /// again against the state now, not the one the rows were drawn with:
-    /// when that answer changed, or another document is open, the rows are
-    /// redrawn and nothing runs, so what runs is what is on screen. A refused
-    /// row does nothing and the palette stays open with its reason on screen.
-    /// Otherwise the palette closes first, focus handed back, so a flow that
-    /// opens a dialog or a picker, or switches screens, starts from the window
-    /// as it was; the entry counts as recent only once it actually ran.
+    /// when that answer changed in either direction, or another document is
+    /// open, the rows are redrawn, the same entry stays selected and nothing
+    /// runs, so what runs is only ever what is on screen. A refused row does
+    /// nothing and the palette stays open with its reason on screen.
+    /// Otherwise the palette closes first, focus handed back and the page's
+    /// scroll restored, so a flow that opens a dialog or a picker, or switches
+    /// screens, starts from the window as it was; the entry counts as recent
+    /// only once it actually ran.
     /// </summary>
     private async void ActivatePaletteRow(int index)
     {
         if (_paletteCommandRunning || index < 0 || index >= _paletteShown.Count) return;
         var shown = _paletteShown[index];
         var refusal = shown.Entry.Refusal(PaletteContextNow());
-        var otherDocument = _session?.SessionId != _paletteSessionId;
-        if (otherDocument || refusal != shown.Refusal)
+        if (_session?.SessionId != _paletteSessionId || refusal != shown.Refusal)
         {
             RefillPalette();
             SelectPaletteRow(_paletteShown.ToList().FindIndex(result => result.Entry.Id == shown.Entry.Id));
+            PaletteSearchBox.Focus(FocusState.Programmatic);
+            return;
         }
-        if (otherDocument || refusal is not null)
+        if (refusal is not null)
         {
             PaletteSearchBox.Focus(FocusState.Programmatic);
             return;
         }
-        ClosePalette();
+        // Set before the close: Ctrl+K stays shut while the restore and the command run.
         _paletteCommandRunning = true;
         try
         {
+            await ClosePaletteAsync();
             if (await RunPaletteEntryAsync(shown.Entry)) _paletteRecents.Record(shown.Entry.Id);
         }
         finally

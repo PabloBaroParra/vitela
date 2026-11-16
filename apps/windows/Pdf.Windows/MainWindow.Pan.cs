@@ -63,11 +63,11 @@ public sealed partial class MainWindow
         };
     }
 
-    /// <summary>Nothing to pan without pages on screen, and nothing behind a modal or Organize.</summary>
+    /// <summary>Nothing to pan without pages on screen, and nothing behind a modal, the palette or Organize.</summary>
     private bool CanPan() =>
         _session is { PageCount: > 0 } && _slots.Count > 0
         && PageScroller.Visibility == Visibility.Visible
-        && !_organizing && !_dialogOpen;
+        && !_organizing && !_dialogOpen && !IsPaletteOpen;
 
     private void Root_PanPreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {

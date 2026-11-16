@@ -16,7 +16,7 @@ public sealed partial class MainWindow
     /// </summary>
     private async void DeleteFormField_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (TextInputHasFocus())
+        if (TextInputHasFocus() || IsPaletteOpen)
         {
             args.Handled = false;
             return;
