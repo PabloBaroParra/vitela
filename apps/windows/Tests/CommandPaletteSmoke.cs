@@ -25,7 +25,7 @@ public partial class App : Application
         {
             await _window.CommandPaletteSmokeAsync();
             File.WriteAllText(Path.Combine(output, "command-palette-smoke.log"),
-                "PASS Ctrl+K from Home, editor and Organize; whole catalog on an empty query; refused rows stay open with their reason; " +
+                "PASS Home card lists Ctrl+K; Ctrl+K from Home, editor and Organize; whole catalog on an empty query; refused rows stay open with their reason; " +
                 "accent-free Spanish search; arrows, Enter and Esc; focus returns on close; Ctrl+Z/Ctrl+Y edit the query, not the document; " +
                 "tool and form entries arm their buttons; recents first; Undo runs through the history.");
         }
@@ -51,6 +51,14 @@ public sealed partial class MainWindow
 
         await Wait(() => Content.XamlRoot is not null && _shellInitialized, "Window not loaded");
         PaletteSetForeground();
+        static IEnumerable<DependencyObject> Descendants(DependencyObject parent)
+        {
+            yield return parent;
+            for (var i = 0; i < Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent); i++)
+                foreach (var child in Descendants(Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i))) yield return child;
+        }
+        var cardTexts = Descendants(HomeToolsColumn).OfType<Microsoft.UI.Xaml.Controls.TextBlock>().Select(t => t.Text).ToList();
+        Check(cardTexts.Contains("Command palette") && cardTexts.Contains("Ctrl+K"), "Home's shortcut card lists Ctrl+K");
 
         // Home, no document.
         HomeSearchBox.Focus(FocusState.Programmatic);

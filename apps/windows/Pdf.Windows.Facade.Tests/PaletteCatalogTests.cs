@@ -29,6 +29,7 @@ internal static class PaletteCatalogTests
         EveryEntryHasATitleAndShortSynonymsInBothLanguages();
         ShortcutEntriesShowTheSharedTable();
         EveryShortcutInTheTableIsBoundInTheWindow();
+        HomeCardListsTheFileKeysAndTheCommandPalette();
         AnEmptyQueryKeepsCatalogOrder();
         SpanishWithoutAccentsFindsItsCommands();
         EnglishTitlesFindTheirCommands();
@@ -136,6 +137,14 @@ internal static class PaletteCatalogTests
         foreach (var shortcut in ShellShortcuts.All)
             Check(bound.Contains((shortcut.Key.ToString(), "Control")), $"{shortcut.Label} ({shortcut.Name}) is not bound in MainWindow.xaml");
         Equal(ShellShortcuts.All.Count, ShellShortcuts.All.Select(shortcut => shortcut.Key).Distinct().Count(), "one key per shortcut");
+    }
+
+    /// <summary>Home's shortcut card (GTK T-232): the five file and search keys it always listed, plus Ctrl+K.</summary>
+    private static void HomeCardListsTheFileKeysAndTheCommandPalette()
+    {
+        Equal("Open Ctrl+O, New Ctrl+N, Save Ctrl+S, Find Ctrl+F, Print Ctrl+P, Command palette Ctrl+K",
+            string.Join(", ", ShellShortcuts.HomeCard.Select(shortcut => $"{shortcut.Name} {shortcut.Label}")), "Home card rows");
+        Check(ShellShortcuts.HomeCard.All(ShellShortcuts.All.Contains), "every card row is a bound shortcut");
     }
 
     private static void AnEmptyQueryKeepsCatalogOrder() =>

@@ -29,4 +29,11 @@ internal static class ShellShortcuts
     public static readonly ShellShortcut CommandPalette = new("Command palette", 'K');
 
     public static readonly IReadOnlyList<ShellShortcut> All = [Open, New, Save, Find, Print, Undo, Redo, CommandPalette];
+
+    /// <summary>
+    /// The rows of Home's shortcut card, in order: the five file and search
+    /// keys the card always listed, plus Ctrl+K for the command palette,
+    /// which reaches everything else (GTK T-232).
+    /// </summary>
+    public static readonly IReadOnlyList<ShellShortcut> HomeCard = [Open, New, Save, Find, Print, CommandPalette];
 }

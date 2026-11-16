@@ -75,8 +75,10 @@ public sealed partial class MainWindow
         HomeToolsColumn.Children.Add(HomeCard("Quick actions", actions));
 
         var shortcuts = new StackPanel { Spacing = 6 };
-        foreach (var (action, keys) in new[] { ("Open", "Ctrl+O"), ("New", "Ctrl+N"), ("Save", "Ctrl+S"), ("Find", "Ctrl+F"), ("Print", "Ctrl+P") })
+        // The shared table the palette's rows print too, so the two cannot disagree.
+        foreach (var shortcut in ShellShortcuts.HomeCard)
         {
+            var (action, keys) = (shortcut.Name, shortcut.Label);
             var row = new Grid();
             row.ColumnDefinitions.Add(new ColumnDefinition());
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
