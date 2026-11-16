@@ -21,7 +21,7 @@ use pdf_edit::Selection;
 
 use crate::app::i18n::{tr, tr_args};
 use crate::app::selection;
-use crate::app::state::{ContentSelection, DocumentSession, Viewer};
+use crate::app::state::{ContentSelection, DocumentSession, SelectedImage, Viewer};
 use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
@@ -275,6 +275,20 @@ fn select_pasted(session: &mut DocumentSession, page_index: usize) {
     session.selected_text_block = None;
     session.selected_image = None;
     session.selected_path = None;
+    // One image alone is selected the way a click selects it: the image card
+    // (Replace, Delete) reads `selected_image`, never a several-item selection.
+    if let ([image], true, true) = (
+        members.images.as_slice(),
+        members.runs.is_empty(),
+        members.paths.is_empty(),
+    ) {
+        session.selected_image = Some(SelectedImage {
+            page_index,
+            item: image.clone(),
+        });
+        session.content_selection = None;
+        return;
+    }
     session.content_selection = (!members.is_empty()).then_some(ContentSelection {
         page_index,
         members,
@@ -435,6 +449,72 @@ mod tests {
 
         assert!(entries(viewer.state.borrow().session.as_ref().expect("a session")).is_empty());
         assert!(!selected(viewer), "the undone paste is still selected");
+    }
+
+    /// The reader's report: a pasted picture came up without Replace until
+    /// it was deselected and clicked again. A paste of one image alone must
+    /// select it the way a click does, so the image card offers its four
+    /// operations straight away.
+    #[gtk::test]
+    fn gtk_ui_a_pasted_image_alone_is_selected_as_an_image() {
+        let mut session = crate::app::test_fixtures::image_page_session();
+        session
+            .pages
+            .push(crate::app::test_fixtures::page_slot(gtk::Overlay::new()));
+        let images = crate::app::test_fixtures::shown_images(&session);
+        let members = Selection {
+            images,
+            ..Selection::default()
+        };
+        let clip = command::copy(&mut session, &members).expect("the image copies");
+        command::paste(&mut session, PageId(0), clip, 100.0, 300.0).expect("the clip pastes");
+
+        select_pasted(&mut session, 0);
+
+        assert!(session.content_selection.is_none());
+        let selected = session
+            .selected_image
+            .as_ref()
+            .expect("the paste is selected");
+        assert_eq!(model::pending_log_index(selected.item.id), Some(0));
+        assert_eq!(
+            super::super::image_controls(Some(&session)),
+            super::super::ImageControls::Ready
+        );
+    }
+
+    /// Undoing a paste of one image alone drops the image selection it made,
+    /// the way undoing any other paste drops its several-item selection: the
+    /// card must not keep offering Replace and Delete for an image now gone.
+    #[gtk::test]
+    fn gtk_ui_undoing_a_lone_image_paste_drops_its_image_selection() {
+        let fixture = super::super::test_support::Fixture::image_page();
+        let viewer = fixture.viewer();
+        {
+            let mut state = viewer.state.borrow_mut();
+            let session = state.session.as_mut().expect("a session");
+            let members = Selection {
+                images: crate::app::test_fixtures::shown_images(session),
+                ..Selection::default()
+            };
+            let clip = command::copy(session, &members).expect("the image copies");
+            session.content_pointer = Some((0, (100.0, 300.0)));
+            state.content_clip = Some(clip);
+        }
+        assert!(try_paste(viewer));
+        let held = |viewer: &Viewer| {
+            viewer
+                .state
+                .borrow()
+                .session
+                .as_ref()
+                .is_some_and(|session| session.selected_image.is_some())
+        };
+        assert!(held(viewer), "the paste selects the image it pasted");
+
+        viewer.undo_action.activate(None);
+
+        assert!(!held(viewer), "the undone image paste is still selected");
     }
 
     /// `line_session` cannot checkpoint (its backing holds no bytes), so a

@@ -40,6 +40,14 @@ impl Fixture {
         Self::over(base, PageRotation::None)
     }
 
+    /// One A4 page holding one plain image and no text.
+    pub(crate) fn image_page() -> Self {
+        Self::over(
+            gen_fixtures::content_edit::build_image_page_document(),
+            PageRotation::None,
+        )
+    }
+
     fn over(base: lopdf::Document, rotation: PageRotation) -> Self {
         let built = built_ui();
         built.viewer.view_stack.set_visible_child_name("editor");
