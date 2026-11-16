@@ -17,7 +17,14 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
-    private async void ReplaceImageButton_Click(object sender, RoutedEventArgs e)
+    private async void ReplaceImageButton_Click(object sender, RoutedEventArgs e) =>
+        await ReplaceSelectedImageAsync(PickContentImageBytesAsync);
+
+    /// <summary>
+    /// Replaces the selected image with what <paramref name="pickBytes"/>
+    /// hands back — the file picker, or the smoke harness's picture.
+    /// </summary>
+    private async Task ReplaceSelectedImageAsync(Func<string, Task<byte[]?>> pickBytes)
     {
         if (_session is null || _organizing || _isBusy || _editingImage || _selectedContentImage is not { } selected) return;
         if (CurrentImageControls() == ImageControls.PendingEdit)
@@ -43,7 +50,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = prepared.Error!.Message;
                 return;
             }
-            var bytes = await PickContentImageBytesAsync(sessionId);
+            var bytes = await pickBytes(sessionId);
             if (bytes is null || _session?.SessionId != sessionId) return;
             var result = await _facade.ReplaceContentImageAsync(sessionId, current, bytes);
             if (_session?.SessionId != sessionId) return;
