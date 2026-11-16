@@ -187,6 +187,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     {
                         PageEdit.Block block => ResolveBlockEdit(session, block),
                         PageEdit.OrganizePage page => ResolveOrganizePageEdit(session, page),
+                        PageEdit.RotateAll all => ResolveRotateAll(session, all),
                         PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index, insert.Orientation),
                         PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
                         PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),

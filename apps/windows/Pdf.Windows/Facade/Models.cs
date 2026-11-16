@@ -73,6 +73,11 @@ public abstract record PageEdit
     public sealed record InsertBlank(uint Index, PageOrientation Orientation = PageOrientation.Portrait) : PageEdit;
     /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
     public sealed record Rotate(uint PageIndex, int DeltaDegrees) : PageEdit;
+    /// <summary>
+    /// Turns every page clockwise by <paramref name="DeltaDegrees"/> — a
+    /// quarter turn either way — as one undo step.
+    /// </summary>
+    public sealed record RotateAll(int DeltaDegrees) : PageEdit;
     public sealed record Remove(uint PageIndex) : PageEdit;
     /// <summary>Moves one page so that it ends up at position <paramref name="To"/>.</summary>
     public sealed record Move(uint From, uint To) : PageEdit;

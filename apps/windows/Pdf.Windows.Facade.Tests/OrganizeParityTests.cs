@@ -50,6 +50,27 @@ internal static class OrganizeParityTests
         Check(empty.IsSuccess && empty.Value!.PageCount == 0, "Documents-view deletion must allow an empty undoable document");
         Check(!(await facade.DocumentBlocksAsync("stale")).IsSuccess, "Stale document must not expose blocks");
         await CheckPagesAsync();
+        await CheckRotateAllAsync();
+    }
+
+    /// <summary>
+    /// Rotate all pages (GTK #585): every page turned by one command, so one
+    /// undo takes the whole turn back.
+    /// </summary>
+    private static async Task CheckRotateAllAsync()
+    {
+        var core = new FakeCore { PageCount = 4, Blocks = [new(DocumentBlockSource.Base, null, 0, 4)] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new("pages.pdf", [1]))).Value!;
+        Check((await facade.EditPagesAsync(session.SessionId, new PageEdit.RotateAll(90))).IsSuccess
+            && core.PageEdits.Single() == new PdfCoreEdit.RotatePages(0, 4, 90), "Rotate all right must be one command over every page");
+        Check((await facade.EditPagesAsync(session.SessionId, new PageEdit.RotateAll(-90))).IsSuccess
+            && core.PageEdits.Last() == new PdfCoreEdit.RotatePages(0, 4, -90), "Rotate all left must be one command over every page");
+        foreach (var delta in new[] { 0, 45, 360 })
+            Check(!(await facade.EditPagesAsync(session.SessionId, new PageEdit.RotateAll(delta))).IsSuccess,
+                $"A turn of {delta} degrees must be refused");
+        Check(core.PageEdits.Count == 2, "Refused turns must not reach core");
+        Check(!(await facade.EditPagesAsync("stale", new PageEdit.RotateAll(90))).IsSuccess, "A retired session must refuse");
     }
 
     private static async Task CheckPagesAsync()

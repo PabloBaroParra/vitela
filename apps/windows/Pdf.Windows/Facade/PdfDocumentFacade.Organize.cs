@@ -55,6 +55,20 @@ public sealed partial class PdfDocumentFacade
         };
     }
 
+    /// <summary>
+    /// The Documents view's block turn over every page (GTK
+    /// <c>organize::rotate_all_pages</c>): one <c>RotatePages</c>, so one undo
+    /// step, behind the same core permission as every other page turn.
+    /// </summary>
+    private static PdfCoreEdit ResolveRotateAll(SessionEntry session, PageEdit.RotateAll edit)
+    {
+        if (edit.DeltaDegrees is not (90 or -90))
+            throw new PdfCoreException(PdfCoreError.PageIndexOutOfBounds, "Pages turn a quarter at a time.");
+        if (session.Document.PageCount == 0)
+            throw new PdfCoreException(PdfCoreError.PageIndexOutOfBounds, "The document has no pages to rotate.");
+        return new PdfCoreEdit.RotatePages(0, session.Document.PageCount, edit.DeltaDegrees);
+    }
+
     private static PdfCoreEdit ResolveBlockMove(IReadOnlyList<DocumentBlock> rows, int position, int slot)
     {
         if (slot < 0 || slot > rows.Count || slot == position || slot == position + 1)

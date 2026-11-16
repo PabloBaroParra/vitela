@@ -32,6 +32,8 @@ public sealed partial class MainWindow
         OrganizeAddPdfsButton.IsEnabled = ready;
         InsertBlankPageButton.IsEnabled = ready;
         InsertLandscapePageButton.IsEnabled = ready;
+        // Opening Organize needs a page, so turning every page needs one too.
+        RotateAllLeftButton.IsEnabled = RotateAllRightButton.IsEnabled = ready && _session is { PageCount: > 0 };
         OrganizeGrid.IsEnabled = ready;
         OrganizeDocumentsList.IsHitTestVisible = ready;
         OrganizeDocumentsToggle.IsEnabled = ready;

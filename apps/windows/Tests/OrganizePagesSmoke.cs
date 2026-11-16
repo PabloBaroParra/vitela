@@ -18,7 +18,7 @@ public partial class App : Application
         {
             await _window.OrganizePagesSmokeAsync();
             File.WriteAllText(Path.Combine(output, "organize-pages-smoke.log"),
-                "PASS page thumbnails/source labels; boundary keyboard actions; page move/rotate/delete one-step Undo/Redo; native-reorder completion; stale drag; busy gates; final-page deletion/empty Undo/insertion; native Documents edge-scroll driver/bounds/stop; sample restored. Physical mouse drag/GridView autoscroll not exercised.");
+                "PASS page thumbnails/source labels; boundary keyboard actions; page move/rotate/delete one-step Undo/Redo; rotate all pages either way as one undo step each; native-reorder completion; stale drag; busy gates; final-page deletion/empty Undo/insertion; native Documents edge-scroll driver/bounds/stop; sample restored. Physical mouse drag/GridView autoscroll not exercised.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "organize-pages-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -74,6 +74,18 @@ public sealed partial class MainWindow
         Check(_session!.Pages[0].Rotation == PageRotation.Clockwise270, "Left turn must target the selected page");
         await RunOrganizeHistoryAsync(true);
         await Ready();
+        Check(RotateAllRightButton.IsEnabled && RotateAllLeftButton.IsEnabled, "Rotate all must be offered in Organize");
+        await RotateAllPagesAsync(90);
+        Check(_session!.Pages.All(each => each.Rotation == PageRotation.Clockwise90), "Rotate all right must turn every page");
+        await RotateAllPagesAsync(-90);
+        await RotateAllPagesAsync(-90);
+        Check(_session!.Pages.All(each => each.Rotation == PageRotation.Clockwise270), "Rotate all left must turn every page back and past");
+        await RunOrganizeHistoryAsync(true);
+        await RunOrganizeHistoryAsync(true);
+        await RunOrganizeHistoryAsync(true);
+        await Ready();
+        Check(_session!.Pages[0] == dimensions && _session!.Pages.All(each => each.Rotation == PageRotation.None),
+            "One Undo per whole-document turn restores every page");
         var moved = _organizeCards[0];
         var drag = new OrganizePageDrag(_organizePageSnapshot!, moved, 0, _thumbnailGeneration);
         _organizeCards.Move(0, (int)original); // Native GridView applies this before DragItemsCompleted.
