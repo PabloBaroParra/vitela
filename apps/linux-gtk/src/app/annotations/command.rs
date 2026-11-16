@@ -110,6 +110,18 @@ fn history(viewer: &Viewer, undo: bool) {
             session.selected_text_block = None;
             session.content_selection = None;
             crate::app::content_edit::hover::forget(session);
+            // A pasted image alone is held as the selected image, and its
+            // synthetic id names a log entry: once that entry is undone, the
+            // image is gone and so must its selection be.
+            let entries = session
+                .document_model
+                .as_ref()
+                .map_or(0, |document| document.pending_edits.entries().len());
+            if session.selected_image.as_ref().is_some_and(|selected| {
+                pdf_edit::pending_log_index(selected.item.id).is_some_and(|index| index >= entries)
+            }) {
+                session.selected_image = None;
+            }
         }
         let Some(document) = session.document_model.as_ref() else {
             return;
