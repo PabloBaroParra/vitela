@@ -312,6 +312,13 @@ public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation>
     /// means every content item the shell holds is stale.
     /// </summary>
     public ulong ContentBaseGeneration { get; init; }
+
+    /// <summary>
+    /// Whether the core would write the pending page-content edits into a new
+    /// in-memory base to record an edit of an item that already has one,
+    /// rather than ask for a save first.
+    /// </summary>
+    public bool ContentEditsCanCheckpoint { get; init; }
 }
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
     MetadataDate? CreationDate = null, MetadataDate? ModDate = null);

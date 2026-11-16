@@ -72,6 +72,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\SearchSelection.cs" Link="Viewer\SearchSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FileDropRouting.cs" Link="Viewer\FileDropRouting.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentHitTest.cs" Link="Viewer\ContentHitTest.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ImageCardRules.cs" Link="Viewer\ImageCardRules.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentEditPump.cs" Link="Viewer\ContentEditPump.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\CompressionWording.cs" Link="Viewer\CompressionWording.cs" />

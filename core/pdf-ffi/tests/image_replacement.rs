@@ -275,10 +275,19 @@ fn the_replacement_check_uses_the_imported_origin_after_page_reordering() {
         .is_ok());
 }
 
+/// Only where the session may not checkpoint — here it holds an imported
+/// PDF; `image_replace_again` covers the sessions that may.
 #[test]
 fn the_replacement_check_refuses_a_pending_edit_until_it_is_undone() {
     let handle =
         open_from_bytes(bytes(gen_fixtures::build_image_page_document()), None).expect("open");
+    import_pdf(
+        &handle,
+        bytes(gen_fixtures::build_image_page_document()),
+        None,
+        1,
+    )
+    .expect("import");
     let target = handle.read_page_content(0).expect("read").images.remove(0);
     apply_edit(
         &handle,

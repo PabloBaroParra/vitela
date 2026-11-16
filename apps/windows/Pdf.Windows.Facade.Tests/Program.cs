@@ -27,6 +27,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("gathers multi-item selections and moves or deletes them as one edit", ContentSelectionParityTests.RunAsync),
     ("copies, cuts and pastes content selections at the cursor", ContentClipboardParityTests.RunAsync),
     ("refuses stale forbidden and core-refused image replacement", RefusesImageReplacementAsync),
+    ("replaces an image again before saving where the core may checkpoint", ImageReplaceAgainTests.RunAsync),
     ("retains image replacement after preview failure", KeepsImageReplacementAfterPreviewFailureAsync),
     ("inserts image content with shared placement and history", InsertsContentImageAsync),
     ("refuses invalid stale and forbidden image insertion", RefusesInvalidImageInsertionAsync),

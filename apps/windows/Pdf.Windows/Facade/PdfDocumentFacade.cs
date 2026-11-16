@@ -1771,6 +1771,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             Comments = core.Comments(Document),
             ContentBaseGeneration = core.ContentBaseGeneration(Document),
+            ContentEditsCanCheckpoint = core.ContentEditsCanCheckpoint(Document),
         };
 
         /// <summary>Closes every released snapshot once no print render can still be reading one.</summary>

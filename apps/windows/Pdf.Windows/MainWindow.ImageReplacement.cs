@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -7,9 +8,12 @@ namespace Pdf.Windows;
 /// keeping its position and size.
 /// </summary>
 /// <remarks>
-/// The core is asked before the picker opens: an image with a pending edit is
-/// refused without spending the reader's effort on choosing a file first.
-/// Every encoding is replaceable — undo restores the original exactly.
+/// The core is asked before the picker opens: an image with a pending edit in
+/// a session that may not checkpoint is refused without spending the reader's
+/// effort on choosing a file first. Anywhere else an image is replaced again
+/// before a save: the core writes the queue into a new in-memory base when it
+/// needs to, and the selection follows the image into it. Every encoding is
+/// replaceable — undo restores the original exactly.
 /// </remarks>
 public sealed partial class MainWindow
 {
@@ -57,6 +61,15 @@ public sealed partial class MainWindow
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
             AnnotationStatus.Text = "Image replaced. Save to keep the change.";
+            // A replacement that took a checkpoint renumbered the page: the
+            // selection follows the image to where the new base holds it, so
+            // the next Replace, drag or Delete names an image the core has.
+            if (await EnsurePageContentAsync(pageIndex) is { } content
+                && _session?.SessionId == sessionId && ReferenceEquals(_selectedContentImage, selected))
+            {
+                _selectedContentImage = ImageCardRules.Current(content.Images, selected);
+                if (_selectedContentImage is { } followed) _pendingImageEdits.Add((followed.PageIndex, followed.Id));
+            }
         }
         finally
         {

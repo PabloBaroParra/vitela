@@ -66,6 +66,16 @@ impl DocumentState {
         command: Command,
         apply: fn(&mut DocumentState, Command) -> Result<(), FfiError>,
     ) -> Result<(), FfiError> {
+        // An edit of an inline image whose replacement is still queued is
+        // accepted by the base but could not be replayed by a save: it is
+        // written into a new base first, or refused where none may be taken.
+        if pdf_save::checkpoint::edits_a_replaced_inline_image(self, &command) {
+            let refusal = FfiError::UnsupportedOperation {
+                detail: "save before editing an image whose replacement is not saved yet"
+                    .to_string(),
+            };
+            return pdf_save::checkpoint::record_after_checkpoint(self, command, refusal, apply);
+        }
         pdf_save::checkpoint::record(self, command, apply)
     }
 
