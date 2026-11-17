@@ -111,6 +111,7 @@ pub fn record_content_batch(
     sources: ImportedSources<'_, '_>,
     command: Command,
 ) -> Result<(), RecordError> {
+    let command = restyle::in_paint_order(command);
     if strands_inserted_line(document, &command) {
         return Err(save_first());
     }

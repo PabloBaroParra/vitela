@@ -34,6 +34,8 @@
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Paths.cs" Link="Facade\PdfDocumentFacade.Paths.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextBlocks.cs" Link="Facade\PdfDocumentFacade.TextBlocks.cs" />
     <Compile Include="..\Pdf.Windows\Facade\TextBlocks.cs" Link="Facade\TextBlocks.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.TextStyle.cs" Link="Facade\PdfDocumentFacade.TextStyle.cs" />
+    <Compile Include="..\Pdf.Windows\Facade\TextRunStyle.cs" Link="Facade\TextRunStyle.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ContentSelection.cs" Link="Facade\PdfDocumentFacade.ContentSelection.cs" />
     <Compile Include="..\Pdf.Windows\Facade\ContentSelection.cs" Link="Facade\ContentSelection.cs" />
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.ContentClipboard.cs" Link="Facade\PdfDocumentFacade.ContentClipboard.cs" />
@@ -74,6 +76,7 @@
     <Compile Include="..\Pdf.Windows\Viewer\ContentHitTest.cs" Link="Viewer\ContentHitTest.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageCardRules.cs" Link="Viewer\ImageCardRules.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\EditorRunSelection.cs" Link="Viewer\EditorRunSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentEditPump.cs" Link="Viewer\ContentEditPump.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\CompressionWording.cs" Link="Viewer\CompressionWording.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\FormFieldChoices.cs" Link="Viewer\FormFieldChoices.cs" />

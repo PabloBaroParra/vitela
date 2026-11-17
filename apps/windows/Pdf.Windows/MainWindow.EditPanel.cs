@@ -50,7 +50,7 @@ public sealed partial class MainWindow
 
         page.Children.Add(EditCard("Text", "EditTextCard",
             _editTextHint,
-            ContentEditButton, InsertTextButton, DeleteTextButton));
+            ContentEditButton, InsertTextButton, DeleteTextButton, BuildTextStyleToggles()));
         page.Children.Add(EditCard("Images", "EditImagesCard",
             _editImageHint,
             InsertImageButton, ReplaceImageButton, DeleteImageButton));
@@ -116,5 +116,6 @@ public sealed partial class MainWindow
             ? "Text run selected — delete it, or retype it in place."
             : block is not null ? TextBlockSelectedHint
             : "Click text to select it; double-click to retype it in place.";
+        UpdateTextStyleToggles();
     }
 }

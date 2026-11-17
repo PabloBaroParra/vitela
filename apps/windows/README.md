@@ -948,6 +948,24 @@ while typing are one undo step, that Delete in a block editor removes the block
 and one undo restores it, and that the save reopens with the retyped block as one
 run. As with the other smokes, the press is not a physical pointer.
 
+## Bold, italic and underline for existing text
+
+The Edit page's Text card has B, I and U toggles, and Ctrl+B / Ctrl+I / Ctrl+U
+do the same in content-edit mode. They act on the open retype editor's text,
+else the selected block, else every run of a multi-selection, and show the
+first run's look as the core reads it (a restyle not saved yet included). A
+bold or italic that is the run's own font, with no plain version on the page,
+shows pressed and disabled with a tooltip saying why. With text selected in the
+editor only the runs it covers whole are restyled; a selection inside a run, or
+part of text already typed in, is refused with a status message. Because this
+editor writes as the reader types, a restyle of its whole text commits it and
+opens it again over the restyled text in its new weight and slant; a restyle of
+some of its runs leaves the block selected.
+
+`Tests/TextStyleSmoke.targets` replaces the entry point the same way as the
+other smokes and writes `text-style-smoke.log`, driving the toggles through the
+real handlers and the real core and checking the save.
+
 ## Multi-item selection (B25 T-208)
 
 With Edit content armed, a press on empty page drags a dashed marquee that

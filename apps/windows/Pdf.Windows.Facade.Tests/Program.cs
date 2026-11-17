@@ -24,6 +24,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stamps a watermark as one undoable content edit over the chosen pages", WatermarkParityTests.RunAsync),
     ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
     ("groups text runs into blocks and moves, deletes and retypes them whole", TextBlockParityTests.RunAsync),
+    ("shows and toggles bold, italic and underline on existing text", TextStyleParityTests.RunAsync),
+    ("maps a retype editor selection onto the runs it covers whole", EditorRunSelectionTests.RunAsync),
     ("gathers multi-item selections and moves or deletes them as one edit", ContentSelectionParityTests.RunAsync),
     ("copies, cuts and pastes content selections at the cursor", ContentClipboardParityTests.RunAsync),
     ("refuses stale forbidden and core-refused image replacement", RefusesImageReplacementAsync),
@@ -249,6 +251,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("sends only the latest text typed during a write", OnlyTheLatestTextIsSentWhenKeystrokesArriveDuringAWrite)
     ,("lets the pump try again once refused text is retyped", RetypingAfterARefusalLetsThePumpTryAgain)
     ,("stops the typing pause before a commit waits", CommittingStopsThePauseBeforeItWaits)
+    ,("flushes text typed inside the pause and keeps the box open", FlushingWritesTypedTextAndKeepsTheBoxOpen)
     ,("aims the core at the PDFium shipped beside the app", AimsTheCoreAtTheBundledPdfium)
     ,("leaves an operator's PDFium override alone", LeavesAnExistingPdfiumOverrideAlone)
     ,("leaves resolution to the core when nothing is bundled", LeavesResolutionToTheCoreWithoutABundledPdfium)
@@ -4069,6 +4072,33 @@ static Task RetypingAfterARefusalLetsThePumpTryAgain()
         Assert(writer.Sent.Count == 2 && writer.Sent[1] == "Hello world", "and the new text goes out");
         Assert(!pump.Refused, "the latch is clear");
         Assert(refused.IsCompleted && ignored.IsCompleted && again.IsCompleted, "every pass finished");
+    });
+    return Task.CompletedTask;
+}
+
+static Task FlushingWritesTypedTextAndKeepsTheBoxOpen()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pause = new FakePause();
+        var pump = new ContentEditPump<FakeBox>(writer, pause);
+        var box = new FakeBox(0, 7, "Hello", "Hello") { Text = "Hello there" };
+        pump.Open(box);
+        pump.Schedule();
+        var flushed = pump.FlushAsync();
+        Assert(!pause.Running, "the pause cannot fire a write behind the flush");
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        Assert(flushed.IsCompleted && flushed.Result && writer.Sent.SequenceEqual(["Hello there"]), "the typed text landed");
+        Assert(pump.Box == box && !box.Closed, "and the box stays open");
+
+        box.Text = "Hello 世";
+        var refused = pump.FlushAsync();
+        writer.Answer(ContentWriteOutcome.Refused);
+        dispatcher.Drain();
+        Assert(refused.IsCompleted && !refused.Result, "a refusal is reported, so the caller stops");
+        Assert(pump.Box == box && !box.Closed, "with the box and its error left as they are");
     });
     return Task.CompletedTask;
 }

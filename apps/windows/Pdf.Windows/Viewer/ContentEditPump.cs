@@ -288,6 +288,19 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     }
 
     /// <summary>
+    /// Writes what the open editor says now, without the pause or closing it;
+    /// false when a write was refused or the editor is gone.
+    /// </summary>
+    public async Task<bool> FlushAsync()
+    {
+        pause.Stop();
+        var box = _box;
+        await DrainAsync();
+        await PumpAsync();
+        return box is not null && ReferenceEquals(_box, box) && !_refused;
+    }
+
+    /// <summary>
     /// Resolves the open editor: makes sure what it says has reached the
     /// document, then closes it. A click on another run, leaving the mode, and
     /// pressing Enter all arrive here.

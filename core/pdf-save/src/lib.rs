@@ -63,6 +63,7 @@ pub mod origin;
 pub mod preview;
 pub mod record;
 pub mod rewrite;
+pub mod run_look;
 pub mod security;
 pub mod strategy;
 
@@ -108,6 +109,7 @@ pub use origin::{
 pub use preview::session_preview;
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
+pub use run_look::pending_text_run_look_of;
 pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, SaveIntent};
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,

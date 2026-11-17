@@ -165,12 +165,14 @@ public sealed partial class MainWindow
         MakeEditorLookLikeThePage(box, ink);
         box.KeyDown += ContentEditor_KeyDown;
         box.TextChanged += ContentEditor_TextChanged;
+        box.SelectionChanged += ContentEditor_SelectionChanged;
 
         // Opening closes whatever was open — see `ContentEditPump.Open` for
         // why two of these overlap on a double click.
         var editor = new ContentEditor(pageIndex, run, box, mask, box.Text, block) { TakeOffThePage = CloseEditor };
         // Escape restores this retype, not the insertion it amended.
         _pump.Open(editor, preserveCommandOnAbandon: run.IsPendingInsertion);
+        DressEditorFromLook(editor);
         UpdateEditTextSelection();
         slot.Content.Children.Add(mask);
         slot.Content.Children.Add(box);
@@ -194,6 +196,14 @@ public sealed partial class MainWindow
 
     private void ContentEditor_KeyDown(object sender, KeyRoutedEventArgs args)
     {
+        // A read-only box still sees Enter and Escape: while a restyle runs in
+        // it, a commit or undo here would land on the restyle, not the typing.
+        if (_restyleInEditor && args.Key is VirtualKey.Enter or VirtualKey.Escape)
+        {
+            args.Handled = true;
+            return;
+        }
+
         // Whatever was refused is being retyped, so let the pump try again.
         _pump.Retry();
 
@@ -228,6 +238,7 @@ public sealed partial class MainWindow
     {
         editor.Box.KeyDown -= ContentEditor_KeyDown;
         editor.Box.TextChanged -= ContentEditor_TextChanged;
+        editor.Box.SelectionChanged -= ContentEditor_SelectionChanged;
         UpdateEditTextSelection();
         if (editor.PageIndex < _slots.Count)
         {
