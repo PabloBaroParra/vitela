@@ -30,6 +30,7 @@
             <KeyboardAccelerator Key="X" Modifiers="Control" Invoked="CutContent_Invoked" />
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
+            <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="CommandPalette_Invoked" />
         </Grid.KeyboardAccelerators>
         <Border Grid.Row="0" Grid.Column="0" Width="176" Style="{StaticResource RailContainerStyle}">
         <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
@@ -375,5 +376,28 @@
                            ToolTipService.ToolTip="{Binding Text, ElementName=SearchStatus}" />
             </StackPanel>
         </Border>
+        <!--
+            Command palette (Ctrl+K), B27: a layer over the whole window, not a
+            second window, so focus never crosses windows. The scrim takes any
+            click outside the card and closes the palette; the card keeps Tab
+            inside it. Behaviour lives in MainWindow.Palette.cs.
+        -->
+        <Grid x:Name="PaletteLayer" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed"
+              ProcessKeyboardAccelerators="PaletteLayer_ProcessKeyboardAccelerators">
+            <Rectangle x:Name="PaletteScrim" Fill="{ThemeResource VitelaWindowBackgroundBrush}" Opacity="0.55"
+                       PointerPressed="PaletteScrim_PointerPressed" />
+            <Border x:Name="PaletteCard" VerticalAlignment="Top" HorizontalAlignment="Stretch" MaxWidth="560" Margin="16,56,16,16" Padding="8"
+                    Background="{ThemeResource VitelaSurfaceBrush}" BorderBrush="{ThemeResource VitelaStrongSeparatorBrush}" BorderThickness="1" CornerRadius="10"
+                    TabFocusNavigation="Cycle" PreviewKeyDown="PaletteCard_PreviewKeyDown" AutomationProperties.Name="Command palette">
+                <StackPanel Spacing="6">
+                    <TextBox x:Name="PaletteSearchBox" PlaceholderText="Search commands…" AutomationProperties.Name="Search commands"
+                             TextChanged="PaletteSearchBox_TextChanged" />
+                    <ListView x:Name="PaletteList" MaxHeight="380" SelectionMode="Single" IsItemClickEnabled="True"
+                              ItemClick="PaletteList_ItemClick" AutomationProperties.Name="Commands" />
+                    <TextBlock x:Name="PaletteEmpty" Text="No command matches." Visibility="Collapsed" Margin="12"
+                               Foreground="{ThemeResource VitelaTextSecondaryBrush}" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

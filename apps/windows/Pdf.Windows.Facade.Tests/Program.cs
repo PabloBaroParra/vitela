@@ -131,6 +131,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("crops a drawn signature to its ink as a transparent PNG", DrawnSignatureTests.RunAsync)
     ,("remembers one signature atomically on this PC", SignatureStoreTests.RunAsync)
     ,("hides removed recent cards until they are reopened", HiddenRecentsTests.RunAsync)
+    ,("ranks palette commands accent-insensitively and keeps session recents first", PaletteMatcherTests.RunAsync)
+    ,("lists every palette command once with synonyms, shortcuts and its button's gate", PaletteCatalogTests.RunAsync)
     ,("pans with Space+left or middle drag, leaving plain presses and text fields alone", HandToolTests.RunAsync)
     ,("publishes restyled annotation colors", PublishesRestyledAnnotationColorAsync)
     ,("steps backward through annotations without changing the document", StepsBackwardThroughAnnotations)

@@ -61,6 +61,13 @@ public sealed partial class MainWindow
         }
 
         if (_isBusy || _organizeBusy || _dialogOpen) return;
+        // Every door (rail, Home tool, palette) refuses with the palette's sentence.
+        if (PaletteCatalog.OrganizeOpenRefusal(_session.ContentEditingAllowed) is { } refusal)
+        {
+            OrganizeButton.IsChecked = false;
+            AnnotationStatus.Text = refusal;
+            return;
+        }
         var sessionId = _session.SessionId;
 
         // An open text editor has writes in flight against a page position

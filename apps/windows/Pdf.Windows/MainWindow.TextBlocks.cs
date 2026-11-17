@@ -265,7 +265,7 @@ public sealed partial class MainWindow
         var delete = new KeyboardAccelerator { Key = global::Windows.System.VirtualKey.Delete };
         delete.Invoked += async (_, args) =>
         {
-            if (TextInputHasFocus() || !_contentEditMode || _pump.Box is not null) return;
+            if (TextInputHasFocus() || IsPaletteOpen || !_contentEditMode || _pump.Box is not null) return;
             if (_contentSelection is not null)
             {
                 args.Handled = true;
@@ -292,7 +292,7 @@ public sealed partial class MainWindow
         var retype = new KeyboardAccelerator { Key = global::Windows.System.VirtualKey.F2 };
         retype.Invoked += async (_, args) =>
         {
-            if (TextInputHasFocus() || _selectedTextBlock is null) return;
+            if (TextInputHasFocus() || IsPaletteOpen || _selectedTextBlock is null) return;
             args.Handled = true;
             await RetypeSelectedTextBlockAsync();
         };
@@ -301,7 +301,7 @@ public sealed partial class MainWindow
         var deselect = new KeyboardAccelerator { Key = global::Windows.System.VirtualKey.Escape };
         deselect.Invoked += (_, args) =>
         {
-            if (TextInputHasFocus() || _contentSelection is null) return;
+            if (TextInputHasFocus() || IsPaletteOpen || _contentSelection is null) return;
             args.Handled = true;
             ClearContentSelection();
             AnnotationStatus.Text = "Selection cleared.";

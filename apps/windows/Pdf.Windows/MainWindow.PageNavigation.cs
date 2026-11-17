@@ -78,7 +78,8 @@ public sealed partial class MainWindow
 
     private void NavigateFromToolbar(int index)
     {
-        if (_session is not { PageCount: > 0 } || _isBusy || _organizing || _dialogOpen
+        // Ctrl+Home/End/Up/Down reach these buttons as accelerators: not behind the palette.
+        if (_session is not { PageCount: > 0 } || _isBusy || _organizing || _dialogOpen || IsPaletteOpen
             || PageScroller.Visibility != Visibility.Visible) return;
         NavigateToPage(index);
     }

@@ -62,7 +62,12 @@ public sealed partial class MainWindow
         args.Handled = true;
     }
 
-    private void Window_DragOver(object sender, DragEventArgs args) => AcceptFileDrop(args);
+    /// <summary>Nothing is accepted over the open command palette: it is modal.</summary>
+    private void Window_DragOver(object sender, DragEventArgs args)
+    {
+        if (IsPaletteOpen) return;
+        AcceptFileDrop(args);
+    }
 
     /// <summary>
     /// A drop that missed every page. Only a PDF has an unambiguous meaning
@@ -72,7 +77,7 @@ public sealed partial class MainWindow
     private async void Window_Drop(object sender, DragEventArgs args)
     {
         args.Handled = true;
-        if (_isBusy || _shellPickingFile || _dialogOpen) return;
+        if (_isBusy || _shellPickingFile || _dialogOpen || IsPaletteOpen) return;
 
         if (await ClaimDroppedFileAsync(args) is not { } file)
         {
@@ -105,7 +110,7 @@ public sealed partial class MainWindow
     private async Task DropOnPageAsync(PageSlot slot, int pageIndex, DragEventArgs args)
     {
         args.Handled = true;
-        if (_isBusy || _shellPickingFile || _dialogOpen) return;
+        if (_isBusy || _shellPickingFile || _dialogOpen || IsPaletteOpen) return;
 
         var sessionId = _session?.SessionId;
         if (sessionId is null) return;
