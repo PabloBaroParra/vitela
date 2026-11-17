@@ -1051,3 +1051,95 @@ write-default-name = document
 # $name (String) - the signed document's file name without its extension.
 sign-suggested-name = { $name }-signed
 
+## Document properties: date validation (field names are localized arguments)
+
+metadata-year = year
+metadata-month = month
+metadata-day = day
+metadata-hour = hour
+metadata-minute = minute
+metadata-second = second
+# $field (String) - a localized field name; $value, $min, $max (String) - the typed number and its bounds.
+metadata-component-range = { $field } { $value } is out of range ({ $min }-{ $max })
+
+## Document properties: Windows only date validation
+
+# Keep YYYY-MM-DD as written: it is the accepted date format.
+metadata-date-format = expected YYYY-MM-DD
+# Keep HH:MM and HH:MM:SS as written: they are the accepted time formats.
+metadata-time-format = expected HH:MM or HH:MM:SS
+# $field (String) - a localized field name.
+metadata-component-not-number = { $field } is not a number
+
+## Refusals the facade writes, shared with the GTK shell
+
+refusal-text-forbidden = This document does not permit copying or extracting its text.
+annotate-color-stale = Color selection is no longer current.
+edit-text-moved-unsaved = This text was moved and not yet saved — save and reopen before retyping it.
+extract-no-pages = This document has no pages to extract.
+# Keep "1-3,7" as typed: it is an example of the accepted page-range syntax.
+extract-empty-selection = Type which pages to extract, for example 1-3,7.
+export-document-no-pages = This document has no pages to export.
+split-one-page = A document of one page cannot be split.
+watermark-no-pages = This document has no pages to stamp.
+watermark-text-required = Type the text to stamp on the pages.
+watermark-picture-required = Choose a PNG or JPEG picture to stamp on the pages.
+watermark-invalid-picture = That file could not be read as a PNG or JPEG picture. Choose another one.
+
+## Refusals and failures the facade writes: Windows only. A sentence the core
+## wrote itself (a page range it could not read, why a document cannot be
+## imported, signed or compressed, an import warning) is passed through and
+## stays English, as on Linux.
+
+error-document-unavailable = The document is no longer available.
+error-page-unavailable = The page is no longer available.
+error-document-changed = The document changed. Please try again.
+error-document-changed-reopen = The document changed. Please reopen the dialog.
+error-document-changed-click-again = The document changed. Click the text again.
+error-password-required = This document requires a password.
+error-unsupported = This document or action is not supported.
+error-invalid-image = The image is corrupt or unsupported.
+# $character (String) - the first character the font cannot show.
+error-font-gap = This text's font cannot show "{ $character }". Try different characters.
+error-font-gap-unknown = This text's font cannot show one of those characters.
+# Keep "1-3,7" as typed: it is an example of the accepted page-range syntax.
+error-page-selection = Those pages could not be read. Type them like 1-3,7.
+error-request-failed = The requested action could not be completed.
+error-signatures-invalidated = Saving would break this document's digital signature, so it was not saved.
+error-processing-failed = The document could not be processed.
+open-unsaved-refusal-open = Save or discard the unsaved changes before opening another document.
+open-unsaved-refusal-open-annotations = Save or undo the pending annotation changes before opening another document.
+open-unsaved-refusal-create = Save or discard the unsaved changes before creating another document.
+open-unsaved-refusal-create-annotations = Save or undo the pending annotation changes before creating another document.
+annotate-style-forbidden = This document does not permit editing annotations.
+annotate-paste-not-finite = Paste coordinates must be finite.
+selection-offsets-not-finite = Selection offsets must be finite.
+edit-image-position-invalid = Image coordinates must be finite.
+edit-image-size-invalid = Image dimensions must be finite and greater than zero.
+edit-shape-bounds-invalid = Shape bounds must be finite and not negative.
+edit-text-position-invalid = Text coordinates must be finite.
+edit-insert-text-invalid = Enter a nonempty single line of text.
+edit-insert-text-geometry-invalid = Coordinates must be finite and text size must be between 1 and 72 pt.
+forms-move-forbidden = This document does not permit moving form fields.
+forms-resize-forbidden = This document does not permit resizing form fields.
+forms-rename-forbidden = This document does not permit renaming form fields.
+forms-style-forbidden = This document does not permit styling form fields.
+forms-delete-forbidden = This document does not permit deleting form fields.
+forms-create-forbidden = This document does not permit creating form fields.
+forms-position-invalid = Enter finite field coordinates.
+forms-size-invalid = Enter finite, positive field dimensions.
+forms-font-size-invalid = Enter a font size between 1 and 72 pt.
+forms-font-unsupported = Choose a supported font.
+organize-insert-blank-forbidden = This document does not allow adding a blank page.
+organize-pages-forbidden = This document does not allow its pages to be rearranged, rotated or removed.
+protect-changes-forbidden = This document does not permit protection changes.
+extract-forbidden = This document does not permit extracting its pages.
+extract-rewrite-blocked = Extracting pages rewrites the whole file, which this document's encryption or available credentials do not allow.
+split-rewrite-blocked = Splitting pages rewrites the whole file, which this document's encryption or available credentials do not allow.
+export-forbidden = This document does not permit extracting its pages as images.
+# $min, $max (String) - the accepted resolution range.
+export-dpi-out-of-range = Choose a resolution between { $min } and { $max } DPI.
+# $page (Number) - one-based page; $dpi (String) - the chosen resolution.
+export-page-oversized = Page { $page } is too large to export at { $dpi } DPI. Choose a lower resolution.
+# Keep "1-3,7" as typed: it is an example of the accepted page-range syntax.
+watermark-empty-selection = Type which pages to stamp, for example 1-3,7.

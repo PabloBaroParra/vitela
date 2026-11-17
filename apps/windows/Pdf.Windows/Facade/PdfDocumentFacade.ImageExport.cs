@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -28,7 +30,7 @@ public sealed partial class PdfDocumentFacade
         if (request.Dpi is < ImageExportLimits.MinDpi or > ImageExportLimits.MaxDpi)
         {
             return OperationResult<ImageExportPlan>.Failure(CreateError(
-                $"Choose a resolution between {ImageExportLimits.MinDpi} and {ImageExportLimits.MaxDpi} DPI.",
+                I18n.T("export-dpi-out-of-range", ("min", ImageExportLimits.MinDpi.ToString()), ("max", ImageExportLimits.MaxDpi.ToString())),
                 PdfCoreError.InvalidSaveRequest, "export_plan", sessionId, null));
         }
 
@@ -42,7 +44,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<ImageExportPlan>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "export_plan", sessionId, null));
+                    return OperationResult<ImageExportPlan>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "export_plan", sessionId, null));
                 }
             }
 
@@ -70,13 +72,13 @@ public sealed partial class PdfDocumentFacade
 
         if (!_core.TextExtractionAllowed(document))
         {
-            return Refuse("This document does not permit extracting its pages as images.", PdfCoreError.UnsupportedOperation);
+            return Refuse(I18n.T("export-forbidden"), PdfCoreError.UnsupportedOperation);
         }
 
         var total = document.PageCount;
         if (total == 0)
         {
-            return Refuse("This document has no pages to export.", PdfCoreError.PageIndexOutOfBounds);
+            return Refuse(I18n.T("export-document-no-pages"), PdfCoreError.PageIndexOutOfBounds);
         }
 
         IReadOnlyList<uint> pages = request.Pages switch
@@ -90,7 +92,7 @@ public sealed partial class PdfDocumentFacade
 
         if (_core.FirstPageTooLargeToExport(document, pages, request.Dpi) is { } oversized)
         {
-            return Refuse($"Page {oversized + 1} is too large to export at {request.Dpi} DPI. Choose a lower resolution.", PdfCoreError.RenderFailed);
+            return Refuse(I18n.T("export-page-oversized", ("page", oversized + 1), ("dpi", request.Dpi.ToString())), PdfCoreError.RenderFailed);
         }
 
         var format = CoreFormat(request.Format);
@@ -114,7 +116,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "export_prepare", sessionId, null));
+                    return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "export_prepare", sessionId, null));
                 }
             }
 
@@ -187,7 +189,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<byte[]>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "export_page", sessionId, pageIndex));
+                    return OperationResult<byte[]>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "export_page", sessionId, pageIndex));
                 }
             }
 

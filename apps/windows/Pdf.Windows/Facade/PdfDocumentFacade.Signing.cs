@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -10,7 +12,7 @@ public sealed partial class PdfDocumentFacade
             SessionEntry session;
             lock (_gate)
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<SigningState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "signing_state", sessionId, null));
+                    return OperationResult<SigningState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "signing_state", sessionId, null));
             return OperationResult<SigningState>.Success(await Task.Run(() => new SigningState(sessionId,
                 _core.SigningRefusal(session.Document), _core.ExtractSourceIsSigned(session.Document))).ConfigureAwait(false));
         }
@@ -50,7 +52,7 @@ public sealed partial class PdfDocumentFacade
             SessionEntry session;
             lock (_gate)
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "sign", sessionId, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "sign", sessionId, null));
             var refusal = _core.SigningRefusal(session.Document);
             if (refusal is not null)
                 return OperationResult<DocumentSession>.Failure(CreateError(Sentence(refusal), PdfCoreError.UnsupportedOperation, "sign", sessionId, null));

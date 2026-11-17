@@ -8,6 +8,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("defines every message key the shell looks up", LocalizationTests.DefinesEveryKeyTheShellUsesAsync),
     ("speaks English in tests whatever the machine language", LocalizationTests.SpeaksEnglishByDefaultInTestsAsync),
     ("formats Fluent arguments and plurals in English and Spanish", LocalizationTests.FormatsArgumentsAndPluralsAsync),
+    ("localizes the sentences the facade writes itself", LocalizationTests.LocalizesFacadeAuthoredTextAsync),
     ("restores the previous language when a guard ends", LocalizationTests.RestoresTheLanguageWhenTheGuardEndsAsync),
     ("falls back to English per message and to the key when missing", LocalizationTests.FallsBackPerMessageAsync),
     ("speaks English when the Spanish translation does not build", LocalizationTests.FallsBackToEnglishWhenSpanishDoesNotBuildAsync),

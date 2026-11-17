@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -37,9 +39,9 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
-                    return OperationResult<DocumentInfo>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "document_info", sessionId, null));
+                    return OperationResult<DocumentInfo>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "document_info", sessionId, null));
                 if (!session.ContentEditingAllowed)
-                    return OperationResult<DocumentInfo>.Failure(CreateError("This document does not permit metadata changes.", PdfCoreError.UnsupportedOperation, "document_info", sessionId, null));
+                    return OperationResult<DocumentInfo>.Failure(CreateError(I18n.T("metadata-forbidden"), PdfCoreError.UnsupportedOperation, "document_info", sessionId, null));
                 try
                 {
                     var before = _core.ReadDocumentInfo(session.Document);
@@ -53,7 +55,7 @@ public sealed partial class PdfDocumentFacade
                 }
                 catch (FormatException error)
                 {
-                    return OperationResult<DocumentInfo>.Failure(new UserSafeError($"Invalid date, reverted: {error.Message}", "metadata-date-validation"));
+                    return OperationResult<DocumentInfo>.Failure(new UserSafeError(I18n.T("metadata-invalid-date", ("error", error.Message)), "metadata-date-validation"));
                 }
                 catch (PdfCoreException error)
                 {

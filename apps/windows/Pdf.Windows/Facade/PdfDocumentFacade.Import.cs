@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -21,7 +23,7 @@ public sealed partial class PdfDocumentFacade
         lock (_gate)
         {
             if (!TryGetCurrentSession(sessionId, out var session))
-                return Task.FromResult(OperationResult<string?>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "import_refusal", sessionId, null)));
+                return Task.FromResult(OperationResult<string?>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "import_refusal", sessionId, null)));
             return Task.FromResult(OperationResult<string?>.Success(_core.ImportRefusalOf(session.Document) is { } refusal ? Sentence(refusal) : null));
         }
     }
@@ -41,7 +43,7 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<ImportedPdfs>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<ImportedPdfs>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
             }
 
             PdfCoreBatchImportReport report;

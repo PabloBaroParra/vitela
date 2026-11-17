@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -30,7 +32,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<uint>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "print_prepare", sessionId, null));
+                    return OperationResult<uint>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "print_prepare", sessionId, null));
                 }
             }
 
@@ -41,7 +43,7 @@ public sealed partial class PdfDocumentFacade
                 if (session.Retired)
                 {
                     snapshot?.Dispose();
-                    return OperationResult<uint>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "print_prepare", sessionId, null));
+                    return OperationResult<uint>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "print_prepare", sessionId, null));
                 }
 
                 ReleasePrintLocked(session);
@@ -95,13 +97,13 @@ public sealed partial class PdfDocumentFacade
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "print_render", sessionId, pageIndex)));
+                return Task.FromResult(RenderResult.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "print_render", sessionId, pageIndex)));
             }
 
             var document = session.PrintDocument;
             if (pageIndex >= document.PageCount)
             {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, "print_render", sessionId, pageIndex)));
+                return Task.FromResult(RenderResult.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.PageIndexOutOfBounds, "print_render", sessionId, pageIndex)));
             }
 
             session.InFlightPrints++;

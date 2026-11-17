@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -15,17 +17,17 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit resizing form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-resize-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(replacement.X) || !double.IsFinite(replacement.Y) || !double.IsFinite(replacement.Width)
                     || !double.IsFinite(replacement.Height) || replacement.Width <= 0 || replacement.Height <= 0)
-                    return OperationResult<AnnotationState>.Failure(CreateError("Enter finite, positive field dimensions.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-size-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field?.Rect is not { } rect || new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) != expected)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, operation, sessionId, null));
                     if (expected == replacement) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.ResizeFormField(fieldId,

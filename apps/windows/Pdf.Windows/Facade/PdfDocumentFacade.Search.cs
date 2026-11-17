@@ -1,14 +1,16 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
 {
-    internal const string TextExtractionRefusalMessage = "This document does not permit copying or extracting its text.";
+    internal static string TextExtractionRefusalMessage => I18n.T("refusal-text-forbidden");
     public Task<SearchResult> SearchAsync(string sessionId, string query)
     {
         lock (_gate)
         {
             if (!TryGetCurrentSession(sessionId, out var session))
-                return Task.FromResult(SearchResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "search", sessionId, null)));
+                return Task.FromResult(SearchResult.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "search", sessionId, null)));
             try
             {
                 // Query the core's extraction permission, never annotation/content editing.

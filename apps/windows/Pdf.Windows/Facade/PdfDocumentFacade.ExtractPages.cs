@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -36,7 +38,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<ExtractPagesPlan>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "extract_plan", sessionId, null));
+                    return OperationResult<ExtractPagesPlan>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "extract_plan", sessionId, null));
                 }
             }
 
@@ -68,23 +70,23 @@ public sealed partial class PdfDocumentFacade
         // for the full rationale, shared verbatim by both shells.
         if (!_core.TextExtractionAllowed(document))
         {
-            return Refuse("This document does not permit extracting its pages.", PdfCoreError.UnsupportedOperation);
+            return Refuse(I18n.T("extract-forbidden"), PdfCoreError.UnsupportedOperation);
         }
         if (!_core.FullRewriteAllowed(document))
         {
             return Refuse(
-                "Extracting pages rewrites the whole file, which this document's encryption or available credentials do not allow.",
+                I18n.T("extract-rewrite-blocked"),
                 PdfCoreError.UnsupportedOperation);
         }
 
         var total = document.PageCount;
         if (total == 0)
         {
-            return Refuse("This document has no pages to extract.", PdfCoreError.PageIndexOutOfBounds);
+            return Refuse(I18n.T("extract-no-pages"), PdfCoreError.PageIndexOutOfBounds);
         }
         if (string.IsNullOrWhiteSpace(request.PageRange))
         {
-            return Refuse("Type which pages to extract, for example 1-3,7.", PdfCoreError.InvalidPageSelection);
+            return Refuse(I18n.T("extract-empty-selection"), PdfCoreError.InvalidPageSelection);
         }
 
         IReadOnlyList<uint> pages;
@@ -115,7 +117,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<byte[]>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "extract", sessionId, null));
+                    return OperationResult<byte[]>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "extract", sessionId, null));
                 }
             }
 

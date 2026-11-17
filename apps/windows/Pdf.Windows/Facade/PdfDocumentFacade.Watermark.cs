@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -58,19 +60,19 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return Refuse("The document is no longer available.", PdfCoreError.DocumentNotFound);
+                    return Refuse(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound);
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return Refuse("This document does not permit content changes.", PdfCoreError.UnsupportedOperation);
+                    return Refuse(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation);
                 if (request.Mark is TextMark { Text: var typed } && string.IsNullOrWhiteSpace(typed))
-                    return Refuse("Type the text to stamp on the pages.", PdfCoreError.UnsupportedOperation);
+                    return Refuse(I18n.T("watermark-text-required"), PdfCoreError.UnsupportedOperation);
                 if (request.Mark is PictureMark { Image.Length: 0 })
-                    return Refuse("Choose a PNG or JPEG picture to stamp on the pages.", PdfCoreError.InvalidImage);
+                    return Refuse(I18n.T("watermark-picture-required"), PdfCoreError.InvalidImage);
 
                 var total = session.Document.PageCount;
                 if (total == 0)
-                    return Refuse("This document has no pages to stamp.", PdfCoreError.PageIndexOutOfBounds);
+                    return Refuse(I18n.T("watermark-no-pages"), PdfCoreError.PageIndexOutOfBounds);
                 if (request.Pages == WatermarkPages.Custom && string.IsNullOrWhiteSpace(request.PageRange))
-                    return Refuse("Type which pages to stamp, for example 1-3,7.", PdfCoreError.InvalidPageSelection);
+                    return Refuse(I18n.T("watermark-empty-selection"), PdfCoreError.InvalidPageSelection);
                 pages = request.Pages switch
                 {
                     WatermarkPages.All => [.. Enumerable.Range(0, (int)total).Select(page => (uint)page)],
@@ -91,7 +93,7 @@ public sealed partial class PdfDocumentFacade
         // reader picked a file, and that is the thing to change.
         catch (PdfCoreException error) when (error.Category == PdfCoreError.InvalidImage)
         {
-            return Refuse("That file could not be read as a PNG or JPEG picture. Choose another one.", PdfCoreError.InvalidImage);
+            return Refuse(I18n.T("watermark-invalid-picture"), PdfCoreError.InvalidImage);
         }
         catch (PdfCoreException error) { return OperationResult<WatermarkAdded>.Failure(MapError(error, operation, sessionId, null)); }
         catch (Exception error) { return OperationResult<WatermarkAdded>.Failure(MapUnexpected(error, operation, sessionId, null)); }

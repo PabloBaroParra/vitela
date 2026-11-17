@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -11,11 +13,11 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
-                    return OperationResult<ImageInsertionTarget>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
+                    return OperationResult<ImageInsertionTarget>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<ImageInsertionTarget>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
+                    return OperationResult<ImageInsertionTarget>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
                 if (pageIndex >= session.Document.PageCount)
-                    return OperationResult<ImageInsertionTarget>.Failure(CreateError("The page is no longer available.", PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
+                    return OperationResult<ImageInsertionTarget>.Failure(CreateError(I18n.T("error-page-unavailable"), PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
                 return OperationResult<ImageInsertionTarget>.Success(new(sessionId, session.EditRevision, pageIndex));
             }
         }
@@ -37,13 +39,13 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, target.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, target.PageIndex));
                 if (target.SessionId != sessionId || target.Revision != session.EditRevision)
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please reopen the dialog.", PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed-reopen"), PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
                 if (!double.IsFinite(x) || !double.IsFinite(y))
-                    return OperationResult<AnnotationState>.Failure(CreateError("Image coordinates must be finite.", PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("edit-image-position-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, target.PageIndex));
             }
             var bounds = await Task.Run(() => _core.StampPlacement(source, x, y)).ConfigureAwait(false);
             lock (_gate)

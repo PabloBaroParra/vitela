@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -11,19 +13,19 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
-                    return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "retype_target", sessionId, run.PageIndex));
+                    return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "retype_target", sessionId, run.PageIndex));
                 // Inline content caches survive typing and unrelated edits. Read
                 // current movement from the core rather than rejecting their old revision.
                 if (run.SessionId is not null && run.SessionId != sessionId)
-                    return OperationResult<bool>.Failure(CreateError("The document changed. Click the text again.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                    return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-changed-click-again"), PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<bool>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                    return OperationResult<bool>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
                 // A moved run is retyped after the core writes the move into
                 // a new in-memory base; only a session it cannot do that for
                 // still needs the reader to save first.
                 if (_core.TextRunHasPendingMove(session.Document, run.PageIndex, run.Id)
                     && !_core.ContentEditsCanCheckpoint(session.Document))
-                    return OperationResult<bool>.Failure(CreateError("This text was moved and not yet saved — save and reopen before retyping it.", PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
+                    return OperationResult<bool>.Failure(CreateError(I18n.T("edit-text-moved-unsaved"), PdfCoreError.UnsupportedOperation, "retype_target", sessionId, run.PageIndex));
                 return OperationResult<bool>.Success(true);
             }
         }
@@ -42,9 +44,9 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<IReadOnlyList<ContentTextRun>>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "text_edit_targets", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentTextRun>>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "text_edit_targets", sessionId, pageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<IReadOnlyList<ContentTextRun>>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "text_edit_targets", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentTextRun>>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, "text_edit_targets", sessionId, pageIndex));
             }
             var content = await Task.Run(() => _core.ReadPageContent(session.Document, pageIndex)).ConfigureAwait(false);
             return OperationResult<IReadOnlyList<ContentTextRun>>.Success(
@@ -79,13 +81,13 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, run.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, run.PageIndex));
                 if (run.SessionId != sessionId || run.Revision != session.EditRevision)
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please reopen the dialog.", PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed-reopen"), PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
                 if (target is not null && (!double.IsFinite(target.X) || !double.IsFinite(target.Y)))
-                    return OperationResult<AnnotationState>.Failure(CreateError("Text coordinates must be finite.", PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("edit-text-position-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, run.PageIndex));
                 if (target == run.Source.Bbox)
                     return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                 _core.ApplyEdit(session.Document, target is null ? new PdfCoreEdit.RemoveTextRun(run.Source) : new PdfCoreEdit.MoveTextRun(run.Source, target));

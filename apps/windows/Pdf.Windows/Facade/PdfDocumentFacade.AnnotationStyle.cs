@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -11,16 +13,16 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_style", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "annotation_style", sessionId, null));
                 try
                 {
                     var state = session.AnnotationState(_core);
                     var current = state.Annotations.SingleOrDefault(a => a.Id == before.Id);
                     if (current is null || (current with { Points = before.Points }) != before
                         || !current.Points.SequenceEqual(before.Points))
-                        return OperationResult<AnnotationState>.Failure(CreateError("Color selection is no longer current.", PdfCoreError.UnsupportedOperation, "annotation_style", sessionId, before.PageIndex));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("annotate-color-stale"), PdfCoreError.UnsupportedOperation, "annotation_style", sessionId, before.PageIndex));
                     if (!state.EditingAllowed)
-                        return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit editing annotations.", PdfCoreError.UnsupportedOperation, "annotation_style", sessionId, before.PageIndex));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("annotate-style-forbidden"), PdfCoreError.UnsupportedOperation, "annotation_style", sessionId, before.PageIndex));
                     if (current.Color == color) return OperationResult<AnnotationState>.Success(state);
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.Restyle(before.Id, new PdfCoreColor(color.R, color.G, color.B)));
                     session.EditRevision++;

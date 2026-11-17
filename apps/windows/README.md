@@ -77,6 +77,15 @@ define exactly the same ids.
 - **Kept as-is in every language**, as on Linux: technical detail from the core
   or the OS (passed into a localized sentence as an argument), the product
   name, keyboard shortcuts, and number formats such as `3 / 12` or `100%`.
+- **The facade speaks too.** Every refusal or failure sentence the C# facade
+  writes itself (`UserSafeError.Message`: permission refusals, stale-document
+  failures, the core error categories it names, date validation, the new
+  document's name) goes through `I18n.T`. A sentence the Rust core wrote and
+  the facade passes through stays English, as on Linux: a page range or cut
+  list the core could not read, why a document cannot be imported, signed or
+  compressed, and Add PDFs warnings. So does an exception message no one is
+  shown (the Organize resolvers', the signing key callback's), and the sample's
+  file name, `Vitela sample.pdf`.
 
 A missing message falls back to English, and one missing from English renders
 as its key and is logged (`Trace`). The facade suite always starts in English,
