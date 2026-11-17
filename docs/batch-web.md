@@ -92,7 +92,7 @@ tests junto al módulo que prueban.
 | 2 | Organize + guardar | Reordenar, rotar, borrar, importar PDFs, descargar. |
 | 3 | Anotar + formularios | Paridad con el panel de anotación y el de rellenado. |
 | 4 | Editar contenido, comprimir, proteger, exportar imágenes | Paridad con Linux/Windows. |
-| 5 | PWA + deploy estático | Instalable y funcional offline tras la primera carga. |
+| 5 | PWA + deploy estático | Instalable y funcional offline tras la primera carga. Hosting decidido (2026-11-17): **Cloudflare Pages**, Direct Upload desde `.github/workflows/web-deploy.yml` (solo cuando el push cambia la web o un crate del que se compila el motor WASM, calculado con `cargo metadata`; Playwright en los tres navegadores sobre el mismo build antes de publicar). |
 
 Las tareas T-xxx de cada fase se desglosan al arrancarla; solo la fase 0 se detalla ya,
 porque su resultado puede cambiar todas las demás.
