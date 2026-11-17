@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -49,7 +50,7 @@ public sealed partial class MainWindow
         {
             StopPlacingFormField();
             RedrawAnnotations();
-            FormFieldsStatus.Text = "Edit forms disarmed.";
+            FormFieldsStatus.Text = I18n.T("forms-mode-disarmed");
             return;
         }
         if (!EditFormsButton.IsEnabled)
@@ -71,7 +72,7 @@ public sealed partial class MainWindow
         _formEditMode = true;
         EditFormsButton.IsChecked = true;
         RedrawAnnotations();
-        FormFieldsStatus.Text = "Edit forms armed — pick a field type to place, or click an existing field to select it.";
+        FormFieldsStatus.Text = I18n.T("forms-mode-armed");
     }
 
     private void SelectFormField(ulong? id)
@@ -125,7 +126,7 @@ public sealed partial class MainWindow
         SetBusy(true);
         try
         {
-            var color = await AskColorAsync("Choose field color", style.Color);
+            var color = await AskColorAsync(I18n.T("forms-color-title"), style.Color);
             if (color is null || _session?.SessionId != sessionId || _selectedFormFieldId != field.Id) return;
             if (color != style.Color) await CommitFieldColorAsync(sessionId, field, style, color);
         }

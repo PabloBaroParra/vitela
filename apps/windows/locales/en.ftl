@@ -491,6 +491,7 @@ edit-clipboard-pasted-count =
 edit-no-content-images = The visible page has no editable content images.
 edit-image-choice = Image
 # $index (Number) - one-based image number; $x, $y (String) - coordinates in points, already formatted.
+# Spanish separates the two with a semicolon: its decimal comma would make "X 1,5, Y 3" ambiguous.
 edit-image-choice-item = Image { $index }: X { $x }, Y { $y } pt
 # $page (Number) - one-based page number.
 edit-image-move-title = Move image — page { $page }
@@ -515,3 +516,496 @@ comments-page = Page { $page }
 # $page (Number) - one-based page number.
 comments-read-title = Comment — page { $page }
 comments-close = Close
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Text field
+forms-kind-checkbox = Checkbox
+forms-kind-radio-group = Radio group
+forms-kind-dropdown = Dropdown
+forms-edit-mode = Edit forms
+forms-color = Color
+forms-delete-field = Delete field
+forms-fill-placeholder = Open a PDF with form fields to fill them in, or place one in Edit forms mode.
+forms-heading-fields = Form fields
+forms-heading-style = Field style
+forms-heading-fill = Fill fields
+forms-unsupported-field = Unsupported field
+
+## Forms: edit mode and field results
+
+forms-mode-armed = Edit forms armed — pick a field type to place, or click an existing field to select it.
+forms-mode-disarmed = Edit forms disarmed.
+forms-deleted = Field deleted. Save to keep the change, or undo to bring it back.
+forms-moved = Field moved. Changes are pending save.
+forms-resized = Field resized. Changes are pending save.
+forms-color-title = Choose field color
+
+## Forms: Windows only (style controls, field names, placement hints and
+## statuses that end in "Save to keep the change.")
+
+forms-style-font = Font
+forms-style-size = Size (pt)
+# "Delete" is the keyboard key that also deletes the field; keep it as-is.
+forms-delete-field-tooltip = Delete the selected field (Delete)
+forms-fill-forbidden = This document does not permit filling in its form.
+# $name (String) - the field's name, verbatim.
+forms-field-name = Field name: { $name }
+forms-field-name-tooltip = Type to rename. Enter accepts; Escape cancels.
+forms-place-text-hint = Click or drag on a page to place a text field.
+forms-place-checkbox-hint = Click or drag on a page to place a checkbox.
+forms-place-radio-group-hint = Click or drag on a page to place a radio group.
+forms-place-dropdown-hint = Click or drag on a page to place a dropdown.
+forms-placed-text = Text field placed. Save to keep the change.
+forms-placed-checkbox = Checkbox placed. Save to keep the change.
+forms-placed-radio-group = Radio group placed. Save to keep the change.
+forms-placed-dropdown = Dropdown placed. Save to keep the change.
+forms-renamed-save = Field renamed. Save to keep the change.
+forms-moved-save = Field moved. Save to keep the change.
+forms-resized-save = Field resized. Save to keep the change.
+forms-font-size-changed-save = Field font size changed. Save to keep the change.
+forms-font-changed-save = Field font changed. Save to keep the change.
+forms-color-changed-save = Field text color changed. Save to keep the change.
+forms-filled-save = Field filled in. Save to keep the change.
+
+## Add watermark: refusals and dialog
+# Page-range parsing errors come from the facade and stay English.
+
+watermark-cancelled = Watermark cancelled.
+watermark-dialog-title = Add watermark
+watermark-kind-text = Text
+watermark-kind-picture = Picture
+watermark-text-label = Text
+# Pre-filled in the text entry and stamped into the PDF as typed.
+watermark-default-text = DRAFT
+watermark-size-label = Size (pt)
+watermark-choose-picture = Choose picture…
+watermark-scale-label = Size (% of page)
+watermark-pages-label = Pages
+watermark-all-pages = All pages
+watermark-current-page = Current page
+watermark-custom-pages = Pages
+watermark-opacity-label = Opacity (%)
+watermark-over = Over the page content
+watermark-under = Behind the page content
+watermark-cancel = Cancel
+
+## Add watermark: Windows only (dialog wording and the result that ends in
+## "Save to keep the change.")
+
+watermark-kind-header = Watermark
+watermark-no-picture-hint = No picture chosen. PNG or JPEG.
+# $size (Number) - the picture's size in KB, at least 1.
+watermark-picture-chosen = Picture chosen ({ $size } KB).
+# Accessible name of the custom page-range entry.
+watermark-page-range = Page range
+watermark-angle-degrees-label = Angle (°)
+watermark-placement-label = Placement
+watermark-add = Add
+# $count (Number) - pages stamped.
+watermark-summary-save =
+    { $count ->
+        [one] Watermark added to { $count } page. Save to keep the change.
+       *[other] Watermark added to { $count } pages. Save to keep the change.
+    }
+
+## Organize: header, view switch and hints
+
+organize-heading = Organize pages
+organize-import-progress-name = PDF import progress
+organize-undo = Undo
+organize-redo = Redo
+organize-add-pdfs = Add PDFs
+organize-extract = Extract
+organize-split = Split
+organize-split-tooltip = Cut this PDF into several new PDFs
+organize-save = Save
+organize-view-documents = Documents
+organize-view-pages = Pages
+organize-documents-hint = Drag a document to move all of its pages.
+organize-pages-hint = Drag a page to reorder it.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+# $name (String) - the file name of the source PDF.
+# $part (Number) - which run of that file's pages this card is.
+organize-block-title-part = { $name } — Part { $part }
+# $first (Number) - one-based position of the block's only page.
+organize-block-meta-one = 1 page · { $first }
+# $count, $first, $last (Number) - block size and one-based first/last position.
+organize-block-meta = { $count } pages · { $first }–{ $last }
+# $title, $meta (String) - the card's two lines; $position, $total (Number).
+organize-block-name = { $title }, { $meta }, document { $position } of { $total }
+organize-block-move-up = Move up: { $name }
+organize-block-move-down = Move down: { $name }
+organize-block-rotate-left = Rotate left: { $name }
+organize-block-rotate-right = Rotate right: { $name }
+organize-blank-pages = Blank pages
+organize-blank-page = Blank page
+organize-imported-pdf = Imported PDF
+organize-page-rotate-left = Rotate page left
+organize-page-rotate-right = Rotate page right
+organize-page-delete = Delete page
+
+## Organize: adding PDFs (progress, passwords and results)
+
+organize-import-cancelled = PDF import cancelled.
+organize-import-checking = Checking selected PDFs...
+# $completed, $total (Number) - PDFs prepared so far, out of the selection.
+organize-import-progress = { $completed } of { $total } PDFs
+# $name (String) - file name; $error (String) - technical detail, kept verbatim.
+organize-import-failed = Could not import { $name }: { $error }
+organize-import-password-title = Password required
+organize-import-password-prompt = Enter the password for { $name }.
+organize-import-password-wrong = The password is incorrect. Try again.
+organize-import-password-cancel = Cancel import
+organize-import-unlock = Unlock
+organize-import-password-waiting = Waiting for the password for { $name }.
+organize-import-warning-title = Some document-level information will stay behind
+organize-import-warning-cancel = Cancel
+organize-import-anyway = Import anyway
+
+## Organize: Windows only (toolbar, page-card menu and statuses that end in
+## "Changes are pending save.")
+
+organize-add-pdfs-tooltip = Add every page of other PDFs to the end
+organize-cancel-import-button = Cancel import
+organize-add-blank-page = Add blank A4 page
+organize-add-landscape-page = Add landscape A4 page
+organize-rotate-all-left = Rotate all left
+organize-rotate-all-left-tooltip = Turn every page a quarter turn counter-clockwise
+organize-rotate-all-right = Rotate all right
+organize-rotate-all-right-tooltip = Turn every page a quarter turn clockwise
+organize-return = Return to document
+organize-entered-hint = Drag a page to move it. Changes are one undo step each.
+# $page (Number) - one-based page position; the page card's accessible name.
+organize-page-name = Page { $page }
+organize-page-actions = Page actions
+organize-page-move-earlier = Move page earlier
+organize-page-move-later = Move page later
+organize-page-insert-portrait = Insert portrait A4 before
+organize-page-insert-landscape = Insert landscape A4 before
+# $name (String) - the document card's title.
+organize-block-delete-named = Delete: { $name }
+organize-blank-page-added-pending = Blank page added. Changes are pending save.
+organize-page-moved-pending = Page moved. Changes are pending save.
+organize-page-deleted-pending = Page deleted. Changes are pending save.
+organize-page-rotated-pending = Page rotated. Changes are pending save.
+organize-document-moved-pending = Document moved. Changes are pending save.
+organize-document-deleted-pending = Document deleted. Changes are pending save.
+organize-document-rotated-pending = Document rotated. Changes are pending save.
+organize-import-pick-failed = Could not select PDFs to import.
+organize-import-cancelling = Cancelling after the current PDF...
+# $name (String) - file name.
+organize-import-unreadable = Could not import { $name }: the file could not be read.
+organize-import-adding = Adding selected PDFs...
+organize-import-selected-failed = Could not import the selected PDFs.
+organize-import-password-placeholder = Password
+# $name (String) - file name; accessible name of the password entry.
+organize-import-password-name = Password for { $name }
+organize-import-warning-detail = No pages have been added. Import anyway to add the whole batch as one undo step.
+# $pages (Number) - pages imported; $files (Number) - PDFs they came from.
+organize-imported-summary =
+    Imported { $pages ->
+        [one] { $pages } page
+       *[other] { $pages } pages
+    } from { $files ->
+        [one] { $files } PDF
+       *[other] { $files } PDFs
+    }. Changes are pending save.
+
+## Write chains: shared by every write (destination chooser)
+
+write-accept = Save
+
+## Protect: password dialog, hints and progress
+
+protect-dialog-title = Protect with a password
+protect-open-label = Password to open the document
+protect-permissions-label = Permissions password
+protect-permissions-tooltip = Governs what readers may do with the document once it is open, and lifts those restrictions for whoever holds it. It must not be the same as the open password.
+protect-cancel = Cancel
+protect-accept = Protect
+protect-open-missing = Enter the password the document will ask for when it is opened.
+protect-permissions-missing = Enter the permissions password.
+protect-same-passwords = The two passwords must be different. If they were the same, everyone who can open the document could also change what it permits.
+protect-cancelled = Protection cancelled.
+
+## Compress: dialog, presets and sizes
+
+compress-dialog-title = Compress PDF
+# $size (String) - the file's size, already formatted (compress-size-*).
+compress-current-size = This file is { $size } on disk.
+compress-preset-lossless = Lossless
+compress-preset-lossless-description = Repack the file only. Every page renders exactly as it does now.
+compress-preset-balanced = Balanced
+# Keep "150 DPI": a test pins the number against the preset.
+compress-preset-balanced-description = Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.
+compress-preset-small = Small
+# Keep "96 DPI": a test pins the number against the preset.
+compress-preset-small-description = Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that.
+compress-cancel = Cancel
+compress-accept = Compress
+compress-writing = Writing the compressed PDF...
+# $whole, $tenth (String) - integer and first decimal digit of the size in MB.
+compress-size-megabytes = { $whole }.{ $tenth } MB
+# $size (String) - the size in kB, already rounded.
+compress-size-kilobytes = { $size } kB
+# $count (Number) - the size in bytes, under 1000.
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+# $reasons (String) - the core's refusal sentences, kept verbatim.
+compress-refusals = Not everything could be done: { $reasons }.
+# $before, $after (String) - formatted sizes; $percent (Number) - whole percent saved.
+compress-reduced = { $before } uncompressed → { $after } compressed ({ $percent }% smaller). Choose where to write it.
+# $size (String) - formatted size.
+compress-no-gain = Nothing to gain: this document compresses to the same { $size } an uncompressed save writes, so no file was written.
+# $path (String) - destination path; $before, $after (String); $percent (Number).
+compress-written = Compressed PDF written to { $path } ({ $before } → { $after }, { $percent }% smaller).
+compress-cancelled = Compression cancelled.
+compress-busy = Compressing PDF...
+
+## Split: dialog, folder and results
+# Cut-list parsing errors come from the facade and stay English.
+
+split-dialog-title = Split PDF
+split-cuts-label = Split after page
+# $total (Number) - pages in the document, always two or more.
+split-range-hint = This document has { $total } pages. Each cut starts a new file.
+split-cancel = Cancel
+split-accept = Split
+# $count (Number) - part files that already exist in the folder.
+split-replace-title =
+    { $count ->
+        [one] Replace { $count } existing PDF?
+       *[other] Replace { $count } existing PDFs?
+    }
+# $total (Number) - files the split writes; $count (Number) - those that already exist.
+split-replace-detail = Splitting into this folder writes { $total } files named after the document, and { $count } of them already exist there.
+split-replace = Replace
+# $count (Number) - files written, always two or more; $folder (String) - folder path.
+split-summary = Split into { $count } PDFs in { $folder }.
+split-signed-note = The original document is signed, so the signature in each part no longer verifies.
+split-cancelled = Split cancelled.
+
+## Extract: dialog and results
+# Page-range parsing errors come from the facade and stay English.
+
+extract-dialog-title = Extract pages
+extract-pages-label = Pages to extract
+# $count (Number) - pages in the document.
+extract-range-hint =
+    { $count ->
+        [one] This document has { $count } page.
+       *[other] This document has { $count } pages.
+    }
+extract-cancel = Cancel
+extract-accept = Extract
+# $count (Number) - pages extracted; $path (String) - destination path.
+extract-summary =
+    { $count ->
+        [one] Extracted { $count } page to { $path }.
+       *[other] Extracted { $count } pages to { $path }.
+    }
+extract-signed-note = The original document is signed, so the extracted PDF's signature no longer verifies.
+
+## Export images: dialog, folder and results
+# Page-range parsing errors come from the facade and stay English.
+
+export-dialog-title = Export pages as images
+export-pages-label = Pages
+export-all-pages = All pages
+export-current-page = Current page
+export-custom-pages = Pages
+export-format-label = Format
+export-resolution-label = Resolution (DPI)
+export-cancel = Cancel
+export-accept = Export
+export-cancelled = Export cancelled.
+# $error (String) - technical detail, kept verbatim.
+export-prepare-failed = Could not prepare the document for export: { $error }
+
+## Output tools: Windows only (cancelled pickers, progress and partial writes)
+
+protect-saved-reopened = Protected PDF saved and reopened.
+compress-nothing-written = Compression cancelled. No file was written.
+compress-no-source-size = No source file size is available for this new document.
+split-nothing-written = Split cancelled. No file was written.
+# $part, $total (Number) - one-based part being written and parts in all.
+split-writing-part = Writing part { $part } of { $total }...
+# $written (Number) - parts already written; $name (String) - part file name;
+# $error (String) - technical detail, kept verbatim.
+split-stopped = Split stopped after { $written } written: { $name } could not be written: { $error }
+extract-dialog-cancelled = Extract cancelled.
+extract-nothing-written = Extract cancelled. No file was written.
+# $count (Number) - pages being extracted.
+extract-busy-count =
+    { $count ->
+        [one] Extracting { $count } page...
+       *[other] Extracting { $count } pages...
+    }
+export-nothing-written = Export cancelled. No file was written.
+export-preparing = Preparing to export...
+# Accessible name of the custom page-range entry.
+export-page-range = Page range
+# $page (Number) - one-based page; $index, $total (Number) - file being written and files in all.
+export-busy-page = Exporting page { $page } ({ $index } of { $total })...
+# $page (Number) - one-based page; $error (String) - technical detail, kept verbatim;
+# $written (Number) - images already written.
+export-page-failed-written = Page { $page } could not be exported: { $error } { $written } written.
+# $written (Number) - images already written; $error (String) - technical detail, kept verbatim.
+export-stopped = Export stopped after { $written } written: { $error }
+# $count (Number) - pages written; $format (String) - PNG or JPEG; $folder (String) - folder path.
+export-summary-format =
+    { $count ->
+        [one] Exported { $count } page as { $format } to { $folder }.
+       *[other] Exported { $count } pages as { $format } to { $folder }.
+    }
+
+## Signing: certificate section, unlock prompts and identity picker
+# Adapter and facade error details arrive untranslated.
+
+sign-heading = Signing
+sign-choose-pfx = Choose signing certificate (.pfx)…
+sign-use-token = Use card or token…
+sign-use-nss = Use a certificate from this computer…
+sign-signed-indicator = ✓ This document is digitally signed.
+sign-cancel = Cancel
+sign-unlock = Unlock
+sign-pfx-password-title = Certificate password required
+sign-pfx-reading = Reading certificate file...
+sign-pfx-waiting = Waiting for the certificate password.
+sign-pfx-wrong-password = The password is incorrect, or the file is not a valid PKCS#12 certificate.
+sign-certificate-cancelled = Certificate selection cancelled.
+sign-picker-title = Choose a signing identity
+sign-picker-prompt = Sign this document with:
+sign-picker-sign = Sign
+sign-picker-none-chosen = Choose a signing identity.
+sign-cancelled = Signing cancelled.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Draw signature…
+signature-pad-title = Draw your signature
+signature-clear = Clear
+signature-cancel = Cancel
+signature-use = Use
+signature-offer-title = Your signature
+signature-offer-preview = Your saved signature
+signature-offer-unshowable = This saved signature can no longer be shown.
+signature-draw-new = Draw new
+signature-delete = Delete
+signature-unrenderable = The signature could not be turned into an image.
+signature-not-remembered = Your signature could not be remembered. Click a page to place it.
+signature-armed = Click a page to place your signature.
+signature-disarmed = Signature disarmed.
+
+## Signing and drawn signature: Windows only
+
+sign-choose-pfx-tooltip = Choose a PKCS#12 signing certificate (.pfx or .p12).
+sign-no-identities = This certificate source has no usable signing identities.
+sign-busy-document = Signing document…
+sign-saved-reopened = Signed PDF saved and reopened.
+# Accessible name of the PIN entry.
+sign-token-pin-name = Token PIN
+sign-token-pin-prompt = Enter the token PIN, or leave it empty to use the token's own authentication prompt.
+sign-token-title = Card or token authentication
+sign-continue = Continue
+# Accessible name of the password entry.
+sign-pfx-password-name = Certificate password
+# Accessible name of the list of identities.
+sign-identity-name = Signing identity
+signature-heading = Signature
+signature-remember-pc = Remember on this PC
+# Accessible name of the Draw signature… button.
+signature-draw-name = Draw signature
+signature-draw-tooltip-short = Draw a signature with the mouse, then click a page to place it.
+signature-not-drawn = The signature could not be drawn.
+signature-forgotten-pc = Your saved signature was deleted from this PC.
+
+## Viewer: printing
+
+print-open-first = Open a PDF before printing.
+# $error (String) - technical detail, kept verbatim.
+print-prepare-failed = Could not prepare the document for printing: { $error }
+print-no-pages = The PDF has no pages to print.
+print-failed = Printing failed.
+# $error (String) - technical detail from Windows, kept verbatim.
+print-error = Could not print: { $error }
+
+## Printing and sharing: Windows only
+
+print-preparing-status = Preparing to print...
+print-unavailable = Printing is unavailable on this Windows installation.
+# $error (String) - technical detail from Windows, kept verbatim.
+print-preview-failed = Could not prepare the print preview: { $error }
+# $page (Number) - one-based page number.
+print-page-blank = Could not render page { $page } for printing. It will be blank.
+share-open-first = Open a PDF before sharing.
+share-unavailable = Sharing is unavailable on this Windows installation.
+# $error (String) - technical detail from Windows, kept verbatim.
+share-failed = Could not share: { $error }
+share-no-document = There is no document to share.
+
+## Write chains: signature warning before a save rewrites a signed document
+
+write-signature-title = Saving will break this document's signature
+write-signature-detail =
+    This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
+
+    It is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather than missing.
+
+    To keep a copy that still verifies, cancel and save to a different file.
+write-signature-cancel = Cancel
+write-signature-proceed = Save anyway
+
+## Save: refusals and progress
+
+save-cancelled = Save cancelled.
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Unsaved changes
+open-unsaved-detail-opening = The open document has changes that are not saved. Opening another document will discard them.
+open-unsaved-detail-closing = The open document has changes that are not saved. Closing Vitela will discard them.
+open-unsaved-cancel = Cancel
+open-unsaved-discard = Discard
+open-unsaved-save = Save
+open-unsaved-kept = Kept the unsaved changes.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Password required
+open-password-cancel = Cancel
+open-password-open = Open
+open-password-busy = Opening password-protected PDF...
+open-password-waiting = Waiting for the document password.
+open-password-wrong = The password is incorrect. Try again.
+open-password-cancelled = Password entry cancelled.
+
+## Lifecycle, save, share and text copy: Windows only
+
+open-resolve-inline-edit = Resolve or cancel the inline text edit before continuing.
+open-password-placeholder = Password
+# Accessible name of the password entry.
+open-password-name = Document password
+save-done-editable = PDF saved. Changes remain editable in this session.
+share-cancelled = Share cancelled.
+write-signature-share-title = Sharing will break this document's signature
+write-signature-share-detail =
+    This document is signed. Sharing sends a rewritten copy, so its signature will no longer match what it covers.
+
+    It is not removed: the copy still carries the signature, and PDF readers will report it as invalid rather than missing.
+
+    To send a copy that still verifies, cancel and share the original file instead.
+write-signature-share-proceed = Share anyway
+selection-copy-select-first = Select text on a page before copying.
+selection-text-copied = Text copied.
+selection-copy-failed = Could not copy the selected text.

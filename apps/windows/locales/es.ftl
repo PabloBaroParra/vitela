@@ -460,7 +460,7 @@ edit-clipboard-pasted-count =
     }
 edit-no-content-images = La página visible no tiene imágenes de contenido editables.
 edit-image-choice = Imagen
-edit-image-choice-item = Imagen { $index }: X { $x }, Y { $y } pt
+edit-image-choice-item = Imagen { $index }: X { $x }; Y { $y } pt
 edit-image-move-title = Mover imagen — página { $page }
 edit-image-resize-title = Cambiar tamaño de imagen — página { $page }
 edit-image-move-explanation = Las coordenadas usan el espacio PDF: X aumenta hacia la derecha e Y hacia arriba. La imagen conserva su tamaño. Guarda antes de hacer otro cambio de geometría en la misma imagen.
@@ -479,3 +479,442 @@ comments-empty = Este documento no tiene comentarios.
 comments-page = Página { $page }
 comments-read-title = Comentario — página { $page }
 comments-close = Cerrar
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Campo de texto
+forms-kind-checkbox = Casilla de verificación
+forms-kind-radio-group = Grupo de opciones
+forms-kind-dropdown = Lista desplegable
+forms-edit-mode = Editar formularios
+forms-color = Color
+forms-delete-field = Eliminar campo
+forms-fill-placeholder = Abre un PDF con campos de formulario para rellenarlos o coloca uno en el modo Editar formularios.
+forms-heading-fields = Campos de formulario
+forms-heading-style = Estilo del campo
+forms-heading-fill = Rellenar campos
+forms-unsupported-field = Campo no compatible
+
+## Forms: edit mode and field results
+
+forms-mode-armed = Edición de formularios activada: elige un tipo de campo para colocarlo o haz clic en un campo existente para seleccionarlo.
+forms-mode-disarmed = Edición de formularios desactivada.
+forms-deleted = Campo eliminado. Guarda para conservar el cambio o deshazlo para recuperarlo.
+forms-moved = Campo movido. Los cambios están pendientes de guardar.
+forms-resized = Campo redimensionado. Los cambios están pendientes de guardar.
+forms-color-title = Elegir el color del campo
+
+## Forms: Windows only (style controls, field names, placement hints and
+## statuses that end in "Save to keep the change.")
+
+forms-style-font = Fuente
+forms-style-size = Tamaño (pt)
+forms-delete-field-tooltip = Eliminar el campo seleccionado (Delete)
+forms-fill-forbidden = Este documento no permite rellenar su formulario.
+forms-field-name = Nombre del campo: { $name }
+forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Escape cancela.
+forms-place-text-hint = Haz clic o arrastra en una página para colocar un campo de texto.
+forms-place-checkbox-hint = Haz clic o arrastra en una página para colocar una casilla de verificación.
+forms-place-radio-group-hint = Haz clic o arrastra en una página para colocar un grupo de opciones.
+forms-place-dropdown-hint = Haz clic o arrastra en una página para colocar una lista desplegable.
+forms-placed-text = Campo de texto colocado. Guarda para conservar el cambio.
+forms-placed-checkbox = Casilla de verificación colocada. Guarda para conservar el cambio.
+forms-placed-radio-group = Grupo de opciones colocado. Guarda para conservar el cambio.
+forms-placed-dropdown = Lista desplegable colocada. Guarda para conservar el cambio.
+forms-renamed-save = Campo renombrado. Guarda para conservar el cambio.
+forms-moved-save = Campo movido. Guarda para conservar el cambio.
+forms-resized-save = Campo redimensionado. Guarda para conservar el cambio.
+forms-font-size-changed-save = Tamaño de fuente del campo cambiado. Guarda para conservar el cambio.
+forms-font-changed-save = Fuente del campo cambiada. Guarda para conservar el cambio.
+forms-color-changed-save = Color del texto del campo cambiado. Guarda para conservar el cambio.
+forms-filled-save = Campo rellenado. Guarda para conservar el cambio.
+
+## Add watermark: refusals and dialog
+
+watermark-cancelled = Marca de agua cancelada.
+watermark-dialog-title = Añadir marca de agua
+watermark-kind-text = Texto
+watermark-kind-picture = Imagen
+watermark-text-label = Texto
+watermark-default-text = BORRADOR
+watermark-size-label = Tamaño (pt)
+watermark-choose-picture = Elegir imagen…
+watermark-scale-label = Tamaño (% de la página)
+watermark-pages-label = Páginas
+watermark-all-pages = Todas las páginas
+watermark-current-page = Página actual
+watermark-custom-pages = Páginas
+watermark-opacity-label = Opacidad (%)
+watermark-over = Sobre el contenido de la página
+watermark-under = Detrás del contenido de la página
+watermark-cancel = Cancelar
+
+## Add watermark: Windows only (dialog wording and the result that ends in
+## "Save to keep the change.")
+
+watermark-kind-header = Marca de agua
+watermark-no-picture-hint = No se ha elegido ninguna imagen. PNG o JPEG.
+watermark-picture-chosen = Imagen elegida ({ $size } KB).
+watermark-page-range = Intervalo de páginas
+watermark-angle-degrees-label = Ángulo (°)
+watermark-placement-label = Colocación
+watermark-add = Añadir
+watermark-summary-save =
+    { $count ->
+        [one] Marca de agua añadida a { $count } página. Guarda para conservar el cambio.
+       *[other] Marca de agua añadida a { $count } páginas. Guarda para conservar el cambio.
+    }
+
+## Organize: header, view switch and hints
+
+organize-heading = Organizar páginas
+organize-import-progress-name = Progreso de la importación de PDF
+organize-undo = Deshacer
+organize-redo = Rehacer
+organize-add-pdfs = Añadir PDF
+organize-extract = Extraer
+organize-split = Dividir
+organize-split-tooltip = Dividir este PDF en varios PDF nuevos
+organize-save = Guardar
+organize-view-documents = Documentos
+organize-view-pages = Páginas
+organize-documents-hint = Arrastra un documento para mover todas sus páginas.
+organize-pages-hint = Arrastra una página para cambiarla de posición.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+organize-block-title-part = { $name } — Parte { $part }
+organize-block-meta-one = 1 página · { $first }
+organize-block-meta = { $count } páginas · { $first }–{ $last }
+organize-block-name = { $title }, { $meta }, documento { $position } de { $total }
+organize-block-move-up = Subir: { $name }
+organize-block-move-down = Bajar: { $name }
+organize-block-rotate-left = Girar a la izquierda: { $name }
+organize-block-rotate-right = Girar a la derecha: { $name }
+organize-blank-pages = Páginas en blanco
+organize-blank-page = Página en blanco
+organize-imported-pdf = PDF importado
+organize-page-rotate-left = Girar la página a la izquierda
+organize-page-rotate-right = Girar la página a la derecha
+organize-page-delete = Eliminar la página
+
+## Organize: adding PDFs (progress, passwords and results)
+
+organize-import-cancelled = Importación de PDF cancelada.
+organize-import-checking = Comprobando los PDF seleccionados...
+organize-import-progress = { $completed } de { $total } PDF
+organize-import-failed = No se pudo importar { $name }: { $error }
+organize-import-password-title = Se necesita una contraseña
+organize-import-password-prompt = Introduce la contraseña de { $name }.
+organize-import-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+organize-import-password-cancel = Cancelar la importación
+organize-import-unlock = Desbloquear
+organize-import-password-waiting = Esperando la contraseña de { $name }.
+organize-import-warning-title = Parte de la información del documento no se conservará
+organize-import-warning-cancel = Cancelar
+organize-import-anyway = Importar de todos modos
+
+## Organize: Windows only (toolbar, page-card menu and statuses that end in
+## "Changes are pending save.")
+
+organize-add-pdfs-tooltip = Añadir todas las páginas de otros PDF al final
+organize-cancel-import-button = Cancelar la importación
+organize-add-blank-page = Añadir página A4 en blanco
+organize-add-landscape-page = Añadir página A4 horizontal
+organize-rotate-all-left = Girar todo a la izquierda
+organize-rotate-all-left-tooltip = Girar todas las páginas un cuarto de vuelta en sentido antihorario
+organize-rotate-all-right = Girar todo a la derecha
+organize-rotate-all-right-tooltip = Girar todas las páginas un cuarto de vuelta en sentido horario
+organize-return = Volver al documento
+organize-entered-hint = Arrastra una página para moverla. Cada cambio es un paso de deshacer.
+organize-page-name = Página { $page }
+organize-page-actions = Acciones de página
+organize-page-move-earlier = Mover la página antes
+organize-page-move-later = Mover la página después
+organize-page-insert-portrait = Insertar A4 vertical antes
+organize-page-insert-landscape = Insertar A4 horizontal antes
+organize-block-delete-named = Eliminar: { $name }
+organize-blank-page-added-pending = Página en blanco añadida. Los cambios están pendientes de guardar.
+organize-page-moved-pending = Página movida. Los cambios están pendientes de guardar.
+organize-page-deleted-pending = Página eliminada. Los cambios están pendientes de guardar.
+organize-page-rotated-pending = Página girada. Los cambios están pendientes de guardar.
+organize-document-moved-pending = Documento movido. Los cambios están pendientes de guardar.
+organize-document-deleted-pending = Documento eliminado. Los cambios están pendientes de guardar.
+organize-document-rotated-pending = Documento girado. Los cambios están pendientes de guardar.
+organize-import-pick-failed = No se pudieron seleccionar los PDF que importar.
+organize-import-cancelling = Cancelando después del PDF actual...
+organize-import-unreadable = No se pudo importar { $name }: no se pudo leer el archivo.
+organize-import-adding = Añadiendo los PDF seleccionados...
+organize-import-selected-failed = No se pudieron importar los PDF seleccionados.
+organize-import-password-placeholder = Contraseña
+organize-import-password-name = Contraseña de { $name }
+organize-import-warning-detail = Todavía no se ha añadido ninguna página. Importa de todos modos para añadir todo el lote como un solo paso de deshacer.
+organize-imported-summary =
+    { $pages ->
+        [one] { $pages } página importada
+       *[other] { $pages } páginas importadas
+    } de { $files ->
+        [one] { $files } PDF
+       *[other] { $files } PDF
+    }. Los cambios están pendientes de guardar.
+
+## Write chains: shared by every write (destination chooser)
+
+write-accept = Guardar
+
+## Protect: password dialog, hints and progress
+
+protect-dialog-title = Proteger con contraseña
+protect-open-label = Contraseña para abrir el documento
+protect-permissions-label = Contraseña de permisos
+protect-permissions-tooltip = Determina qué pueden hacer los lectores con el documento una vez abierto y levanta esas restricciones para quien la tenga. No puede ser igual que la contraseña de apertura.
+protect-cancel = Cancelar
+protect-accept = Proteger
+protect-open-missing = Introduce la contraseña que pedirá el documento al abrirlo.
+protect-permissions-missing = Introduce la contraseña de permisos.
+protect-same-passwords = Las dos contraseñas deben ser distintas. Si fueran iguales, cualquiera que pueda abrir el documento podría cambiar también lo que permite.
+protect-cancelled = Protección cancelada.
+
+## Compress: dialog, presets and sizes
+
+compress-dialog-title = Comprimir PDF
+compress-current-size = Este archivo ocupa { $size } en el disco.
+compress-preset-lossless = Sin pérdida
+compress-preset-lossless-description = Solo reorganiza el archivo. Todas las páginas se ven exactamente igual que ahora.
+compress-preset-balanced = Equilibrado
+compress-preset-balanced-description = Además, reduce las imágenes a 150 DPI. En pantalla no se aprecia la diferencia y en el disco ocupa bastante menos.
+compress-preset-small = Pequeño
+compress-preset-small-description = Además, reduce las imágenes a 96 DPI. Para cuando el archivo tiene que caber en algún sitio y los píxeles importan menos que eso.
+compress-cancel = Cancelar
+compress-accept = Comprimir
+compress-writing = Escribiendo el PDF comprimido...
+compress-size-megabytes = { $whole },{ $tenth } MB
+compress-size-kilobytes = { $size } kB
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+compress-refusals = No se pudo hacer todo: { $reasons }.
+compress-reduced = { $before } sin comprimir → { $after } comprimido ({ $percent } % menos). Elige dónde guardarlo.
+compress-no-gain = No hay nada que ganar: comprimido, este documento ocupa los mismos { $size } que al guardarlo sin comprimir, así que no se ha escrito ningún archivo.
+compress-written = PDF comprimido guardado en { $path } ({ $before } → { $after }, { $percent } % menos).
+compress-cancelled = Compresión cancelada.
+compress-busy = Comprimiendo el PDF...
+
+## Split: dialog, folder and results
+
+split-dialog-title = Dividir PDF
+split-cuts-label = Dividir después de la página
+split-range-hint = Este documento tiene { $total } páginas. Cada corte empieza un archivo nuevo.
+split-cancel = Cancelar
+split-accept = Dividir
+split-replace-title =
+    { $count ->
+        [one] ¿Reemplazar { $count } PDF existente?
+       *[other] ¿Reemplazar { $count } PDF existentes?
+    }
+split-replace-detail =
+    { $count ->
+        [one] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existe allí.
+       *[other] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existen allí.
+    }
+split-replace = Reemplazar
+split-summary = PDF dividido en { $count } archivos en { $folder }.
+split-signed-note = El documento original está firmado, así que la firma de cada parte ya no es válida.
+split-cancelled = División cancelada.
+
+## Extract: dialog and results
+
+extract-dialog-title = Extraer páginas
+extract-pages-label = Páginas que extraer
+extract-range-hint =
+    { $count ->
+        [one] Este documento tiene { $count } página.
+       *[other] Este documento tiene { $count } páginas.
+    }
+extract-cancel = Cancelar
+extract-accept = Extraer
+extract-summary =
+    { $count ->
+        [one] Se ha extraído { $count } página en { $path }.
+       *[other] Se han extraído { $count } páginas en { $path }.
+    }
+extract-signed-note = El documento original está firmado, así que la firma del PDF extraído ya no es válida.
+
+## Export images: dialog, folder and results
+
+export-dialog-title = Exportar páginas como imágenes
+export-pages-label = Páginas
+export-all-pages = Todas las páginas
+export-current-page = Página actual
+export-custom-pages = Páginas
+export-format-label = Formato
+export-resolution-label = Resolución (DPI)
+export-cancel = Cancelar
+export-accept = Exportar
+export-cancelled = Exportación cancelada.
+export-prepare-failed = No se pudo preparar el documento para exportarlo: { $error }
+
+## Output tools: Windows only (cancelled pickers, progress and partial writes)
+
+protect-saved-reopened = PDF protegido guardado y reabierto.
+compress-nothing-written = Compresión cancelada. No se ha escrito ningún archivo.
+compress-no-source-size = No se conoce el tamaño del archivo de origen de este documento nuevo.
+split-nothing-written = División cancelada. No se ha escrito ningún archivo.
+split-writing-part = Escribiendo la parte { $part } de { $total }...
+split-stopped = La división se detuvo tras escribir { $written }: no se pudo escribir { $name }: { $error }
+extract-dialog-cancelled = Extracción cancelada.
+extract-nothing-written = Extracción cancelada. No se ha escrito ningún archivo.
+extract-busy-count =
+    { $count ->
+        [one] Extrayendo { $count } página...
+       *[other] Extrayendo { $count } páginas...
+    }
+export-nothing-written = Exportación cancelada. No se ha escrito ningún archivo.
+export-preparing = Preparando la exportación...
+export-page-range = Intervalo de páginas
+export-busy-page = Exportando la página { $page } ({ $index } de { $total })...
+export-page-failed-written = No se pudo exportar la página { $page }: { $error } Imágenes escritas: { $written }.
+export-stopped = La exportación se detuvo tras escribir { $written }: { $error }
+export-summary-format =
+    { $count ->
+        [one] { $count } página exportada como { $format } a { $folder }.
+       *[other] { $count } páginas exportadas como { $format } a { $folder }.
+    }
+
+## Signing: certificate section, unlock prompts and identity picker
+
+sign-heading = Firma digital
+sign-choose-pfx = Elegir certificado de firma (.pfx)…
+sign-use-token = Usar tarjeta o token…
+sign-use-nss = Usar un certificado de este equipo…
+sign-signed-indicator = ✓ Este documento está firmado digitalmente.
+sign-cancel = Cancelar
+sign-unlock = Desbloquear
+sign-pfx-password-title = Se necesita la contraseña del certificado
+sign-pfx-reading = Leyendo el archivo de certificado...
+sign-pfx-waiting = Esperando la contraseña del certificado.
+sign-pfx-wrong-password = La contraseña no es correcta o el archivo no es un certificado PKCS#12 válido.
+sign-certificate-cancelled = Selección de certificado cancelada.
+sign-picker-title = Elegir una identidad de firma
+sign-picker-prompt = Firmar este documento con:
+sign-picker-sign = Firmar
+sign-picker-none-chosen = Elige una identidad de firma.
+sign-cancelled = Firma cancelada.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Dibujar firma…
+signature-pad-title = Dibuja tu firma
+signature-clear = Borrar
+signature-cancel = Cancelar
+signature-use = Usar
+signature-offer-title = Tu firma
+signature-offer-preview = Tu firma guardada
+signature-offer-unshowable = Esta firma guardada ya no se puede mostrar.
+signature-draw-new = Dibujar otra
+signature-delete = Eliminar
+signature-unrenderable = No se pudo convertir la firma en una imagen.
+signature-not-remembered = No se pudo recordar tu firma. Haz clic en una página para colocarla.
+signature-armed = Haz clic en una página para colocar tu firma.
+signature-disarmed = Firma desactivada.
+
+## Signing and drawn signature: Windows only
+
+sign-choose-pfx-tooltip = Elige un certificado de firma PKCS#12 (.pfx o .p12).
+sign-no-identities = Este origen de certificados no tiene identidades de firma utilizables.
+sign-busy-document = Firmando el documento…
+sign-saved-reopened = PDF firmado guardado y reabierto.
+sign-token-pin-name = PIN del token
+sign-token-pin-prompt = Introduce el PIN del token o déjalo vacío para usar el aviso de autenticación del propio token.
+sign-token-title = Autenticación de la tarjeta o el token
+sign-continue = Continuar
+sign-pfx-password-name = Contraseña del certificado
+sign-identity-name = Identidad de firma
+signature-heading = Firma
+signature-remember-pc = Recordar en este PC
+signature-draw-name = Dibujar firma
+signature-draw-tooltip-short = Dibuja una firma con el ratón y haz clic en una página para colocarla.
+signature-not-drawn = No se pudo dibujar la firma.
+signature-forgotten-pc = Tu firma guardada se ha eliminado de este PC.
+
+## Viewer: printing
+
+print-open-first = Abre un PDF antes de imprimir.
+print-prepare-failed = No se pudo preparar el documento para imprimirlo: { $error }
+print-no-pages = El PDF no tiene páginas que imprimir.
+print-failed = No se pudo imprimir.
+print-error = No se pudo imprimir: { $error }
+
+## Printing and sharing: Windows only
+
+print-preparing-status = Preparando la impresión...
+print-unavailable = La impresión no está disponible en esta instalación de Windows.
+print-preview-failed = No se pudo preparar la vista previa de impresión: { $error }
+print-page-blank = No se pudo representar la página { $page } para imprimirla. Saldrá en blanco.
+share-open-first = Abre un PDF antes de compartirlo.
+share-unavailable = Compartir no está disponible en esta instalación de Windows.
+share-failed = No se pudo compartir: { $error }
+share-no-document = No hay ningún documento que compartir.
+
+## Write chains: signature warning before a save rewrites a signed document
+
+write-signature-title = Al guardar se romperá la firma de este documento
+write-signature-detail =
+    Este documento está firmado. Al guardar se reescribe el archivo, así que la firma dejará de coincidir con lo que cubre.
+
+    No se elimina: el archivo guardado sigue llevando la firma, y los lectores de PDF la mostrarán como no válida, no como ausente.
+
+    Para conservar una copia que siga siendo válida, cancela y guarda en otro archivo.
+
+write-signature-cancel = Cancelar
+write-signature-proceed = Guardar de todos modos
+
+## Save: refusals and progress
+
+save-cancelled = Guardado cancelado.
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Cambios sin guardar
+open-unsaved-detail-opening = El documento abierto tiene cambios que no se han guardado. Si abres otro documento, se descartarán.
+open-unsaved-detail-closing = El documento abierto tiene cambios que no se han guardado. Si cierras Vitela, se descartarán.
+open-unsaved-cancel = Cancelar
+open-unsaved-discard = Descartar
+open-unsaved-save = Guardar
+open-unsaved-kept = Se han conservado los cambios sin guardar.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Se necesita una contraseña
+open-password-cancel = Cancelar
+open-password-open = Abrir
+open-password-busy = Abriendo el PDF protegido con contraseña...
+open-password-waiting = Esperando la contraseña del documento.
+open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+open-password-cancelled = Se canceló la contraseña.
+
+## Lifecycle, save, share and text copy: Windows only
+
+open-resolve-inline-edit = Termina o cancela la edición de texto en línea antes de continuar.
+open-password-placeholder = Contraseña
+open-password-name = Contraseña del documento
+save-done-editable = PDF guardado. Los cambios siguen siendo editables en esta sesión.
+share-cancelled = Compartir cancelado.
+write-signature-share-title = Al compartir se romperá la firma de este documento
+write-signature-share-detail =
+    Este documento está firmado. Al compartir se envía una copia reescrita, así que su firma dejará de coincidir con lo que cubre.
+
+    No se elimina: la copia sigue llevando la firma, y los lectores de PDF la mostrarán como no válida, no como ausente.
+
+    Para enviar una copia que siga siendo válida, cancela y comparte el archivo original.
+
+write-signature-share-proceed = Compartir de todos modos
+selection-copy-select-first = Selecciona texto en una página antes de copiar.
+selection-text-copied = Texto copiado.
+selection-copy-failed = No se pudo copiar el texto seleccionado.

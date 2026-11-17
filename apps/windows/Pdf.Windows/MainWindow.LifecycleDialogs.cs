@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Windowing;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -17,7 +18,7 @@ public sealed partial class MainWindow
         await CommitContentEditorAsync();
         await _formFillTail;
         if (_pump.Box is null) return true;
-        AnnotationStatus.Text = "Resolve or cancel the inline text edit before continuing.";
+        AnnotationStatus.Text = I18n.T("open-resolve-inline-edit");
         return false;
     }
 
@@ -25,16 +26,15 @@ public sealed partial class MainWindow
     {
         var dialog = new ContentDialog
         {
-            Title = "Unsaved changes",
+            Title = I18n.T("open-unsaved-title"),
             Content = new TextBlock
             {
-                Text = "The open document has changes that are not saved. "
-                    + (closing ? "Closing Vitela will discard them." : "Opening another document will discard them."),
+                Text = closing ? I18n.T("open-unsaved-detail-closing") : I18n.T("open-unsaved-detail-opening"),
                 TextWrapping = TextWrapping.Wrap,
             },
-            PrimaryButtonText = "Save",
-            SecondaryButtonText = "Discard",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("open-unsaved-save"),
+            SecondaryButtonText = I18n.T("open-unsaved-discard"),
+            CloseButtonText = I18n.T("open-unsaved-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -44,7 +44,7 @@ public sealed partial class MainWindow
             ContentDialogResult.Secondary => PendingEditDecision.Discard,
             _ => PendingEditDecision.Cancel,
         };
-        if (decision == PendingEditDecision.Cancel) AnnotationStatus.Text = "Kept the unsaved changes.";
+        if (decision == PendingEditDecision.Cancel) AnnotationStatus.Text = I18n.T("open-unsaved-kept");
         return decision;
     }
 

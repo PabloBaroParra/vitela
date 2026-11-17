@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -50,17 +51,17 @@ public sealed partial class MainWindow
             var plan = await AskExtractPagesAsync(session);
             if (plan is null)
             {
-                AnnotationStatus.Text = "Extract cancelled.";
+                AnnotationStatus.Text = I18n.T("extract-dialog-cancelled");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
-            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = "Save" };
+            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = I18n.T("write-accept") };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var file = await picker.PickSaveFileAsync();
             if (file is null)
             {
-                AnnotationStatus.Text = "Extract cancelled. No file was written.";
+                AnnotationStatus.Text = I18n.T("extract-nothing-written");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
@@ -84,7 +85,7 @@ public sealed partial class MainWindow
         StorageFile? temporary = null;
         try
         {
-            AnnotationStatus.Text = $"Extracting {plan.Pages.Count} {(plan.Pages.Count == 1 ? "page" : "pages")}...";
+            AnnotationStatus.Text = I18n.T("extract-busy-count", ("count", plan.Pages.Count));
             var result = await _facade.ExtractPagesAsync(sessionId, plan.Pages);
             if (!result.IsSuccess)
             {
@@ -136,7 +137,7 @@ public sealed partial class MainWindow
         var range = new TextBox
         {
             Name = "ExtractPageRange",
-            Header = "Pages to extract",
+            Header = I18n.T("extract-pages-label"),
             PlaceholderText = "1-3,7",
             MinWidth = 240,
         };
@@ -148,7 +149,7 @@ public sealed partial class MainWindow
         panel.Children.Add(range);
         panel.Children.Add(new TextBlock
         {
-            Text = $"This document has {session.PageCount} {(session.PageCount == 1 ? "page" : "pages")}.",
+            Text = I18n.T("extract-range-hint", ("count", session.PageCount)),
             TextWrapping = TextWrapping.Wrap,
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
         });
@@ -156,10 +157,10 @@ public sealed partial class MainWindow
 
         var dialog = new ContentDialog
         {
-            Title = "Extract pages",
+            Title = I18n.T("extract-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Extract",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("extract-accept"),
+            CloseButtonText = I18n.T("extract-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };

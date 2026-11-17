@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -39,7 +40,7 @@ public sealed partial class MainWindow
             if (_session?.SessionId != sessionId || _selectedFormFieldId != field.Id) return;
             var result = await _facade.RemoveFormFieldAsync(sessionId, field.Id, field.Name);
             if (result.IsSuccess) SelectFormField(null);
-            await ShowFieldStyleResultAsync(sessionId, field, result, "Field deleted. Save to keep the change, or undo to bring it back.");
+            await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-deleted"));
         }
         finally { SetBusy(false); RedrawAnnotations(); }
     }

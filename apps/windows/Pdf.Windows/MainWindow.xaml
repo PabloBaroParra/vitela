@@ -289,27 +289,27 @@
                     </StackPanel>
                     <StackPanel x:Name="FormFieldsPanel" Spacing="10">
                         <StackPanel Spacing="6" Padding="0,8,0,8">
-                            <TextBlock Text="Form fields" FontWeight="SemiBold" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-fields}" FontWeight="SemiBold" />
                             <viewer:ToolbarPanel>
-                                <ToggleButton x:Name="EditFormsButton" Content="Edit forms" Click="EditFormsButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceTextFieldButton" Content="Text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceCheckboxButton" Content="Checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceRadioGroupButton" Content="Radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceDropdownButton" Content="Dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="EditFormsButton" Content="{i18n:T Key=forms-edit-mode}" Click="EditFormsButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceTextFieldButton" Content="{i18n:T Key=forms-kind-text}" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceCheckboxButton" Content="{i18n:T Key=forms-kind-checkbox}" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceRadioGroupButton" Content="{i18n:T Key=forms-kind-radio-group}" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceDropdownButton" Content="{i18n:T Key=forms-kind-dropdown}" Click="PlaceDropdownButton_Click" IsEnabled="False" />
                             </viewer:ToolbarPanel>
-                            <TextBlock Text="Field style" FontWeight="SemiBold" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-style}" FontWeight="SemiBold" />
                             <viewer:ToolbarPanel>
-                                <ComboBox x:Name="FormStyleFont" Header="Font" Width="145" IsEnabled="False" SelectionChanged="FormStyleFont_SelectionChanged">
+                                <ComboBox x:Name="FormStyleFont" Header="{i18n:T Key=forms-style-font}" Width="145" IsEnabled="False" SelectionChanged="FormStyleFont_SelectionChanged">
                                     <x:String>Helvetica</x:String><x:String>Times Roman</x:String><x:String>Courier</x:String>
                                 </ComboBox>
-                                <NumberBox x:Name="FormStyleSize" Header="Size (pt)" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
-                                <Button x:Name="FormStyleColor" Content="Color" IsEnabled="False" Click="FormStyleColor_Click" />
-                                <Button x:Name="DeleteFormFieldButton" Content="Delete field" IsEnabled="False" Click="DeleteFormFieldButton_Click" ToolTipService.ToolTip="Delete the selected field (Delete)">
+                                <NumberBox x:Name="FormStyleSize" Header="{i18n:T Key=forms-style-size}" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
+                                <Button x:Name="FormStyleColor" Content="{i18n:T Key=forms-color}" IsEnabled="False" Click="FormStyleColor_Click" />
+                                <Button x:Name="DeleteFormFieldButton" Content="{i18n:T Key=forms-delete-field}" IsEnabled="False" Click="DeleteFormFieldButton_Click" ToolTipService.ToolTip="{i18n:T Key=forms-delete-field-tooltip}">
                                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteFormField_Invoked" /></Button.KeyboardAccelerators>
                                 </Button>
                             </viewer:ToolbarPanel>
-                            <TextBlock Text="Fill fields" FontWeight="SemiBold" />
-                            <TextBlock x:Name="FormFieldsStatus" Text="Open a PDF with form fields to fill them in, or place one in Edit forms mode." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-fill}" FontWeight="SemiBold" />
+                            <TextBlock x:Name="FormFieldsStatus" Text="{i18n:T Key=forms-fill-placeholder}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="FormFieldRows" Spacing="10" />
                             </ScrollViewer>
@@ -327,41 +327,41 @@
         <Grid x:Name="OrganizePanel" Grid.Row="1" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
               Visibility="Collapsed" RowSpacing="12" Loaded="OrganizePanel_Loaded">
             <StackPanel Spacing="12">
-                <TextBlock x:Name="OrganizeHeading" Text="Organize pages" Style="{StaticResource OrganizeHeadingStyle}" />
+                <TextBlock x:Name="OrganizeHeading" Text="{i18n:T Key=organize-heading}" Style="{StaticResource OrganizeHeadingStyle}" />
                 <viewer:ToolbarPanel>
-                    <Button x:Name="OrganizeUndoButton" Content="Undo" Click="OrganizeUndoButton_Click" IsEnabled="False">
+                    <Button x:Name="OrganizeUndoButton" Content="{i18n:T Key=organize-undo}" Click="OrganizeUndoButton_Click" IsEnabled="False">
                         <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
                     </Button>
-                    <Button x:Name="OrganizeRedoButton" Content="Redo" Click="OrganizeRedoButton_Click" IsEnabled="False">
+                    <Button x:Name="OrganizeRedoButton" Content="{i18n:T Key=organize-redo}" Click="OrganizeRedoButton_Click" IsEnabled="False">
                         <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
                     </Button>
-                    <Button x:Name="OrganizeAddPdfsButton" Content="Add PDFs" IsEnabled="False" Click="OrganizeAddPdfsButton_Click"
-                            ToolTipService.ToolTip="Add every page of other PDFs to the end" />
-                    <Button x:Name="OrganizeExtractButton" Content="Extract" Click="ExtractPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
-                    <Button x:Name="OrganizeSplitButton" Content="Split" Click="SplitPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="Cut this PDF into several new PDFs" />
-                    <Button x:Name="OrganizeSaveButton" Content="Save" Click="SaveButton_Click" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
+                    <Button x:Name="OrganizeAddPdfsButton" Content="{i18n:T Key=organize-add-pdfs}" IsEnabled="False" Click="OrganizeAddPdfsButton_Click"
+                            ToolTipService.ToolTip="{i18n:T Key=organize-add-pdfs-tooltip}" />
+                    <Button x:Name="OrganizeExtractButton" Content="{i18n:T Key=organize-extract}" Click="ExtractPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=organize-extract-tooltip}" />
+                    <Button x:Name="OrganizeSplitButton" Content="{i18n:T Key=organize-split}" Click="SplitPagesButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=organize-split-tooltip}" />
+                    <Button x:Name="OrganizeSaveButton" Content="{i18n:T Key=organize-save}" Click="SaveButton_Click" IsEnabled="False" Style="{StaticResource AccentButtonStyle}" />
                 </viewer:ToolbarPanel>
             </StackPanel>
             <StackPanel x:Name="ImportProgressPanel" Grid.Row="1" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
-                <ProgressBar x:Name="ImportProgressBar" Width="240" VerticalAlignment="Center" AutomationProperties.Name="PDF import progress" />
+                <ProgressBar x:Name="ImportProgressBar" Width="240" VerticalAlignment="Center" AutomationProperties.Name="{i18n:T Key=organize-import-progress-name}" />
                 <TextBlock x:Name="ImportProgressText" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite" />
-                <Button x:Name="CancelImportButton" Content="Cancel import" Click="CancelImportButton_Click" />
+                <Button x:Name="CancelImportButton" Content="{i18n:T Key=organize-cancel-import-button}" Click="CancelImportButton_Click" />
             </StackPanel>
             <viewer:ToolbarPanel Grid.Row="2">
-                <Button x:Name="InsertBlankPageButton" Content="Add blank A4 page" Click="InsertBlankPageButton_Click" />
-                <Button x:Name="InsertLandscapePageButton" Content="Add landscape A4 page" Click="InsertLandscapePageButton_Click" />
-                <Button x:Name="RotateAllLeftButton" Content="Rotate all left" Click="RotateAllLeftButton_Click"
-                        ToolTipService.ToolTip="Turn every page a quarter turn counter-clockwise" />
-                <Button x:Name="RotateAllRightButton" Content="Rotate all right" Click="RotateAllRightButton_Click"
-                        ToolTipService.ToolTip="Turn every page a quarter turn clockwise" />
-                <Button x:Name="OrganizeReturnButton" Content="Return to document" Click="OrganizeReturnButton_Click" />
+                <Button x:Name="InsertBlankPageButton" Content="{i18n:T Key=organize-add-blank-page}" Click="InsertBlankPageButton_Click" />
+                <Button x:Name="InsertLandscapePageButton" Content="{i18n:T Key=organize-add-landscape-page}" Click="InsertLandscapePageButton_Click" />
+                <Button x:Name="RotateAllLeftButton" Content="{i18n:T Key=organize-rotate-all-left}" Click="RotateAllLeftButton_Click"
+                        ToolTipService.ToolTip="{i18n:T Key=organize-rotate-all-left-tooltip}" />
+                <Button x:Name="RotateAllRightButton" Content="{i18n:T Key=organize-rotate-all-right}" Click="RotateAllRightButton_Click"
+                        ToolTipService.ToolTip="{i18n:T Key=organize-rotate-all-right-tooltip}" />
+                <Button x:Name="OrganizeReturnButton" Content="{i18n:T Key=organize-return}" Click="OrganizeReturnButton_Click" />
             </viewer:ToolbarPanel>
             <StackPanel Grid.Row="3" Spacing="8">
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <ToggleButton x:Name="OrganizeDocumentsToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="Documents" IsChecked="True" Click="OrganizeDocumentsToggle_Click" />
-                    <ToggleButton x:Name="OrganizePagesToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="Pages" Click="OrganizePagesToggle_Click" />
+                    <ToggleButton x:Name="OrganizeDocumentsToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="{i18n:T Key=organize-view-documents}" IsChecked="True" Click="OrganizeDocumentsToggle_Click" />
+                    <ToggleButton x:Name="OrganizePagesToggle" Style="{StaticResource OrganizeSwitchToggleStyle}" Content="{i18n:T Key=organize-view-pages}" Click="OrganizePagesToggle_Click" />
                 </StackPanel>
-                <TextBlock x:Name="OrganizeViewHint" Text="Drag a document to move all of its pages." Style="{StaticResource OrganizeHintStyle}" />
+                <TextBlock x:Name="OrganizeViewHint" Text="{i18n:T Key=organize-documents-hint}" Style="{StaticResource OrganizeHintStyle}" />
             </StackPanel>
             <ScrollViewer x:Name="OrganizeDocumentsScroller" Grid.Row="4" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel x:Name="OrganizeDocumentsList" />

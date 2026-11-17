@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.System;
 
 namespace Pdf.Windows;
@@ -14,8 +15,8 @@ public sealed partial class MainWindow
     {
         var generation = _formRowsGeneration;
         var box = new TextBox { Text = field.Name, IsEnabled = enabled };
-        AutomationProperties.SetName(box, $"Field name: {field.Name}");
-        ToolTipService.SetToolTip(box, "Type to rename. Enter accepts; Escape cancels.");
+        AutomationProperties.SetName(box, I18n.T("forms-field-name", ("name", field.Name)));
+        ToolTipService.SetToolTip(box, I18n.T("forms-field-name-tooltip"));
         var submitted = false;
         async Task commit()
         {

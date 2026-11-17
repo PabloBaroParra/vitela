@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -52,7 +53,7 @@ public sealed partial class MainWindow
             var preset = await AskCompressionPresetAsync(session.SourceByteCount);
             if (preset is null)
             {
-                AnnotationStatus.Text = "Compression cancelled.";
+                AnnotationStatus.Text = I18n.T("compress-cancelled");
                 return;
             }
             if (_session?.SessionId != sessionId) return;
@@ -60,7 +61,7 @@ public sealed partial class MainWindow
             var acknowledged = await AskSignatureLossAsync(compressing: true);
             if (acknowledged is null || _session?.SessionId != sessionId) return;
             SetBusy(true);
-            AnnotationStatus.Text = "Compressing PDF...";
+            AnnotationStatus.Text = I18n.T("compress-busy");
             var compressed = await _facade.CompressAsync(sessionId, preset.Value, acknowledged.Value);
             if (_session?.SessionId != sessionId) return;
             if (!compressed.IsSuccess)
@@ -77,18 +78,18 @@ public sealed partial class MainWindow
             }
             AnnotationStatus.Text = CompressionWording.ReductionSummary(result);
 
-            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = "Save" };
+            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = I18n.T("write-accept") };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var file = await picker.PickSaveFileAsync();
             if (file is null)
             {
-                AnnotationStatus.Text = "Compression cancelled. No file was written.";
+                AnnotationStatus.Text = I18n.T("compress-nothing-written");
                 return;
             }
             if (_session?.SessionId != sessionId) return;
 
-            AnnotationStatus.Text = "Writing the compressed PDF...";
+            AnnotationStatus.Text = I18n.T("compress-writing");
             var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(file.Path)!);
             temporary = await folder.CreateFileAsync($".{file.Name}.{Guid.NewGuid():N}.tmp", CreationCollisionOption.GenerateUniqueName);
             await FileIO.WriteBytesAsync(temporary, result.Bytes);
@@ -135,17 +136,17 @@ public sealed partial class MainWindow
         var panel = new StackPanel { Spacing = 12, MaxWidth = 420 };
         panel.Children.Add(new TextBlock
         {
-            Text = sourceByteCount is { } bytes ? $"This file is {CompressionWording.HumanSize(bytes)} on disk." : "No source file size is available for this new document.",
+            Text = sourceByteCount is { } bytes ? I18n.T("compress-current-size", ("size", CompressionWording.HumanSize(bytes))) : I18n.T("compress-no-source-size"),
             TextWrapping = TextWrapping.Wrap,
         });
         panel.Children.Add(choices);
 
         var dialog = new ContentDialog
         {
-            Title = "Compress PDF",
+            Title = I18n.T("compress-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Compress",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("compress-accept"),
+            CloseButtonText = I18n.T("compress-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };

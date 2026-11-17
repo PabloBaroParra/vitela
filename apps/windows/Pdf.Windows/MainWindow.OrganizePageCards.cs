@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.ApplicationModel.DataTransfer;
 using Pdf.Windows.Viewer;
 
@@ -63,7 +64,7 @@ public sealed partial class MainWindow
         foreach (var block in _organizePageSnapshot.Blocks)
         {
             var name = block.Source switch { DocumentBlockSource.Base => session.DisplayName,
-                DocumentBlockSource.Blank => "Blank page", _ => ImportedBlockName(session.SessionId, block.ImportedSourceId) };
+                DocumentBlockSource.Blank => I18n.T("organize-blank-page"), _ => ImportedBlockName(session.SessionId, block.ImportedSourceId) };
             for (var page = block.Start; page < block.Start + block.Count && page < _organizeCards.Count; page++)
             {
                 var source = ((OrganizeCard)_organizeCards[(int)page].Tag).Source;
@@ -93,9 +94,9 @@ public sealed partial class MainWindow
         var thumbnail = new Image { Stretch = Stretch.Uniform };
         var number = new TextBlock { Text = (index + 1).ToString(), VerticalAlignment = VerticalAlignment.Center, Style = NamedStyle("OrganizeBlockNameStyle") };
         var source = new TextBlock { Visibility = Visibility.Collapsed, Style = NamedStyle("OrganizeCardSourceStyle") };
-        var left = CardButton(ShellIcon.RotateLeft, "Rotate page left");
-        var right = CardButton(ShellIcon.RotateRight, "Rotate page right");
-        var delete = CardButton(ShellIcon.Delete, "Delete page");
+        var left = CardButton(ShellIcon.RotateLeft, I18n.T("organize-page-rotate-left"));
+        var right = CardButton(ShellIcon.RotateRight, I18n.T("organize-page-rotate-right"));
+        var delete = CardButton(ShellIcon.Delete, I18n.T("organize-page-delete"));
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         actions.Children.Add(left);
         actions.Children.Add(right);
@@ -107,16 +108,16 @@ public sealed partial class MainWindow
         Grid.SetColumn(actions, 1);
         footer.Children.Add(actions);
         var menu = new MenuFlyout();
-        var previous = new MenuFlyoutItem { Text = "Move page earlier" };
-        var next = new MenuFlyoutItem { Text = "Move page later" };
-        var portrait = new MenuFlyoutItem { Text = "Insert portrait A4 before" };
-        var landscape = new MenuFlyoutItem { Text = "Insert landscape A4 before" };
+        var previous = new MenuFlyoutItem { Text = I18n.T("organize-page-move-earlier") };
+        var next = new MenuFlyoutItem { Text = I18n.T("organize-page-move-later") };
+        var portrait = new MenuFlyoutItem { Text = I18n.T("organize-page-insert-portrait") };
+        var landscape = new MenuFlyoutItem { Text = I18n.T("organize-page-insert-landscape") };
         menu.Items.Add(previous);
         menu.Items.Add(next);
         menu.Items.Add(new MenuFlyoutSeparator());
         menu.Items.Add(portrait);
         menu.Items.Add(landscape);
-        var more = new Button { Content = "Page actions", Flyout = menu, HorizontalAlignment = HorizontalAlignment.Stretch };
+        var more = new Button { Content = I18n.T("organize-page-actions"), Flyout = menu, HorizontalAlignment = HorizontalAlignment.Stretch };
         var body = new StackPanel { Width = ThumbnailBox, Spacing = 6 };
         body.Children.Add(new Border { Width = ThumbnailBox, Height = 180, Child = thumbnail, Style = NamedStyle("OrganizeThumbStyle") });
         body.Children.Add(source);
@@ -124,7 +125,7 @@ public sealed partial class MainWindow
         body.Children.Add(more);
         var card = new Border { Child = body, Style = NamedStyle("OrganizeCardStyle") };
         card.Tag = new OrganizeCard(thumbnail, number, source, [left, right, delete, more], previous, next);
-        AutomationProperties.SetName(card, $"Page {index + 1}");
+        AutomationProperties.SetName(card, I18n.T("organize-page-name", ("page", index + 1)));
         left.Click += async (_, _) => await EditPageAtCardAsync(card, DocumentBlockAction.RotateLeft);
         right.Click += async (_, _) => await EditPageAtCardAsync(card, DocumentBlockAction.RotateRight);
         delete.Click += async (_, _) => await EditPageAtCardAsync(card, DocumentBlockAction.Delete);

@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -11,15 +12,15 @@ public sealed partial class MainWindow
     private async Task<ISigningCertificate?> AskTokenSigningCertificateAsync(string modulePath)
     {
         var password = new PasswordBox { PasswordRevealMode = PasswordRevealMode.Peek };
-        AutomationProperties.SetName(password, "Token PIN");
+        AutomationProperties.SetName(password, I18n.T("sign-token-pin-name"));
         var content = new StackPanel { Spacing = 8 };
-        content.Children.Add(new TextBlock { Text = "Enter the token PIN, or leave it empty to use the token's own authentication prompt.", TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = I18n.T("sign-token-pin-prompt"), TextWrapping = TextWrapping.Wrap });
         content.Children.Add(password);
-        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Card or token authentication", Content = content,
-            PrimaryButtonText = "Continue", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = I18n.T("sign-token-title"), Content = content,
+            PrimaryButtonText = I18n.T("sign-continue"), CloseButtonText = I18n.T("sign-cancel"), DefaultButton = ContentDialogButton.Close };
         try
         {
-            if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) { AnnotationStatus.Text = "Certificate selection cancelled."; return null; }
+            if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) { AnnotationStatus.Text = I18n.T("sign-certificate-cancelled"); return null; }
             var pin = password.Password;
             password.Password = "";
             var result = await _facade.OpenTokenSigningSourceAsync(modulePath, pin.Length == 0 ? null : pin);
@@ -32,13 +33,13 @@ public sealed partial class MainWindow
     private async Task<ISigningCertificate?> AskSigningCertificateAsync(byte[] bytes)
     {
         var password = new PasswordBox { PasswordRevealMode = PasswordRevealMode.Peek };
-        AutomationProperties.SetName(password, "Certificate password");
+        AutomationProperties.SetName(password, I18n.T("sign-pfx-password-name"));
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var content = new StackPanel { Spacing = 8 };
         content.Children.Add(password);
         content.Children.Add(error);
-        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Certificate password required", Content = content,
-            PrimaryButtonText = "Unlock", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = I18n.T("sign-pfx-password-title"), Content = content,
+            PrimaryButtonText = I18n.T("sign-unlock"), CloseButtonText = I18n.T("sign-cancel"), DefaultButton = ContentDialogButton.Primary };
         ISigningCertificate? certificate = null;
         dialog.Opened += (_, _) => password.Focus(FocusState.Programmatic);
         dialog.PrimaryButtonClick += async (_, args) =>
@@ -49,7 +50,7 @@ public sealed partial class MainWindow
             password.IsEnabled = false;
             try
             {
-                AnnotationStatus.Text = "Reading certificate file...";
+                AnnotationStatus.Text = I18n.T("sign-pfx-reading");
                 var secret = password.Password;
                 password.Password = "";
                 var result = await _facade.OpenSigningCertificateAsync(bytes, secret);
@@ -57,8 +58,8 @@ public sealed partial class MainWindow
                 else if (result.Error!.RequiresPassword)
                 {
                     args.Cancel = true;
-                    error.Text = "The password is incorrect, or the file is not a valid PKCS#12 certificate.";
-                    AnnotationStatus.Text = "Waiting for the certificate password.";
+                    error.Text = I18n.T("sign-pfx-wrong-password");
+                    AnnotationStatus.Text = I18n.T("sign-pfx-waiting");
                 }
                 else AnnotationStatus.Text = result.Error.Message;
             }
@@ -77,7 +78,7 @@ public sealed partial class MainWindow
             {
                 certificate?.Dispose();
                 certificate = null;
-                AnnotationStatus.Text = "Certificate selection cancelled.";
+                AnnotationStatus.Text = I18n.T("sign-certificate-cancelled");
             }
             return certificate;
         }
@@ -87,23 +88,23 @@ public sealed partial class MainWindow
     private async Task<SigningIdentity?> AskSigningIdentityAsync(IReadOnlyList<SigningIdentity> identities)
     {
         var choices = new RadioButtons { ItemsSource = identities.Select(i => i.DisplayName).ToArray(), SelectedIndex = identities.Count > 0 ? 0 : -1 };
-        AutomationProperties.SetName(choices, "Signing identity");
+        AutomationProperties.SetName(choices, I18n.T("sign-identity-name"));
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var content = new StackPanel { Spacing = 8 };
-        content.Children.Add(new TextBlock { Text = "Sign this document with:", TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = I18n.T("sign-picker-prompt"), TextWrapping = TextWrapping.Wrap });
         content.Children.Add(choices);
         content.Children.Add(error);
-        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Choose a signing identity", Content = content,
-            PrimaryButtonText = "Sign", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = I18n.T("sign-picker-title"), Content = content,
+            PrimaryButtonText = I18n.T("sign-picker-sign"), CloseButtonText = I18n.T("sign-cancel"), DefaultButton = ContentDialogButton.Close };
         dialog.PrimaryButtonClick += (_, args) =>
         {
             if (choices.SelectedIndex >= 0 && choices.SelectedIndex < identities.Count) return;
             args.Cancel = true;
-            error.Text = "Choose a signing identity.";
+            error.Text = I18n.T("sign-picker-none-chosen");
         };
         if (await ShowModalAsync(dialog) == ContentDialogResult.Primary)
             return identities[choices.SelectedIndex];
-        AnnotationStatus.Text = "Signing cancelled.";
+        AnnotationStatus.Text = I18n.T("sign-cancelled");
         return null;
     }
 }

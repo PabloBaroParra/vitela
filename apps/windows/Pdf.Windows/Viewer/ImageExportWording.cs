@@ -1,4 +1,5 @@
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows.Viewer;
 
@@ -12,5 +13,5 @@ public static class ImageExportWording
     };
 
     public static string Summary(int count, ImageExportFormat format, string folder) =>
-        $"Exported {count} {(count == 1 ? "page" : "pages")} as {FormatName(format)} to {folder}.";
+        I18n.T("export-summary-format", ("count", count), ("format", FormatName(format)), ("folder", folder));
 }

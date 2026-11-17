@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -69,7 +70,7 @@ public sealed partial class MainWindow
                 ? await _facade.MoveFormFieldAsync(drag.SessionId, drag.Field.Id, before, after.X, after.Y)
                 : await _facade.ResizeFormFieldAsync(drag.SessionId, drag.Field.Id, before, after);
             await ShowFieldStyleResultAsync(drag.SessionId, drag.Field, result,
-                drag.Corner is null ? "Field moved. Changes are pending save." : "Field resized. Changes are pending save.");
+                drag.Corner is null ? I18n.T("forms-moved") : I18n.T("forms-resized"));
         }
         finally { SetBusy(false); RedrawAnnotations(); }
     }

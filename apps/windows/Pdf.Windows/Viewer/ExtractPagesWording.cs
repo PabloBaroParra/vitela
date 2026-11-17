@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Viewer;
 
 /// <summary>What the status line says once an extracted PDF is on disk.</summary>
@@ -13,11 +15,10 @@ public static class ExtractPagesWording
 {
     public static string Summary(int count, string destination, bool sourceIsSigned)
     {
-        var pages = count == 1 ? "page" : "pages";
-        var summary = $"Extracted {count} {pages} to {destination}.";
+        var summary = I18n.T("extract-summary", ("count", count), ("path", destination));
         if (sourceIsSigned)
         {
-            summary += " The original document is signed, so the extracted PDF's signature no longer verifies.";
+            summary += " " + I18n.T("extract-signed-note");
         }
 
         return summary;

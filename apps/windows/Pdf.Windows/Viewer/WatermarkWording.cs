@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Viewer;
 
 /// <summary>What the status line says once a watermark is recorded.</summary>
@@ -10,7 +12,6 @@ public static class WatermarkWording
 {
     public static string Summary(int count)
     {
-        var pages = count == 1 ? "page" : "pages";
-        return $"Watermark added to {count} {pages}. Save to keep the change.";
+        return I18n.T("watermark-summary-save", ("count", count));
     }
 }

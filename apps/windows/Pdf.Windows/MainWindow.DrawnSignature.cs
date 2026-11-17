@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -29,12 +30,12 @@ public sealed partial class MainWindow
     {
         var panel = new StackPanel { Spacing = 8 };
         AutomationProperties.SetAutomationId(panel, "DrawSignaturePanel");
-        panel.Children.Add(new TextBlock { Text = "Signature", Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
-        _drawSignatureButton.Content = new TextBlock { Text = "Draw signature…", TextWrapping = TextWrapping.Wrap };
+        panel.Children.Add(new TextBlock { Text = I18n.T("signature-heading"), Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
+        _drawSignatureButton.Content = new TextBlock { Text = I18n.T("signature-draw"), TextWrapping = TextWrapping.Wrap };
         _drawSignatureButton.HorizontalAlignment = HorizontalAlignment.Stretch;
-        AutomationProperties.SetName(_drawSignatureButton, "Draw signature");
+        AutomationProperties.SetName(_drawSignatureButton, I18n.T("signature-draw-name"));
         AutomationProperties.SetAutomationId(_drawSignatureButton, "DrawSignatureButton");
-        ToolTipService.SetToolTip(_drawSignatureButton, "Draw a signature with the mouse, then click a page to place it.");
+        ToolTipService.SetToolTip(_drawSignatureButton, I18n.T("signature-draw-tooltip-short"));
         _drawSignatureButton.Click += DrawSignatureButton_Click;
         panel.Children.Add(_drawSignatureButton);
         _toolPages["Sign"].Children.Insert(1, panel);
@@ -55,7 +56,7 @@ public sealed partial class MainWindow
         }
         catch (Exception)
         {
-            ReportDropFailure(sessionId, "The signature could not be drawn.");
+            ReportDropFailure(sessionId, I18n.T("signature-not-drawn"));
         }
     }
 
@@ -72,7 +73,7 @@ public sealed partial class MainWindow
                     return;
                 case SavedSignatureChoice.Delete:
                     await Task.Run(() => _signatures.Delete());
-                    ReportDropFailure(sessionId, "Your saved signature was deleted from this PC.");
+                    ReportDropFailure(sessionId, I18n.T("signature-forgotten-pc"));
                     return;
                 case SavedSignatureChoice.DrawNew:
                     break;
@@ -88,14 +89,14 @@ public sealed partial class MainWindow
         if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
         if (png is null)
         {
-            AnnotationStatus.Text = "The signature could not be turned into an image.";
+            AnnotationStatus.Text = I18n.T("signature-unrenderable");
             return;
         }
 
         ArmDrawnSignature(sessionId, png);
         if (!drawn.Remember) return; // used once: any remembered signature stays as it was
         var kept = await Task.Run(() => _signatures.Save(png));
-        if (!kept) ReportDropFailure(sessionId, "Your signature could not be remembered. Click a page to place it.");
+        if (!kept) ReportDropFailure(sessionId, I18n.T("signature-not-remembered"));
     }
 
     /// <summary>
@@ -113,7 +114,7 @@ public sealed partial class MainWindow
         _armedAnnotation = AnnotationKind.Stamp;
         _armedStampImage = png;
         SyncAnnotationToolButtons();
-        AnnotationStatus.Text = "Click a page to place your signature.";
+        AnnotationStatus.Text = I18n.T("signature-armed");
     }
 
     /// <summary>Leaving the Sign page disarms a signature that was not placed.</summary>
@@ -122,7 +123,7 @@ public sealed partial class MainWindow
         if (page == "Sign" || _armedStampImage is null) return;
         _armedAnnotation = null;
         SyncAnnotationToolButtons();
-        AnnotationStatus.Text = "Signature disarmed.";
+        AnnotationStatus.Text = I18n.T("signature-disarmed");
     }
 
     /// <summary>The click that places the armed signature, at the pressed point and at the core's default size.</summary>

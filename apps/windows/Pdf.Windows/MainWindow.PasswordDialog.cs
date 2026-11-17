@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -9,8 +10,8 @@ public sealed partial class MainWindow
 {
     private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes, bool discardPendingEdits)
     {
-        var passwordBox = new PasswordBox { PlaceholderText = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(passwordBox, "Document password");
+        var passwordBox = new PasswordBox { PlaceholderText = I18n.T("open-password-placeholder"), PasswordRevealMode = PasswordRevealMode.Peek };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(passwordBox, I18n.T("open-password-name"));
         var errorText = new TextBlock
         {
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson),
@@ -23,10 +24,10 @@ public sealed partial class MainWindow
         panel.Children.Add(errorText);
         var dialog = new ContentDialog
         {
-            Title = "Password required",
+            Title = I18n.T("open-password-title"),
             Content = panel,
-            PrimaryButtonText = "Open",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("open-password-open"),
+            CloseButtonText = I18n.T("open-password-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -38,7 +39,7 @@ public sealed partial class MainWindow
             dialog.IsPrimaryButtonEnabled = false;
             dialog.IsEnabled = false;
             SetBusy(true);
-            AnnotationStatus.Text = "Opening password-protected PDF...";
+            AnnotationStatus.Text = I18n.T("open-password-busy");
             try
             {
                 result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), passwordBox.Password, discardPendingEdits);
@@ -46,9 +47,9 @@ public sealed partial class MainWindow
                 {
                     args.Cancel = true;
                     result = null;
-                    errorText.Text = "The password is incorrect. Try again.";
+                    errorText.Text = I18n.T("open-password-wrong");
                     errorText.Visibility = Visibility.Visible;
-                    AnnotationStatus.Text = "Waiting for the document password.";
+                    AnnotationStatus.Text = I18n.T("open-password-waiting");
                 }
             }
             finally
@@ -64,7 +65,7 @@ public sealed partial class MainWindow
         try
         {
             if (await ShowModalAsync(dialog) == ContentDialogResult.Primary) return result;
-            AnnotationStatus.Text = "Password entry cancelled.";
+            AnnotationStatus.Text = I18n.T("open-password-cancelled");
             return null;
         }
         finally

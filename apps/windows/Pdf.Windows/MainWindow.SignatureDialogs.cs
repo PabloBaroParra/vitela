@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -23,15 +24,15 @@ public sealed partial class MainWindow
     private async Task<DrawnPad?> AskDrawnSignatureAsync()
     {
         var pad = new SignaturePadView();
-        var remember = new CheckBox { Content = "Remember on this PC", IsChecked = true };
+        var remember = new CheckBox { Content = I18n.T("signature-remember-pc"), IsChecked = true };
         AutomationProperties.SetAutomationId(remember, "RememberSignatureCheckBox");
         var content = new StackPanel { Spacing = 8, MinWidth = 360 };
         content.Children.Add(pad);
         content.Children.Add(remember);
         var dialog = new ContentDialog
         {
-            XamlRoot = Content.XamlRoot, Title = "Draw your signature", Content = content,
-            PrimaryButtonText = "Use", SecondaryButtonText = "Clear", CloseButtonText = "Cancel",
+            XamlRoot = Content.XamlRoot, Title = I18n.T("signature-pad-title"), Content = content,
+            PrimaryButtonText = I18n.T("signature-use"), SecondaryButtonText = I18n.T("signature-clear"), CloseButtonText = I18n.T("signature-cancel"),
             DefaultButton = ContentDialogButton.Close, IsPrimaryButtonEnabled = false, IsSecondaryButtonEnabled = false,
         };
         pad.InkChanged += (_, _) =>
@@ -65,20 +66,20 @@ public sealed partial class MainWindow
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
             BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"],
             Child = picture is null
-                ? new TextBlock { Text = "This saved signature can no longer be shown.", Foreground = new SolidColorBrush(Colors.Black), TextWrapping = TextWrapping.Wrap }
+                ? new TextBlock { Text = I18n.T("signature-offer-unshowable"), Foreground = new SolidColorBrush(Colors.Black), TextWrapping = TextWrapping.Wrap }
                 : new Image { Source = picture, Stretch = Stretch.Uniform },
         };
-        AutomationProperties.SetName(frame, "Your saved signature");
+        AutomationProperties.SetName(frame, I18n.T("signature-offer-preview"));
         AutomationProperties.SetAutomationId(frame, "SavedSignature");
-        var delete = new Button { Content = "Delete" };
+        var delete = new Button { Content = I18n.T("signature-delete") };
         AutomationProperties.SetAutomationId(delete, "DeleteSavedSignature");
         var content = new StackPanel { Spacing = 8, MinWidth = 360 };
         content.Children.Add(frame);
         content.Children.Add(delete);
         var dialog = new ContentDialog
         {
-            XamlRoot = Content.XamlRoot, Title = "Your signature", Content = content,
-            PrimaryButtonText = "Use", SecondaryButtonText = "Draw new", CloseButtonText = "Cancel",
+            XamlRoot = Content.XamlRoot, Title = I18n.T("signature-offer-title"), Content = content,
+            PrimaryButtonText = I18n.T("signature-use"), SecondaryButtonText = I18n.T("signature-draw-new"), CloseButtonText = I18n.T("signature-cancel"),
             DefaultButton = picture is null ? ContentDialogButton.Close : ContentDialogButton.Primary,
             IsPrimaryButtonEnabled = picture is not null,
         };

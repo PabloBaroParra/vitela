@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -14,7 +15,7 @@ public sealed partial class MainWindow
     private readonly Button _chooseSigningCertificate = new();
     private readonly Button _chooseCardCertificate = new();
     private readonly Button _chooseComputerCertificate = new();
-    private readonly TextBlock _signedIndicator = new() { Text = "✓ This document is digitally signed.", TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _signedIndicator = new() { Text = I18n.T("sign-signed-indicator"), TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
     private SigningState? _signingState;
     private long _signingGeneration;
     private bool _signingFlowActive;
@@ -23,16 +24,16 @@ public sealed partial class MainWindow
     {
         var panel = new StackPanel { Spacing = 8 };
         AutomationProperties.SetAutomationId(panel, "SigningPanel");
-        panel.Children.Add(new TextBlock { Text = "Signing", Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
+        panel.Children.Add(new TextBlock { Text = I18n.T("sign-heading"), Style = (Style)Application.Current.Resources["SubtitleTextBlockStyle"] });
         AutomationProperties.SetAutomationId(_signedIndicator, "SignedIndicator");
         panel.Children.Add(_signedIndicator);
-        _chooseSigningCertificate.Content = new TextBlock { Text = "Choose signing certificate (.pfx)…", TextWrapping = TextWrapping.Wrap };
+        _chooseSigningCertificate.Content = new TextBlock { Text = I18n.T("sign-choose-pfx"), TextWrapping = TextWrapping.Wrap };
         _chooseSigningCertificate.HorizontalAlignment = HorizontalAlignment.Stretch;
-        AutomationProperties.SetName(_chooseSigningCertificate, "Choose signing certificate (.pfx)…");
+        AutomationProperties.SetName(_chooseSigningCertificate, I18n.T("sign-choose-pfx"));
         AutomationProperties.SetAutomationId(_chooseSigningCertificate, "ChooseSigningCertificate");
         _chooseSigningCertificate.Click += ChooseSigningCertificate_Click;
         panel.Children.Add(_chooseSigningCertificate);
-        foreach (var (button, label, id) in new[] { (_chooseCardCertificate, "Use card or token…", "ChooseCardCertificate"), (_chooseComputerCertificate, "Use a certificate from this computer…", "ChooseComputerCertificate") })
+        foreach (var (button, label, id) in new[] { (_chooseCardCertificate, I18n.T("sign-use-token"), "ChooseCardCertificate"), (_chooseComputerCertificate, I18n.T("sign-use-nss"), "ChooseComputerCertificate") })
         {
             button.Content = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap };
             button.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -52,7 +53,7 @@ public sealed partial class MainWindow
         _chooseCardCertificate.IsEnabled = _chooseSigningCertificate.IsEnabled;
         _chooseComputerCertificate.IsEnabled = _chooseSigningCertificate.IsEnabled;
         _signedIndicator.Visibility = current && _signingState!.IsSigned ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(_chooseSigningCertificate, current && _signingState!.Refusal is { } refusal ? refusal : "Choose a PKCS#12 signing certificate (.pfx or .p12).");
+        ToolTipService.SetToolTip(_chooseSigningCertificate, current && _signingState!.Refusal is { } refusal ? refusal : I18n.T("sign-choose-pfx-tooltip"));
     }
 
     private async Task RefreshSigningStateAsync()
@@ -87,7 +88,7 @@ public sealed partial class MainWindow
             var identities = certificate.Identities;
             if (identities.Count == 0)
             {
-                AnnotationStatus.Text = "This certificate source has no usable signing identities.";
+                AnnotationStatus.Text = I18n.T("sign-no-identities");
                 return;
             }
             var selected = await AskSigningIdentityAsync(identities);
@@ -96,9 +97,9 @@ public sealed partial class MainWindow
             destination.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(destination, WindowNative.GetWindowHandle(this));
             var output = await destination.PickSaveFileAsync();
-            if (output is null) { AnnotationStatus.Text = "Signing cancelled."; return; }
+            if (output is null) { AnnotationStatus.Text = I18n.T("sign-cancelled"); return; }
             if (_session?.SessionId != sessionId) return;
-            AnnotationStatus.Text = "Signing document…";
+            AnnotationStatus.Text = I18n.T("sign-busy-document");
             var result = await _facade.SignToDestinationAsync(sessionId, certificate, selected.Id, output.Name, async signedBytes =>
             {
                 var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(output.Path)!);
@@ -110,7 +111,7 @@ public sealed partial class MainWindow
             if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
             ShowOpenedDocument(result.Value!, output.Path);
             SelectToolPage("Sign");
-            AnnotationStatus.Text = "Signed PDF saved and reopened.";
+            AnnotationStatus.Text = I18n.T("sign-saved-reopened");
         }
         catch (Exception error) { AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message; }
         finally

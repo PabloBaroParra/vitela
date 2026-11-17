@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -21,7 +22,7 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
-    private const string ImportCancelled = "PDF import cancelled.";
+    private static string ImportCancelled => I18n.T("organize-import-cancelled");
 
     private bool _importCancelRequested;
     /// <summary>The picked file name behind each imported block, for the session that imported it.</summary>
@@ -50,7 +51,7 @@ public sealed partial class MainWindow
         }
         catch (Exception)
         {
-            AnnotationStatus.Text = "Could not select PDFs to import.";
+            AnnotationStatus.Text = I18n.T("organize-import-pick-failed");
             return;
         }
         finally
@@ -77,7 +78,7 @@ public sealed partial class MainWindow
     {
         _importCancelRequested = true;
         CancelImportButton.IsEnabled = false;
-        AnnotationStatus.Text = "Cancelling after the current PDF...";
+        AnnotationStatus.Text = I18n.T("organize-import-cancelling");
     }
 
     private async Task ImportPdfsAsync(string sessionId, IReadOnlyList<StorageFile> files)
@@ -87,7 +88,7 @@ public sealed partial class MainWindow
         SetBusy(true);
         UpdateOrganizeHeader();
         SetImportProgress(0, files.Count);
-        AnnotationStatus.Text = "Checking selected PDFs...";
+        AnnotationStatus.Text = I18n.T("organize-import-checking");
         var sources = new List<IImportSource>();
         var warnings = new List<string>();
         try
@@ -104,7 +105,7 @@ public sealed partial class MainWindow
                 }
                 catch (Exception)
                 {
-                    AnnotationStatus.Text = $"Could not import {file.Name}: the file could not be read.";
+                    AnnotationStatus.Text = I18n.T("organize-import-unreadable", ("name", file.Name));
                     return;
                 }
                 if (!ImportIsCurrent(sessionId)) { AnnotationStatus.Text = ImportCancelled; return; }
@@ -112,7 +113,7 @@ public sealed partial class MainWindow
                 if (result is null) { AnnotationStatus.Text = ImportCancelled; return; }
                 if (!result.IsSuccess)
                 {
-                    AnnotationStatus.Text = $"Could not import {file.Name}: {result.Error!.Message}";
+                    AnnotationStatus.Text = I18n.T("organize-import-failed", ("name", file.Name), ("error", result.Error!.Message));
                     return;
                 }
                 sources.Add(result.Value!);
@@ -130,7 +131,7 @@ public sealed partial class MainWindow
             // Once apply begins it cannot be cancelled: the core commits one
             // atomic command, then the facade rebuilds its preview.
             CancelImportButton.IsEnabled = false;
-            AnnotationStatus.Text = "Adding selected PDFs...";
+            AnnotationStatus.Text = I18n.T("organize-import-adding");
             _thumbnailGeneration++;
             ClearOrganizePageDrag();
             var previousPageCount = _session!.PageCount;
@@ -158,13 +159,12 @@ public sealed partial class MainWindow
                 await RefreshAnnotationStateAsync();
             }
             AnnotationStatus.Text = imported.IsSuccess
-                ? $"Imported {imported.Value!.PageCount} {(imported.Value.PageCount == 1 ? "page" : "pages")} from "
-                    + $"{files.Count} {(files.Count == 1 ? "PDF" : "PDFs")}. Changes are pending save."
+                ? I18n.T("organize-imported-summary", ("pages", imported.Value!.PageCount), ("files", files.Count))
                 : imported.Error!.Message;
         }
         catch (Exception)
         {
-            AnnotationStatus.Text = "Could not import the selected PDFs.";
+            AnnotationStatus.Text = I18n.T("organize-import-selected-failed");
         }
         finally
         {
@@ -203,25 +203,25 @@ public sealed partial class MainWindow
 
     private async Task<string?> AskImportPasswordAsync(string name, bool retry)
     {
-        var passwordBox = new PasswordBox { PlaceholderText = "Password", PasswordRevealMode = PasswordRevealMode.Peek };
-        AutomationProperties.SetName(passwordBox, $"Password for {name}");
+        var passwordBox = new PasswordBox { PlaceholderText = I18n.T("organize-import-password-placeholder"), PasswordRevealMode = PasswordRevealMode.Peek };
+        AutomationProperties.SetName(passwordBox, I18n.T("organize-import-password-name", ("name", name)));
         var panel = new StackPanel { Spacing = 8 };
-        panel.Children.Add(new TextBlock { Text = $"Enter the password for {name}.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = I18n.T("organize-import-password-prompt", ("name", name)), TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(passwordBox);
         if (retry)
-            panel.Children.Add(new TextBlock { Text = "The password is incorrect. Try again.", TextWrapping = TextWrapping.Wrap,
+            panel.Children.Add(new TextBlock { Text = I18n.T("organize-import-password-wrong"), TextWrapping = TextWrapping.Wrap,
                 Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson) });
         var dialog = new ContentDialog
         {
-            Title = "Password required",
+            Title = I18n.T("organize-import-password-title"),
             Content = panel,
-            PrimaryButtonText = "Unlock",
-            CloseButtonText = "Cancel import",
+            PrimaryButtonText = I18n.T("organize-import-unlock"),
+            CloseButtonText = I18n.T("organize-import-password-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
         dialog.Opened += (_, _) => passwordBox.Focus(FocusState.Programmatic);
-        AnnotationStatus.Text = $"Waiting for the password for {name}.";
+        AnnotationStatus.Text = I18n.T("organize-import-password-waiting", ("name", name));
         try
         {
             return await ShowModalAsync(dialog) == ContentDialogResult.Primary ? passwordBox.Password : null;
@@ -237,14 +237,14 @@ public sealed partial class MainWindow
         var text = new TextBlock { Text = string.Join("\n", warnings), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(new ScrollViewer { Content = text, MaxHeight = 320 });
-        panel.Children.Add(new TextBlock { Text = "No pages have been added. Import anyway to add the whole batch as one undo step.", TextWrapping = TextWrapping.Wrap,
+        panel.Children.Add(new TextBlock { Text = I18n.T("organize-import-warning-detail"), TextWrapping = TextWrapping.Wrap,
             Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] });
         return await ShowModalAsync(new ContentDialog
         {
-            Title = "Some document-level information will stay behind",
+            Title = I18n.T("organize-import-warning-title"),
             Content = panel,
-            PrimaryButtonText = "Import anyway",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("organize-import-anyway"),
+            CloseButtonText = I18n.T("organize-import-warning-cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         }) == ContentDialogResult.Primary;
@@ -256,7 +256,7 @@ public sealed partial class MainWindow
         CancelImportButton.IsEnabled = !_importCancelRequested;
         ImportProgressBar.Maximum = Math.Max(total, 1);
         ImportProgressBar.Value = completed;
-        ImportProgressText.Text = $"{completed} of {total} PDFs";
+        ImportProgressText.Text = I18n.T("organize-import-progress", ("completed", completed), ("total", total));
     }
 
     private void RememberImportedName(string sessionId, ulong sourceId, string name)
@@ -271,5 +271,5 @@ public sealed partial class MainWindow
 
     /// <summary>The file an imported block came from, when this session imported it.</summary>
     private string ImportedBlockName(string sessionId, ulong? sourceId) =>
-        _importedNamesSessionId == sessionId && sourceId is { } id && _importedNames.TryGetValue(id, out var name) ? name : "Imported PDF";
+        _importedNamesSessionId == sessionId && sourceId is { } id && _importedNames.TryGetValue(id, out var name) ? name : I18n.T("organize-imported-pdf");
 }

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -28,17 +29,17 @@ public sealed partial class MainWindow
             var plan = await AskSplitPagesAsync(session);
             if (plan is null)
             {
-                AnnotationStatus.Text = "Split cancelled.";
+                AnnotationStatus.Text = I18n.T("split-cancelled");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
-            var picker = new FolderPicker { CommitButtonText = "Split" };
+            var picker = new FolderPicker { CommitButtonText = I18n.T("split-accept") };
             picker.FileTypeFilter.Add("*");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var folder = await picker.PickSingleFolderAsync();
             if (folder is null)
             {
-                AnnotationStatus.Text = "Split cancelled. No file was written.";
+                AnnotationStatus.Text = I18n.T("split-nothing-written");
                 return;
             }
             if (_session?.SessionId != session.SessionId || !await AskSplitOverwritesAsync(plan, folder)) return;
@@ -65,19 +66,19 @@ public sealed partial class MainWindow
         if (existing == 0) return true;
         var dialog = new ContentDialog
         {
-            Title = $"Replace {existing} existing {(existing == 1 ? "PDF" : "PDFs")}?",
+            Title = I18n.T("split-replace-title", ("count", existing)),
             Content = new TextBlock
             {
-                Text = $"Splitting into this folder writes {plan.Parts.Count} files named after the document, and {existing} of them already exist there.",
+                Text = I18n.T("split-replace-detail", ("total", plan.Parts.Count), ("count", existing)),
                 TextWrapping = TextWrapping.Wrap,
             },
-            PrimaryButtonText = "Replace",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("split-replace"),
+            CloseButtonText = I18n.T("split-cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
         if (await ShowModalAsync(dialog) == ContentDialogResult.Primary) return true;
-        AnnotationStatus.Text = "Split cancelled.";
+        AnnotationStatus.Text = I18n.T("split-cancelled");
         return false;
     }
 
@@ -92,13 +93,13 @@ public sealed partial class MainWindow
             foreach (var part in plan.Parts)
             {
                 writingPart = part.FileName;
-                AnnotationStatus.Text = $"Writing part {written + 1} of {plan.Parts.Count}...";
+                AnnotationStatus.Text = I18n.T("split-writing-part", ("part", written + 1), ("total", plan.Parts.Count));
                 var pages = Enumerable.Range((int)part.First, checked((int)(part.Last - part.First + 1)))
                     .Select(index => (uint)index).ToArray();
                 var result = await _facade.ExtractPagesAsync(sessionId, pages);
                 if (!result.IsSuccess)
                 {
-                    AnnotationStatus.Text = $"Split stopped after {written} written: {part.FileName} could not be written: {result.Error!.Message}";
+                    AnnotationStatus.Text = I18n.T("split-stopped", ("written", written), ("name", part.FileName), ("error", result.Error!.Message));
                     return;
                 }
 
@@ -111,12 +112,12 @@ public sealed partial class MainWindow
                 written++;
             }
 
-            AnnotationStatus.Text = $"Split into {written} PDFs in {folder.Path}." +
-                (plan.SourceIsSigned ? " The original document is signed, so the signature in each part no longer verifies." : "");
+            AnnotationStatus.Text = I18n.T("split-summary", ("count", written), ("folder", folder.Path)) +
+                (plan.SourceIsSigned ? " " + I18n.T("split-signed-note") : "");
         }
         catch (Exception error)
         {
-            AnnotationStatus.Text = $"Split stopped after {written} written: {writingPart} could not be written: {_facade.SaveWriteFailure(error).Error!.Message}";
+            AnnotationStatus.Text = I18n.T("split-stopped", ("written", written), ("name", writingPart ?? ""), ("error", _facade.SaveWriteFailure(error).Error!.Message));
         }
         finally
         {
@@ -132,8 +133,8 @@ public sealed partial class MainWindow
 
     private async Task<SplitPagesPlan?> AskSplitPagesAsync(DocumentSession session)
     {
-        var cuts = new TextBox { Name = "SplitCutPoints", Header = "Split after page", PlaceholderText = "3,7", MinWidth = 240 };
-        var hint = new TextBlock { Text = $"This document has {session.PageCount} pages. Each cut starts a new file.", TextWrapping = TextWrapping.Wrap,
+        var cuts = new TextBox { Name = "SplitCutPoints", Header = I18n.T("split-cuts-label"), PlaceholderText = "3,7", MinWidth = 240 };
+        var hint = new TextBlock { Text = I18n.T("split-range-hint", ("total", session.PageCount)), TextWrapping = TextWrapping.Wrap,
             Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"] };
         var refusal = new TextBlock { TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
         refusal.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemFillColorCriticalBrush"];
@@ -144,10 +145,10 @@ public sealed partial class MainWindow
 
         var dialog = new ContentDialog
         {
-            Title = "Split PDF",
+            Title = I18n.T("split-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Split",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("split-accept"),
+            CloseButtonText = I18n.T("split-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };

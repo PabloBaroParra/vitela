@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Printing;
 using Microsoft.UI.Xaml;
 using System.Runtime.InteropServices;
+using Pdf.Windows.Localization;
 using Windows.Graphics.Printing;
 using WinRT.Interop;
 
@@ -39,12 +40,12 @@ public sealed partial class MainWindow
         if (_printingDocument || _isBusy || _dialogOpen || _shellPickingFile) return;
         if (_session is null)
         {
-            PrintStatus.Text = "Open a PDF before printing.";
+            PrintStatus.Text = I18n.T("print-open-first");
             return;
         }
         if (_session.PageCount == 0)
         {
-            PrintStatus.Text = "The PDF has no pages to print.";
+            PrintStatus.Text = I18n.T("print-no-pages");
             return;
         }
         var session = _session;
@@ -59,11 +60,11 @@ public sealed partial class MainWindow
             }
             // Print reads the output snapshot, including edits and annotations
             // that otherwise exist only in the viewer's overlay.
-            PrintStatus.Text = "Preparing to print...";
+            PrintStatus.Text = I18n.T("print-preparing-status");
             var prepared = await _facade.PreparePrintAsync(session.SessionId);
             if (!prepared.IsSuccess)
             {
-                PrintStatus.Text = $"Could not prepare the document for printing: {prepared.Error!.Message}";
+                PrintStatus.Text = I18n.T("print-prepare-failed", ("error", prepared.Error!.Message));
                 FinishPrinting();
                 return;
             }
@@ -71,7 +72,7 @@ public sealed partial class MainWindow
             if (_session?.SessionId != session.SessionId || prepared.Value == 0)
             {
                 if (_session?.SessionId == session.SessionId)
-                    PrintStatus.Text = "The PDF has no pages to print.";
+                    PrintStatus.Text = I18n.T("print-no-pages");
                 _facade.ReleasePrint(session.SessionId);
                 FinishPrinting();
                 return;
@@ -84,12 +85,12 @@ public sealed partial class MainWindow
         }
         catch (Exception error) when (error is COMException or InvalidOperationException or NotImplementedException)
         {
-            PrintStatus.Text = "Printing is unavailable on this Windows installation.";
+            PrintStatus.Text = I18n.T("print-unavailable");
             FinishPrinting();
         }
         catch (Exception error)
         {
-            PrintStatus.Text = $"Could not print: {error.Message}";
+            PrintStatus.Text = I18n.T("print-error", ("error", error.Message));
             FinishPrinting();
         }
         // NOTE: do NOT tear down _printJob/_printTaskOptions after ShowPrintUI.
@@ -142,7 +143,7 @@ public sealed partial class MainWindow
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (_printJob != job) return;
-                if (completion == PrintTaskCompletion.Failed) PrintStatus.Text = "Printing failed.";
+                if (completion == PrintTaskCompletion.Failed) PrintStatus.Text = I18n.T("print-failed");
                 FinishPrinting();
             });
         };
@@ -179,7 +180,7 @@ public sealed partial class MainWindow
         }
         catch (Exception error)
         {
-            if (_printJob == job) PrintStatus.Text = $"Could not prepare the print preview: {error.Message}";
+            if (_printJob == job) PrintStatus.Text = I18n.T("print-preview-failed", ("error", error.Message));
         }
     }
 
@@ -202,7 +203,7 @@ public sealed partial class MainWindow
         }
         catch (Exception error)
         {
-            if (_printJob == job) PrintStatus.Text = $"Could not print: {error.Message}";
+            if (_printJob == job) PrintStatus.Text = I18n.T("print-error", ("error", error.Message));
         }
         finally
         {
@@ -237,7 +238,7 @@ public sealed partial class MainWindow
             // as for a core raster failure, and report it below.
         }
         if (_printJob == job)
-            PrintStatus.Text = $"Could not render page {pageIndex + 1} for printing. It will be blank.";
+            PrintStatus.Text = I18n.T("print-page-blank", ("page", pageIndex + 1));
         return null;
     }
 
