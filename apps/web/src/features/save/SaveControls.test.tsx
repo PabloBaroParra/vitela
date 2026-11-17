@@ -13,7 +13,13 @@ const document: OpenDocument = {
   name: 'a.pdf',
   handle: 7,
   generation: 1,
-  info: { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }], textExtractionAllowed: true },
+  info: {
+    pageCount: 1,
+    pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }],
+    pageIds: [0],
+    textExtractionAllowed: true,
+    documentAssemblyAllowed: true,
+  },
 };
 
 const SIGNATURE_TITLE = "Saving will break this document's signature";

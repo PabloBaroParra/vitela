@@ -111,6 +111,25 @@ impl Engine {
             .collect())
     }
 
+    /// Every page's `PageId`, in page order: the page's identity for the
+    /// session, unchanged by moves and removals (thumbnail caches key on
+    /// it). Changes with every edit, like `pageDimensions`.
+    #[wasm_bindgen(js_name = pageIds)]
+    pub fn page_ids(&self, doc: u32) -> Result<Vec<u32>, JsValue> {
+        self.document(doc)
+            .map(|open| open.model.page_ids())
+            .map_err(js_error)
+    }
+
+    /// Whether the document lets its pages be moved, rotated or removed —
+    /// the permission `applyEdit` refuses with `EditNotPermitted`.
+    #[wasm_bindgen(js_name = documentAssemblyAllowed)]
+    pub fn document_assembly_allowed(&self, doc: u32) -> Result<bool, JsValue> {
+        self.document(doc)
+            .map(|open| open.model.document_assembly_allowed())
+            .map_err(js_error)
+    }
+
     /// Whether the document lets its text be read — what the UI checks to
     /// offer search and selection at all.
     #[wasm_bindgen(js_name = textExtractionAllowed)]

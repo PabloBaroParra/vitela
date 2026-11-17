@@ -14,6 +14,9 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     search: unused('search'),
     selectText: unused('selectText'),
     selectWord: unused('selectWord'),
+    applyEdit: unused('applyEdit'),
+    undo: unused('undo'),
+    redo: unused('redo'),
     ...overrides,
   };
 }

@@ -1,6 +1,7 @@
-// Container: opening a PDF (picker, drop, password) plus the viewer of the
-// open document.
+// Container: opening a PDF (picker, drop, password) plus the screen of the
+// open document: the viewer, or Organize.
 
+import { useState } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
@@ -8,18 +9,34 @@ import { MarkDirtyContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
+import { ViewSwitch } from '../../ui/ViewSwitch';
+import { OrganizeScreen } from '../organize/OrganizeScreen';
 import { DocumentViewer } from '../viewer/DocumentViewer';
 import { PasswordDialog } from './PasswordDialog';
 import { useDocument, type Activity } from './useDocument';
 import { useFileDrop } from './useFileDrop';
+
+type Screen = 'view' | 'organize';
+
+const SCREENS = [
+  { value: 'view', label: 'View' },
+  { value: 'organize', label: 'Organize' },
+] as const;
 
 interface DocumentWorkspaceProps {
   readonly engine: Engine;
 }
 
 export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
-  const { state, open, submitPassword, cancelPassword } = useDocument(engine);
+  const { state, open, submitPassword, cancelPassword, revise } = useDocument(engine);
   const { document, activity } = state;
+  const [screen, setScreen] = useState<Screen>('view');
+  const [screenFor, setScreenFor] = useState(document?.generation);
+  // Every document opens in the viewer (adjusting state while rendering).
+  if (screenFor !== document?.generation) {
+    setScreenFor(document?.generation);
+    setScreen('view');
+  }
   const busy = activity.kind === 'opening' || activity.kind === 'password';
   const dragging = useFileDrop(open, !busy);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
@@ -39,12 +56,18 @@ export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
         {activity.kind === 'idle' && document && (
           <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
         )}
+        {document && <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />}
         {document && <SaveControls session={save} documentName={document.name} />}
         {activity.kind === 'idle' && !document && <StatusLine>Open a PDF or drop one anywhere on this window.</StatusLine>}
       </div>
       {document && (
         <MarkDirtyContext.Provider value={save.markDirty}>
-          <DocumentViewer key={document.generation} engine={engine} document={document} />
+          {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+          {screen === 'view' ? (
+            <DocumentViewer key={document.generation} engine={engine} document={document} />
+          ) : (
+            <OrganizeScreen key={document.generation} engine={engine} document={document} onEdited={revise} />
+          )}
         </MarkDirtyContext.Provider>
       )}
       {activity.kind === 'password' && (

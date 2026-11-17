@@ -10,7 +10,13 @@ const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4)
 const pages: PageSize[] = Array(40).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 });
 const doc: OpenDocument = {
   name: 'long.pdf',
-  info: { pageCount: pages.length, pages, textExtractionAllowed: true },
+  info: {
+    pageCount: pages.length,
+    pages,
+    pageIds: pages.map((_, index) => index),
+    textExtractionAllowed: true,
+    documentAssemblyAllowed: true,
+  },
   handle: 1,
   generation: 1,
 };

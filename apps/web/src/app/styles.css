@@ -271,6 +271,121 @@ button:focus-visible,
   color: var(--error);
 }
 
+/* Screen switch (View / Organize): toggle buttons, the current one pressed. */
+.view-switch {
+  display: inline-flex;
+}
+
+.view-switch button {
+  border-radius: 0;
+}
+
+.view-switch button:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.view-switch button:last-child {
+  border-radius: 0 6px 6px 0;
+  margin-left: -1px;
+}
+
+.view-switch button[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Organize: the toolbar on top, the thumbnail grid filling the rest. */
+.organize {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.organize__blocked {
+  margin: 0 0 6px;
+  color: var(--error);
+}
+
+.organize__grid {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--viewer-bg);
+  margin: 0 -16px;
+}
+
+.organize__grid:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.organize__content {
+  position: relative;
+}
+
+.page-card {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: grab;
+  user-select: none;
+  /* A press on a card drags it; the grid between cards still scrolls by touch. */
+  touch-action: none;
+}
+
+.page-card[aria-selected='true'] {
+  border-color: var(--accent);
+  background: var(--warning-soft);
+}
+
+.organize__grid:focus-visible .page-card[data-active='true'] {
+  outline: 2px dashed var(--accent);
+  outline-offset: 2px;
+}
+
+.organize__grid[data-dragging='true'],
+.organize__grid[data-dragging='true'] .page-card {
+  cursor: grabbing;
+}
+
+.page-card__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 144px;
+  height: 186px;
+}
+
+.page-card__page {
+  background: #fff;
+  box-shadow: var(--page-shadow);
+}
+
+.page-card__number {
+  font-variant-numeric: tabular-nums;
+}
+
+.page-card__error {
+  font-size: 0.8rem;
+  color: var(--error);
+  text-align: center;
+}
+
+.organize__drop-marker {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
 /* Password prompt and the other modal questions (.dialog) */
 .password-dialog,
 .dialog {

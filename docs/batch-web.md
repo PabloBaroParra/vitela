@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓, T-225 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -378,7 +378,7 @@ Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
 | **T-223** ✓ | Bajar al core la orquestación de edición que hoy vive solo en `pdf-ffi`: gates de `apply_edit` (usando `Command::is_document_assembly_edit` / `is_page_structure_edit`), límites de página de mover/rotar, orquestación de import sobre `ImportedSourceRegistry` y los pasos de `refresh_preview`. `pdf-ffi` pasa a delegar. | Nativo: **cero cambio de comportamiento** (`core.yml` en verde); tests movidos junto a la lógica; `cargo check --target wasm32-unknown-unknown -p pdf-wasm` sigue pasando. |
 | **T-224** ✓ | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
 | **T-225** ✓ | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
-| **T-226** | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
+| **T-226** ✓ | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
 | **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
 
 T-223 bloquea T-224 y T-227. T-225 depende de `saveToBytes` (T-224). T-226 depende de
@@ -607,6 +607,88 @@ lo que sigue:
   es una Blob URL, no una petición) y sigue en verde. **No cubierto:** Save a copy de punta a punta (necesita una edición, T-226), el aviso de
   permiso del propio navegador (los E2E lo sustituyen por un handle que responde "denied"), un handle sobre el disco real, y Firefox/WebKit no tienen
   File System Access (solo descarga).
+
+### T-226 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize"). Lo que condiciona lo
+que sigue:
+
+- **Dos exposiciones finas en `pdf-wasm`** (sin reglas nuevas): `pageIds(doc)` (el `PageId`
+  de cada página, en orden: la identidad que sobrevive a mover y borrar, como en Linux) y
+  `documentAssemblyAllowed(doc)` (`pdf_manip::document_assembly_is_allowed`, la misma que
+  pregunta `check_edit`). Tests nativos en `model.rs` y un `wasm-bindgen-test` nuevo.
+- **`@vitela/core`:** `Engine` gana `applyEdit(handle, edit)` (`move`/`rotate`/`remove` de
+  un tramo de páginas), `undo` y `redo`, que cruzan el worker como peticiones nuevas y
+  responden con un `EditedDocument` (`info` editada + `canUndo`/`canRedo`). `DocumentInfo`
+  gana `pageIds` y `documentAssemblyAllowed`; hay constante `EDIT_NOT_PERMITTED`.
+- **El refresco va dentro de la edición (nota de T-224).** `documentEngine` llama a
+  `refreshPreview` en la misma petición que edita, deshace o rehace: el worker responde
+  una petición tras otra, así que ningún render puede caer entre la edición y su refresco.
+  También olvida los caracteres de página en caché (describen páginas que pueden haberse
+  movido) y recalcula los tamaños con los que coloca el texto. Si el refresco falla, el
+  paso se deshace (`undo`, o `redo` para un `undo`) y se relanza el error: la lista de
+  páginas que ve la UI nunca discrepa de los píxeles. Efecto secundario conocido: tras
+  deshacer una edición fallida, rehacer la ofrece otra vez.
+- **Pantalla** (`features/organize/`): conmutador **View / Organize** en la barra; cada
+  documento abre en View y cada pantalla se monta de cero al cambiar, así el visor relee la
+  lista de páginas editada. `useDocument.revise(handle, edited)` acepta la respuesta solo
+  si ese documento sigue en pantalla y devuelve si la aceptó; solo entonces Organize llama
+  a `markDirty()` (vía `useMarkDirty`, como pedía T-225), así que una edición que acaba
+  tras abrir otro documento no ensucia el nuevo. La respuesta se entrega aunque Organize
+  se haya desmontado: el core ya tiene la edición.
+- **Selección = un tramo contiguo**, así cada operación es un comando del core y un paso de
+  deshacer (como `MovePages` en Linux). Clic selecciona, Mayús+clic extiende.
+- **Teclado:** la cuadrícula es un `listbox` con `aria-activedescendant` (el foco no se
+  pierde aunque la tarjeta activa se desmonte). Flechas/Inicio/Fin mueven el foco (Mayús
+  extiende); **Ctrl+Mayús+flecha** (Cmd+Mayús en Mac) mueve las páginas seleccionadas
+  —no Alt+flecha, que es "Atrás" en Chromium y Firefox—; Supr/Retroceso borra; Ctrl+Z,
+  Ctrl+Mayús+Z y Ctrl+Y deshacen/rehacen. La barra tiene las mismas acciones con
+  `aria-disabled` (no `disabled`, que tiraría el foco).
+- **Arrastrar:** eventos de puntero, no drag-and-drop HTML5; el hueco de destino sale del
+  layout (`dropSlotAt`: delante de la primera tarjeta cuya mitad queda a la derecha del
+  puntero), sin medir el DOM. Autoscroll simple cerca de los bordes.
+- **Virtualización por filas** (`gridLayout.ts`): solo se montan, y por tanto se pintan, las
+  filas a menos de un viewport del área visible.
+- **Miniaturas por `PageId`** (`thumbnailCache.ts`, lección de Linux): clave
+  `PageId/giro/dpi`, con LRU de 64 MiB. Mover o borrar no vuelve a pintar nada; rotar
+  cambia la clave (sin invalidar a mano) y deshacer la rotación reencuentra el bitmap. Un
+  render se pide a través de la caché y se guarda aunque la tarjeta ya no esté. **No se
+  pide ningún render mientras una edición está en vuelo:** hasta que responde, la UI tiene
+  el orden viejo y un render por posición llegaría a la vista ya editada con la etiqueta de
+  otra página. La caché vive mientras la pantalla está montada (volver de View la rehace).
+- **Permiso:** con `documentAssemblyAllowed = false` la pantalla lo explica y apaga toda
+  edición (botones, teclas, arrastre); un `EditNotPermitted` del core la bloquea igual.
+- **Hallazgos sobre el core (no cambiados):** (1) rotar un PDF firmado **no** pregunta: la
+  rotación va por el escritor incremental, los bytes firmados quedan como prefijo y el E2E
+  lo comprueba; la pregunta de firma solo aparece con mover/borrar (reescritura completa).
+  (2) El core acepta borrar **todas** las páginas (el firmado de una página queda con 0 y se
+  guarda); Linux tampoco lo impide. Si debe prohibirse, es una regla del core, no de la UI.
+- **Playwright** (`e2e/organize.spec.ts`, los tres navegadores): arrastrar + rotar + borrar,
+  guardar, reabrir la descarga y comprobar orden, giro y nº de páginas (cada página del PDF
+  construido tiene su ancho, y la forma de la miniatura la identifica); reordenar con el
+  teclado + deshacer/rehacer + volver a View, guardar y comprobar; PDF cifrado sin permiso de
+  ensamblado (ni bit 4 ni bit 11) → bloqueado (clic, tecla y arrastre no cambian nada); y el
+  firmado: rotar guarda sin preguntar conservando los bytes firmados, borrar abre la pregunta
+  y **Save a copy** descarga "rsa2048_sha256 (copy).pdf" (la nota de T-225).
+- **Verificado en local (Windows, Playwright 1.65.1):** `tsc -b` de la app y del paquete;
+  Vitest de la app 285/285 y de `@vitela/core` 91/91 (incluido un test nuevo contra pdfium
+  real que edita por el `EditCommand` de verdad y pinta la rotación sin refresco aparte);
+  build; Playwright 82 pasados / 20 saltados (los de File System Access fuera de Chromium):
+  Chromium 34/34, Firefox 24 + 10 saltados, WebKit 24 + 10 saltados, incluido zero-network;
+  `organize.spec.ts` además 36/36 con `--repeat-each=3`. Rust: `cargo test -p pdf-wasm`
+  (40 nativos), clippy nativo y wasm32 `--all-targets` con `-D warnings`, `cargo fmt
+  --check`. **No corrido en local:** los `wasm-bindgen-test` en Chrome headless (no hay
+  chromedriver en esta máquina); el nuevo lo verifica el job `wasm32` de `core.yml`. Para
+  correr Playwright hubo que instalar los navegadores de Playwright 1.65.1 (chromium-1255);
+  la ruta con "ó" no rompió nada.
+- **No cubierto:** arrastrar con el dedo (táctil) y el autoscroll durante un arrastre largo
+  no tienen E2E; no hay selección no contigua (Ctrl+clic); no se mide memoria con documentos
+  grandes (la caché tiene tope, pero cada edición clona y re-guarda la vista previa en el
+  worker, el punto 2 abierto de T-224).
+- **Para T-227:** importar añade páginas con `PageId` nuevos (el core los acuña), así que la
+  caché de miniaturas no necesita cambios; `applyEdit` puede crecer con un `import` que
+  responda el mismo `EditedDocument`. La vista Documentos (bloques) puede reutilizar
+  `gridLayout`, `useReorderDrag` y `moves.ts` (un bloque es un tramo).
 
 ## Verificación
 

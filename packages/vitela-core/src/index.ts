@@ -5,6 +5,7 @@ export { createEngine, type EngineOptions } from './createEngine.js';
 export { EngineClient } from './core/client.js';
 export {
   EngineError,
+  EDIT_NOT_PERMITTED,
   PASSWORD_REQUIRED,
   SIGNATURES_WOULD_BE_INVALIDATED,
   TEXT_EXTRACTION_DENIED,
@@ -15,8 +16,10 @@ export {
 export type {
   DocumentHandle,
   DocumentInfo,
+  EditedDocument,
   Engine,
   OpenedDocument,
+  PageEdit,
   PagePoint,
   PageRects,
   PageSize,

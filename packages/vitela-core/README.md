@@ -5,6 +5,7 @@ pdfium, both as WebAssembly, running in a module Web Worker behind a typed,
 framework-agnostic client. No server: documents never leave the page.
 
 Today the engine opens (with or without a password), renders pages to RGBA,
+moves, rotates and removes pages (with undo/redo),
 searches, selects text, and saves the document back to bytes.
 
 ## Install
@@ -59,14 +60,18 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   - `loadTimeoutMs?: number` — how long each of the three asset fetches may
     take before the engine fails (default `60000`).
 - `EngineClient` — what `createEngine` returns; implements `Engine`: `ready`,
-  `open`, `renderPage`, `close`, `saveToBytes`, `search`, `selectText`,
-  `selectWord`. Its constructor is public, but wrapping a port yourself is
+  `open`, `renderPage`, `close`, `saveToBytes`, `applyEdit`, `undo`, `redo`,
+  `search`, `selectText`, `selectWord`. An edit answers with the document as
+  it is now (`EditedDocument`: page sizes, page ids, undo/redo state), and
+  the engine has already refreshed its preview, so the next render shows it.
+  Its constructor is public, but wrapping a port yourself is
   not a supported setup: the worker answers nothing until it receives the
   init message that `createEngine` sends.
 - `EngineError`, `errorKind`, `errorMessage`, and the kind constants
   `PASSWORD_REQUIRED`, `WRONG_PASSWORD`, `TEXT_EXTRACTION_DENIED`,
-  `SIGNATURES_WOULD_BE_INVALIDATED`.
+  `SIGNATURES_WOULD_BE_INVALIDATED`, `EDIT_NOT_PERMITTED`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
+  `PageEdit`, `EditedDocument`,
   `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`, `SearchHit`,
   `TextSelection`, and the protocol types `MessagePortLike`,
   `RequestEnvelope`, `WorkerMessage`.
