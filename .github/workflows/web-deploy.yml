@@ -1,0 +1,222 @@
+name: web-deploy
+
+# Publishes the web shell (apps/web) to Cloudflare Pages, on its own cadence,
+# separate from the native shells.
+#
+# It deploys only when a push to main changes what the web serves: its own
+# files, or a crate the WASM engine is built from. That crate set comes from
+# `cargo metadata` on every run (apps/web/scripts/deploy-needed.mjs), so a push
+# that only touches pdf-ffi, the signing crates or another shell is skipped.
+# A manual run (Actions → web-deploy → Run workflow) always deploys main.
+#
+# Nothing is published unless the exact build being uploaded passes the unit
+# suites and the Playwright flows in Chromium, Firefox and WebKit.
+#
+# Cloudflare's own build runner has no Rust toolchain, so the WASM is built
+# here and only apps/web/dist is uploaded (a Direct Upload project).
+#
+# Setup, once (until then both jobs are skipped, not failed):
+#   - Cloudflare: Workers & Pages → create a Pages project (Direct Upload),
+#     production branch "main".
+#   - Repository variable  CLOUDFLARE_PAGES_PROJECT = that project's name.
+#   - Repository secrets   CLOUDFLARE_API_TOKEN (permission "Cloudflare Pages:
+#                          Edit") and CLOUDFLARE_ACCOUNT_ID.
+#   Repository-level, not environment-level: a job-level `if:` cannot see
+#   environment variables.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - package.json
+      - package-lock.json
+      # Candidates only; the changes job narrows these to the engine's crates.
+      - "core/**"
+      - "vendor/**"
+      - Cargo.toml
+      - Cargo.lock
+      - "rust-toolchain*"
+      - ".cargo/**"
+      - ".github/workflows/web-deploy.yml"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  # Same pin as web.yml, core/pdf-wasm/Cargo.toml and build-wasm.sh.
+  WASM_BINDGEN_VERSION: "0.2.130"
+  WRANGLER_VERSION: "4.157.0"
+
+permissions:
+  contents: read
+
+# Per ref, so a run on another branch never touches a main deploy. Queued, not
+# cancelled: a deploy that has started uploading is allowed to finish.
+concurrency:
+  group: web-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: does this push change the web?
+    # Production is main only, and nothing runs until Pages is configured.
+    if: vars.CLOUDFLARE_PAGES_PROJECT != '' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read # to find this workflow's last successful deploy
+    outputs:
+      deploy: ${{ steps.decide.outputs.deploy }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # `cargo metadata --filter-platform wasm32-unknown-unknown` asks rustc
+      # for that target's cfg, so install it rather than trust the image.
+      - name: Install Rust (stable) with the wasm32 target
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Decide
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_JOB: test and publish to Cloudflare Pages
+        run: |
+          set -euo pipefail
+          # Diff against the commit production last got, not the previous
+          # push: GitHub keeps one pending run per group and drops older ones,
+          # and a failed deploy must be picked up by the next push.
+          base=""
+          for run in $(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/web-deploy.yml/runs?branch=main&status=success&per_page=50" \
+                         --jq '.workflow_runs[] | "\(.id):\(.head_sha)"'); do
+            if gh api "repos/$GITHUB_REPOSITORY/actions/runs/${run%%:*}/jobs" \
+                 --jq ".jobs[] | select(.name == \"$DEPLOY_JOB\" and .conclusion == \"success\") | .id" | grep -q .; then
+              base="${run#*:}"
+              break
+            fi
+          done
+          echo "last deployed: ${base:-none}"
+          # A manual run, no earlier deploy, or one no longer in history.
+          if [ "$EVENT" != push ] || [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node --test apps/web/scripts/deploy-needed.test.mjs
+          deploy=$(git diff --no-renames --name-only "$base" "$GITHUB_SHA" | node apps/web/scripts/deploy-needed.mjs)
+          echo "deploy=$deploy" >> "$GITHUB_OUTPUT"
+          echo "deploy: $deploy"
+
+  deploy:
+    name: test and publish to Cloudflare Pages
+    needs: changes
+    if: needs.changes.outputs.deploy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      # Fail in seconds, not after a 10-minute build, when setup is half done.
+      - name: Check the Cloudflare secrets are set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: .
+        run: |
+          missing=""
+          [ -n "$CLOUDFLARE_API_TOKEN" ] || missing="$missing CLOUDFLARE_API_TOKEN"
+          [ -n "$CLOUDFLARE_ACCOUNT_ID" ] || missing="$missing CLOUDFLARE_ACCOUNT_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::CLOUDFLARE_PAGES_PROJECT is set but these repository secrets are not:$missing"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust (stable) with the wasm32 target
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      # Same paths and key as web.yml, so the two share one cache.
+      - name: Cache cargo registry, the wasm build and wasm-bindgen-cli
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/wasm-bindgen-test-runner
+            ~/.cargo/bin/wasm2es6js
+            ~/.cargo/.crates.toml
+            ~/.cargo/.crates2.json
+            target
+          key: ${{ runner.os }}-web-wasm-${{ env.WASM_BINDGEN_VERSION }}-${{ hashFiles('Cargo.lock') }}
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version "$WASM_BINDGEN_VERSION" --locked
+
+      - name: Cache pdfium WASM (sha256-checked by build-wasm.sh either way)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: packages/vitela-core/src/generated/pdfium
+          key: pdfium-wasm-${{ hashFiles('core/pdf-wasm/scripts/fetch-pdfium.sh') }}
+      - name: Build the WASM modules
+        run: npm run build:wasm
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install npm dependencies
+        run: npm ci
+        working-directory: .
+
+      - name: "@vitela/core: type-check, Vitest, build"
+        working-directory: packages/vitela-core
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+      - name: Vitest (apps/web)
+        run: npm test
+      - name: Type-check and production build
+        run: npm run build
+
+      # The gate: these flows run against the dist/ uploaded below, served by
+      # `vite preview` from the same build, so what passes is what ships.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Playwright (chromium, firefox, webkit)
+        run: npx playwright test
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-deploy
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 7
+
+      # The API token reaches wrangler through the environment only, never the
+      # command line.
+      - name: Publish apps/web/dist to Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+        run: >-
+          npx --yes "wrangler@$WRANGLER_VERSION" pages deploy dist
+          --project-name "$PAGES_PROJECT"
+          --branch main
+          --commit-hash "$GITHUB_SHA"
