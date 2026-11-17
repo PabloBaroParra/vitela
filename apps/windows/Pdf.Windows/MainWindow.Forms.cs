@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -57,7 +58,7 @@ public sealed partial class MainWindow
         _formRowsGeneration++;
         _formFocusTargets.Clear();
         FormFieldRows.Children.Clear();
-        FormFieldsStatus.Text = "Open a PDF with form fields to fill them in, or place one in Edit forms mode.";
+        FormFieldsStatus.Text = I18n.T("forms-fill-placeholder");
     }
 
     private async Task RefreshFormFieldsAsync()
@@ -88,8 +89,8 @@ public sealed partial class MainWindow
         FormFieldRows.Children.Clear();
         _shownFieldValues.Clear();
         FormFieldsStatus.Text = state.Fields.Count == 0
-            ? "Open a PDF with form fields to fill them in, or place one in Edit forms mode."
-            : state.FillAllowed ? "" : "This document does not permit filling in its form.";
+            ? I18n.T("forms-fill-placeholder")
+            : state.FillAllowed ? "" : I18n.T("forms-fill-forbidden");
 
         foreach (var field in state.Fields)
         {
@@ -109,8 +110,8 @@ public sealed partial class MainWindow
                 if (field.Rect is { } rect)
                 {
                     var position = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    var x = new NumberBox { Header = "X (pt)", Value = rect.X, Width = 110 };
-                    var y = new NumberBox { Header = "Y (pt)", Value = rect.Y, Width = 110 };
+                    var x = new NumberBox { Header = I18n.T("geometry-x"), Value = rect.X, Width = 110 };
+                    var y = new NumberBox { Header = I18n.T("geometry-y"), Value = rect.Y, Width = 110 };
                     var positionSubmitted = false;
                     async Task commit()
                     {
@@ -124,8 +125,8 @@ public sealed partial class MainWindow
                     position.Children.Add(y);
                     row.Children.Add(position);
                     var dimensions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-                    var width = new NumberBox { Header = "Width (pt)", Value = rect.Width, Width = 110 };
-                    var height = new NumberBox { Header = "Height (pt)", Value = rect.Height, Width = 110 };
+                    var width = new NumberBox { Header = I18n.T("geometry-width"), Value = rect.Width, Width = 110 };
+                    var height = new NumberBox { Header = I18n.T("geometry-height"), Value = rect.Height, Width = 110 };
                     var sizeSubmitted = false;
                     async Task commitSize()
                     {
@@ -161,42 +162,42 @@ public sealed partial class MainWindow
         _filledFieldPages.Add(field.PageIndex);
         InvalidatePageRender(field.PageIndex);
         await RefreshFormFieldsAsync();
-        FormFieldsStatus.Text = "Field renamed. Save to keep the change.";
+        FormFieldsStatus.Text = I18n.T("forms-renamed-save");
     }
 
     private async Task CommitFieldPositionAsync(string sessionId, FormField field, AnnotationRect rect, NumberBox x, NumberBox y)
     {
         if (_session?.SessionId != sessionId || (x.Value == rect.X && y.Value == rect.Y)) return;
         var result = await _facade.MoveFormFieldAsync(sessionId, field.Id, rect, x.Value, y.Value);
-        await ShowFieldStyleResultAsync(sessionId, field, result, "Field moved. Save to keep the change.");
+        await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-moved-save"));
     }
 
     private async Task CommitFieldSizeAsync(string sessionId, FormField field, AnnotationRect rect, double width, double height)
     {
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.ResizeFormFieldAsync(sessionId, field.Id, rect, width, height);
-        await ShowFieldStyleResultAsync(sessionId, field, result, "Field resized. Save to keep the change.");
+        await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-resized-save"));
     }
 
     private async Task CommitFieldFontSizeAsync(string sessionId, FormField field, FormTextStyle style, double sizePt)
     {
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.SetFormFieldFontSizeAsync(sessionId, field.Id, style, sizePt);
-        await ShowFieldStyleResultAsync(sessionId, field, result, "Field font size changed. Save to keep the change.");
+        await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-font-size-changed-save"));
     }
 
     private async Task CommitFieldFontAsync(string sessionId, FormField field, FormTextStyle style, FormFont font)
     {
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.SetFormFieldFontAsync(sessionId, field.Id, style, font);
-        await ShowFieldStyleResultAsync(sessionId, field, result, "Field font changed. Save to keep the change.");
+        await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-font-changed-save"));
     }
 
     private async Task CommitFieldColorAsync(string sessionId, FormField field, FormTextStyle style, AnnotationColor color)
     {
         if (_session?.SessionId != sessionId) return;
         var result = await _facade.SetFormFieldColorAsync(sessionId, field.Id, style, color);
-        await ShowFieldStyleResultAsync(sessionId, field, result, "Field text color changed. Save to keep the change.");
+        await ShowFieldStyleResultAsync(sessionId, field, result, I18n.T("forms-color-changed-save"));
     }
 
     private async Task ShowFieldStyleResultAsync(string sessionId, FormField field, OperationResult<AnnotationState> result, string message)
@@ -224,7 +225,7 @@ public sealed partial class MainWindow
         FormFieldKind.RadioGroup radio => RadioGroupRow(sessionId, field, radio),
         FormFieldKind.Dropdown { Editable: true } => EditableDropdownRow(sessionId, field),
         FormFieldKind.Dropdown dropdown => DropdownRow(sessionId, field, dropdown),
-        _ => new TextBlock { Text = "Unsupported field", TextWrapping = TextWrapping.Wrap },
+        _ => new TextBlock { Text = I18n.T("forms-unsupported-field"), TextWrapping = TextWrapping.Wrap },
     };
 
     private TextBox TextFieldRow(string sessionId, FormField field, FormFieldKind.Text kind)
@@ -383,7 +384,7 @@ public sealed partial class MainWindow
         UpdateAnnotationControls(_annotationState);
         _filledFieldPages.Add(field.PageIndex);
         InvalidatePageRender(field.PageIndex);
-        FormFieldsStatus.Text = "Field filled in. Save to keep the change.";
+        FormFieldsStatus.Text = I18n.T("forms-filled-save");
     }
 
     /// <summary>

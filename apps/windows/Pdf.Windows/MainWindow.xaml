@@ -289,27 +289,27 @@
                     </StackPanel>
                     <StackPanel x:Name="FormFieldsPanel" Spacing="10">
                         <StackPanel Spacing="6" Padding="0,8,0,8">
-                            <TextBlock Text="Form fields" FontWeight="SemiBold" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-fields}" FontWeight="SemiBold" />
                             <viewer:ToolbarPanel>
-                                <ToggleButton x:Name="EditFormsButton" Content="Edit forms" Click="EditFormsButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceTextFieldButton" Content="Text field" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceCheckboxButton" Content="Checkbox" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceRadioGroupButton" Content="Radio group" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
-                                <ToggleButton x:Name="PlaceDropdownButton" Content="Dropdown" Click="PlaceDropdownButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="EditFormsButton" Content="{i18n:T Key=forms-edit-mode}" Click="EditFormsButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceTextFieldButton" Content="{i18n:T Key=forms-kind-text}" Click="PlaceTextFieldButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceCheckboxButton" Content="{i18n:T Key=forms-kind-checkbox}" Click="PlaceCheckboxButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceRadioGroupButton" Content="{i18n:T Key=forms-kind-radio-group}" Click="PlaceRadioGroupButton_Click" IsEnabled="False" />
+                                <ToggleButton x:Name="PlaceDropdownButton" Content="{i18n:T Key=forms-kind-dropdown}" Click="PlaceDropdownButton_Click" IsEnabled="False" />
                             </viewer:ToolbarPanel>
-                            <TextBlock Text="Field style" FontWeight="SemiBold" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-style}" FontWeight="SemiBold" />
                             <viewer:ToolbarPanel>
-                                <ComboBox x:Name="FormStyleFont" Header="Font" Width="145" IsEnabled="False" SelectionChanged="FormStyleFont_SelectionChanged">
+                                <ComboBox x:Name="FormStyleFont" Header="{i18n:T Key=forms-style-font}" Width="145" IsEnabled="False" SelectionChanged="FormStyleFont_SelectionChanged">
                                     <x:String>Helvetica</x:String><x:String>Times Roman</x:String><x:String>Courier</x:String>
                                 </ComboBox>
-                                <NumberBox x:Name="FormStyleSize" Header="Size (pt)" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
-                                <Button x:Name="FormStyleColor" Content="Color" IsEnabled="False" Click="FormStyleColor_Click" />
-                                <Button x:Name="DeleteFormFieldButton" Content="Delete field" IsEnabled="False" Click="DeleteFormFieldButton_Click" ToolTipService.ToolTip="Delete the selected field (Delete)">
+                                <NumberBox x:Name="FormStyleSize" Header="{i18n:T Key=forms-style-size}" Width="110" Minimum="4" Maximum="400" SmallChange="1" LargeChange="10" Value="12" IsEnabled="False" SpinButtonPlacementMode="Compact" ValueChanged="FormStyleSize_ValueChanged" />
+                                <Button x:Name="FormStyleColor" Content="{i18n:T Key=forms-color}" IsEnabled="False" Click="FormStyleColor_Click" />
+                                <Button x:Name="DeleteFormFieldButton" Content="{i18n:T Key=forms-delete-field}" IsEnabled="False" Click="DeleteFormFieldButton_Click" ToolTipService.ToolTip="{i18n:T Key=forms-delete-field-tooltip}">
                                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteFormField_Invoked" /></Button.KeyboardAccelerators>
                                 </Button>
                             </viewer:ToolbarPanel>
-                            <TextBlock Text="Fill fields" FontWeight="SemiBold" />
-                            <TextBlock x:Name="FormFieldsStatus" Text="Open a PDF with form fields to fill them in, or place one in Edit forms mode." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="{i18n:T Key=forms-heading-fill}" FontWeight="SemiBold" />
+                            <TextBlock x:Name="FormFieldsStatus" Text="{i18n:T Key=forms-fill-placeholder}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <ScrollViewer x:Name="FormFieldsScroller" MaxHeight="360" VerticalScrollBarVisibility="Auto">
                                 <StackPanel x:Name="FormFieldRows" Spacing="10" />
                             </ScrollViewer>

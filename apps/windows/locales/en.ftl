@@ -515,3 +515,54 @@ comments-page = Page { $page }
 # $page (Number) - one-based page number.
 comments-read-title = Comment — page { $page }
 comments-close = Close
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Text field
+forms-kind-checkbox = Checkbox
+forms-kind-radio-group = Radio group
+forms-kind-dropdown = Dropdown
+forms-edit-mode = Edit forms
+forms-color = Color
+forms-delete-field = Delete field
+forms-fill-placeholder = Open a PDF with form fields to fill them in, or place one in Edit forms mode.
+forms-heading-fields = Form fields
+forms-heading-style = Field style
+forms-heading-fill = Fill fields
+forms-unsupported-field = Unsupported field
+
+## Forms: edit mode and field results
+
+forms-mode-armed = Edit forms armed — pick a field type to place, or click an existing field to select it.
+forms-mode-disarmed = Edit forms disarmed.
+forms-deleted = Field deleted. Save to keep the change, or undo to bring it back.
+forms-moved = Field moved. Changes are pending save.
+forms-resized = Field resized. Changes are pending save.
+forms-color-title = Choose field color
+
+## Forms: Windows only (style controls, field names, placement hints and
+## statuses that end in "Save to keep the change.")
+
+forms-style-font = Font
+forms-style-size = Size (pt)
+# "Delete" is the keyboard key that also deletes the field; keep it as-is.
+forms-delete-field-tooltip = Delete the selected field (Delete)
+forms-fill-forbidden = This document does not permit filling in its form.
+# $name (String) - the field's name, verbatim.
+forms-field-name = Field name: { $name }
+forms-field-name-tooltip = Type to rename. Enter accepts; Escape cancels.
+forms-place-text-hint = Click or drag on a page to place a text field.
+forms-place-checkbox-hint = Click or drag on a page to place a checkbox.
+forms-place-radio-group-hint = Click or drag on a page to place a radio group.
+forms-place-dropdown-hint = Click or drag on a page to place a dropdown.
+forms-placed-text = Text field placed. Save to keep the change.
+forms-placed-checkbox = Checkbox placed. Save to keep the change.
+forms-placed-radio-group = Radio group placed. Save to keep the change.
+forms-placed-dropdown = Dropdown placed. Save to keep the change.
+forms-renamed-save = Field renamed. Save to keep the change.
+forms-moved-save = Field moved. Save to keep the change.
+forms-resized-save = Field resized. Save to keep the change.
+forms-font-size-changed-save = Field font size changed. Save to keep the change.
+forms-font-changed-save = Field font changed. Save to keep the change.
+forms-color-changed-save = Field text color changed. Save to keep the change.
+forms-filled-save = Field filled in. Save to keep the change.

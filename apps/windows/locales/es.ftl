@@ -479,3 +479,52 @@ comments-empty = Este documento no tiene comentarios.
 comments-page = Página { $page }
 comments-read-title = Comentario — página { $page }
 comments-close = Cerrar
+
+## Forms: toolbar, field kinds and fill panel
+
+forms-kind-text = Campo de texto
+forms-kind-checkbox = Casilla de verificación
+forms-kind-radio-group = Grupo de opciones
+forms-kind-dropdown = Lista desplegable
+forms-edit-mode = Editar formularios
+forms-color = Color
+forms-delete-field = Eliminar campo
+forms-fill-placeholder = Abre un PDF con campos de formulario para rellenarlos o coloca uno en el modo Editar formularios.
+forms-heading-fields = Campos de formulario
+forms-heading-style = Estilo del campo
+forms-heading-fill = Rellenar campos
+forms-unsupported-field = Campo no compatible
+
+## Forms: edit mode and field results
+
+forms-mode-armed = Edición de formularios activada: elige un tipo de campo para colocarlo o haz clic en un campo existente para seleccionarlo.
+forms-mode-disarmed = Edición de formularios desactivada.
+forms-deleted = Campo eliminado. Guarda para conservar el cambio o deshazlo para recuperarlo.
+forms-moved = Campo movido. Los cambios están pendientes de guardar.
+forms-resized = Campo redimensionado. Los cambios están pendientes de guardar.
+forms-color-title = Elegir el color del campo
+
+## Forms: Windows only (style controls, field names, placement hints and
+## statuses that end in "Save to keep the change.")
+
+forms-style-font = Fuente
+forms-style-size = Tamaño (pt)
+forms-delete-field-tooltip = Eliminar el campo seleccionado (Delete)
+forms-fill-forbidden = Este documento no permite rellenar su formulario.
+forms-field-name = Nombre del campo: { $name }
+forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Escape cancela.
+forms-place-text-hint = Haz clic o arrastra en una página para colocar un campo de texto.
+forms-place-checkbox-hint = Haz clic o arrastra en una página para colocar una casilla de verificación.
+forms-place-radio-group-hint = Haz clic o arrastra en una página para colocar un grupo de opciones.
+forms-place-dropdown-hint = Haz clic o arrastra en una página para colocar una lista desplegable.
+forms-placed-text = Campo de texto colocado. Guarda para conservar el cambio.
+forms-placed-checkbox = Casilla de verificación colocada. Guarda para conservar el cambio.
+forms-placed-radio-group = Grupo de opciones colocado. Guarda para conservar el cambio.
+forms-placed-dropdown = Lista desplegable colocada. Guarda para conservar el cambio.
+forms-renamed-save = Campo renombrado. Guarda para conservar el cambio.
+forms-moved-save = Campo movido. Guarda para conservar el cambio.
+forms-resized-save = Campo redimensionado. Guarda para conservar el cambio.
+forms-font-size-changed-save = Tamaño de fuente del campo cambiado. Guarda para conservar el cambio.
+forms-font-changed-save = Fuente del campo cambiada. Guarda para conservar el cambio.
+forms-color-changed-save = Color del texto del campo cambiado. Guarda para conservar el cambio.
+forms-filled-save = Campo rellenado. Guarda para conservar el cambio.

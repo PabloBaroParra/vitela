@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -65,10 +66,10 @@ public sealed partial class MainWindow
         RedrawAnnotations();
         FormFieldsStatus.Text = kind switch
         {
-            FieldToPlace.Text => "Click or drag on a page to place a text field.",
-            FieldToPlace.Checkbox => "Click or drag on a page to place a checkbox.",
-            FieldToPlace.RadioGroup => "Click or drag on a page to place a radio group.",
-            _ => "Click or drag on a page to place a dropdown.",
+            FieldToPlace.Text => I18n.T("forms-place-text-hint"),
+            FieldToPlace.Checkbox => I18n.T("forms-place-checkbox-hint"),
+            FieldToPlace.RadioGroup => I18n.T("forms-place-radio-group-hint"),
+            _ => I18n.T("forms-place-dropdown-hint"),
         };
     }
 
@@ -170,10 +171,10 @@ public sealed partial class MainWindow
                 SelectFormField(_formFieldState?.Fields.FirstOrDefault(field => !previousIds.Contains(field.Id))?.Id);
                 FormFieldsStatus.Text = kind switch
                 {
-                    FieldToPlace.Text => "Text field placed. Save to keep the change.",
-                    FieldToPlace.Checkbox => "Checkbox placed. Save to keep the change.",
-                    FieldToPlace.RadioGroup => "Radio group placed. Save to keep the change.",
-                    _ => "Dropdown placed. Save to keep the change.",
+                    FieldToPlace.Text => I18n.T("forms-placed-text"),
+                    FieldToPlace.Checkbox => I18n.T("forms-placed-checkbox"),
+                    FieldToPlace.RadioGroup => I18n.T("forms-placed-radio-group"),
+                    _ => I18n.T("forms-placed-dropdown"),
                 };
                 ClearFormFieldPlacement();
             }
