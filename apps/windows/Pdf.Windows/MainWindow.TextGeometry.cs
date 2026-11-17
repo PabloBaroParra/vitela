@@ -19,7 +19,7 @@ public sealed partial class MainWindow
         var sessionId = _session.SessionId;
         try
         {
-            await SettleContentEditorForHistoryAsync();
+            if (!await SettleContentEditorForHistoryAsync()) return;
             if (_session?.SessionId != sessionId) return;
             var pageIndex = (uint)_firstVisiblePage;
             var targets = await _facade.PageTextEditTargetsAsync(sessionId, pageIndex);

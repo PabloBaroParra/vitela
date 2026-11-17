@@ -34,9 +34,16 @@ public sealed partial class PdfDocumentFacade
     /// the others. A composite-font first run is painted in the inserted
     /// standard font, which the caller confirms with the reader first.
     /// </summary>
+    /// <remarks>
+    /// A paragraph is wrapped to its width by the core, every line break a
+    /// line the reader typed. A text box writes those as <c>'\r'</c>, so they
+    /// are sent as the <c>'\n'</c> the core splits on. The core never reads
+    /// a composite-font paragraph as one block, so a paragraph is never asked
+    /// for the inserted font.
+    /// </remarks>
     public Task<OperationResult<AnnotationState>> RetypeTextBlockAsync(string sessionId, ContentTextBlock block, string text) =>
         WriteTextBlockAsync(sessionId, block, "retype_text_block",
-            new PdfCoreTextBlockEdit.Retype(Sources(block), text, block.First.RequiresFontSubstitution));
+            new PdfCoreTextBlockEdit.Retype(Sources(block), ContentTextBlock.WithLineFeeds(text), block.First.RequiresFontSubstitution));
 
     private static PdfCoreContentTextRun[] Sources(ContentTextBlock block) => [.. block.Runs.Select(run => run.Source)];
 
@@ -49,7 +56,7 @@ public sealed partial class PdfDocumentFacade
             .Where(pair => pair.members.Length > 0)
             .Select(pair => new ContentTextBlock(pair.members,
                 new AnnotationRect(pair.block.Bbox.X, pair.block.Bbox.Y, pair.block.Bbox.Width, pair.block.Bbox.Height),
-                pair.block.Text))];
+                pair.block.Text, pair.block.LineCount, pair.block.Leading))];
     }
 
     /// <summary>

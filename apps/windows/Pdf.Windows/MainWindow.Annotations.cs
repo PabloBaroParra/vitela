@@ -474,7 +474,7 @@ public sealed partial class MainWindow
         // `SettleContentEditorForHistoryAsync` for what happens otherwise.
         // A no-op when no editor is open, which is every annotation-only
         // session.
-        await SettleContentEditorForHistoryAsync();
+        if (!await SettleContentEditorForHistoryAsync()) return;
         if (_session is null) return;
         var result = await (undo ? _facade.UndoAsync(_session.SessionId) : _facade.RedoAsync(_session.SessionId));
         if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }

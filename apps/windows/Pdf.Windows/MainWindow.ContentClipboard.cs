@@ -111,7 +111,9 @@ public sealed partial class MainWindow
     private void Hold(ContentClip clip, ContentSelection selection)
     {
         _contentClip = clip;
-        var text = string.Join(Environment.NewLine, selection.Blocks.Select(block => block.Text));
+        // A paragraph's own line breaks are '\n'; other apps expect the system's.
+        var text = string.Join(Environment.NewLine,
+            selection.Blocks.Select(block => block.Text.Replace("\n", Environment.NewLine, StringComparison.Ordinal)));
         if (text.Length == 0) return;
         try
         {

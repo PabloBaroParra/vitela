@@ -799,7 +799,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 _core.ReadPageContent(session.Document, pageIndex),
                 _core.PageFontFamilies(session.Document, pageIndex),
                 _core.ReadPagePaths(session.Document, pageIndex),
-                _core.ReadPageTextBlocks(session.Document, pageIndex))).ConfigureAwait(false);
+                _core.ReadPageParagraphBlocks(session.Document, pageIndex))).ConfigureAwait(false);
             lock (_gate)
             {
                 if (session.Retired || _currentSession != session)

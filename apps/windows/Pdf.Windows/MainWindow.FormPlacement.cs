@@ -47,7 +47,11 @@ public sealed partial class MainWindow
             StopPlacingFormField();
             return;
         }
-        await SettleContentEditorForHistoryAsync();
+        if (!await SettleContentEditorForHistoryAsync())
+        {
+            StopPlacingFormField();
+            return;
+        }
         if (_session?.SessionId != sessionId || generation != _formPlacementGeneration || button.IsChecked != true || !EditFormsButton.IsEnabled)
         {
             if (generation == _formPlacementGeneration) StopPlacingFormField();

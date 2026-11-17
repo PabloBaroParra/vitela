@@ -40,7 +40,7 @@ public sealed partial class MainWindow
         var key = (selected.PageIndex, selected.Id);
         try
         {
-            await SettleContentEditorForHistoryAsync();
+            if (!await SettleContentEditorForHistoryAsync()) return;
             if (_session?.SessionId != sessionId || !ReferenceEquals(_selectedContentImage, selected)) return;
             var current = await CurrentContentImageAsync(sessionId, selected);
             if (current is null || !ReferenceEquals(_selectedContentImage, selected)) return;

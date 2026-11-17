@@ -147,7 +147,10 @@ public sealed partial class MainWindow
         if (_pump.Box is { } editor)
         {
             IReadOnlyList<ContentTextRun> runs = editor.Block?.Runs ?? [editor.Run];
-            var selected = EditorRunSelection.Of(editor.Box.Text, editor.OpenedWith, [.. runs.Select(run => run.Text)],
+            // The box's text as the editor opened with it: a paragraph's breaks
+            // as '\n', one character for the box's '\r', so the indices hold.
+            var selected = EditorRunSelection.Of(ParagraphEditing.FromTextBox(editor.Box.Text), editor.OpenedWith,
+                [.. runs.Select(run => run.Text)],
                 editor.Box.SelectionStart, editor.Box.SelectionLength);
             return selected.Kind switch
             {

@@ -1,8 +1,8 @@
-//! Text blocks through the FFI stay one line each: the Windows, Android and
-//! Apple shells edit a block as a single line (one-line editor, CID-font
-//! retype, per-line move and delete), so a real quote's stacked spec
-//! paragraph reads as one block per line. Paragraphs are a core-level
-//! grouping (`pdf_edit::group_text_runs`) only Linux uses.
+//! `read_page_text_blocks` stays one line per block: the Android and Apple
+//! shells edit a block as a single line (one-line editor, CID-font retype,
+//! per-line move and delete), so a real quote's stacked spec paragraph
+//! reads as one block per line. Paragraphs (`pdf_edit::group_text_runs`)
+//! reach a shell through `read_page_paragraph_blocks` (`paragraph_read.rs`).
 
 use pdf_ffi::{open_from_bytes, read_page_text_blocks};
 

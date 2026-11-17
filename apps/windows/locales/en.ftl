@@ -445,6 +445,7 @@ edit-content-editing-armed = Content editing armed — click text to select it, 
 edit-content-editing-armed-run = Content editing armed — click a text run to retype it.
 edit-no-editable-text = No editable text there — click a word to retype it.
 edit-retype-hint = Type to edit the text — Escape puts it back.
+edit-retype-paragraph-hint = Type to edit the paragraph — Enter adds a line, Ctrl+Enter applies, Escape puts it back.
 edit-retype-substituted = Type replacement text — it will use Helvetica. Escape puts it back.
 edit-font-substitution-title = Replace this text's font?
 edit-font-substitution-body = This PDF uses a composite font that cannot be retyped safely. Editing will replace this text with Helvetica while keeping its position and size. The appearance may change slightly.

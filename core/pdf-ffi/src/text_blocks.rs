@@ -6,7 +6,7 @@
 //! happens when a block's runs already have an edit queued is
 //! `pdf_save::record`'s to decide.
 
-use pdf_document::{Command, TextRun};
+use pdf_document::{Command, FontKind, TextRun};
 
 use crate::document::{content_editing_is_allowed, DocumentHandle, DocumentState};
 use crate::error::FfiError;
@@ -21,6 +21,57 @@ pub fn read_page_text_blocks(
     handle: &DocumentHandle,
     page: u32,
 ) -> Result<Vec<FfiTextBlock>, FfiError> {
+    read_blocks(handle, page, pdf_edit::group_text_lines)
+}
+
+/// The text blocks on `page` with stacked lines joined into paragraphs
+/// (`pdf_edit::group_text_runs`), for a shell whose editor is multi-line:
+/// a paragraph's text joins its lines with `'\n'`, and `retype_text_block`
+/// wraps new text back to its width. Pending edits are layered on first, as
+/// in [`read_page_text_blocks`], so a shell re-reads the paragraph after
+/// every retype and sends those runs — a batch built from the runs the file
+/// held is refused once a retype has grown a line.
+///
+/// A paragraph with a composite-font run reads one block per line instead:
+/// such a run is retyped in an inserted standard font, which a paragraph
+/// retype refuses, so splitting it keeps that one-line path working.
+#[uniffi::export]
+pub fn read_page_paragraph_blocks(
+    handle: &DocumentHandle,
+    page: u32,
+) -> Result<Vec<FfiTextBlock>, FfiError> {
+    read_blocks(handle, page, paragraph_blocks)
+}
+
+/// [`pdf_edit::group_text_runs`], with every paragraph that holds a
+/// composite-font run split back into its lines.
+fn paragraph_blocks(runs: &[TextRun]) -> Vec<pdf_edit::TextBlock> {
+    let composite = |id: &pdf_document::ContentItemId| {
+        runs.iter()
+            .any(|run| run.id == *id && run.font_kind == FontKind::EmbeddedComposite)
+    };
+    pdf_edit::group_text_runs(runs)
+        .into_iter()
+        .flat_map(|block| {
+            if block.lines.len() > 1 && block.runs.iter().any(composite) {
+                let members: Vec<TextRun> = runs
+                    .iter()
+                    .filter(|run| block.runs.contains(&run.id))
+                    .cloned()
+                    .collect();
+                pdf_edit::group_text_lines(&members)
+            } else {
+                vec![block]
+            }
+        })
+        .collect()
+}
+
+fn read_blocks(
+    handle: &DocumentHandle,
+    page: u32,
+    group: impl FnOnce(&[TextRun]) -> Vec<pdf_edit::TextBlock>,
+) -> Result<Vec<FfiTextBlock>, FfiError> {
     let runs = handle.read_page_content(page)?.text_runs;
     let core: Vec<TextRun> = runs.iter().cloned().map(TextRun::from).collect();
     let members = |ids: &[pdf_document::ContentItemId]| -> Vec<FfiContentTextRun> {
@@ -28,7 +79,7 @@ pub fn read_page_text_blocks(
             .filter_map(|id| runs.iter().find(|run| run.id == id.0).cloned())
             .collect()
     };
-    Ok(pdf_edit::group_text_lines(&core)
+    Ok(group(&core)
         .into_iter()
         .map(|block| FfiTextBlock {
             runs: members(&block.runs),

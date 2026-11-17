@@ -42,7 +42,7 @@ public sealed partial class MainWindow
         {
             // A retype still open in the editor is committed first, so the
             // stamp lands after it in the log and one undo takes only the stamp.
-            await SettleContentEditorForHistoryAsync();
+            if (!await SettleContentEditorForHistoryAsync()) return;
             if (_session?.SessionId != session.SessionId) return;
             var added = await AskWatermarkAsync(session);
             if (_session?.SessionId != session.SessionId) return;

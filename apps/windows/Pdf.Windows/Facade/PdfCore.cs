@@ -123,11 +123,13 @@ internal interface IPdfCore
     IReadOnlyList<PdfCoreContentPath> ReadPagePaths(IPdfCoreDocument document, uint pageIndex);
 
     /// <summary>
-    /// The page's text runs grouped into the blocks a reader sees — on one
-    /// line, in one font, no more than a space apart (B25 T-207) — with
-    /// pending edits applied. Every run is in exactly one block.
+    /// The page's text runs grouped into the blocks a reader sees — runs on
+    /// one line, in one font, no more than a space apart (B25 T-207), and
+    /// lines stacked a steady leading apart joined into a paragraph (PR #568;
+    /// a composite-font paragraph stays one block per line) — with pending
+    /// edits applied. Every run is in exactly one block.
     /// </summary>
-    IReadOnlyList<PdfCoreTextBlock> ReadPageTextBlocks(IPdfCoreDocument document, uint pageIndex);
+    IReadOnlyList<PdfCoreTextBlock> ReadPageParagraphBlocks(IPdfCoreDocument document, uint pageIndex);
 
     /// <summary>Moves, removes or retypes a whole block as one undo step.</summary>
     void ApplyTextBlockEdit(IPdfCoreDocument document, PdfCoreTextBlockEdit edit);

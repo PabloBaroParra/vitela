@@ -50,7 +50,9 @@ public sealed partial class MainWindow
         bool IsCurrent() => _session?.SessionId == sessionId && _contentEditMode
             && _contentModeGeneration == generation && _contentEditorRequest == request;
         await CommitContentEditorAsync();
-        if (!IsCurrent())
+        // A refused commit keeps its box: opening another would close it and
+        // drop what it holds.
+        if (!IsCurrent() || _pump.Box is not null)
         {
             return;
         }
@@ -97,7 +99,8 @@ public sealed partial class MainWindow
             // A box estimated for an earlier retype of the first run alone
             // would otherwise size the block's editor.
             _pendingRunBounds.Remove((pageIndex, block.First.Id));
-            OpenEditorOver(pageIndex, BlockStandIn(block), point.X, block);
+            OpenEditorOver(pageIndex, BlockStandIn(block), point.X, block,
+                block.IsParagraph ? ParagraphCaretIndex(block, run, point.X) : null);
             return;
         }
 
@@ -123,7 +126,8 @@ public sealed partial class MainWindow
         return await ShowModalAsync(dialog) == ContentDialogResult.Primary;
     }
 
-    private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX, ContentTextBlock? block = null)
+    private void OpenEditorOver(uint pageIndex, ContentTextRun run, double clickX, ContentTextBlock? block = null,
+        int? caret = null)
     {
         if (pageIndex >= _slots.Count)
         {
@@ -139,8 +143,11 @@ public sealed partial class MainWindow
         // itself needs the taller line box its font asks for. One control
         // cannot be both without covering the lines above and below.
         var mask = new Rectangle { Fill = paper, IsHitTestVisible = false };
+        var paragraph = block is { IsParagraph: true };
         var box = new TextBox
         {
+            // Before the text: a one-line box would drop a paragraph's breaks.
+            AcceptsReturn = paragraph,
             Text = _pump.WrittenFor(pageIndex, run.Id) ?? run.Text,
             // No chrome at all: this has to read as the page, not as a field
             // floating over it.
@@ -148,7 +155,8 @@ public sealed partial class MainWindow
             Padding = new Thickness(0),
             MinWidth = 0,
             MinHeight = 0,
-            TextWrapping = TextWrapping.NoWrap,
+            // A paragraph wraps to its width, as the core will wrap it.
+            TextWrapping = paragraph ? TextWrapping.Wrap : TextWrapping.NoWrap,
             Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             Foreground = ink,
             CornerRadius = new CornerRadius(0),
@@ -162,13 +170,25 @@ public sealed partial class MainWindow
         }
 
         MakeEditorLookLikeThePage(box, ink);
-        box.KeyDown += ContentEditor_KeyDown;
+        // A paragraph's box is multi-line: Enter is a line break there, so its
+        // keys are read ahead of the box's own (`MainWindow.ParagraphEditor.cs`).
+        if (paragraph)
+        {
+            box.PreviewKeyDown += ParagraphEditor_PreviewKeyDown;
+        }
+        else
+        {
+            box.KeyDown += ContentEditor_KeyDown;
+        }
         box.TextChanged += ContentEditor_TextChanged;
         box.SelectionChanged += ContentEditor_SelectionChanged;
 
         // Opening closes whatever was open — see `ContentEditPump.Open` for
         // why two of these overlap on a double click.
-        var editor = new ContentEditor(pageIndex, run, box, mask, box.Text, block) { TakeOffThePage = CloseEditor };
+        var editor = new ContentEditor(pageIndex, run, box, mask, ParagraphEditing.FromTextBox(box.Text), block)
+        {
+            TakeOffThePage = CloseEditor,
+        };
         // Escape restores this retype, not the insertion it amended.
         _pump.Open(editor, preserveCommandOnAbandon: run.IsPendingInsertion);
         DressEditorFromLook(editor);
@@ -188,6 +208,11 @@ public sealed partial class MainWindow
         {
             box.SelectAll();
             AnnotationStatus.Text = I18n.T("edit-retype-substituted");
+        }
+        else if (paragraph)
+        {
+            box.Select(Math.Clamp(caret ?? box.Text.Length, 0, box.Text.Length), 0);
+            AnnotationStatus.Text = I18n.T("edit-retype-paragraph-hint");
         }
         else
         {
@@ -239,6 +264,7 @@ public sealed partial class MainWindow
     private void CloseEditor(ContentEditor editor)
     {
         editor.Box.KeyDown -= ContentEditor_KeyDown;
+        editor.Box.PreviewKeyDown -= ParagraphEditor_PreviewKeyDown;
         editor.Box.TextChanged -= ContentEditor_TextChanged;
         editor.Box.SelectionChanged -= ContentEditor_SelectionChanged;
         UpdateEditTextSelection();
@@ -375,6 +401,12 @@ public sealed partial class MainWindow
             return;
         }
 
+        if (editor.IsParagraph && editor.Block is { } paragraph)
+        {
+            PlaceParagraphEditor(slot, pageIndex, editor, paragraph);
+            return;
+        }
+
         var scale = slot.Scale;
         var bounds = BoundsOf(editor.Run);
         // A run's box is one em tall, so its height *is* the size the page
@@ -433,6 +465,18 @@ public sealed partial class MainWindow
         : IContentEditBox
     {
         /// <summary>
+        /// The block the editor retypes. Settable for a paragraph alone: once
+        /// a write has grown it a line, the next write has to name the runs
+        /// the page holds now (<see cref="ParagraphEditing.Refind"/>).
+        /// </summary>
+        public ContentTextBlock? Block { get; set; } = Block;
+
+        /// <summary>
+        /// Whether this is the multi-line box opened over a paragraph — fixed
+        /// at opening, whatever line count a write leaves the block with.
+        /// </summary>
+        public bool IsParagraph => Box.AcceptsReturn;
+        /// <summary>
         /// Set at construction, so a box can dismantle itself when the pump
         /// says it is no longer current.
         /// </summary>
@@ -440,11 +484,15 @@ public sealed partial class MainWindow
 
         ulong IContentEditBox.RunId => Run.Id;
 
+        bool IContentEditBox.WritesOnCommit => IsParagraph;
+
         string IContentEditBox.RunText => Run.Text;
 
+        // Read with '\n' line breaks, as the core joins a paragraph's lines:
+        // the box itself stores a typed break as '\r'.
         string IContentEditBox.Text
         {
-            get => Box.Text;
+            get => ParagraphEditing.FromTextBox(Box.Text);
             set => Box.Text = value;
         }
 

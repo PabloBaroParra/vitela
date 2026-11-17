@@ -60,7 +60,11 @@ public sealed partial class MainWindow
         }
         var sessionId = _session?.SessionId;
         var generation = _formPlacementGeneration;
-        await SettleContentEditorForHistoryAsync();
+        if (!await SettleContentEditorForHistoryAsync())
+        {
+            EditFormsButton.IsChecked = _formEditMode;
+            return;
+        }
         if (_session?.SessionId != sessionId || generation != _formPlacementGeneration || !EditFormsButton.IsEnabled) return;
         SetContentEditMode(false);
         _armedAnnotation = null;
