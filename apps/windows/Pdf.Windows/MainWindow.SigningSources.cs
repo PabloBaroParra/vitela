@@ -1,4 +1,5 @@
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -22,7 +23,7 @@ public sealed partial class MainWindow
             picker.FileTypeFilter.Add(extension);
         InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
         var file = await picker.PickSingleFileAsync();
-        if (file is null) { AnnotationStatus.Text = "Certificate selection cancelled."; return null; }
+        if (file is null) { AnnotationStatus.Text = I18n.T("sign-certificate-cancelled"); return null; }
         if (token)
             return await AskTokenSigningCertificateAsync(file.Path);
 

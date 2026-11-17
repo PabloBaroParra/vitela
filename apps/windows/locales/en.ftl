@@ -866,3 +866,88 @@ export-summary-format =
         [one] Exported { $count } page as { $format } to { $folder }.
        *[other] Exported { $count } pages as { $format } to { $folder }.
     }
+
+## Signing: certificate section, unlock prompts and identity picker
+# Adapter and facade error details arrive untranslated.
+
+sign-heading = Signing
+sign-choose-pfx = Choose signing certificate (.pfx)…
+sign-use-token = Use card or token…
+sign-use-nss = Use a certificate from this computer…
+sign-signed-indicator = ✓ This document is digitally signed.
+sign-cancel = Cancel
+sign-unlock = Unlock
+sign-pfx-password-title = Certificate password required
+sign-pfx-reading = Reading certificate file...
+sign-pfx-waiting = Waiting for the certificate password.
+sign-pfx-wrong-password = The password is incorrect, or the file is not a valid PKCS#12 certificate.
+sign-certificate-cancelled = Certificate selection cancelled.
+sign-picker-title = Choose a signing identity
+sign-picker-prompt = Sign this document with:
+sign-picker-sign = Sign
+sign-picker-none-chosen = Choose a signing identity.
+sign-cancelled = Signing cancelled.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Draw signature…
+signature-pad-title = Draw your signature
+signature-clear = Clear
+signature-cancel = Cancel
+signature-use = Use
+signature-offer-title = Your signature
+signature-offer-preview = Your saved signature
+signature-offer-unshowable = This saved signature can no longer be shown.
+signature-draw-new = Draw new
+signature-delete = Delete
+signature-unrenderable = The signature could not be turned into an image.
+signature-not-remembered = Your signature could not be remembered. Click a page to place it.
+signature-armed = Click a page to place your signature.
+signature-disarmed = Signature disarmed.
+
+## Signing and drawn signature: Windows only
+
+sign-choose-pfx-tooltip = Choose a PKCS#12 signing certificate (.pfx or .p12).
+sign-no-identities = This certificate source has no usable signing identities.
+sign-busy-document = Signing document…
+sign-saved-reopened = Signed PDF saved and reopened.
+# Accessible name of the PIN entry.
+sign-token-pin-name = Token PIN
+sign-token-pin-prompt = Enter the token PIN, or leave it empty to use the token's own authentication prompt.
+sign-token-title = Card or token authentication
+sign-continue = Continue
+# Accessible name of the password entry.
+sign-pfx-password-name = Certificate password
+# Accessible name of the list of identities.
+sign-identity-name = Signing identity
+signature-heading = Signature
+signature-remember-pc = Remember on this PC
+# Accessible name of the Draw signature… button.
+signature-draw-name = Draw signature
+signature-draw-tooltip-short = Draw a signature with the mouse, then click a page to place it.
+signature-not-drawn = The signature could not be drawn.
+signature-forgotten-pc = Your saved signature was deleted from this PC.
+
+## Viewer: printing
+
+print-open-first = Open a PDF before printing.
+# $error (String) - technical detail, kept verbatim.
+print-prepare-failed = Could not prepare the document for printing: { $error }
+print-no-pages = The PDF has no pages to print.
+print-failed = Printing failed.
+# $error (String) - technical detail from Windows, kept verbatim.
+print-error = Could not print: { $error }
+
+## Printing and sharing: Windows only
+
+print-preparing-status = Preparing to print...
+print-unavailable = Printing is unavailable on this Windows installation.
+# $error (String) - technical detail from Windows, kept verbatim.
+print-preview-failed = Could not prepare the print preview: { $error }
+# $page (Number) - one-based page number.
+print-page-blank = Could not render page { $page } for printing. It will be blank.
+share-open-first = Open a PDF before sharing.
+share-unavailable = Sharing is unavailable on this Windows installation.
+# $error (String) - technical detail from Windows, kept verbatim.
+share-failed = Could not share: { $error }
+share-no-document = There is no document to share.

@@ -785,3 +785,78 @@ export-summary-format =
         [one] { $count } página exportada como { $format } a { $folder }.
        *[other] { $count } páginas exportadas como { $format } a { $folder }.
     }
+
+## Signing: certificate section, unlock prompts and identity picker
+
+sign-heading = Firma digital
+sign-choose-pfx = Elegir certificado de firma (.pfx)…
+sign-use-token = Usar tarjeta o token…
+sign-use-nss = Usar un certificado de este equipo…
+sign-signed-indicator = ✓ Este documento está firmado digitalmente.
+sign-cancel = Cancelar
+sign-unlock = Desbloquear
+sign-pfx-password-title = Se necesita la contraseña del certificado
+sign-pfx-reading = Leyendo el archivo de certificado...
+sign-pfx-waiting = Esperando la contraseña del certificado.
+sign-pfx-wrong-password = La contraseña no es correcta o el archivo no es un certificado PKCS#12 válido.
+sign-certificate-cancelled = Selección de certificado cancelada.
+sign-picker-title = Elegir una identidad de firma
+sign-picker-prompt = Firmar este documento con:
+sign-picker-sign = Firmar
+sign-picker-none-chosen = Elige una identidad de firma.
+sign-cancelled = Firma cancelada.
+
+## Drawn signature: entry, pad, saved-signature offer and placement
+
+signature-draw = Dibujar firma…
+signature-pad-title = Dibuja tu firma
+signature-clear = Borrar
+signature-cancel = Cancelar
+signature-use = Usar
+signature-offer-title = Tu firma
+signature-offer-preview = Tu firma guardada
+signature-offer-unshowable = Esta firma guardada ya no se puede mostrar.
+signature-draw-new = Dibujar otra
+signature-delete = Eliminar
+signature-unrenderable = No se pudo convertir la firma en una imagen.
+signature-not-remembered = No se pudo recordar tu firma. Haz clic en una página para colocarla.
+signature-armed = Haz clic en una página para colocar tu firma.
+signature-disarmed = Firma desactivada.
+
+## Signing and drawn signature: Windows only
+
+sign-choose-pfx-tooltip = Elige un certificado de firma PKCS#12 (.pfx o .p12).
+sign-no-identities = Este origen de certificados no tiene identidades de firma utilizables.
+sign-busy-document = Firmando el documento…
+sign-saved-reopened = PDF firmado guardado y reabierto.
+sign-token-pin-name = PIN del token
+sign-token-pin-prompt = Introduce el PIN del token o déjalo vacío para usar el aviso de autenticación del propio token.
+sign-token-title = Autenticación de la tarjeta o el token
+sign-continue = Continuar
+sign-pfx-password-name = Contraseña del certificado
+sign-identity-name = Identidad de firma
+signature-heading = Firma
+signature-remember-pc = Recordar en este PC
+signature-draw-name = Dibujar firma
+signature-draw-tooltip-short = Dibuja una firma con el ratón y haz clic en una página para colocarla.
+signature-not-drawn = No se pudo dibujar la firma.
+signature-forgotten-pc = Tu firma guardada se ha eliminado de este PC.
+
+## Viewer: printing
+
+print-open-first = Abre un PDF antes de imprimir.
+print-prepare-failed = No se pudo preparar el documento para imprimirlo: { $error }
+print-no-pages = El PDF no tiene páginas que imprimir.
+print-failed = No se pudo imprimir.
+print-error = No se pudo imprimir: { $error }
+
+## Printing and sharing: Windows only
+
+print-preparing-status = Preparando la impresión...
+print-unavailable = La impresión no está disponible en esta instalación de Windows.
+print-preview-failed = No se pudo preparar la vista previa de impresión: { $error }
+print-page-blank = No se pudo representar la página { $page } para imprimirla. Saldrá en blanco.
+share-open-first = Abre un PDF antes de compartirlo.
+share-unavailable = Compartir no está disponible en esta instalación de Windows.
+share-failed = No se pudo compartir: { $error }
+share-no-document = No hay ningún documento que compartir.

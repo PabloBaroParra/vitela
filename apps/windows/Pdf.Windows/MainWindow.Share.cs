@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using System.Runtime.InteropServices;
 using Windows.ApplicationModel.DataTransfer;
@@ -37,7 +38,7 @@ public sealed partial class MainWindow
         if (_sharingDocument || _isBusy || _dialogOpen || _shellPickingFile) return;
         if (_session is not { PageCount: > 0 } session)
         {
-            AnnotationStatus.Text = "Open a PDF before sharing.";
+            AnnotationStatus.Text = I18n.T("share-open-first");
             return;
         }
         _sharingDocument = true;
@@ -63,11 +64,11 @@ public sealed partial class MainWindow
         }
         catch (Exception error) when (error is COMException or NotImplementedException)
         {
-            AnnotationStatus.Text = "Sharing is unavailable on this Windows installation.";
+            AnnotationStatus.Text = I18n.T("share-unavailable");
         }
         catch (Exception error)
         {
-            AnnotationStatus.Text = $"Could not share: {error.Message}";
+            AnnotationStatus.Text = I18n.T("share-failed", ("error", error.Message));
         }
         finally
         {
@@ -89,7 +90,7 @@ public sealed partial class MainWindow
     {
         if (_sharedCopy is not { } copy)
         {
-            args.Request.FailWithDisplayText("There is no document to share.");
+            args.Request.FailWithDisplayText(I18n.T("share-no-document"));
             return;
         }
         args.Request.Data.Properties.Title = copy.Title;
