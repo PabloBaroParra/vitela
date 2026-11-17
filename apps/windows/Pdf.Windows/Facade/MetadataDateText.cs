@@ -1,4 +1,5 @@
 using System.Globalization;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows.Facade;
 
@@ -16,25 +17,27 @@ public static class MetadataDateText
         // Whitespace separates date and time, never individual components.
         if (split < 0) split = text.Length;
         var date = text[..split].Split('-');
-        if (date.Length != 3) throw new FormatException("expected YYYY-MM-DD");
-        var year = Component(date[0], 0, ushort.MaxValue, "year");
-        var month = Component(date[1], 1, 12, "month");
-        var day = Component(date[2], 1, 31, "day");
+        if (date.Length != 3) throw new FormatException(I18n.T("metadata-date-format"));
+        var year = Component(date[0], 0, ushort.MaxValue, I18n.T("metadata-year"));
+        var month = Component(date[1], 1, 12, I18n.T("metadata-month"));
+        var day = Component(date[2], 1, 31, I18n.T("metadata-day"));
         var timeText = text[split..].Trim();
         var time = timeText.Length == 0 ? [] : timeText.Split(':');
         if (time.Length != 0 && time.Length != 2 && time.Length != 3)
-            throw new FormatException("expected HH:MM or HH:MM:SS");
+            throw new FormatException(I18n.T("metadata-time-format"));
         return new((ushort)year, (byte)month, (byte)day,
-            (byte)(time.Length == 0 ? 0 : Component(time[0], 0, 23, "hour")),
-            (byte)(time.Length == 0 ? 0 : Component(time[1], 0, 59, "minute")),
-            (byte)(time.Length < 3 ? 0 : Component(time[2], 0, 59, "second")), offset);
+            (byte)(time.Length == 0 ? 0 : Component(time[0], 0, 23, I18n.T("metadata-hour"))),
+            (byte)(time.Length == 0 ? 0 : Component(time[1], 0, 59, I18n.T("metadata-minute"))),
+            (byte)(time.Length < 3 ? 0 : Component(time[2], 0, 59, I18n.T("metadata-second"))), offset);
     }
 
     private static uint Component(string text, uint min, uint max, string name)
     {
         if (!uint.TryParse(text, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var value))
-            throw new FormatException($"{name} is not a number");
-        if (value < min || value > max) throw new FormatException($"{name} {value} is out of range ({min}-{max})");
+            throw new FormatException(I18n.T("metadata-component-not-number", ("field", name)));
+        if (value < min || value > max) throw new FormatException(I18n.T("metadata-component-range",
+            ("field", name), ("value", value.ToString(CultureInfo.InvariantCulture)),
+            ("min", min.ToString(CultureInfo.InvariantCulture)), ("max", max.ToString(CultureInfo.InvariantCulture))));
         return value;
     }
 }

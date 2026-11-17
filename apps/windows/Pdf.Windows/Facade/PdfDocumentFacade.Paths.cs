@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -26,9 +28,9 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<IReadOnlyList<ContentPath>>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_paths", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentPath>>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_paths", sessionId, pageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<IReadOnlyList<ContentPath>>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "page_paths", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentPath>>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, "page_paths", sessionId, pageIndex));
             }
 
             var paths = await Task.Run(() => _core.ReadPagePaths(session.Document, pageIndex)).ConfigureAwait(false);
@@ -79,16 +81,16 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, path.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, path.PageIndex));
                 if (path.SessionId != sessionId || path.Revision != session.EditRevision)
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
                 // A rule is flat, so a zero extent is legal; a negative one is a
                 // drag that crossed its own corner and means nothing to the core.
                 if (!double.IsFinite(target.X) || !double.IsFinite(target.Y) || !double.IsFinite(target.Width)
                     || !double.IsFinite(target.Height) || target.Width < 0 || target.Height < 0)
-                    return OperationResult<AnnotationState>.Failure(CreateError("Shape bounds must be finite and not negative.", PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("edit-shape-bounds-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, path.PageIndex));
                 if (change != PathChange.Remove && path.Source.Bbox == target)
                     return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
 

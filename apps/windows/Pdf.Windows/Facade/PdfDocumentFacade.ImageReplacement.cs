@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -19,11 +21,11 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, image.PageIndex));
                 if (image.SessionId != sessionId || image.Revision != session.EditRevision)
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please reopen the dialog.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed-reopen"), PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
             }
             // Checked against the original page backing, not the rendered preview. The
             // core refuses an image already carrying a pending edit only where it may

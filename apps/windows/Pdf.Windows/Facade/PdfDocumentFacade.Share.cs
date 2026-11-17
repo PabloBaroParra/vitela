@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -23,7 +25,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<byte[]>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "share", sessionId, null));
+                    return OperationResult<byte[]>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "share", sessionId, null));
                 }
             }
 

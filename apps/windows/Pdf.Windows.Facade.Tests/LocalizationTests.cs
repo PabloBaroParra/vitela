@@ -108,6 +108,38 @@ internal static class LocalizationTests
         return Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Sentences the facade writes itself follow the language; English stays the
+    /// text the parity tests pin, and Spanish plurals take a noun after the count.
+    /// </summary>
+    public static Task LocalizesFacadeAuthoredTextAsync()
+    {
+        static string DateError(string raw)
+        {
+            try { Pdf.Windows.Facade.MetadataDateText.Parse(raw, new Pdf.Windows.Facade.MetadataDateOffset()); }
+            catch (FormatException error) { return error.Message; }
+            throw new InvalidOperationException($"{raw} must not parse");
+        }
+
+        Equal(DateError("2024-13-01"), "month 13 is out of range (1-12)", "English date range");
+        Equal(DateError("2024-xx-01"), "month is not a number", "English date component");
+        Equal(DateError("2024-01"), "expected YYYY-MM-DD", "English date shape");
+        Equal(Pdf.Windows.Viewer.ShareFileName.For("  "), "document.pdf", "English share fallback");
+        Equal(Pdf.Windows.Viewer.FormFieldChoices.NoChoiceLabel, "(none)", "English no-choice row");
+        using (I18n.Speak(Language.Spanish))
+        {
+            Equal(DateError("2024-13-01"), "el campo «mes» tiene el valor 13, fuera del rango (1-12)", "Spanish date range");
+            Equal(DateError("2024-01-01 xx:00"), "el campo «hora» no es un número", "Spanish time component");
+            Equal(Pdf.Windows.Viewer.ShareFileName.For("  "), "documento.pdf", "Spanish share fallback");
+            Equal(Pdf.Windows.Viewer.FormFieldChoices.NoChoiceLabel, "(ninguna)", "Spanish no-choice row");
+            Equal(I18n.T("split-stopped", ("written", 1), ("name", "b.pdf"), ("error", "x")),
+                "La división se detuvo tras escribir 1 archivo: no se pudo escribir b.pdf: x", "Spanish split stop, singular");
+            Equal(I18n.T("export-stopped", ("written", 0), ("error", "x")),
+                "La exportación se detuvo tras escribir 0 imágenes: x", "Spanish export stop, plural");
+        }
+        return Task.CompletedTask;
+    }
+
     public static Task RestoresTheLanguageWhenTheGuardEndsAsync()
     {
         using (I18n.Speak(Language.Spanish))

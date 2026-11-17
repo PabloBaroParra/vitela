@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -8,7 +10,7 @@ public sealed partial class PdfDocumentFacade
         {
             if (!TryGetCurrentSession(sessionId, out var session))
                 return Task.FromResult(OperationResult<DocumentBlocksSnapshot>.Failure(CreateError(
-                    "The document is no longer available.", PdfCoreError.DocumentNotFound, "document_blocks", sessionId, null)));
+                    I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "document_blocks", sessionId, null)));
             try
             {
                 return Task.FromResult(OperationResult<DocumentBlocksSnapshot>.Success(

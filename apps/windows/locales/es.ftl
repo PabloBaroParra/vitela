@@ -509,10 +509,10 @@ forms-color-title = Elegir el color del campo
 
 forms-style-font = Fuente
 forms-style-size = Tamaño (pt)
-forms-delete-field-tooltip = Eliminar el campo seleccionado (Delete)
+forms-delete-field-tooltip = Eliminar el campo seleccionado (Supr)
 forms-fill-forbidden = Este documento no permite rellenar su formulario.
 forms-field-name = Nombre del campo: { $name }
-forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Escape cancela.
+forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Esc cancela.
 forms-place-text-hint = Haz clic o arrastra en una página para colocar un campo de texto.
 forms-place-checkbox-hint = Haz clic o arrastra en una página para colocar una casilla de verificación.
 forms-place-radio-group-hint = Haz clic o arrastra en una página para colocar un grupo de opciones.
@@ -554,7 +554,7 @@ watermark-cancel = Cancelar
 
 watermark-kind-header = Marca de agua
 watermark-no-picture-hint = No se ha elegido ninguna imagen. PNG o JPEG.
-watermark-picture-chosen = Imagen elegida ({ $size } KB).
+watermark-picture-chosen = Imagen elegida ({ $size } kB).
 watermark-page-range = Intervalo de páginas
 watermark-angle-degrees-label = Ángulo (°)
 watermark-placement-label = Colocación
@@ -766,7 +766,11 @@ compress-nothing-written = Compresión cancelada. No se ha escrito ningún archi
 compress-no-source-size = No se conoce el tamaño del archivo de origen de este documento nuevo.
 split-nothing-written = División cancelada. No se ha escrito ningún archivo.
 split-writing-part = Escribiendo la parte { $part } de { $total }...
-split-stopped = La división se detuvo tras escribir { $written }: no se pudo escribir { $name }: { $error }
+split-stopped =
+    La división se detuvo tras escribir { $written ->
+        [one] { $written } archivo
+       *[other] { $written } archivos
+    }: no se pudo escribir { $name }: { $error }
 extract-dialog-cancelled = Extracción cancelada.
 extract-nothing-written = Extracción cancelada. No se ha escrito ningún archivo.
 extract-busy-count =
@@ -779,7 +783,11 @@ export-preparing = Preparando la exportación...
 export-page-range = Intervalo de páginas
 export-busy-page = Exportando la página { $page } ({ $index } de { $total })...
 export-page-failed-written = No se pudo exportar la página { $page }: { $error } Imágenes escritas: { $written }.
-export-stopped = La exportación se detuvo tras escribir { $written }: { $error }
+export-stopped =
+    La exportación se detuvo tras escribir { $written ->
+        [one] { $written } imagen
+       *[other] { $written } imágenes
+    }: { $error }
 export-summary-format =
     { $count ->
         [one] { $count } página exportada como { $format } a { $folder }.
@@ -827,7 +835,7 @@ signature-disarmed = Firma desactivada.
 
 sign-choose-pfx-tooltip = Elige un certificado de firma PKCS#12 (.pfx o .p12).
 sign-no-identities = Este origen de certificados no tiene identidades de firma utilizables.
-sign-busy-document = Firmando el documento…
+sign-busy-document = Firmando el documento...
 sign-saved-reopened = PDF firmado guardado y reabierto.
 sign-token-pin-name = PIN del token
 sign-token-pin-prompt = Introduce el PIN del token o déjalo vacío para usar el aviso de autenticación del propio token.
@@ -836,11 +844,11 @@ sign-continue = Continuar
 sign-pfx-password-name = Contraseña del certificado
 sign-identity-name = Identidad de firma
 signature-heading = Firma
-signature-remember-pc = Recordar en este PC
+signature-remember-pc = Recordar en este equipo
 signature-draw-name = Dibujar firma
 signature-draw-tooltip-short = Dibuja una firma con el ratón y haz clic en una página para colocarla.
 signature-not-drawn = No se pudo dibujar la firma.
-signature-forgotten-pc = Tu firma guardada se ha eliminado de este PC.
+signature-forgotten-pc = Tu firma guardada se ha eliminado de este equipo.
 
 ## Viewer: printing
 
@@ -897,7 +905,7 @@ open-password-open = Abrir
 open-password-busy = Abriendo el PDF protegido con contraseña...
 open-password-waiting = Esperando la contraseña del documento.
 open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
-open-password-cancelled = Se canceló la contraseña.
+open-password-cancelled = Se canceló la introducción de la contraseña.
 
 ## Lifecycle, save, share and text copy: Windows only
 
@@ -918,3 +926,114 @@ write-signature-share-proceed = Compartir de todos modos
 selection-copy-select-first = Selecciona texto en una página antes de copiar.
 selection-text-copied = Texto copiado.
 selection-copy-failed = No se pudo copiar el texto seleccionado.
+
+## Viewer: dropping and pasting files
+
+drop-unsupported = El archivo soltado no es un PDF ni una imagen compatible.
+paste-no-image = El portapapeles no contiene una imagen de mapa de bits.
+
+## Viewer: dropping and pasting files: Windows only
+
+drop-unsupported-file = Vitela abre archivos PDF. Suelta un PNG o JPEG sobre una página para añadirlo como sello.
+drop-unreadable = No se pudo leer el archivo soltado.
+drop-open-first = Abre primero un PDF y después suelta una imagen sobre una página para estamparla.
+drop-image-onto-page = Suelta la imagen sobre una página para colocarla como sello.
+drop-annotation-forbidden = Este documento no permite editar anotaciones.
+paste-open-editable-first = Abre un PDF editable antes de pegar una imagen.
+paste-image-unusable = No se pudo usar la imagen del portapapeles.
+
+## Opening documents, page rendering and form fill
+
+open-no-pages = El PDF no contiene páginas.
+render-page-failed = No se pudo mostrar la página { $page } de { $total }: { $error }
+forms-none-choice = (ninguna)
+
+## Window chrome, file names and failure references: Windows only
+
+editor-document-panels = Paneles del documento
+editor-status-bar = Estado
+signature-pad-name = Área de firma
+error-reference = Referencia: { $id }
+editor-untitled = Sin título
+write-default-name = documento
+sign-suggested-name = { $name }-firmado
+
+## Document properties: date validation (field names are localized arguments)
+
+metadata-year = año
+metadata-month = mes
+metadata-day = día
+metadata-hour = hora
+metadata-minute = minuto
+metadata-second = segundo
+metadata-component-range = el campo «{ $field }» tiene el valor { $value }, fuera del rango ({ $min }-{ $max })
+
+## Document properties: Windows only date validation
+
+metadata-date-format = se esperaba AAAA-MM-DD
+metadata-time-format = se esperaba HH:MM o HH:MM:SS
+metadata-component-not-number = el campo «{ $field }» no es un número
+
+## Refusals the facade writes, shared with the GTK shell
+
+refusal-text-forbidden = Este documento no permite copiar ni extraer su texto.
+annotate-color-stale = La selección de color ya no está vigente.
+edit-text-moved-unsaved = Este texto se movió y aún no se ha guardado: guarda y vuelve a abrir el documento antes de reescribirlo.
+extract-no-pages = Este documento no tiene páginas que extraer.
+extract-empty-selection = Escribe qué páginas quieres extraer, por ejemplo 1-3,7.
+export-document-no-pages = Este documento no tiene páginas que exportar.
+split-one-page = Un documento de una sola página no se puede dividir.
+watermark-no-pages = Este documento no tiene páginas que marcar.
+watermark-text-required = Escribe el texto que se estampará en las páginas.
+watermark-picture-required = Elige una imagen PNG o JPEG para estamparla en las páginas.
+watermark-invalid-picture = No se pudo leer ese archivo como una imagen PNG o JPEG. Elige otro.
+
+## Refusals and failures the facade writes: Windows only
+
+error-document-unavailable = El documento ya no está disponible.
+error-page-unavailable = La página ya no está disponible.
+error-document-changed = El documento ha cambiado. Inténtalo de nuevo.
+error-document-changed-reopen = El documento ha cambiado. Vuelve a abrir el cuadro de diálogo.
+error-document-changed-click-again = El documento ha cambiado. Vuelve a hacer clic en el texto.
+error-password-required = Este documento requiere una contraseña.
+error-unsupported = Este documento o esta acción no son compatibles.
+error-invalid-image = La imagen está dañada o no es compatible.
+error-font-gap = La fuente de este texto no puede mostrar «{ $character }». Prueba con otros caracteres.
+error-font-gap-unknown = La fuente de este texto no puede mostrar alguno de esos caracteres.
+error-page-selection = No se pudieron leer esas páginas. Escríbelas así: 1-3,7.
+error-request-failed = No se pudo completar la acción solicitada.
+error-signatures-invalidated = Guardar rompería la firma digital de este documento, así que no se guardó.
+error-processing-failed = No se pudo procesar el documento.
+open-unsaved-refusal-open = Guarda o descarta los cambios sin guardar antes de abrir otro documento.
+open-unsaved-refusal-open-annotations = Guarda o deshaz los cambios de anotaciones pendientes antes de abrir otro documento.
+open-unsaved-refusal-create = Guarda o descarta los cambios sin guardar antes de crear otro documento.
+open-unsaved-refusal-create-annotations = Guarda o deshaz los cambios de anotaciones pendientes antes de crear otro documento.
+annotate-style-forbidden = Este documento no permite editar anotaciones.
+annotate-paste-not-finite = Las coordenadas de pegado deben ser finitas.
+selection-offsets-not-finite = Los desplazamientos de la selección deben ser finitos.
+edit-image-position-invalid = Las coordenadas de la imagen deben ser finitas.
+edit-image-size-invalid = Las dimensiones de la imagen deben ser finitas y mayores que cero.
+edit-shape-bounds-invalid = Los límites de la forma deben ser finitos y no negativos.
+edit-text-position-invalid = Las coordenadas del texto deben ser finitas.
+edit-insert-text-invalid = Escribe una sola línea de texto que no esté vacía.
+edit-insert-text-geometry-invalid = Las coordenadas deben ser finitas y el tamaño del texto debe estar entre 1 y 72 pt.
+forms-move-forbidden = Este documento no permite mover campos de formulario.
+forms-resize-forbidden = Este documento no permite cambiar el tamaño de los campos de formulario.
+forms-rename-forbidden = Este documento no permite cambiar el nombre de los campos de formulario.
+forms-style-forbidden = Este documento no permite cambiar el estilo de los campos de formulario.
+forms-delete-forbidden = Este documento no permite eliminar campos de formulario.
+forms-create-forbidden = Este documento no permite crear campos de formulario.
+forms-position-invalid = Introduce coordenadas finitas para el campo.
+forms-size-invalid = Introduce dimensiones finitas y positivas para el campo.
+forms-font-size-invalid = Introduce un tamaño de fuente entre 1 y 72 pt.
+forms-font-unsupported = Elige una fuente compatible.
+organize-insert-blank-forbidden = Este documento no permite añadir una página en blanco.
+organize-pages-forbidden = Este documento no permite reordenar, girar ni quitar sus páginas.
+protect-changes-forbidden = Este documento no permite cambiar su protección.
+extract-forbidden = Este documento no permite extraer sus páginas.
+extract-rewrite-blocked = Extraer páginas reescribe todo el archivo, y el cifrado de este documento o las credenciales disponibles no lo permiten.
+split-rewrite-blocked = Dividir páginas reescribe todo el archivo, y el cifrado de este documento o las credenciales disponibles no lo permiten.
+export-forbidden = Este documento no permite extraer sus páginas como imágenes.
+export-dpi-out-of-range = Elige una resolución entre { $min } y { $max } DPI.
+export-page-oversized = La página { $page } es demasiado grande para exportarla a { $dpi } DPI. Elige una resolución más baja.
+watermark-empty-selection = Escribe qué páginas quieres estampar, por ejemplo 1-3,7.

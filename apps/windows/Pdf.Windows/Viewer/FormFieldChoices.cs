@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Viewer;
 
 /// <summary>
@@ -8,7 +10,7 @@ namespace Pdf.Windows.Viewer;
 /// </summary>
 internal static class FormFieldChoices
 {
-    public const string NoChoiceLabel = "(none)";
+    public static string NoChoiceLabel => I18n.T("forms-none-choice");
 
     /// <summary>
     /// The list position that shows <paramref name="choice"/>. A value outside

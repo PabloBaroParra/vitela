@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -18,7 +20,7 @@ public sealed partial class PdfDocumentFacade
     {
         if (!double.IsFinite(dx) || !double.IsFinite(dy))
         {
-            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError("Text coordinates must be finite.", PdfCoreError.UnsupportedOperation, "move_text_block", sessionId, block.PageIndex)));
+            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError(I18n.T("edit-text-position-invalid"), PdfCoreError.UnsupportedOperation, "move_text_block", sessionId, block.PageIndex)));
         }
         return WriteTextBlockAsync(sessionId, block, "move_text_block", new PdfCoreTextBlockEdit.Move(Sources(block), dx, dy));
     }
@@ -85,7 +87,7 @@ public sealed partial class PdfDocumentFacade
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
                 }
 
                 try

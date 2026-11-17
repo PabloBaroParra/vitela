@@ -77,6 +77,11 @@ public static class WatermarkLimits
     public const double MinRotationDegrees = -180;
     public const double MaxRotationDegrees = 180;
 
-    /// <summary>What the text box starts with — selected, so typing replaces it.</summary>
+    /// <summary>
+    /// The sample text <see cref="PdfDocumentFacade.DefaultWatermarkLook"/> hands
+    /// the core so it can describe its default look (size, opacity, angle,
+    /// layer). It only seeds that look and is never shown: the text the dialog
+    /// pre-fills comes from the localized <c>watermark-default-text</c> message.
+    /// </summary>
     public const string DefaultText = "DRAFT";
 }

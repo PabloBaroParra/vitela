@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -8,7 +10,7 @@ public sealed partial class PdfDocumentFacade
         lock (_gate)
         {
             if (!TryGetCurrentSession(sessionId, out var session))
-                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "selection", sessionId, null));
+                return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "selection", sessionId, null));
             try
             {
                 return _core.TextExtractionAllowed(session.Document)
@@ -30,7 +32,7 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
+                    return OperationResult<PageCharacters>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
                 if (!_core.TextExtractionAllowed(session.Document))
                     return OperationResult<PageCharacters>.Failure(CreateError(TextExtractionRefusalMessage, PdfCoreError.UnsupportedOperation, "page_characters", sessionId, pageIndex));
             }
@@ -40,7 +42,7 @@ public sealed partial class PdfDocumentFacade
                 if (session.Retired || _currentSession != session)
                 {
                     handle.Dispose();
-                    return OperationResult<PageCharacters>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
+                    return OperationResult<PageCharacters>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_characters", sessionId, pageIndex));
                 }
                 return OperationResult<PageCharacters>.Success(new PageCharacters(pageIndex, handle));
             }

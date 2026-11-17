@@ -93,7 +93,7 @@ public sealed partial class MainWindow
             }
             var selected = await AskSigningIdentityAsync(identities);
             if (selected is null || _session?.SessionId != sessionId) return;
-            var destination = new FileSavePicker { SuggestedFileName = $"{Path.GetFileNameWithoutExtension(displayName)}-signed" };
+            var destination = new FileSavePicker { SuggestedFileName = I18n.T("sign-suggested-name", ("name", Path.GetFileNameWithoutExtension(displayName))) };
             destination.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(destination, WindowNative.GetWindowHandle(this));
             var output = await destination.PickSaveFileAsync();

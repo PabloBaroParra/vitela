@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -454,7 +455,7 @@ public sealed partial class MainWindow
             // viewport walk does not re-queue it until the next fit.
             slot.Render.Fail(dpi);
             var error = result.Error!;
-            AnnotationStatus.Text = $"Could not render page {pageIndex + 1} of {_slots.Count}: {error.Message} Reference: {error.CorrelationId}";
+            AnnotationStatus.Text = I18n.T("render-page-failed", ("page", pageIndex + 1), ("total", _slots.Count), ("error", error.Message)) + " " + I18n.T("error-reference", ("id", error.CorrelationId));
             return;
         }
 

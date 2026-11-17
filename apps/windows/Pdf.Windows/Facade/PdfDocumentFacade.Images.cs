@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -14,9 +16,9 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<IReadOnlyList<ContentImage>>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_images", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentImage>>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_images", sessionId, pageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<IReadOnlyList<ContentImage>>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "page_images", sessionId, pageIndex));
+                    return OperationResult<IReadOnlyList<ContentImage>>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, "page_images", sessionId, pageIndex));
             }
 
             var content = await Task.Run(() => _core.ReadPageContent(session.Document, pageIndex)).ConfigureAwait(false);
@@ -70,15 +72,15 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, image.PageIndex));
                 if (image.SessionId != sessionId || image.Revision != session.EditRevision)
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 if (!_core.ContentEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 if (!remove && (!double.IsFinite(first) || !double.IsFinite(second)
                     || (boundsChange && (!double.IsFinite(third) || !double.IsFinite(fourth)))
                     || (!move && (boundsChange ? third <= 0 || fourth <= 0 : first <= 0 || second <= 0))))
-                    return OperationResult<AnnotationState>.Failure(CreateError(move ? "Image coordinates must be finite." : "Image dimensions must be finite and greater than zero.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(move ? I18n.T("edit-image-position-invalid") : I18n.T("edit-image-size-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
                 var bounds = image.Source.Bbox;
                 var target = move ? bounds with { X = first, Y = second }
                     : boundsChange ? new PdfCoreRect(first, second, third, fourth)

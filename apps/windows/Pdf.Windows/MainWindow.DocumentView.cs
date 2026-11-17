@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 
@@ -65,8 +66,8 @@ public sealed partial class MainWindow
         AnnotationStatus.Text = "";
         if (_session.State == DocumentSessionState.Empty)
         {
-            ShowEmpty("The PDF contains no pages.");
-            AnnotationStatus.Text = "The PDF contains no pages.";
+            ShowEmpty(I18n.T("open-no-pages"));
+            AnnotationStatus.Text = I18n.T("open-no-pages");
             _ = RefreshAnnotationStateAsync();
             return;
         }

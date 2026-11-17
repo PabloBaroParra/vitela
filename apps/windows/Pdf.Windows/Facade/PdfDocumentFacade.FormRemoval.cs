@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade
@@ -18,14 +20,14 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit deleting form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-delete-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field is null || field.Name != expectedName)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, operation, sessionId, null));
                     pageIndex = field.PageIndex;
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.RemoveFormField(fieldId));
                     session.EditRevision++;

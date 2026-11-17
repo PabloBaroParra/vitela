@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 public sealed partial class PdfDocumentFacade : IDisposable
@@ -32,8 +34,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 if (!discardPendingEdits && _currentSession is { } current && HasLifecycleChanges(current))
                 {
                     return OperationResult<DocumentSession>.Failure(CreateError(_conservativeLifecycle
-                        ? "Save or discard the unsaved changes before opening another document."
-                        : "Save or undo the pending annotation changes before opening another document.", PdfCoreError.UnsavedChanges, "open", current.Id, null));
+                        ? I18n.T("open-unsaved-refusal-open")
+                        : I18n.T("open-unsaved-refusal-open-annotations"), PdfCoreError.UnsavedChanges, "open", current.Id, null));
                 }
             }
 
@@ -81,13 +83,13 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 if (!discardPendingEdits && _currentSession is { } current && HasLifecycleChanges(current))
                 {
                     return OperationResult<DocumentSession>.Failure(CreateError(_conservativeLifecycle
-                        ? "Save or discard the unsaved changes before creating another document."
-                        : "Save or undo the pending annotation changes before creating another document.", PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
+                        ? I18n.T("open-unsaved-refusal-create")
+                        : I18n.T("open-unsaved-refusal-create-annotations"), PdfCoreError.UnsavedChanges, "create_blank", current.Id, null));
                 }
             }
 
             var document = await Task.Run(_core.CreateBlank).ConfigureAwait(false);
-            var session = new SessionEntry(Guid.NewGuid().ToString("N"), "Untitled", document, _core.ContentEditingAllowed(document));
+            var session = new SessionEntry(Guid.NewGuid().ToString("N"), I18n.T("editor-untitled"), document, _core.ContentEditingAllowed(document));
             lock (_gate)
             {
                 RetireCurrentSessionLocked();
@@ -116,7 +118,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "navigate", sessionId, null)));
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "navigate", sessionId, null)));
             }
 
             var target = (long)session.PageIndex + delta;
@@ -141,7 +143,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "session", sessionId, null)));
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "session", sessionId, null)));
             }
 
             session.ClampPageIndex();
@@ -173,7 +175,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 }
 
                 if (edit is PageEdit.Remove && session.Document.PageCount <= 1)
@@ -207,8 +209,8 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     // an encryption that cannot survive the rewrite a
                     // reordering forces — that said no.
                     var message = edit is PageEdit.InsertBlank
-                        ? "This document does not allow adding a blank page."
-                        : "This document does not allow its pages to be rearranged, rotated or removed.";
+                        ? I18n.T("organize-insert-blank-forbidden")
+                        : I18n.T("organize-pages-forbidden");
                     return OperationResult<DocumentSession>.Failure(CreateError(message, error.Category, operation, sessionId, null));
                 }
                 catch (PdfCoreException error)
@@ -240,7 +242,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "render", sessionId, null)));
+                return Task.FromResult(RenderResult.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "render", sessionId, null)));
             }
 
             return QueueRenderLocked(session, session.PageIndex, dpi, invertContentColors);
@@ -253,7 +255,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(RenderResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "render", sessionId, pageIndex)));
+                return Task.FromResult(RenderResult.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "render", sessionId, pageIndex)));
             }
 
             return QueueRenderLocked(session, pageIndex, dpi, invertContentColors);
@@ -277,7 +279,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(TileBatchResult.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "render_tiles", sessionId, pageIndex)));
+                return Task.FromResult(TileBatchResult.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "render_tiles", sessionId, pageIndex)));
             }
 
             if (tiles.Count == 0)
@@ -295,12 +297,12 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "navigate_search", sessionId, hit.PageIndex)));
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "navigate_search", sessionId, hit.PageIndex)));
             }
 
             if (hit.PageIndex >= session.Document.PageCount)
             {
-                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, "navigate_search", sessionId, hit.PageIndex)));
+                return Task.FromResult(OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.PageIndexOutOfBounds, "navigate_search", sessionId, hit.PageIndex)));
             }
 
             session.PageIndex = hit.PageIndex;
@@ -314,7 +316,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_state", sessionId, null)));
+                return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "annotation_state", sessionId, null)));
             }
 
             return Task.FromResult(OperationResult<AnnotationState>.Success(session.AnnotationState(_core)));
@@ -327,7 +329,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<DocumentInfo>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "document_info", sessionId, null)));
+                return Task.FromResult(OperationResult<DocumentInfo>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "document_info", sessionId, null)));
             }
 
             try
@@ -364,7 +366,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out var session))
             {
-                return Task.FromResult(OperationResult<FormFieldState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "form_fields", sessionId, null)));
+                return Task.FromResult(OperationResult<FormFieldState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "form_fields", sessionId, null)));
             }
 
             return Task.FromResult(OperationResult<FormFieldState>.Success(new FormFieldState(
@@ -402,12 +404,12 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "form_fill", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "form_fill", sessionId, null));
                 }
 
                 if (!_core.AnnotationEditingAllowed(session.Document))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit filling in its form.", PdfCoreError.UnsupportedOperation, "form_fill", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-fill-forbidden"), PdfCoreError.UnsupportedOperation, "form_fill", sessionId, null));
                 }
 
                 try
@@ -415,7 +417,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field is null)
                     {
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, "form_fill", sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, "form_fill", sessionId, null));
                     }
 
                     pageIndex = field.PageIndex;
@@ -456,17 +458,17 @@ public sealed partial class PdfDocumentFacade : IDisposable
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit moving form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-move-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(x) || !double.IsFinite(y))
-                    return OperationResult<AnnotationState>.Failure(CreateError("Enter finite field coordinates.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-position-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
 
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field?.Rect is not { } rect || new AnnotationRect(rect.X, rect.Y, rect.Width, rect.Height) != expected)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, operation, sessionId, null));
                     if (rect.X == x && rect.Y == y) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.MoveFormField(fieldId, rect with { X = x, Y = y }));
@@ -503,16 +505,16 @@ public sealed partial class PdfDocumentFacade : IDisposable
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
 
                 if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit renaming form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-rename-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
 
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field is null || field.Name != expectedName)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, operation, sessionId, null));
 
                     if (field.Name == name) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
@@ -557,19 +559,19 @@ public sealed partial class PdfDocumentFacade : IDisposable
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 if (!_core.FormFieldEditingAllowed(session.Document))
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit styling form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-style-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!double.IsFinite(style.SizePt) || style.SizePt < 1 || style.SizePt > 72)
-                    return OperationResult<AnnotationState>.Failure(CreateError("Enter a font size between 1 and 72 pt.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-font-size-invalid"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
                 if (!Enum.IsDefined(style.Font))
-                    return OperationResult<AnnotationState>.Failure(CreateError("Choose a supported font.", PdfCoreError.UnsupportedOperation, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-font-unsupported"), PdfCoreError.UnsupportedOperation, operation, sessionId, null));
 
                 try
                 {
                     var field = _core.ListFormFields(session.Document).FirstOrDefault(candidate => candidate.Id == fieldId);
                     if (field?.Style is null || field.Style != expectedStyle)
-                        return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.FormFieldNotFound, operation, sessionId, null));
+                        return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.FormFieldNotFound, operation, sessionId, null));
                     if (field.Style == style) return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
                     pageIndex = field.PageIndex;
                     _core.ApplyEdit(session.Document, new PdfCoreEdit.RestyleFormField(fieldId, style));
@@ -617,17 +619,17 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, pageIndex));
                 }
 
                 if (pageIndex >= session.Document.PageCount)
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document changed. Please try again.", PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-changed"), PdfCoreError.PageIndexOutOfBounds, operation, sessionId, pageIndex));
                 }
 
                 if (!_core.FormFieldEditingAllowed(session.Document))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit creating form fields.", PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-create-forbidden"), PdfCoreError.UnsupportedOperation, operation, sessionId, pageIndex));
                 }
 
                 try
@@ -638,7 +640,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                 }
                 catch (PdfCoreException error) when (error.Category == PdfCoreError.UnsupportedOperation)
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit creating form fields.", error.Category, operation, sessionId, pageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("forms-create-forbidden"), error.Category, operation, sessionId, pageIndex));
                 }
                 catch (PdfCoreException error)
                 {
@@ -663,7 +665,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
                 }
                 try
                 {
@@ -739,7 +741,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out var session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "annotation_edit", sessionId, null));
                 }
                 try
                 {
@@ -779,12 +781,12 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out session))
             {
-                return OperationResult<PageContent>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
+                return OperationResult<PageContent>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
             }
 
             if (!session.ContentEditingAllowed)
             {
-                return OperationResult<PageContent>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, "page_content", sessionId, pageIndex));
+                return OperationResult<PageContent>.Failure(CreateError(I18n.T("refusal-content-forbidden"), PdfCoreError.UnsupportedOperation, "page_content", sessionId, pageIndex));
             }
         }
 
@@ -805,7 +807,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     // The ids in this parse belong to bytes nobody is looking
                     // at any more; handing them back would let a later edit
                     // target the wrong document.
-                    return OperationResult<PageContent>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
+                    return OperationResult<PageContent>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "page_content", sessionId, pageIndex));
                 }
             }
 
@@ -875,7 +877,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "content_edit", sessionId, run.PageIndex));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "content_edit", sessionId, run.PageIndex));
                 }
 
                 try
@@ -932,7 +934,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (session.Retired || _currentSession != session)
             {
-                return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, session.Id, pageIndex));
+                return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, session.Id, pageIndex));
             }
 
             return OperationResult<AnnotationState>.Success(session.AnnotationState(_core));
@@ -961,7 +963,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out session))
             {
-                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "signatures", sessionId, null));
+                return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "signatures", sessionId, null));
             }
         }
 
@@ -990,7 +992,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out session))
             {
-                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "protect_signatures", sessionId, null));
+                return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "protect_signatures", sessionId, null));
             }
         }
 
@@ -1026,7 +1028,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<SavedDocument>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "save", sessionId, null));
+                    return OperationResult<SavedDocument>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "save", sessionId, null));
                 }
                 revision = session.EditRevision;
             }
@@ -1068,11 +1070,11 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<byte[]>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "protect", sessionId, null));
+                    return OperationResult<byte[]>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "protect", sessionId, null));
                 }
                 if (!session.ContentEditingAllowed)
                 {
-                    return OperationResult<byte[]>.Failure(CreateError("This document does not permit protection changes.", PdfCoreError.UnsupportedOperation, "protect", sessionId, null));
+                    return OperationResult<byte[]>.Failure(CreateError(I18n.T("protect-changes-forbidden"), PdfCoreError.UnsupportedOperation, "protect", sessionId, null));
                 }
             }
 
@@ -1107,7 +1109,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out session))
             {
-                return OperationResult<string?>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress_refusal", sessionId, null));
+                return OperationResult<string?>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "compress_refusal", sessionId, null));
             }
         }
 
@@ -1138,7 +1140,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             if (!TryGetCurrentSession(sessionId, out session))
             {
-                return OperationResult<bool>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress_signatures", sessionId, null));
+                return OperationResult<bool>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "compress_signatures", sessionId, null));
             }
         }
 
@@ -1176,7 +1178,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<CompressionResult>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "compress", sessionId, null));
+                    return OperationResult<CompressionResult>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "compress", sessionId, null));
                 }
             }
 
@@ -1223,7 +1225,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out _))
                 {
-                    return OperationResult<DocumentSession>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, "reopen_protected", sessionId, null));
+                    return OperationResult<DocumentSession>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, "reopen_protected", sessionId, null));
                 }
             }
 
@@ -1261,7 +1263,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             {
                 if (!TryGetCurrentSession(sessionId, out session))
                 {
-                    return OperationResult<AnnotationState>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, null));
+                    return OperationResult<AnnotationState>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, null));
                 }
                 try
                 {
@@ -1584,32 +1586,32 @@ public sealed partial class PdfDocumentFacade : IDisposable
     {
         var message = error.Category switch
         {
-            PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword => "This document requires a password.",
-            PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => "This document or action is not supported.",
-            PdfCoreError.InvalidImage => "The image is corrupt or unsupported.",
+            PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword => I18n.T("error-password-required"),
+            PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.UnsupportedOperation => I18n.T("error-unsupported"),
+            PdfCoreError.InvalidImage => I18n.T("error-invalid-image"),
             // Named, and with the character in it: this is the one failure the
             // reader can clear themselves, by typing something else.
             PdfCoreError.EncodingGap => error.ReaderFacingDetail is { Length: > 0 } character
-                ? $"This text's font cannot show \"{character}\". Try different characters."
-                : "This text's font cannot show one of those characters.",
+                ? I18n.T("error-font-gap", ("character", character))
+                : I18n.T("error-font-gap-unknown"),
             // The core's own sentence about the range the reader typed.
             PdfCoreError.InvalidPageSelection => error.ReaderFacingDetail is { Length: > 0 } sentence
                 ? sentence
-                : "Those pages could not be read. Type them like 1-3,7.",
-            PdfCoreError.InvalidSaveRequest => "The requested action could not be completed.",
+                : I18n.T("error-page-selection"),
+            PdfCoreError.InvalidSaveRequest => I18n.T("error-request-failed"),
             // Named rather than folded into the generic message: the user can
             // act on it (save a copy elsewhere, or keep the signed original),
             // and "could not be processed" would read like a bug in Vitela.
-            PdfCoreError.SignaturesWouldBeInvalidated => "Saving would break this document's digital signature, so it was not saved.",
-            PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.FormFieldNotFound or PdfCoreError.BitmapNotFound => "The document changed. Please try again.",
-            _ => "The document could not be processed."
+            PdfCoreError.SignaturesWouldBeInvalidated => I18n.T("error-signatures-invalidated"),
+            PdfCoreError.PageIndexOutOfBounds or PdfCoreError.AnnotationNotFound or PdfCoreError.FormFieldNotFound or PdfCoreError.BitmapNotFound => I18n.T("error-document-changed"),
+            _ => I18n.T("error-processing-failed")
         };
         return CreateError(message, error.Category, operation, sessionId, pageIndex);
     }
 
     private UserSafeError MapUnexpected(Exception error, string operation, string? sessionId, uint? pageIndex)
     {
-        return CreateError("The document could not be processed.", PdfCoreError.Internal, operation, sessionId, pageIndex, error.GetType().Name);
+        return CreateError(I18n.T("error-processing-failed"), PdfCoreError.Internal, operation, sessionId, pageIndex, error.GetType().Name);
     }
 
     private UserSafeError CreateError(string message, PdfCoreError category, string operation, string? sessionId, uint? pageIndex, string sanitizedDetail = "typed_failure")

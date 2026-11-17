@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -38,7 +40,7 @@ public sealed partial class PdfDocumentFacade
             lock (_gate)
             {
                 if (!TryGetCurrentSession(sessionId, out session))
-                    return OperationResult<ContentClip>.Failure(CreateError("The document is no longer available.", PdfCoreError.DocumentNotFound, operation, sessionId, selection.PageIndex));
+                    return OperationResult<ContentClip>.Failure(CreateError(I18n.T("error-document-unavailable"), PdfCoreError.DocumentNotFound, operation, sessionId, selection.PageIndex));
             }
             var clip = await Task.Run(() => _core.CopyContentSelection(session.Document, members, cut: false)).ConfigureAwait(false);
             return OperationResult<ContentClip>.Success(new ContentClip(clip));
@@ -69,7 +71,7 @@ public sealed partial class PdfDocumentFacade
     {
         if (!double.IsFinite(left) || !double.IsFinite(top))
         {
-            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError("Paste coordinates must be finite.",
+            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError(I18n.T("annotate-paste-not-finite"),
                 PdfCoreError.UnsupportedOperation, "paste_content", sessionId, pageIndex)));
         }
         return WriteContentBatchAsync(sessionId, pageIndex, "paste_content",

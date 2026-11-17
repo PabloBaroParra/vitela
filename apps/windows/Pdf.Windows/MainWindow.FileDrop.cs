@@ -25,7 +25,7 @@ namespace Pdf.Windows;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private const string UnsupportedDropMessage = "Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp.";
+    private static string UnsupportedDropMessage => I18n.T("drop-unsupported-file");
 
     /// <summary>
     /// Default placement anchored at the drop point's top-left corner, sized
@@ -88,7 +88,7 @@ public sealed partial class MainWindow
         }
         else if (await ReadDroppedFileAsync(file) is not { } dropped)
         {
-            AnnotationStatus.Text = "The dropped file could not be read.";
+            AnnotationStatus.Text = I18n.T("drop-unreadable");
         }
         else if (dropped.Kind == DroppedFileKind.Document)
         {
@@ -99,8 +99,8 @@ public sealed partial class MainWindow
             AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
                 ? I18n.T("home-drop-not-pdf")
                 : _session is null
-                ? "Open a PDF first, then drop an image onto a page to stamp it."
-                : "Drop the image onto a page to place it as a stamp.";
+                ? I18n.T("drop-open-first")
+                : I18n.T("drop-image-onto-page");
         }
     }
 
@@ -125,7 +125,7 @@ public sealed partial class MainWindow
         }
         else if (await ReadDroppedFileAsync(file) is not { } dropped)
         {
-            if (_session?.SessionId == sessionId) AnnotationStatus.Text = "The dropped file could not be read.";
+            if (_session?.SessionId == sessionId) AnnotationStatus.Text = I18n.T("drop-unreadable");
         }
         else if (_session?.SessionId != sessionId || pageIndex >= _slots.Count || !ReferenceEquals(_slots[pageIndex], slot)
             || _isBusy || _shellPickingFile || _dialogOpen)
@@ -141,7 +141,7 @@ public sealed partial class MainWindow
         }
         else if (dropped.Kind == DroppedFileKind.Unsupported)
         {
-            AnnotationStatus.Text = "Dropped file is neither a PDF nor a supported image.";
+            AnnotationStatus.Text = I18n.T("drop-unsupported");
         }
         else
         {
@@ -161,7 +161,7 @@ public sealed partial class MainWindow
         var targetSlot = _slots[pageIndex];
         if (_annotationState?.EditingAllowed != true)
         {
-            AnnotationStatus.Text = "This document does not allow annotation edits.";
+            AnnotationStatus.Text = I18n.T("drop-annotation-forbidden");
             return;
         }
 
@@ -252,7 +252,7 @@ public sealed partial class MainWindow
         if (_isBusy || _organizing || _shellPickingFile || _dialogOpen) return;
         if (_session is not { State: DocumentSessionState.Ready } session || _annotationState?.EditingAllowed != true || session.Pages.Count == 0)
         {
-            AnnotationStatus.Text = "Open an editable PDF before pasting an image.";
+            AnnotationStatus.Text = I18n.T("paste-open-editable-first");
             return;
         }
         // Capture the target before reading the clipboard: scrolling or replacing
@@ -267,7 +267,7 @@ public sealed partial class MainWindow
             var content = Clipboard.GetContent();
             if (!content.Contains(StandardDataFormats.Bitmap))
             {
-                AnnotationStatus.Text = "Clipboard does not contain a bitmap image.";
+                AnnotationStatus.Text = I18n.T("paste-no-image");
                 return;
             }
             var imageBytes = await ReadClipboardBitmapAsPngAsync(content);
@@ -279,7 +279,7 @@ public sealed partial class MainWindow
         }
         catch (Exception)
         {
-            ReportDropFailure(session.SessionId, "The clipboard bitmap could not be used.");
+            ReportDropFailure(session.SessionId, I18n.T("paste-image-unusable"));
         }
     }
 

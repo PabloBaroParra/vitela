@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Facade;
 
 /// <summary>
@@ -13,7 +15,7 @@ public sealed partial class PdfDocumentFacade
     {
         if (!double.IsFinite(dx) || !double.IsFinite(dy))
         {
-            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError("Selection offsets must be finite.",
+            return Task.FromResult(OperationResult<AnnotationState>.Failure(CreateError(I18n.T("selection-offsets-not-finite"),
                 PdfCoreError.UnsupportedOperation, "move_content_selection", sessionId, selection.PageIndex)));
         }
         var edit = new PdfCoreContentSelectionEdit.Move(selection.RunSources, selection.ImageSources, selection.PathSources, dx, dy);
