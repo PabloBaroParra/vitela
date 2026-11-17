@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -28,19 +29,19 @@ public sealed partial class MainWindow
         var textLook = _facade.DefaultWatermarkLook();
         var pictureLook = _facade.DefaultPictureWatermarkLook();
 
-        var kind = new RadioButtons { Header = "Watermark", MaxColumns = 2 };
-        kind.Items.Add(new RadioButton { Content = "Text", Tag = WatermarkKind.Text });
-        kind.Items.Add(new RadioButton { Content = "Picture", Tag = WatermarkKind.Picture });
+        var kind = new RadioButtons { Header = I18n.T("watermark-kind-header"), MaxColumns = 2 };
+        kind.Items.Add(new RadioButton { Content = I18n.T("watermark-kind-text"), Tag = WatermarkKind.Text });
+        kind.Items.Add(new RadioButton { Content = I18n.T("watermark-kind-picture"), Tag = WatermarkKind.Picture });
         kind.SelectedIndex = 0;
 
-        var text = new TextBox { Header = "Text", Text = WatermarkLimits.DefaultText, MinWidth = 260, Name = "WatermarkText" };
+        var text = new TextBox { Header = I18n.T("watermark-text-label"), Text = I18n.T("watermark-default-text"), MinWidth = 260, Name = "WatermarkText" };
         text.Loaded += (_, _) =>
         {
             // Selected, so typing replaces the placeholder word.
             text.SelectAll();
             text.Focus(FocusState.Programmatic);
         };
-        var size = LookBox("Size (pt)", WatermarkLimits.MinFontSizePt, WatermarkLimits.MaxFontSizePt, textLook.FontSizePt, 10);
+        var size = LookBox(I18n.T("watermark-size-label"), WatermarkLimits.MinFontSizePt, WatermarkLimits.MaxFontSizePt, textLook.FontSizePt, 10);
         var textPanel = new StackPanel { Spacing = 12 };
         textPanel.Children.Add(text);
         textPanel.Children.Add(size);
@@ -48,10 +49,10 @@ public sealed partial class MainWindow
         // The picture's bytes are read once, when picked, and held here: the
         // core is handed them untouched when the stamp is recorded.
         byte[]? picture = null;
-        var choose = new Button { Content = "Choose picture…", Name = "WatermarkChoosePicture" };
+        var choose = new Button { Content = I18n.T("watermark-choose-picture"), Name = "WatermarkChoosePicture" };
         var chosen = new TextBlock
         {
-            Text = "No picture chosen. PNG or JPEG.",
+            Text = I18n.T("watermark-no-picture-hint"),
             TextWrapping = TextWrapping.Wrap,
             Style = NamedStyle("EditHintStyle"),
         };
@@ -60,24 +61,24 @@ public sealed partial class MainWindow
             var bytes = await PickContentImageBytesAsync(session.SessionId);
             if (bytes is not { Length: > 0 }) return;
             picture = bytes;
-            chosen.Text = $"Picture chosen ({Math.Max(1, bytes.Length / 1024)} KB).";
+            chosen.Text = I18n.T("watermark-picture-chosen", ("size", Math.Max(1, bytes.Length / 1024)));
         };
-        var scale = LookBox("Size (% of page)", WatermarkLimits.MinScalePercent, WatermarkLimits.MaxScalePercent, pictureLook.ScalePercent, 10);
+        var scale = LookBox(I18n.T("watermark-scale-label"), WatermarkLimits.MinScalePercent, WatermarkLimits.MaxScalePercent, pictureLook.ScalePercent, 10);
         var picturePanel = new StackPanel { Spacing = 12, Visibility = Visibility.Collapsed };
         picturePanel.Children.Add(choose);
         picturePanel.Children.Add(chosen);
         picturePanel.Children.Add(scale);
 
-        var pages = new RadioButtons { Header = "Pages" };
+        var pages = new RadioButtons { Header = I18n.T("watermark-pages-label") };
         var range = new TextBox { PlaceholderText = "1-3,7", MinWidth = 200, IsEnabled = false, Name = "WatermarkPageRange" };
-        AutomationProperties.SetName(range, "Page range");
-        pages.Items.Add(new RadioButton { Content = "All pages", Tag = WatermarkPages.All });
-        pages.Items.Add(new RadioButton { Content = "Current page", Tag = WatermarkPages.Current });
+        AutomationProperties.SetName(range, I18n.T("watermark-page-range"));
+        pages.Items.Add(new RadioButton { Content = I18n.T("watermark-all-pages"), Tag = WatermarkPages.All });
+        pages.Items.Add(new RadioButton { Content = I18n.T("watermark-current-page"), Tag = WatermarkPages.Current });
         var custom = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        custom.Children.Add(new TextBlock { Text = "Pages", VerticalAlignment = VerticalAlignment.Center });
+        custom.Children.Add(new TextBlock { Text = I18n.T("watermark-custom-pages"), VerticalAlignment = VerticalAlignment.Center });
         custom.Children.Add(range);
         var customChoice = new RadioButton { Content = custom, Tag = WatermarkPages.Custom };
-        AutomationProperties.SetName(customChoice, "Pages");
+        AutomationProperties.SetName(customChoice, I18n.T("watermark-custom-pages"));
         pages.Items.Add(customChoice);
         pages.SelectedIndex = 0;
         pages.SelectionChanged += (_, _) =>
@@ -86,15 +87,15 @@ public sealed partial class MainWindow
             if (range.IsEnabled) range.Focus(FocusState.Programmatic);
         };
 
-        var opacity = LookBox("Opacity (%)", WatermarkLimits.MinOpacityPercent, WatermarkLimits.MaxOpacityPercent, textLook.OpacityPercent, 10);
-        var angle = LookBox("Angle (°)", WatermarkLimits.MinRotationDegrees, WatermarkLimits.MaxRotationDegrees, textLook.RotationDegrees, 15);
+        var opacity = LookBox(I18n.T("watermark-opacity-label"), WatermarkLimits.MinOpacityPercent, WatermarkLimits.MaxOpacityPercent, textLook.OpacityPercent, 10);
+        var angle = LookBox(I18n.T("watermark-angle-degrees-label"), WatermarkLimits.MinRotationDegrees, WatermarkLimits.MaxRotationDegrees, textLook.RotationDegrees, 15);
         var lookRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
         lookRow.Children.Add(opacity);
         lookRow.Children.Add(angle);
 
-        var layer = new RadioButtons { Header = "Placement", Name = "WatermarkLayer" };
-        layer.Items.Add(new RadioButton { Content = "Over the page content", Tag = WatermarkLayer.OverContent });
-        layer.Items.Add(new RadioButton { Content = "Behind the page content", Tag = WatermarkLayer.UnderContent });
+        var layer = new RadioButtons { Header = I18n.T("watermark-placement-label"), Name = "WatermarkLayer" };
+        layer.Items.Add(new RadioButton { Content = I18n.T("watermark-over"), Tag = WatermarkLayer.OverContent });
+        layer.Items.Add(new RadioButton { Content = I18n.T("watermark-under"), Tag = WatermarkLayer.UnderContent });
         layer.SelectedIndex = LayerIndex(textLook.Layer);
 
         kind.SelectionChanged += (_, _) =>
@@ -118,7 +119,7 @@ public sealed partial class MainWindow
         panel.Children.Add(layer);
         panel.Children.Add(new TextBlock
         {
-            Text = "A watermark is painted into the pages themselves and is one undo step.",
+            Text = I18n.T("edit-watermark-hint"),
             TextWrapping = TextWrapping.Wrap,
             Style = NamedStyle("EditHintStyle"),
         });
@@ -126,10 +127,10 @@ public sealed partial class MainWindow
 
         var dialog = new ContentDialog
         {
-            Title = "Add watermark",
+            Title = I18n.T("watermark-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Add",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("watermark-add"),
+            CloseButtonText = I18n.T("watermark-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };

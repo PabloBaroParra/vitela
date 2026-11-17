@@ -528,3 +528,39 @@ forms-font-size-changed-save = Tamaño de fuente del campo cambiado. Guarda para
 forms-font-changed-save = Fuente del campo cambiada. Guarda para conservar el cambio.
 forms-color-changed-save = Color del texto del campo cambiado. Guarda para conservar el cambio.
 forms-filled-save = Campo rellenado. Guarda para conservar el cambio.
+
+## Add watermark: refusals and dialog
+
+watermark-cancelled = Marca de agua cancelada.
+watermark-dialog-title = Añadir marca de agua
+watermark-kind-text = Texto
+watermark-kind-picture = Imagen
+watermark-text-label = Texto
+watermark-default-text = BORRADOR
+watermark-size-label = Tamaño (pt)
+watermark-choose-picture = Elegir imagen…
+watermark-scale-label = Tamaño (% de la página)
+watermark-pages-label = Páginas
+watermark-all-pages = Todas las páginas
+watermark-current-page = Página actual
+watermark-custom-pages = Páginas
+watermark-opacity-label = Opacidad (%)
+watermark-over = Sobre el contenido de la página
+watermark-under = Detrás del contenido de la página
+watermark-cancel = Cancelar
+
+## Add watermark: Windows only (dialog wording and the result that ends in
+## "Save to keep the change.")
+
+watermark-kind-header = Marca de agua
+watermark-no-picture-hint = No se ha elegido ninguna imagen. PNG o JPEG.
+watermark-picture-chosen = Imagen elegida ({ $size } KB).
+watermark-page-range = Intervalo de páginas
+watermark-angle-degrees-label = Ángulo (°)
+watermark-placement-label = Colocación
+watermark-add = Añadir
+watermark-summary-save =
+    { $count ->
+        [one] Marca de agua añadida a { $count } página. Guarda para conservar el cambio.
+       *[other] Marca de agua añadida a { $count } páginas. Guarda para conservar el cambio.
+    }

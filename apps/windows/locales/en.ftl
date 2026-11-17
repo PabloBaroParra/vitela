@@ -566,3 +566,44 @@ forms-font-size-changed-save = Field font size changed. Save to keep the change.
 forms-font-changed-save = Field font changed. Save to keep the change.
 forms-color-changed-save = Field text color changed. Save to keep the change.
 forms-filled-save = Field filled in. Save to keep the change.
+
+## Add watermark: refusals and dialog
+# Page-range parsing errors come from the facade and stay English.
+
+watermark-cancelled = Watermark cancelled.
+watermark-dialog-title = Add watermark
+watermark-kind-text = Text
+watermark-kind-picture = Picture
+watermark-text-label = Text
+# Pre-filled in the text entry and stamped into the PDF as typed.
+watermark-default-text = DRAFT
+watermark-size-label = Size (pt)
+watermark-choose-picture = Choose picture…
+watermark-scale-label = Size (% of page)
+watermark-pages-label = Pages
+watermark-all-pages = All pages
+watermark-current-page = Current page
+watermark-custom-pages = Pages
+watermark-opacity-label = Opacity (%)
+watermark-over = Over the page content
+watermark-under = Behind the page content
+watermark-cancel = Cancel
+
+## Add watermark: Windows only (dialog wording and the result that ends in
+## "Save to keep the change.")
+
+watermark-kind-header = Watermark
+watermark-no-picture-hint = No picture chosen. PNG or JPEG.
+# $size (Number) - the picture's size in KB, at least 1.
+watermark-picture-chosen = Picture chosen ({ $size } KB).
+# Accessible name of the custom page-range entry.
+watermark-page-range = Page range
+watermark-angle-degrees-label = Angle (°)
+watermark-placement-label = Placement
+watermark-add = Add
+# $count (Number) - pages stamped.
+watermark-summary-save =
+    { $count ->
+        [one] Watermark added to { $count } page. Save to keep the change.
+       *[other] Watermark added to { $count } pages. Save to keep the change.
+    }

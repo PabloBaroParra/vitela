@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -33,7 +34,7 @@ public sealed partial class MainWindow
         if (_addingWatermark || _isBusy || _dialogOpen || _organizing || _session is not { PageCount: > 0 } session) return;
         if (!session.ContentEditingAllowed)
         {
-            AnnotationStatus.Text = "This document does not permit content changes.";
+            AnnotationStatus.Text = I18n.T("refusal-content-forbidden");
             return;
         }
         _addingWatermark = true;
@@ -47,7 +48,7 @@ public sealed partial class MainWindow
             if (_session?.SessionId != session.SessionId) return;
             if (added is null)
             {
-                AnnotationStatus.Text = "Watermark cancelled.";
+                AnnotationStatus.Text = I18n.T("watermark-cancelled");
                 return;
             }
             await AfterWatermarkAsync(added);
