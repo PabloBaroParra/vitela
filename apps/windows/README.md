@@ -40,6 +40,48 @@ reflection because `ScrollViewer` is sealed. `Tests/PanSmoke.targets` is an
 opt-in native-input harness for the same cases; like the wheel harness it needs
 an interactive desktop left alone until it exits.
 
+## Localization
+
+The shell speaks English or Spanish, chosen once at start-up from the Windows
+display language (`CultureInfo.CurrentUICulture`): any `es-*` culture is Spanish,
+everything else English. `VITELA_LANGUAGE=es` (or `en`) overrides it, which is
+how to try the Spanish UI on an English Windows, and how to run the English
+UI-automation harnesses on a Spanish one.
+
+Strings live in Fluent files, `apps/windows/locales/en.ftl` and `es.ftl`,
+embedded in the assembly and read with Linguini.Bundle. Keys are shared with
+the GTK shell: where Windows shows the same English text as Linux it uses
+Linux's key and Linux's Spanish verbatim; strings Linux does not have go under
+a "Windows only" section with a new key in the same namespace (`home-`,
+`editor-`, `search-`, `metadata-`, …). `en.ftl` is the reference; `es.ftl` must
+define exactly the same ids.
+
+- **Code:** `I18n.T("home-recent-title")`, or with Fluent arguments
+  `I18n.T("home-recent-page-count", ("count", pages))`. Pass numbers as numbers
+  so plurals select, and pass the key literally at the call site (not through a
+  variable) so the facade suite can find it.
+- **XAML:** `xmlns:i18n="using:Pdf.Windows.Localization"`, then
+  `Text="{i18n:T Key=home-welcome-title}"` on any string property (`Content`,
+  `Header`, `PlaceholderText`, `ToolTipService.ToolTip`,
+  `AutomationProperties.Name`). Evaluated once when the XAML loads.
+- **Identifiers stay English.** A `Tag`, a rail destination or a tools-page key
+  is an id the code switches on, never display text; translate only what is shown.
+- **Kept as-is in every language**, as on Linux: technical detail from the core
+  or the OS (passed into a localized sentence as an argument), the product
+  name, keyboard shortcuts, and number formats such as `3 / 12` or `100%`.
+
+A missing message falls back to English, and one missing from English renders
+as its key and is logged (`Trace`). The facade suite always starts in English,
+checks that both files parse and define the same ids, and scans the shell's
+`.cs` and `.xaml` files for every `T("…")` / `{i18n:T Key=…}` to prove the key
+exists in `en.ftl`; a test that needs Spanish takes `using (I18n.Speak(Language.Spanish))`.
+
+The Store MSIX keeps `<Resource Language="x-generate" />`; the app carries no
+`.resw`, so the package declares only its default language, and the Store will list English
+only until Spanish is declared. The shell picks its language from .NET's UI
+culture rather than from the package's resource languages; that a packaged
+build still follows a Spanish display language is not yet verified.
+
 ## Document lifecycle dialogs
 
 Home, the editor toolbar and Ctrl+O share one native PDF picker and its

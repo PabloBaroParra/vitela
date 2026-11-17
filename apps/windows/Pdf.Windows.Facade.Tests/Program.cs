@@ -3,6 +3,13 @@ using Pdf.Windows.Viewer;
 
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("resolves the shell language from the override and the Windows UI culture", LocalizationTests.NegotiatesTheLanguageAsync),
+    ("keeps en.ftl and es.ftl defining the same messages", LocalizationTests.KeepsBothTranslationsInStepAsync),
+    ("defines every message key the shell looks up", LocalizationTests.DefinesEveryKeyTheShellUsesAsync),
+    ("speaks English in tests whatever the machine language", LocalizationTests.SpeaksEnglishByDefaultInTestsAsync),
+    ("formats Fluent arguments and plurals in English and Spanish", LocalizationTests.FormatsArgumentsAndPluralsAsync),
+    ("restores the previous language when a guard ends", LocalizationTests.RestoresTheLanguageWhenTheGuardEndsAsync),
+    ("falls back to English per message and to the key when missing", LocalizationTests.FallsBackPerMessageAsync),
     ("shell lifecycle conservatively guards full Undo without changing the default", DocumentStatesParityTests.RunAsync),
     ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
     ("shares a save-equivalent copy without marking the session saved", ShareParityTests.RunAsync),
