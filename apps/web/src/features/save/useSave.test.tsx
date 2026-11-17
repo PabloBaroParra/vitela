@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { EngineError } from '../../core/errors';
-import type { Engine } from '../../core/types';
+import { EngineError } from '@vitela/core';
+import type { Engine } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';

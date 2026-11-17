@@ -10,9 +10,9 @@
 // the edits. The state belongs to one document: opening another starts clean.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '../../core/errors';
+import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '@vitela/core';
 import type { FileStamp } from '../../platform/fileStamp';
-import type { Engine } from '../../core/types';
+import type { Engine } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 import { browserDelivery, type Delivery, type SaveIntent } from './delivery';
 import type { SaveOutcome } from './outcome';

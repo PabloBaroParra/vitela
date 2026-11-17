@@ -4,8 +4,8 @@
 // "whichever one is newest". Kept apart from engine.ts (which loads the WASM)
 // so it is tested with a fake core.
 
-import type { DocumentHandle, Engine, OpenedDocument, PagePoint, PageSize, RenderedPage } from '../core/types';
-import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText';
+import type { DocumentHandle, Engine, OpenedDocument, PagePoint, PageSize, RenderedPage } from '../core/types.js';
+import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** The slice of core/pdf-wasm's `Engine` this module uses. */
 export interface CoreEngine extends CoreText {

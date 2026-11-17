@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { EngineError } from '../../core/errors';
-import type { SearchHit } from '../../core/types';
+import { EngineError } from '@vitela/core';
+import type { SearchHit } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { currentHit } from './searchState';
 import { useSearch } from './useSearch';

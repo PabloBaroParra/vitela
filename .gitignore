@@ -5,6 +5,9 @@ Cargo.lock.bak
 .DS_Store
 Thumbs.db
 
+# npm workspaces (root package.json): dependencies install at the root.
+/node_modules/
+
 # Personal / local-only files — this repo's full history will be public.
 CurriculumPabloBaro_EN.pdf
 

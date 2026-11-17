@@ -4,7 +4,7 @@
 // viewport, so far-away pages hold no canvas and no text layer at all.
 
 import { memo } from 'react';
-import type { DocumentHandle, Engine, PageRects } from '../../core/types';
+import type { DocumentHandle, Engine, PageRects } from '@vitela/core';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import { TextLayer } from '../text/TextLayer';

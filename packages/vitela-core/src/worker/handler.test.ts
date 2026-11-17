@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { handleRequest } from './handler';
-import type { Engine } from '../core/types';
+import { handleRequest } from './handler.js';
+import type { Engine } from '../core/types.js';
 
 const page = { width: 2, height: 1, rgba: new Uint8ClampedArray(8) };
 const info = { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }], textExtractionAllowed: true };

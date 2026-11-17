@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SearchHit } from '../../core/types';
+import type { SearchHit } from '@vitela/core';
 import { IDLE, currentHit, hitsByPage, hitsOf, step, summary, type SearchState } from './searchState';
 
 const hit = (pageIndex: number): SearchHit => ({ pageIndex, rects: new Float32Array([0, 0, 1, 1]) });

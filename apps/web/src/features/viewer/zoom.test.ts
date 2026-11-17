@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { layoutPages, type Layout } from './layout';
 import { MAX_ZOOM, MIN_ZOOM, clampZoom, fitWidthZoom, wheelZoom, zoomAround, zoomIn, zoomOut } from './zoom';
 

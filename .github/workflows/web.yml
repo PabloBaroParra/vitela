@@ -1,13 +1,17 @@
 name: web
 
-# The web shell (apps/web, B26). The core crates stay gated by core.yml; this
-# workflow builds the WASM the worker loads, then runs Vitest and the
-# Playwright flows (Chromium, Firefox and WebKit) against the production build.
+# The web shell (apps/web, B26) and its engine package (packages/vitela-core,
+# @vitela/core). The core crates stay gated by core.yml; this workflow builds
+# the WASM the worker loads, then runs both Vitest suites and the Playwright
+# flows (Chromium, Firefox and WebKit) against the production build.
 on:
   push:
     branches: [main]
     paths:
       - "apps/web/**"
+      - "packages/**"
+      - package.json
+      - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
       - "core/**"
       - "vendor/**"
@@ -18,6 +22,9 @@ on:
   pull_request:
     paths:
       - "apps/web/**"
+      - "packages/**"
+      - package.json
+      - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
       - "core/**"
       - "vendor/**"
@@ -30,7 +37,7 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   # Bump together with core/pdf-wasm/Cargo.toml's wasm-bindgen pin,
-  # apps/web/scripts/build-wasm.sh and core.yml's wasm32 job.
+  # packages/vitela-core/scripts/build-wasm.sh and core.yml's wasm32 job.
   WASM_BINDGEN_VERSION: "0.2.130"
 
 permissions:
@@ -75,7 +82,7 @@ jobs:
       - name: Cache pdfium WASM (sha256-checked by build-wasm.sh either way)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: apps/web/generated/pdfium
+          path: packages/vitela-core/src/generated/pdfium
           key: pdfium-wasm-${{ hashFiles('core/pdf-wasm/scripts/fetch-pdfium.sh') }}
       - name: Build the WASM modules
         run: npm run build:wasm
@@ -84,11 +91,20 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: package-lock.json
+      # npm workspaces: one install and one lockfile at the repository root.
       - name: Install npm dependencies
         run: npm ci
+        working-directory: .
 
-      - name: Vitest
+      - name: "@vitela/core: type-check, Vitest (includes the real-pdfium test), build"
+        working-directory: packages/vitela-core
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Vitest (apps/web)
         run: npm test
       - name: Type-check and production build
         run: npm run build

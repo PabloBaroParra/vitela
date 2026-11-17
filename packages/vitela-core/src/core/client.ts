@@ -7,8 +7,8 @@ import type {
   MessagePortLike,
   RequestEnvelope,
   WorkerMessage,
-} from './protocol';
-import { EngineError } from './errors';
+} from './protocol.js';
+import { EngineError } from './errors.js';
 import type {
   DocumentHandle,
   Engine,
@@ -17,7 +17,7 @@ import type {
   RenderedPage,
   SearchHit,
   TextSelection,
-} from './types';
+} from './types.js';
 
 interface Pending {
   resolve(value: unknown): void;

@@ -1,0 +1,19 @@
+@vitela/core
+Copyright the Vitela contributors.
+Licensed under either of the MIT licence (LICENSE-MIT) or the Apache License,
+Version 2.0 (LICENSE-APACHE), at your option.
+
+This package includes third-party software in binary form:
+
+PDFium (dist/generated/pdfium/pdfium.js, dist/generated/pdfium/pdfium.wasm)
+  An Emscripten build of PDFium (https://pdfium.googlesource.com/pdfium/)
+  from bblanchon/pdfium-binaries, release chromium/7763, asset
+  pdfium-wasm.tgz (https://github.com/bblanchon/pdfium-binaries).
+  PDFium is distributed under its own licence (BSD-style and Apache License
+  2.0; see https://pdfium.googlesource.com/pdfium/+/main/LICENSE), not under
+  this package's licence. It bundles third-party components (in PDFium's
+  third_party/ directory), each under its own licence.
+
+dist/generated/engine/ is Vitela's own Rust core (core/pdf-wasm) compiled to
+WebAssembly, under this package's licence. Its Rust dependencies keep their
+own licences, as listed in the repository's Cargo.lock.

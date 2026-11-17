@@ -1,6 +1,6 @@
 // Puts a rendered page's pixels into a canvas, at 1:1 device pixels.
 
-import type { RenderedPage } from '../../core/types';
+import type { RenderedPage } from '@vitela/core';
 
 export function paintPage(canvas: HTMLCanvasElement, page: RenderedPage): void {
   const expected = page.width * page.height * 4;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyInitAlias, instantiatePdfium } from './pdfium';
+import { applyInitAlias, instantiatePdfium } from './pdfium.js';
 
 // A stand-in for bblanchon's Emscripten glue: non-MODULARIZE, it reuses a
 // pre-seeded `Module` and calls back once the runtime is up.

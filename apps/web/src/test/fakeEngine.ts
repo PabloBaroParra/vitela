@@ -1,7 +1,7 @@
 // Test support: an `Engine` whose every method fails unless a test supplies
 // it, so each test spells out only the calls it expects.
 
-import type { Engine } from '../core/types';
+import type { Engine } from '@vitela/core';
 
 const unused = (method: string) => () => Promise.reject(new Error(`${method}: not expected in this test`));
 

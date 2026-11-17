@@ -7,10 +7,8 @@ is TypeScript + React (Vite). The user's PDF never leaves the browser.
 
 ```
 src/
-  main.tsx          boot only
-  app/              engine worker start-up, engine status, shell layout, styles
-  core/             typed worker client + shared types and message protocol
-  worker/           the Web Worker: loads pdfium + core/pdf-wasm, serves requests
+  main.tsx          boot only: starts the engine (createEngine) and renders App
+  app/              engine status, shell layout, styles
   features/
     document/       open a PDF: picker, drop on the window, password dialog
     viewer/         virtualized page column, zoom (pure layout/zoom math + hooks)
@@ -20,53 +18,62 @@ src/
   ui/               presentational pieces, no logic
   test/             shared test fakes (Vitest only)
 e2e/                Playwright flows (production build); pdf.ts builds test PDFs
-scripts/            build-wasm.sh
-generated/          build output of build-wasm.sh (git-ignored)
 ```
 
 ## The engine
+
+The engine lives in the
+[`@vitela/core`](../../packages/vitela-core) package (npm workspace): the
+typed worker client, the Web Worker, and the WASM build. The app imports only
+its public entry (`@vitela/core`), and consumes its built `dist/` exactly as
+an npm dependent would, so every script below builds the package first
+(`npm run build:core`).
 
 The worker loads two WASM modules:
 
 - **pdfium**: bblanchon `pdfium-binaries` `chromium/7763`, `pdfium-wasm.tgz`,
   downloaded and sha256-checked by `core/pdf-wasm/scripts/fetch-pdfium.sh`
-  (which `scripts/build-wasm.sh` calls).
+  (which the package's `scripts/build-wasm.sh` calls).
 - **[`core/pdf-wasm`](../../core/pdf-wasm)**: the Rust core's wasm-bindgen
   boundary (B26 T-219) — open from bytes (no password, one, or both), page
   count and dimensions, render to RGBA at a DPI, text runs, page characters,
   search, and the placement of text rects on the page as drawn
   (`placeRects` / `pointToPdf`). Built from the root workspace with its
   `wasm-release` profile.
-  `src/worker/engine.ts` is the only file that imports it.
+  The package's `src/worker/engine.ts` is the only file that imports it.
 
-Two pdfium-render workarounds live in `src/worker/pdfium.ts`, and both are
-covered by tests:
+Two pdfium-render workarounds live in the package's `src/worker/pdfium.ts`,
+and both are covered by tests:
 
 - the `Module._PDFium_Init = Module._FPDF_InitLibrary` alias
 - exposing the glue's `wasmExports`, where pdfium-render finds the function
   table when the glue is not loaded as a global script
 
-`pdfium.real.test.ts` runs both against the real pinned pdfium.
+`pdfium.real.test.ts` (in the package) runs both against the real pinned
+pdfium.
 
 ## Build and test
 
 Needs Node ≥ 22.12, `rustup target add wasm32-unknown-unknown`, and
-`cargo install wasm-bindgen-cli --version 0.2.130 --locked`.
+`cargo install wasm-bindgen-cli --version 0.2.130 --locked`. Dependencies
+install at the repository root (one lockfile for the web workspaces); the
+other commands run in `apps/web`.
 
 ```bash
-npm ci
+npm ci                # at the repository root
 ```
 
 ```bash
-npm run build:wasm    # core/pdf-wasm + pinned pdfium into generated/
+npm run build:wasm    # core/pdf-wasm + pinned pdfium into packages/vitela-core/src/generated/
 ```
 
 ```bash
-npm test              # Vitest (includes the real-pdfium test, so build:wasm first)
+npm test              # builds @vitela/core, then the app's Vitest
+npm test -w @vitela/core   # the engine's own Vitest (includes the real-pdfium test)
 ```
 
 ```bash
-npm run build         # type-check + production build into dist/
+npm run build         # builds @vitela/core, type-checks, production build into dist/
 ```
 
 ```bash
@@ -77,7 +84,8 @@ npx playwright install chromium firefox webkit
 npm run e2e           # Playwright on the production build: Chromium, Firefox, WebKit
 ```
 
-`npm run dev` serves the app with hot reload.
+`npm run dev` serves the app with hot reload. Changes inside
+`packages/vitela-core` need `npm run build:core` (or a restart of `dev`).
 
 ## The viewer
 

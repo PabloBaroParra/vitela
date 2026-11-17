@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Fetches bblanchon's Emscripten pdfium (pdfium.js + pdfium.wasm), sha256-
 # pinned, into the directory given as $1. One pin for everything that loads
-# pdfium in a browser: apps/web's build (scripts/build-wasm.sh) and this
-# crate's wasm-bindgen tests (PDFIUM_WASM_DIR, see tests/engine.rs).
+# pdfium in a browser: @vitela/core's build (packages/vitela-core/scripts/
+# build-wasm.sh) and this crate's wasm-bindgen tests (PDFIUM_WASM_DIR, see
+# tests/engine.rs).
 #
 # Re-fetches only when the cached copy is from another tag or hash ($1/PIN
 # records both). Needs: curl, sha256sum, tar.

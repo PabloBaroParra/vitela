@@ -1,0 +1,10 @@
+{
+  "name": "vitela-workspace",
+  "private": true,
+  "description": "npm workspaces for Vitela's web packages: one lockfile for apps/web and packages/*.",
+  "license": "MIT OR Apache-2.0",
+  "workspaces": [
+    "packages/*",
+    "apps/web"
+  ]
+}

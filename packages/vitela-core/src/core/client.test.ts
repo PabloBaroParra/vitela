@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { EngineClient } from './client';
-import { EngineError } from './errors';
-import type { MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol';
+import { EngineClient } from './client.js';
+import { EngineError } from './errors.js';
+import type { MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol.js';
 
 /** A port whose sent messages are recorded and whose replies the test drives. */
 function fakePort() {

@@ -98,11 +98,16 @@ core/
   pdf-ffi        The UniFFI boundary: document/bitmap handles, typed errors,
                  bytes-based open/save as the canonical cross-platform
                  contract. The only crate that depends on uniffi.
-  pdf-wasm       The wasm-bindgen boundary for the web shell (apps/web): the
-                 same open/render/text rules as pdf-ffi, compiled to wasm32.
+  pdf-wasm       The wasm-bindgen boundary for the web engine
+                 (packages/vitela-core): the same open/render/text rules as
+                 pdf-ffi, compiled to wasm32.
 apps/            Platform shells (in progress). The Linux GTK4 shell consumes
                  the core crates directly; macOS/Windows/Android/iOS consume
-                 generated Swift/C#/Kotlin bindings.
+                 generated Swift/C#/Kotlin bindings; the web shell consumes
+                 @vitela/core.
+packages/        npm packages (workspaces at the root package.json).
+  vitela-core    @vitela/core: pdf-wasm + pdfium in a Web Worker behind a
+                 typed, framework-agnostic client. Embeddable in any site.
 assets/          Product assets packaged into the shells — currently the
                  built-in sample document (see assets/README.md).
 ```

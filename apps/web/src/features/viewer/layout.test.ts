@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { CSS_PX_PER_PT, PAGE_GAP, VIEWER_PADDING, anchorAt, layoutPages, pageAt, positionOf, visiblePages } from './layout';
 
 const letter: PageSize = { widthPt: 612, heightPt: 792, rotationDegrees: 0 };

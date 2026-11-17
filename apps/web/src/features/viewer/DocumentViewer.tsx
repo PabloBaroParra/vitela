@@ -4,7 +4,7 @@
 // empty space.
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Engine } from '../../core/types';
+import type { Engine } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';

@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Built by scripts/build-wasm.sh: wasm-bindgen output and the pinned pdfium.
+src/generated/
+# Copied from the repository root by scripts/copy-assets.mjs for npm pack.
+LICENSE-MIT
+LICENSE-APACHE

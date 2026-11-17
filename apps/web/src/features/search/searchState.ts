@@ -2,7 +2,7 @@
 // search itself is the core's (exact, case-sensitive) — nothing here
 // matches text.
 
-import type { PageRects, SearchHit } from '../../core/types';
+import type { PageRects, SearchHit } from '@vitela/core';
 
 export type SearchState =
   | { readonly kind: 'idle' }

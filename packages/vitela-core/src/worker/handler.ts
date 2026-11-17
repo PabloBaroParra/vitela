@@ -1,9 +1,9 @@
 // Dispatches one request from the UI to the engine and shapes the reply.
 // Pure apart from the engine it is given, so it is tested with a fake one.
 
-import { errorKind, errorMessage } from '../core/errors';
-import type { EngineResults, RequestEnvelope, WorkerMessage } from '../core/protocol';
-import type { Engine } from '../core/types';
+import { errorKind, errorMessage } from '../core/errors.js';
+import type { EngineResults, RequestEnvelope, WorkerMessage } from '../core/protocol.js';
+import type { Engine } from '../core/types.js';
 
 export interface Reply {
   readonly message: WorkerMessage;

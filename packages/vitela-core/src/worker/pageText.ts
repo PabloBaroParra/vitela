@@ -8,7 +8,7 @@
 // characters are built once and kept: a few pages' worth, freed on eviction
 // and when their document closes.
 
-import type { DocumentHandle, PagePoint, PageSize, SearchHit, TextSelection } from '../core/types';
+import type { DocumentHandle, PagePoint, PageSize, SearchHit, TextSelection } from '../core/types.js';
 
 /** A wasm-bindgen object the caller must free. */
 export interface Owned {

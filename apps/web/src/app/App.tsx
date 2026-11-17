@@ -1,6 +1,6 @@
 // Application shell: engine lifecycle and top-level layout.
 
-import type { EngineClient } from '../core/client';
+import type { EngineClient } from '@vitela/core';
 import { DocumentWorkspace } from '../features/document/DocumentWorkspace';
 import { StatusLine } from '../ui/StatusLine';
 import { useEngineStatus } from './useEngineStatus';

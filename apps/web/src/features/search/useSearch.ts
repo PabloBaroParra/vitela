@@ -3,8 +3,8 @@
 // moves between matches. Container logic only, no markup.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { TEXT_EXTRACTION_DENIED, errorKind, errorMessage } from '../../core/errors';
-import type { DocumentHandle, Engine } from '../../core/types';
+import { TEXT_EXTRACTION_DENIED, errorKind, errorMessage } from '@vitela/core';
+import type { DocumentHandle, Engine } from '@vitela/core';
 import { IDLE, step, type SearchState } from './searchState';
 
 /**

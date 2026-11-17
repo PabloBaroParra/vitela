@@ -2,7 +2,7 @@
 // worker (worker/). Both sides import only these types, so neither depends on
 // how the other is implemented.
 
-import type { DocumentHandle, OpenedDocument, PagePoint, RenderedPage, SearchHit, TextSelection } from './types';
+import type { DocumentHandle, OpenedDocument, PagePoint, RenderedPage, SearchHit, TextSelection } from './types.js';
 
 export type EngineRequest =
   | { readonly kind: 'open'; readonly bytes: Uint8Array; readonly password?: string }
@@ -44,6 +44,19 @@ export interface RequestEnvelope {
   readonly id: number;
   readonly request: EngineRequest;
 }
+
+/**
+ * UI -> worker, once, before the engine loads: where to fetch the WASM from.
+ * Without `assetBaseUrl` the worker uses the copies bundled next to it.
+ */
+export interface InitMessage {
+  readonly type: 'init';
+  /** An absolute directory URL serving pdf_wasm_bg.wasm, pdfium.js and pdfium.wasm. */
+  readonly assetBaseUrl?: string;
+}
+
+/** Everything the UI sends: the init message, then requests. */
+export type ClientMessage = InitMessage | RequestEnvelope;
 
 /** Worker -> UI. */
 export type WorkerMessage =

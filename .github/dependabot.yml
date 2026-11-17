@@ -75,10 +75,11 @@ updates:
       - dependency-name: "gradle/actions"
         update-types: ["version-update:semver-major"]
 
-  # The web shell's npm dependencies (B26). Versions are pinned exactly in
-  # apps/web/package.json; one grouped weekly PR keeps them moving together.
+  # The web npm workspaces (B26): apps/web and packages/*, one root
+  # lockfile. Versions are pinned exactly in each package.json; one grouped
+  # weekly PR keeps them moving together.
   - package-ecosystem: npm
-    directory: "/apps/web"
+    directory: "/"
     schedule:
       interval: weekly
       day: monday

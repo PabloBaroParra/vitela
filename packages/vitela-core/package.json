@@ -1,0 +1,48 @@
+{
+  "name": "@vitela/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vitela's PDF engine (Rust core + pdfium, as WASM) in a Web Worker, behind a typed, framework-agnostic client.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PabloBaroParra/vitela.git",
+    "directory": "packages/vitela-core"
+  },
+  "keywords": ["pdf", "pdfium", "wasm", "web-worker", "viewer"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE",
+    "NOTICE"
+  ],
+  "sideEffects": [
+    "./dist/worker/worker.js"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build:wasm": "bash scripts/build-wasm.sh",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && tsc -p tsconfig.build-worker.json && node scripts/copy-assets.mjs",
+    "prepack": "npm run build",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "jsdom": "31.0.0",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

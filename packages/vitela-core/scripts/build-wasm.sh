@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# Builds the two WASM modules the web worker loads into apps/web/generated/:
-#   generated/engine/  core/pdf-wasm, via wasm-bindgen --target web (an ES
-#                      module Vite bundles)
-#   generated/pdfium/  bblanchon's Emscripten pdfium, sha256-pinned by
-#                      core/pdf-wasm/scripts/fetch-pdfium.sh
+# Builds the two WASM modules the engine worker loads into
+# packages/vitela-core/src/generated/:
+#   src/generated/engine/  core/pdf-wasm, via wasm-bindgen --target web (an
+#                          ES module the worker imports)
+#   src/generated/pdfium/  bblanchon's Emscripten pdfium, sha256-pinned by
+#                          core/pdf-wasm/scripts/fetch-pdfium.sh
+# `npm run build` copies both into dist/generated/.
 #
 # Needs: rustup target wasm32-unknown-unknown, wasm-bindgen-cli matching
 # core/pdf-wasm/Cargo.toml's wasm-bindgen pin, curl, sha256sum, tar.
@@ -21,9 +23,9 @@ fi
 # The root workspace's `wasm-release` profile: release + LTO + 1 CGU.
 cargo build --locked --profile wasm-release --target wasm32-unknown-unknown \
   --manifest-path "$ROOT/Cargo.toml" -p pdf-wasm
-rm -rf generated/engine
+rm -rf src/generated/engine
 wasm-bindgen --target web \
-  --remove-name-section --remove-producers-section --out-dir generated/engine \
+  --remove-name-section --remove-producers-section --out-dir src/generated/engine \
   "$ROOT/target/wasm32-unknown-unknown/wasm-release/pdf_wasm.wasm"
 
-"$ROOT/core/pdf-wasm/scripts/fetch-pdfium.sh" generated/pdfium
+"$ROOT/core/pdf-wasm/scripts/fetch-pdfium.sh" src/generated/pdfium

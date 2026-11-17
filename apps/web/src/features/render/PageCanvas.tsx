@@ -1,7 +1,7 @@
 // Paints one rendered page. Presentational: it is handed the pixels.
 
 import { useLayoutEffect, useRef, useState } from 'react';
-import type { RenderedPage } from '../../core/types';
+import type { RenderedPage } from '@vitela/core';
 import { paintPage } from './paint';
 
 interface PageCanvasProps {

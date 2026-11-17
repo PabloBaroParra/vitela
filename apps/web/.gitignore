@@ -1,6 +1,4 @@
 node_modules/
 dist/
-# Built by scripts/build-wasm.sh: wasm-bindgen output and the pinned pdfium.
-generated/
 test-results/
 playwright-report/

@@ -1,7 +1,7 @@
 // Container: opening a PDF (picker, drop, password) plus the viewer of the
 // open document.
 
-import type { Engine } from '../../core/types';
+import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
 import { MarkDirtyContext } from '../save/MarkDirtyContext';

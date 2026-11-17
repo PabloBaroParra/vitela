@@ -2,7 +2,7 @@
 // viewer component and the zoom math both build on it, and both are tested
 // without a browser.
 
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 
 /** 100% zoom shows a page at its physical size: 96 CSS px per inch. */
 export const CSS_PX_PER_PT = 96 / 72;

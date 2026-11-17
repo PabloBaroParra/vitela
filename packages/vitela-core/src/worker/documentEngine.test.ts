@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { documentEngine, type CoreEngine } from './documentEngine';
-import type { CoreGeometry, CorePageCharacters } from './pageText';
+import { documentEngine, type CoreEngine } from './documentEngine.js';
+import type { CoreGeometry, CorePageCharacters } from './pageText.js';
 
 /** Placement that only marks its output, so a test sees it was applied. */
 const geometry: CoreGeometry = {

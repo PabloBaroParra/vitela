@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PageText, type CoreGeometry, type CorePageCharacters, type CoreText } from './pageText';
+import { PageText, type CoreGeometry, type CorePageCharacters, type CoreText } from './pageText.js';
 
 const LETTER = { widthPt: 612, heightPt: 792, rotationDegrees: 90 };
 

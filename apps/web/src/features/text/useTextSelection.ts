@@ -8,8 +8,8 @@
 // the latest one, and an answer that is no longer the latest is dropped.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { TEXT_EXTRACTION_DENIED, errorKind } from '../../core/errors';
-import type { DocumentHandle, Engine, PagePoint, PageRects, TextSelection } from '../../core/types';
+import { TEXT_EXTRACTION_DENIED, errorKind } from '@vitela/core';
+import type { DocumentHandle, Engine, PagePoint, PageRects, TextSelection } from '@vitela/core';
 
 export interface PageSelection {
   readonly pageIndex: number;

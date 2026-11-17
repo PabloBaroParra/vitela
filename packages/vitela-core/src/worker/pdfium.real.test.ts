@@ -9,12 +9,12 @@ import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { documentEngine } from './documentEngine';
-import { instantiatePdfium, type PdfiumModule } from './pdfium';
-import * as core from '../../generated/engine/pdf_wasm.js';
+import { documentEngine } from './documentEngine.js';
+import { instantiatePdfium, type PdfiumModule } from './pdfium.js';
+import * as core from '../generated/engine/pdf_wasm.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const generated = resolve(here, '../../generated');
+const generated = resolve(here, '../generated');
 const fixture = resolve(here, '../../../../tests/fixtures/forms/reportlab_acroform.pdf');
 
 describe('real pdfium chromium/7763 + core/pdf-wasm', () => {

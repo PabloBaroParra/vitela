@@ -1,7 +1,7 @@
 // Tracks whether the engine worker has finished loading.
 
 import { useEffect, useState } from 'react';
-import type { EngineClient } from '../core/client';
+import type { EngineClient } from '@vitela/core';
 
 export type EngineStatus =
   | { readonly kind: 'loading' }

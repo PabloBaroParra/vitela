@@ -1,7 +1,7 @@
 // Zoom levels and the scroll position that keeps a point still while
 // zooming. Pure, so the anchoring math is unit-tested without a browser.
 
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { CSS_PX_PER_PT, VIEWER_PADDING, anchorAt, layoutPages, positionOf, type Point } from './layout';
 
 export const MIN_ZOOM = 0.25;
