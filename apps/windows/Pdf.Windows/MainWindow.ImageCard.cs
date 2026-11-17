@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
@@ -8,33 +9,25 @@ namespace Pdf.Windows;
 /// image allows, the sentence that says why, and the two commands themselves.
 /// </summary>
 /// <remarks>
-/// Mirrors the GTK shell's <c>content_edit::ImageControls</c>. The state is
-/// recomputed on every update rather than cached, because the one temporary
-/// state (a pending edit) clears on save and reopen, and a remembered answer
-/// would outlive it.
+/// Mirrors the GTK shell's <c>content_edit::ImageControls</c>; the rule is
+/// <see cref="ImageCardRules.Resolve"/>. The state is recomputed on every
+/// update rather than cached, because the one temporary state (a pending
+/// edit) clears on save and reopen, and a remembered answer would outlive it.
 /// </remarks>
 public sealed partial class MainWindow
 {
-    private enum ImageControls
-    {
-        /// <summary>No image selected, or nothing may be edited.</summary>
-        Nothing,
-        /// <summary>Selected, and both commands are available, whatever the image is encoded as.</summary>
-        Ready,
-        /// <summary>Selected, and it already carries an unsaved edit.</summary>
-        PendingEdit,
-    }
-
     private const string NoImageSelectedHint = "Click an image on the page to select it.";
     private const string ImageSelectedHint = "Image selected — replace or delete it.";
-    private const string ImagePendingEditHint = "This image has an unsaved edit — move, resize or delete it. Save before replacing it.";
+    private const string ImagePendingEditHint = "This image has an unsaved edit — save the document before replacing it.";
 
     private ImageControls CurrentImageControls()
     {
-        if (_session is null || !ContentEditButton.IsEnabled || !_contentEditMode || _selectedContentImage is not { } image)
-            return ImageControls.Nothing;
-        var key = (image.PageIndex, image.Id);
-        return _pendingImageEdits.Contains(key) ? ImageControls.PendingEdit : ImageControls.Ready;
+        var active = _session is not null && ContentEditButton.IsEnabled && _contentEditMode;
+        var image = active ? _selectedContentImage : null;
+        return ImageCardRules.Resolve(
+            selected: image is not null,
+            pendingEdit: image is not null && _pendingImageEdits.Contains((image.PageIndex, image.Id)),
+            canCheckpoint: _annotationState?.ContentEditsCanCheckpoint == true);
     }
 
     private void UpdateImageCard()
@@ -42,8 +35,8 @@ public sealed partial class MainWindow
         var controls = CurrentImageControls();
         var idle = !_isBusy && !_editingImage;
         // A pending move or resize folds a deletion into itself in the core,
-        // so only Replace — which the core refuses while an edit is queued —
-        // waits for a save.
+        // so only Replace waits for a save — and only where the core may not
+        // write the pending edit into a new base first.
         DeleteImageButton.IsEnabled = idle && controls is ImageControls.Ready or ImageControls.PendingEdit;
         ReplaceImageButton.IsEnabled = idle && controls == ImageControls.Ready;
         _editImageHint.Text = controls switch
@@ -64,7 +57,9 @@ public sealed partial class MainWindow
     /// anything is edited on another, and the facade refuses it. Re-reading the
     /// page's images and matching the same id at the same bounds gives a
     /// current handle; anything else means the page moved underneath the
-    /// selection, and the honest answer is to ask for it again.
+    /// selection, and the honest answer is to ask for it again. A checkpoint
+    /// renumbers the page it rewrites, so the one image at the same bounds is
+    /// accepted too (<see cref="ImageCardRules.Current"/>).
     /// </remarks>
     private async Task<ContentImage?> CurrentContentImageAsync(string sessionId, ContentImage selected)
     {
@@ -75,7 +70,7 @@ public sealed partial class MainWindow
             AnnotationStatus.Text = images.Error!.Message;
             return null;
         }
-        var current = images.Value!.FirstOrDefault(image => image.Id == selected.Id && image.Bounds == selected.Bounds);
+        var current = ImageCardRules.Current(images.Value!, selected);
         if (current is null) AnnotationStatus.Text = "The page changed — select the image again.";
         return current;
     }

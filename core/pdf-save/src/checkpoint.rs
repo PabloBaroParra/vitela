@@ -269,6 +269,75 @@ pub fn retry_after_checkpoint<S: CheckpointSession, E>(
     }
 }
 
+/// Records `command` through `apply` after a checkpoint taken first, without
+/// trying it against the current base at all — for an edit the current base
+/// would accept but no save could replay ([`edits_a_replaced_inline_image`]).
+///
+/// Where no checkpoint may be taken, `refusal` comes back and nothing
+/// changes. Where one was taken and `apply` still failed against the new
+/// base, that failure is what comes back — an undecodable picture, say — not
+/// `refusal`.
+pub fn record_after_checkpoint<S: CheckpointSession, E>(
+    session: &mut S,
+    command: Command,
+    refusal: E,
+    mut apply: impl FnMut(&mut S, Command) -> Result<(), E>,
+) -> Result<(), E> {
+    let command = session.checkpoints().dealias(command);
+    // `retry_after_checkpoint` hands back `refusal` whatever went wrong;
+    // `apply` only runs once the checkpoint is taken, so its own error is the
+    // one worth reporting.
+    let mut failure = None;
+    retry_after_checkpoint(session, command, (), |session, command| {
+        apply(session, command).map_err(|error| failure = Some(error))
+    })
+    .map_err(|()| failure.take().unwrap_or(refusal))
+}
+
+/// Whether `command` moves, resizes, removes or replaces an inline
+/// (`BI … EI`) image that a queued replacement already names.
+///
+/// The base still holds such an image as it was, so it accepts the edit —
+/// but the queued replacement writes it as an XObject
+/// (`pdf_edit::replace_inline_image_source`), and a save replaying a later
+/// command that names the inline image finds nothing there, failing the
+/// whole save. Written into a new base first, the image is the XObject and
+/// the edit finds it: record such an edit with [`record_after_checkpoint`].
+///
+/// Keyed on the queued replacement rather than on any queued edit: a move or
+/// resize keeps the image inline, and an edit after one folds into it.
+/// Decided on the target as [`record`] would try it — dealiased: the queued
+/// replacement names the image the last checkpoint rebound, and a caller may
+/// still hold the one from before it.
+pub fn edits_a_replaced_inline_image<S: CheckpointSession>(session: &S, command: &Command) -> bool {
+    let target = match command {
+        Command::MoveImage { item, .. }
+        | Command::ResizeImage { item, .. }
+        | Command::RemoveImage { item, .. }
+        | Command::ReplaceImageSource { item, .. } => item,
+        _ => return false,
+    };
+    let target = match session.checkpoints().dealias(Command::RemoveImage {
+        item: target.clone(),
+        source: None,
+    }) {
+        Command::RemoveImage { item, .. } => item,
+        _ => unreachable!("dealiasing keeps the command's kind"),
+    };
+    session
+        .document()
+        .pending_edits
+        .entries()
+        .iter()
+        .any(|queued| {
+            matches!(queued,
+                Command::ReplaceImageSource { item, .. }
+                    if item.source == pdf_document::ImageSource::Inline
+                        && item.id == target.id
+                        && item.page == target.page)
+        })
+}
+
 /// Copies `selection` into a clip, as [`copy_selection_content`] does —
 /// except that a member with an unsaved edit is copied as it reads now, when
 /// the session may checkpoint, rather than refused.

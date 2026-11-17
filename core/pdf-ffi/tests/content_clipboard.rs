@@ -302,6 +302,62 @@ fn a_retyped_paste_is_cut_again_without_a_save() {
     assert_eq!(texts(&pasted(&saved, 1)), ["Cliente"]);
 }
 
+/// A single pasted run retyped the way the Windows editor writes it: one
+/// `ReplaceTextRunContent` per keystroke, each naming the run the editor
+/// opened over. The first write takes a checkpoint (the paste is not in the
+/// file); every later one names the same held run and lands on what the
+/// checkpoint rebound it to. GTK #587 on the shells behind the FFI.
+#[test]
+fn a_pasted_run_is_retyped_without_a_save_keystroke_by_keystroke() {
+    let handle = open_from_bytes(two_pages(), None).expect("open");
+    let clip = copy_content_selection(&handle, everything(&handle, 0)).expect("copied");
+    paste_content(&handle, 1, clip, 40.0, 500.0).expect("pasted");
+    let held = runs_reading(&handle, 1, "Domingo").runs.remove(0);
+
+    for after in ["M", "Mi", "Mimi"] {
+        apply_edit(
+            &handle,
+            FfiEditCommand::ReplaceTextRunContent {
+                item: held.clone(),
+                after: after.to_string(),
+            },
+        )
+        .unwrap_or_else(|error| panic!("retyping the pasted run to {after:?}: {error:?}"));
+    }
+    assert_eq!(texts(&pasted(&handle, 1)), ["Cliente", "Mimi"]);
+
+    let saved = reopened(&handle);
+    assert_eq!(texts(&pasted(&saved, 1)), ["Cliente", "Mimi"]);
+    assert_eq!(
+        texts(&everything(&saved, 0)),
+        ["Cliente", "Domingo"],
+        "the copied original is untouched"
+    );
+}
+
+/// Where the session may not checkpoint — it holds an imported PDF — the
+/// pasted run is not in the file to retype, and the retype is refused with
+/// nothing recorded: a save comes first.
+#[test]
+fn a_pasted_run_waits_for_a_save_where_no_checkpoint_may_be_taken() {
+    let handle = open_from_bytes(two_pages(), None).expect("open");
+    pdf_ffi::import_pdf(&handle, two_pages(), None, 2).expect("imported");
+    assert!(!handle.content_edits_can_checkpoint());
+    let clip = copy_content_selection(&handle, everything(&handle, 0)).expect("copied");
+    paste_content(&handle, 1, clip, 40.0, 500.0).expect("pasted");
+    let held = runs_reading(&handle, 1, "Domingo").runs.remove(0);
+
+    assert!(apply_edit(
+        &handle,
+        FfiEditCommand::ReplaceTextRunContent {
+            item: held,
+            after: "Mimi".to_string(),
+        },
+    )
+    .is_err());
+    assert_eq!(texts(&pasted(&handle, 1)), ["Cliente", "Domingo"]);
+}
+
 #[test]
 fn content_with_an_unsaved_edit_is_not_copied() {
     let handle = open_from_bytes(two_pages(), None).expect("open");

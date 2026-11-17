@@ -1260,9 +1260,15 @@ impl DocumentHandle {
 
     /// Whether `item` could be replaced now, asked before a shell opens its
     /// file picker. Refuses a document that forbids content changes, an
-    /// image that already has an unsaved edit, and an item the page no
-    /// longer paints. Every encoding is replaceable: undo restores the
-    /// original exactly, so nothing about the old picture is read.
+    /// image that already has an unsaved edit in a session that may not
+    /// checkpoint, and an item the page no longer paints. Every encoding is
+    /// replaceable: undo restores the original exactly, so nothing about the
+    /// old picture is read.
+    ///
+    /// An image with an unsaved edit, or one a pending edit added, in a
+    /// session that may checkpoint is accepted without reading the file: the
+    /// file does not hold it as the reader sees it, and `apply_edit` writes
+    /// the queue into a new base and validates the replacement against that.
     pub fn check_image_replacement(&self, item: FfiContentImageItem) -> Result<(), FfiError> {
         let state = self.lock();
         if !content_editing_is_allowed(&state.document) {
@@ -1271,6 +1277,11 @@ impl DocumentHandle {
             });
         }
         let item = state.image_item(item)?;
+        // An image only a pending edit added — a paste — is not in the file
+        // to be checked against; a checkpoint writes it there first.
+        if pdf_edit::pending_log_index(item.id).is_some() && state.may_checkpoint() {
+            return Ok(());
+        }
         if state
             .document
             .pending_edits
@@ -1292,6 +1303,9 @@ impl DocumentHandle {
                 target.page == item.page && target.id == item.id
             })
         {
+            if state.may_checkpoint() {
+                return Ok(());
+            }
             return Err(FfiError::UnsupportedOperation {
                 detail: "save before replacing an image with a pending edit".to_string(),
             });

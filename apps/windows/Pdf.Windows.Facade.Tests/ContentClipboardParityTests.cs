@@ -18,6 +18,7 @@ internal static class ContentClipboardParityTests
         await APasteCarriesTheClipAndTheCornerAsync();
         await ARefusedCopyKeepsTheCoreSentenceAsync();
         await NonFiniteCornersNeverReachTheCoreAsync();
+        await ALonePastedImageIsSelectedAsAnImageAsync();
     }
 
     private static async Task<(FakeCore Core, PdfDocumentFacade Facade, string Session, ContentSelection Selection)> OpenAsync()
@@ -75,6 +76,28 @@ internal static class ContentClipboardParityTests
         var clip = (await facade.CopyContentSelectionAsync(session, selection)).Value!;
         var refused = await facade.PasteContentAsync(session, 0, clip, double.NaN, 10);
         Assert(!refused.IsSuccess && core.Pastes.Count == 0, "a NaN corner is refused before the core");
+    }
+
+    /// <summary>
+    /// A paste of one image is selected the way a click selects it, so the
+    /// Images card offers Replace; anything more stays a multi-selection.
+    /// Mirrors the GTK shell's <c>select_pasted</c> (#598).
+    /// </summary>
+    private static async Task ALonePastedImageIsSelectedAsAnImageAsync()
+    {
+        var pendingLogo = Logo with { Id = (1UL << 40) + 1 };
+        var core = new FakeCore { PageTextRuns = [Cliente], PageImages = [Logo, pendingLogo], PagePaths = [Frame] };
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger());
+        var session = (await facade.OpenAsync(new DocumentSource("quote.pdf", [1]))).Value!;
+        var content = (await facade.PageContentAsync(session.SessionId, 0)).Value!;
+        var everything = ContentSelection.Gather(content, new AnnotationRect(0, 0, 612, 792), block => block.Bounds);
+
+        var pasted = everything.OnlyPending();
+        Assert(pasted.LoneImage is { } lone && lone.Id == pendingLogo.Id, "one pasted image alone is an image selection");
+        Assert(everything.LoneImage is null, "an image among text and paths is not");
+        Assert(ContentSelection.Empty(0).LoneImage is null, "nothing is not");
+        Assert(ContentSelection.IsPendingId(pendingLogo.Id) && !ContentSelection.IsPendingId(Logo.Id),
+            "pending ids are told apart from the file's own");
     }
 
     private static void Assert(bool condition, string message)

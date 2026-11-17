@@ -40,6 +40,13 @@ public sealed class ContentSelection
     public int Count => Blocks.Count + Images.Count + Paths.Count;
     public bool IsEmpty => Count == 0;
 
+    /// <summary>
+    /// The one member when it is an image and nothing else is selected — a
+    /// selection the shell holds as a single image instead, so the Images
+    /// card offers what a click on it would.
+    /// </summary>
+    public ContentImage? LoneImage => Images.Count == 1 && Blocks.Count == 0 && Paths.Count == 0 ? Images[0] : null;
+
     /// <summary>An empty selection on <paramref name="pageIndex"/>, to toggle members into.</summary>
     public static ContentSelection Empty(uint pageIndex) => new(pageIndex, [], [], []);
 
@@ -102,11 +109,16 @@ public sealed class ContentSelection
     /// </summary>
     public ContentSelection OnlyPending() =>
         new(PageIndex,
-            [.. Blocks.Where(block => block.Runs.All(run => IsPending(run.Id)))],
-            [.. Images.Where(image => IsPending(image.Id))],
-            [.. Paths.Where(path => IsPending(path.Id))]);
+            [.. Blocks.Where(block => block.Runs.All(run => IsPendingId(run.Id)))],
+            [.. Images.Where(image => IsPendingId(image.Id))],
+            [.. Paths.Where(path => IsPendingId(path.Id))]);
 
-    private static bool IsPending(ulong id) => id >= PendingIdBase;
+    /// <summary>
+    /// Whether <paramref name="id"/> names an item only a pending edit adds.
+    /// Such an id is its edit's place in the queue, so an undo or redo can
+    /// leave it naming nothing — or something else.
+    /// </summary>
+    public static bool IsPendingId(ulong id) => id >= PendingIdBase;
 
     /// <summary>pdf_edit::PENDING_ITEM_ID_BASE.</summary>
     private const ulong PendingIdBase = 1UL << 40;

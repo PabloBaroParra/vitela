@@ -187,6 +187,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
                     {
                         PageEdit.Block block => ResolveBlockEdit(session, block),
                         PageEdit.OrganizePage page => ResolveOrganizePageEdit(session, page),
+                        PageEdit.RotateAll all => ResolveRotateAll(session, all),
                         PageEdit.InsertBlank insert => new PdfCoreEdit.InsertBlankPage(insert.Index, insert.Orientation),
                         PageEdit.Rotate rotate => new PdfCoreEdit.RotatePage(rotate.PageIndex, rotate.DeltaDegrees),
                         PageEdit.Remove remove => new PdfCoreEdit.RemovePage(remove.PageIndex),
@@ -1771,6 +1772,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
         {
             Comments = core.Comments(Document),
             ContentBaseGeneration = core.ContentBaseGeneration(Document),
+            ContentEditsCanCheckpoint = core.ContentEditsCanCheckpoint(Document),
         };
 
         /// <summary>Closes every released snapshot once no print render can still be reading one.</summary>

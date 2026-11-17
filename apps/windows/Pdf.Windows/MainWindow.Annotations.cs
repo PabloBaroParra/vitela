@@ -465,6 +465,14 @@ public sealed partial class MainWindow
         var state = result.Value!;
         _annotationState = state;
         if (_selectedAnnotationId is { } id && !state.Annotations.Any(annotation => annotation.Id == id)) _selectedAnnotationId = null;
+        // An image only a pending edit added — a paste — is named by that
+        // edit's place in the queue: the step may have taken it away, or left
+        // the id naming something else.
+        if (_selectedContentImage is { } image && ContentSelection.IsPendingId(image.Id))
+        {
+            ClearContentImageSelection();
+            RedrawContentImageSelection();
+        }
         AnnotationStatus.Text = undo ? "Edit undone. Changes are pending save." : "Edit redone. Changes are pending save.";
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();

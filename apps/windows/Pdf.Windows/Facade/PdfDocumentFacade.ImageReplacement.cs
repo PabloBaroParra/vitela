@@ -26,8 +26,10 @@ public sealed partial class PdfDocumentFacade
                     return OperationResult<AnnotationState>.Failure(CreateError("This document does not permit content changes.", PdfCoreError.UnsupportedOperation, operation, sessionId, image.PageIndex));
             }
             // Checked against the original page backing, not the rendered preview. The
-            // core refuses an image already carrying a pending edit; every encoding is
-            // replaceable, because undo restores the original exactly.
+            // core refuses an image already carrying a pending edit only where it may
+            // not checkpoint; elsewhere it writes the queue into a new base and
+            // validates there. Every encoding is replaceable, because undo restores
+            // the original exactly.
             await Task.Run(() => _core.CheckImageReplacement(session.Document, image.Source)).ConfigureAwait(false);
             lock (_gate)
             {

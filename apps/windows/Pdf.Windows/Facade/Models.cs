@@ -73,6 +73,11 @@ public abstract record PageEdit
     public sealed record InsertBlank(uint Index, PageOrientation Orientation = PageOrientation.Portrait) : PageEdit;
     /// <summary>Turns a page clockwise by <paramref name="DeltaDegrees"/>; negative turns it back.</summary>
     public sealed record Rotate(uint PageIndex, int DeltaDegrees) : PageEdit;
+    /// <summary>
+    /// Turns every page clockwise by <paramref name="DeltaDegrees"/> — a
+    /// quarter turn either way — as one undo step.
+    /// </summary>
+    public sealed record RotateAll(int DeltaDegrees) : PageEdit;
     public sealed record Remove(uint PageIndex) : PageEdit;
     /// <summary>Moves one page so that it ends up at position <paramref name="To"/>.</summary>
     public sealed record Move(uint From, uint To) : PageEdit;
@@ -312,6 +317,13 @@ public sealed record AnnotationState(string SessionId, IReadOnlyList<Annotation>
     /// means every content item the shell holds is stale.
     /// </summary>
     public ulong ContentBaseGeneration { get; init; }
+
+    /// <summary>
+    /// Whether the core would write the pending page-content edits into a new
+    /// in-memory base to record an edit of an item that already has one,
+    /// rather than ask for a save first.
+    /// </summary>
+    public bool ContentEditsCanCheckpoint { get; init; }
 }
 public sealed record DocumentInfo(string? Title, string? Author, string? Subject, string? Keywords, string? Creator, string? Producer,
     MetadataDate? CreationDate = null, MetadataDate? ModDate = null);
