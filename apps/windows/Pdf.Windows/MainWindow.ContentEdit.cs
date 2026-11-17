@@ -82,6 +82,32 @@ public sealed partial class MainWindow
     /// this off (see <c>MainWindow.Annotations.cs</c>), and turning this on
     /// disarms whatever was armed.
     /// </summary>
+    /// <summary>
+    /// Undoes a mode change a refused inline edit stopped: content editing
+    /// stays on, and a tool armed while the commit ran is let go again.
+    /// </summary>
+    private void KeepContentEditModeForOpenEditor()
+    {
+        _contentEditMode = true;
+        ContentEditButton.IsChecked = true;
+        _armedAnnotation = null;
+        _armedStampImage = null;
+        SyncAnnotationToolButtons();
+        AnnotationStatus.Text = I18n.T("open-resolve-inline-edit");
+    }
+
+    /// <summary>
+    /// Whether a refused inline edit holds content-edit mode: its commit would
+    /// be refused again at once, so nothing else may take the page click.
+    /// </summary>
+    private bool RefusedEditorHoldsMode()
+    {
+        if (_pump.Box is null || !_pump.Refused) return false;
+        SyncAnnotationToolButtons();
+        AnnotationStatus.Text = I18n.T("open-resolve-inline-edit");
+        return true;
+    }
+
     private async void SetContentEditMode(bool active)
     {
         if (_contentEditMode == active)
@@ -103,6 +129,11 @@ public sealed partial class MainWindow
             // dropping it — the same thing clicking another run does.
             await CommitContentEditorAsync();
             if (generation != _contentModeGeneration) return;
+            if (InlineEditStillOpen())
+            {
+                KeepContentEditModeForOpenEditor();
+                return;
+            }
             ClearContentImageSelection();
             ClearContentPathSelection();
             _selectedTextBlock = null;

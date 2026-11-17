@@ -59,6 +59,8 @@ public sealed partial class MainWindow
 
     private void ContentEditor_TextChanged(object sender, TextChangedEventArgs args)
     {
+        // Any change unlatches a refusal, a paste or cut by mouse included.
+        _pump.Retry();
         // Re-laid out on every keystroke, not only on the write: the paper has
         // to keep covering what the text now spans, or a replacement longer
         // than the run it replaces would be typed over the words underneath.
@@ -117,7 +119,19 @@ public sealed partial class MainWindow
     private async Task<bool> SettleContentEditorForHistoryAsync()
     {
         await CommitInsertEditorAsync();
-        return await _pump.SettleForHistoryAsync();
+        return await _pump.SettleForHistoryAsync() || !InlineEditStillOpen();
+    }
+
+    /// <summary>
+    /// Whether an inline edit the core refused is still open after a commit;
+    /// if so the status line says so, and the caller does nothing more —
+    /// closing that box would drop what it holds.
+    /// </summary>
+    private bool InlineEditStillOpen()
+    {
+        if (_pump.Box is null) return false;
+        AnnotationStatus.Text = I18n.T("open-resolve-inline-edit");
+        return true;
     }
 
     /// <summary>

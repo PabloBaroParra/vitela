@@ -108,7 +108,7 @@ public sealed partial class MainWindow
     private void ArmDrawnSignature(string sessionId, byte[] png)
     {
         if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
-        if (_annotationState?.EditingAllowed != true || _isBusy || _organizing) return;
+        if (_annotationState?.EditingAllowed != true || _isBusy || _organizing || RefusedEditorHoldsMode()) return;
         StopPlacingFormField();
         SetContentEditMode(false);
         _armedAnnotation = AnnotationKind.Stamp;
