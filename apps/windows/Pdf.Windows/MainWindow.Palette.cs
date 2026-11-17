@@ -75,7 +75,7 @@ public sealed partial class MainWindow
     /// before the layer collapses: collapsing the focused search box would
     /// leave WinUI to pick the next focus itself, and bringing that into view
     /// can scroll the page — the jump the GTK content editor once had. When
-    /// the remembered element is gone, the page (or the current rail button)
+    /// the remembered element is gone, the page (or the checked mode-bar tab)
     /// takes it instead. The page scroller's offsets are pinned across the
     /// move for the same reason, checked once the layout has run: a
     /// bring-into-view lands in the layout pass, not in <c>Focus</c>.
@@ -107,11 +107,11 @@ public sealed partial class MainWindow
     /// <summary>The plain close — Esc, Ctrl+K, a click outside: nothing runs after it.</summary>
     private void ClosePalette() => _ = ClosePaletteAsync();
 
-    /// <summary>The page when it is on screen, otherwise the rail button of the screen that is.</summary>
+    /// <summary>The page when it is on screen, otherwise the mode-bar tab of the screen that is.</summary>
     private void FocusAfterPaletteFallback()
     {
         if (IsFocusableAfterPalette(PageScroller) && PageScroller.Focus(FocusState.Programmatic)) return;
-        AppRail.Children.OfType<ToggleButton>().FirstOrDefault(button => button.IsChecked == true)?.Focus(FocusState.Programmatic);
+        FocusCheckedModeButton();
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ function Find-Element([string]$Id) {
 
 $search = Find-Element 'HomeSearchBox'
 if ($null -eq $search -or $search.Current.IsOffscreen) { throw 'The initial Home screen is not visible.' }
-$homeButton = Find-Element 'HomeRailButton'
+$homeButton = Find-Element 'Mode_Home'
 if ($null -eq $homeButton -or -not $homeButton.Current.IsEnabled) { throw 'Home navigation is not enabled.' }
 $value = $search.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
 $originalQuery = $value.Current.Value

@@ -5,7 +5,7 @@ using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
 
-/// <summary>Home presentation and filtering; tool dispatch remains shared with the rail.</summary>
+/// <summary>Home presentation and filtering; tool dispatch remains shared with the mode bar.</summary>
 public sealed partial class MainWindow
 {
     private readonly List<Button> _homeToolTiles = [];
