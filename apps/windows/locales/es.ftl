@@ -344,3 +344,10 @@ geometry-height = Alto (pt)
 geometry-move = Mover
 geometry-resize = Cambiar tamaño
 geometry-cancel = Cancelar
+
+## Comments: Windows only (the Comments tools page lists the document's comments)
+
+comments-empty = Este documento no tiene comentarios.
+comments-page = Página { $page }
+comments-read-title = Comentario — página { $page }
+comments-close = Cerrar

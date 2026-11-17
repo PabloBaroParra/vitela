@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -30,10 +31,10 @@ public sealed partial class MainWindow
             _shownComments = comments;
             _commentsList.Children.Clear();
             if (comments.Count == 0)
-                _commentsList.Children.Add(new TextBlock { Text = "No comments in this document.", TextWrapping = TextWrapping.Wrap });
+                _commentsList.Children.Add(new TextBlock { Text = I18n.T("comments-empty"), TextWrapping = TextWrapping.Wrap });
             foreach (var page in comments.GroupBy(comment => comment.PageIndex).OrderBy(group => group.Key))
             {
-                _commentsList.Children.Add(new TextBlock { Text = $"Page {page.Key + 1}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+                _commentsList.Children.Add(new TextBlock { Text = I18n.T("comments-page", ("page", page.Key + 1)), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
                 foreach (var comment in page)
                 {
                     var content = new StackPanel { Spacing = 4 };
@@ -68,10 +69,10 @@ public sealed partial class MainWindow
         await ShowModalAsync(new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = $"Comment — page {comment.PageIndex + 1}",
+            Title = I18n.T("comments-read-title", ("page", comment.PageIndex + 1)),
             Content = new TextBox { Header = string.Join(" · ", new[] { comment.Author, comment.Date }.Where(value => !string.IsNullOrEmpty(value))),
                 IsReadOnly = true, AcceptsReturn = true, Text = comment.Contents, TextWrapping = TextWrapping.Wrap, MinWidth = 300, MinHeight = 120, MaxHeight = 300 },
-            CloseButtonText = "Close",
+            CloseButtonText = I18n.T("comments-close"),
             DefaultButton = ContentDialogButton.Close,
         });
     }

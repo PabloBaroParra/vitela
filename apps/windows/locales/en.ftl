@@ -371,3 +371,12 @@ geometry-height = Height (pt)
 geometry-move = Move
 geometry-resize = Resize
 geometry-cancel = Cancel
+
+## Comments: Windows only (the Comments tools page lists the document's comments)
+
+comments-empty = No comments in this document.
+# $page (Number) - one-based page number; heads that page's comments.
+comments-page = Page { $page }
+# $page (Number) - one-based page number.
+comments-read-title = Comment — page { $page }
+comments-close = Close
