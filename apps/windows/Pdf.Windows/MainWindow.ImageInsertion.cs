@@ -1,4 +1,5 @@
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -47,7 +48,7 @@ public sealed partial class MainWindow
             }
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = "Image inserted. Save to keep the change.";
+            AnnotationStatus.Text = I18n.T("edit-image-inserted-save");
         }
         finally
         {
@@ -76,7 +77,7 @@ public sealed partial class MainWindow
         }
         catch (Exception)
         {
-            if (_session?.SessionId == sessionId) AnnotationStatus.Text = "The selected image could not be read.";
+            if (_session?.SessionId == sessionId) AnnotationStatus.Text = I18n.T("edit-image-unreadable");
             return null;
         }
     }

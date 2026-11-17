@@ -1,4 +1,5 @@
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Security.Cryptography;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -34,7 +35,7 @@ public sealed partial class MainWindow
                 if (_session?.SessionId != session.SessionId) return;
                 if (file is null)
                 {
-                    AnnotationStatus.Text = "Stamp placement canceled.";
+                    AnnotationStatus.Text = I18n.T("annotate-stamp-canceled");
                     return;
                 }
                 var buffer = await FileIO.ReadBufferAsync(file);
@@ -42,7 +43,7 @@ public sealed partial class MainWindow
             }
             catch (Exception)
             {
-                ReportDropFailure(session.SessionId, "The selected stamp image could not be read.");
+                ReportDropFailure(session.SessionId, I18n.T("annotate-stamp-unreadable"));
                 return;
             }
 

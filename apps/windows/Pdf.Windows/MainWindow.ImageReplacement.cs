@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Viewer;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -67,7 +68,7 @@ public sealed partial class MainWindow
             _pendingImageEdits.Add(key);
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = "Image replaced. Save to keep the change.";
+            AnnotationStatus.Text = I18n.T("edit-image-replaced-save");
             // A replacement that took a checkpoint renumbered the page: the
             // selection follows the image to where the new base holds it, so
             // the next Replace, drag or Delete names an image the core has.

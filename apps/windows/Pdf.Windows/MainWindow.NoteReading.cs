@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -17,7 +18,7 @@ public sealed partial class MainWindow
 
         var text = new TextBox
         {
-            Header = "Note text",
+            Header = I18n.T("annotate-note-text"),
             IsReadOnly = true,
             AcceptsReturn = true,
             Text = note.Contents ?? string.Empty,
@@ -29,9 +30,9 @@ public sealed partial class MainWindow
         var dialog = new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = $"Note — page {note.PageIndex + 1}",
+            Title = I18n.T("annotate-note-read-title", ("page", note.PageIndex + 1)),
             Content = text,
-            CloseButtonText = "Close",
+            CloseButtonText = I18n.T("annotate-dialog-close"),
             DefaultButton = ContentDialogButton.Close,
         };
         dialog.Opened += (_, _) => text.Focus(FocusState.Programmatic);

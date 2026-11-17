@@ -183,51 +183,51 @@
         </Border>
 
         <viewer:ToolbarPanel x:Name="EditingToolbar" Grid.Row="1">
-            <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</ToggleButton>
-            <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</ToggleButton>
-            <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</ToggleButton>
-            <ToggleButton x:Name="ShapeButton" Click="ShapeButton_Click">Shape</ToggleButton>
-            <ToggleButton x:Name="InkButton" Click="InkButton_Click">Ink</ToggleButton>
-            <ToggleButton x:Name="NoteButton" Click="NoteButton_Click">Note</ToggleButton>
-            <ToggleButton x:Name="FreeTextButton" Click="FreeTextButton_Click" ToolTipService.ToolTip="Click or drag on a page to add a text box">Text box</ToggleButton>
-            <ToggleButton x:Name="StampButton" Click="StampButton_Click">Stamp</ToggleButton>
-            <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
-            <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="Select the previous annotation, including ones underneath others" IsEnabled="False">Previous annotation</Button>
-            <Button x:Name="NextAnnotationButton" Click="NextAnnotationButton_Click" ToolTipService.ToolTip="Select the next annotation, including ones underneath others" IsEnabled="False">Next annotation</Button>
-            <Button x:Name="EditFreeTextButton" Click="EditFreeTextButton_Click" ToolTipService.ToolTip="Retype the selected text box" IsEnabled="False">Edit text box</Button>
-            <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="Read the selected note without changing the document" IsEnabled="False">Read note</Button>
+            <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click" Content="{i18n:T Key=annotate-tool-highlight}" />
+            <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click" Content="{i18n:T Key=annotate-tool-underline}" />
+            <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click" Content="{i18n:T Key=annotate-tool-strikeout}" />
+            <ToggleButton x:Name="ShapeButton" Click="ShapeButton_Click" Content="{i18n:T Key=annotate-tool-shape}" />
+            <ToggleButton x:Name="InkButton" Click="InkButton_Click" Content="{i18n:T Key=annotate-tool-ink}" />
+            <ToggleButton x:Name="NoteButton" Click="NoteButton_Click" Content="{i18n:T Key=annotate-tool-note}" />
+            <ToggleButton x:Name="FreeTextButton" Click="FreeTextButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-text-box-tooltip}" Content="{i18n:T Key=annotate-tool-text-box}" />
+            <ToggleButton x:Name="StampButton" Click="StampButton_Click" Content="{i18n:T Key=annotate-tool-stamp}" />
+            <Button x:Name="PointerButton" Click="PointerButton_Click" Content="{i18n:T Key=annotate-pointer}" />
+            <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-previous-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-previous}" />
+            <Button x:Name="NextAnnotationButton" Click="NextAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-next-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-next}" />
+            <Button x:Name="EditFreeTextButton" Click="EditFreeTextButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-edit-text-box-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-edit-text-box}" />
+            <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-read-note-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-read-note}" />
             <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>
-            <Button x:Name="ResizeImageButton" Content="Resize image" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Resize a content image on the visible page" />
-            <Button x:Name="MoveImageButton" Content="Move image" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a content image on the visible page" />
+            <Button x:Name="ResizeImageButton" Content="{i18n:T Key=edit-resize-image}" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-resize-image-tooltip}" />
+            <Button x:Name="MoveImageButton" Content="{i18n:T Key=edit-move-image}" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-move-image-tooltip}" />
             <Button x:Name="DeleteImageButton" Content="Delete image" Click="DeleteImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Remove the selected image from the page" />
             <Button x:Name="ReplaceImageButton" Content="Replace image" Click="ReplaceImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Swap the selected image for a file on disk" />
             <ToggleButton x:Name="InsertImageButton" Content="Insert image" Click="InsertImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to insert a picture" />
             <Button x:Name="DeleteTextButton" Content="Delete text" Click="DeleteTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a text run on the visible page" />
-            <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
+            <Button x:Name="MoveTextButton" Content="{i18n:T Key=edit-move-text}" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-move-text-tooltip}" />
             <ToggleButton x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to place a new text box" />
             <Button x:Name="AddWatermarkButton" Content="Add watermark" Click="AddWatermarkButton_Click" IsEnabled="False" ToolTipService.ToolTip="Stamp the same text or picture across the pages you choose" />
-            <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
-            <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's X and Y in PDF points" IsEnabled="False">Move annotation</Button>
-            <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
-            <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's width and height in PDF points" IsEnabled="False">Resize annotation</Button>
+            <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-nudge-tooltip}" Content="{i18n:T Key=annotate-nudge}" />
+            <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-move-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-move}" />
+            <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-grow-tooltip}" Content="{i18n:T Key=annotate-grow}" />
+            <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-resize-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-resize}" />
             <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color" Click="AnnotationColorButton_Click">Color</Button>
-            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto">Delete
+            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto" Content="{i18n:T Key=annotate-delete}">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteAnnotation_Invoked" /></Button.KeyboardAccelerators>
             </Button>
         </viewer:ToolbarPanel>
 
         <Grid x:Name="DocumentArea" Grid.Row="2" Padding="16" ColumnDefinitions="Auto,Auto,*,Auto,Auto" SizeChanged="DocumentArea_SizeChanged">
             <Grid x:Name="PagesSidebar" Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8" Width="160" Padding="8" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
-                  AutomationProperties.Name="Pages">
-                <TextBlock Text="Pages" FontWeight="SemiBold" />
+                  AutomationProperties.Name="{i18n:T Key=editor-pages}">
+                <TextBlock Text="{i18n:T Key=editor-pages}" FontWeight="SemiBold" />
                 <ListView x:Name="PageNavigationList" Grid.Row="1"
                           SelectionMode="Single" IsEnabled="False"
-                          AutomationProperties.Name="Go to page"
+                          AutomationProperties.Name="{i18n:T Key=editor-go-to-page}"
                           SelectionChanged="PageNavigationList_SelectionChanged" />
             </Grid>
             <Thumb x:Name="PagesDivider" Grid.Column="1" Style="{StaticResource SideColumnDividerStyle}"
-                   AutomationProperties.Name="Resize page list"
-                   ToolTipService.ToolTip="Drag to resize or fold the page list, or use Left and Right arrows when focused"
+                   AutomationProperties.Name="{i18n:T Key=editor-resize-pages}"
+                   ToolTipService.ToolTip="{i18n:T Key=editor-resize-pages-tooltip}"
                    DragStarted="PagesDivider_DragStarted" DragDelta="PagesDivider_DragDelta" KeyDown="PagesDivider_KeyDown" />
             <ProgressRing x:Name="BusyIndicator" Grid.Column="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
@@ -265,8 +265,8 @@
                 and a selection would only be a second, unused state.
             -->
             <Thumb x:Name="ToolsDivider" Grid.Column="3" Style="{StaticResource SideColumnDividerStyle}"
-                   AutomationProperties.Name="Resize tools panel"
-                   ToolTipService.ToolTip="Drag to resize or fold the tools panel, or use Left and Right arrows when focused"
+                   AutomationProperties.Name="{i18n:T Key=editor-resize-tools}"
+                   ToolTipService.ToolTip="{i18n:T Key=editor-resize-tools-tooltip}"
                    DragStarted="ToolsDivider_DragStarted" DragDelta="ToolsDivider_DragDelta" KeyDown="ToolsDivider_KeyDown" />
             <ScrollViewer x:Name="DocumentSidebar" Grid.Column="4" Width="300" Padding="12" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"

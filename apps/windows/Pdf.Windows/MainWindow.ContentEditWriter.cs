@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -98,7 +99,7 @@ public sealed partial class MainWindow
             await ApplyHistoryAsync(undo: true);
         }
 
-        AnnotationStatus.Text = "Edit cancelled.";
+        AnnotationStatus.Text = I18n.T("edit-cancelled");
     }
 
     /// <summary>
@@ -183,7 +184,7 @@ public sealed partial class MainWindow
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
         InvalidatePageRender(editor.PageIndex);
-        AnnotationStatus.Text = "Text updated. Save to keep the change.";
+        AnnotationStatus.Text = I18n.T("edit-text-updated-save");
         return ContentWriteOutcome.Written;
     }
 

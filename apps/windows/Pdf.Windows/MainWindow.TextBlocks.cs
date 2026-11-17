@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -36,8 +37,7 @@ public sealed partial class MainWindow
     /// <summary>A block whose font editing substitutes: purple and dashed, apart from the grey resting ones.</summary>
     private static readonly SolidColorBrush SubstitutedRunBrush = new(global::Windows.UI.Color.FromArgb(120, 170, 90, 220));
 
-    private const string TextBlockSelectedHint =
-        "Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.";
+    private static string TextBlockSelectedHint => I18n.T("edit-text-selected");
 
     /// <summary>The block a click selected, or <c>null</c>.</summary>
     private ContentTextBlock? _selectedTextBlock;
@@ -125,7 +125,7 @@ public sealed partial class MainWindow
         {
             var result = await _facade.MoveTextBlockAsync(completed.SessionId, completed.Block, dx, dy);
             if (_session?.SessionId != completed.SessionId) return;
-            await AfterTextBlockEditAsync(completed.Block.PageIndex, result, "Text moved. Save to keep the change.", completed.Block);
+            await AfterTextBlockEditAsync(completed.Block.PageIndex, result, I18n.T("edit-text-moved-save"), completed.Block);
         }
         finally
         {
@@ -241,7 +241,7 @@ public sealed partial class MainWindow
         {
             var result = await _facade.RemoveTextBlockAsync(sessionId, block);
             if (_session?.SessionId != sessionId) return;
-            await AfterTextBlockEditAsync(block.PageIndex, result, "Text deleted. Save to keep the change.");
+            await AfterTextBlockEditAsync(block.PageIndex, result, I18n.T("edit-text-deleted-save"));
         }
         finally
         {
@@ -303,7 +303,7 @@ public sealed partial class MainWindow
             if (TextInputHasFocus() || IsPaletteOpen || _contentSelection is null) return;
             args.Handled = true;
             ClearContentSelection();
-            AnnotationStatus.Text = "Selection cleared.";
+            AnnotationStatus.Text = I18n.T("edit-multi-cleared");
         };
         PageScroller.KeyboardAccelerators.Add(deselect);
     }

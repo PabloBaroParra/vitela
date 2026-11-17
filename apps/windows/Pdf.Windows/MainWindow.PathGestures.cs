@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -28,8 +29,8 @@ public sealed partial class MainWindow
     private sealed record ContentPathDrag(string SessionId, ContentPath Path, AnnotationPoint Origin,
         AnnotationPoint Current, Corner? Corner);
 
-    private const string NoShapeSelectedHint = "Click a line or the border of a box to select it.";
-    private const string ShapeSelectedHint = "Shape selected — drag it, drag a corner to resize, or press Delete.";
+    private static string NoShapeSelectedHint => I18n.T("edit-no-shape-selected-line");
+    private static string ShapeSelectedHint => I18n.T("edit-shape-selected-resize");
 
     private ContentPath? _selectedContentPath;
     private ContentPathDrag? _contentPathDrag;
@@ -46,13 +47,13 @@ public sealed partial class MainWindow
     /// <summary>The Shapes card, built beside the Images card.</summary>
     private Border BuildShapesCard()
     {
-        ToolbarIcon(_deleteShapeButton, ShellIcon.Delete, "Delete shape", "Remove the selected line or box from the page",
-            "Delete shape", EditIconSize, IconTint.Accent);
+        ToolbarIcon(_deleteShapeButton, ShellIcon.Delete, I18n.T("edit-delete-shape"), I18n.T("edit-delete-shape-line-tooltip"),
+            I18n.T("edit-delete-shape"), EditIconSize, IconTint.Accent);
         _deleteShapeButton.Style = NamedStyle("EditTileButtonStyle");
         _deleteShapeButton.Click += async (_, _) => await DeleteSelectedPathAsync();
         // The Delete key is the page view's (see WireTextBlockKeys): an
         // accelerator on this button died whenever the card was collapsed.
-        return EditCard("Shapes", "EditShapesCard", _editShapeHint, _deleteShapeButton);
+        return EditCard(I18n.T("edit-card-shapes"), "EditShapesCard", _editShapeHint, _deleteShapeButton);
     }
 
     private void UpdateShapeCard()
@@ -176,7 +177,7 @@ public sealed partial class MainWindow
                 : await _facade.SetPathBoundsAsync(completed.SessionId, current, after);
             if (_session?.SessionId != completed.SessionId) return;
             await AfterPathEditAsync(completed.Path, result,
-                completed.Corner is null ? "Shape moved. Save to keep the change." : "Shape resized. Save to keep the change.");
+                completed.Corner is null ? I18n.T("edit-shape-moved-save") : I18n.T("edit-shape-resized-save"));
         }
         finally
         {
@@ -201,7 +202,7 @@ public sealed partial class MainWindow
             var result = await _facade.RemovePathAsync(sessionId, current);
             if (_session?.SessionId != sessionId) return;
             _selectedContentPath = null;
-            await AfterPathEditAsync(selected, result, "Shape deleted. Save to keep the change.");
+            await AfterPathEditAsync(selected, result, I18n.T("edit-shape-deleted-save"));
         }
         finally
         {
@@ -250,7 +251,7 @@ public sealed partial class MainWindow
             return null;
         }
         var current = paths.Value!.FirstOrDefault(path => path.Id == selected.Id && path.Bounds == selected.Bounds);
-        if (current is null) AnnotationStatus.Text = "The page changed — select the shape again.";
+        if (current is null) AnnotationStatus.Text = I18n.T("edit-shape-page-changed");
         return current;
     }
 

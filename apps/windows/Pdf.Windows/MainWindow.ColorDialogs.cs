@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -17,7 +18,7 @@ public sealed partial class MainWindow
         var dialog = new ContentDialog
         {
             XamlRoot = Content.XamlRoot, Title = title, Content = picker,
-            PrimaryButtonText = "Choose", CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("editor-color-choose"), CloseButtonText = I18n.T("editor-color-cancel"),
             DefaultButton = ContentDialogButton.Primary,
         };
         if (await ShowModalAsync(dialog) != ContentDialogResult.Primary) return null;
@@ -33,14 +34,14 @@ public sealed partial class MainWindow
         SetBusy(true);
         try
         {
-            var chosen = await AskColorAsync("Choose annotation color", initial);
+            var chosen = await AskColorAsync(I18n.T("annotate-color-title"), initial);
             if (chosen is null || chosen == initial || _session?.SessionId != session.SessionId
                 || _selectedAnnotationId != id) return;
             var result = await _facade.RestyleAnnotationAsync(session.SessionId, before, chosen);
             if (_session?.SessionId != session.SessionId) return;
             if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
             _annotationState = result.Value!;
-            AnnotationStatus.Text = "Annotation restyled. Changes are pending save.";
+            AnnotationStatus.Text = I18n.T("annotate-restyled");
             RedrawAnnotations();
         }
         finally

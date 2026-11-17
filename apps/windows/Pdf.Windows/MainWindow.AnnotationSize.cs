@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -16,23 +17,23 @@ public sealed partial class MainWindow
         var selected = _annotationState.Annotations.LastOrDefault(annotation => annotation.Id == id);
         if (selected?.Rect is not { } rect) return;
 
-        var width = new NumberBox { Header = "Width (pt)", Value = rect.Width };
-        var height = new NumberBox { Header = "Height (pt)", Value = rect.Height };
+        var width = new NumberBox { Header = I18n.T("geometry-width"), Value = rect.Width };
+        var height = new NumberBox { Header = I18n.T("geometry-height"), Value = rect.Height };
         var panel = new StackPanel { Spacing = 8, MinWidth = 300 };
         panel.Children.Add(width);
         panel.Children.Add(height);
         panel.Children.Add(new TextBlock
         {
-            Text = "The annotation stays at its current PDF-space origin. Width and height are independent; stamps stretch to fit.",
+            Text = I18n.T("annotate-resize-explanation"),
             TextWrapping = TextWrapping.Wrap,
         });
         var dialog = new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = $"Resize annotation — page {selected.PageIndex + 1}",
+            Title = I18n.T("annotate-resize-title", ("page", selected.PageIndex + 1)),
             Content = panel,
-            PrimaryButtonText = "Resize",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("geometry-resize"),
+            CloseButtonText = I18n.T("geometry-cancel"),
             DefaultButton = ContentDialogButton.Primary,
         };
         bool valid() => double.IsFinite(width.Value) && width.Value > 0
@@ -49,7 +50,7 @@ public sealed partial class MainWindow
         if (_annotationState.Annotations.LastOrDefault(annotation => annotation.Id == id) != selected) return;
         if (width.Value == rect.Width && height.Value == rect.Height)
         {
-            AnnotationStatus.Text = "Annotation dimensions unchanged.";
+            AnnotationStatus.Text = I18n.T("annotate-dimensions-unchanged");
             return;
         }
 
@@ -65,7 +66,7 @@ public sealed partial class MainWindow
                 return;
             }
             _annotationState = result.Value!;
-            AnnotationStatus.Text = "Annotation resized. Changes are pending save.";
+            AnnotationStatus.Text = I18n.T("annotate-resized");
             RedrawAnnotations();
         }
         finally

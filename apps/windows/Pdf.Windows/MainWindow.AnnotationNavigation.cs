@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -20,7 +21,7 @@ public sealed partial class MainWindow
         if (annotation.PageIndex >= _slots.Count) return;
 
         _selectedAnnotationId = id;
-        AnnotationStatus.Text = $"Selected annotation {id} on page {annotation.PageIndex + 1}.";
+        AnnotationStatus.Text = I18n.T("annotate-selected-on-page", ("id", id), ("page", annotation.PageIndex + 1));
         UpdateAnnotationControls(state);
         RedrawAnnotations();
 

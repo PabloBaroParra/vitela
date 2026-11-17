@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.System;
 using Windows.UI.Text;
@@ -62,7 +63,7 @@ public sealed partial class MainWindow
 
         if (ContentHitTest.TextRunAt(content.TextRuns, BoundsOf, point.X, point.Y) is not { } run)
         {
-            AnnotationStatus.Text = "No editable text there — click a word to retype it.";
+            AnnotationStatus.Text = I18n.T("edit-no-editable-text");
             return;
         }
 
@@ -107,16 +108,14 @@ public sealed partial class MainWindow
     {
         var dialog = new ContentDialog
         {
-            Title = "Replace this text's font?",
+            Title = I18n.T("edit-font-substitution-title"),
             Content = new TextBlock
             {
-                Text = "This PDF uses a composite font that cannot be retyped safely. "
-                    + "Editing will replace this text with Helvetica while keeping its position and size. "
-                    + "The appearance may change slightly.",
+                Text = I18n.T("edit-font-substitution-body"),
                 TextWrapping = TextWrapping.Wrap,
             },
-            PrimaryButtonText = "Replace font and edit",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("edit-font-substitution-accept"),
+            CloseButtonText = I18n.T("edit-font-substitution-cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
@@ -188,12 +187,12 @@ public sealed partial class MainWindow
         if (run.RequiresFontSubstitution)
         {
             box.SelectAll();
-            AnnotationStatus.Text = "Type replacement text — it will use Helvetica. Escape puts it back.";
+            AnnotationStatus.Text = I18n.T("edit-retype-substituted");
         }
         else
         {
             box.Select(CaretIndexFor(run, box.Text, clickX), 0);
-            AnnotationStatus.Text = "Type to edit the text — Escape puts it back.";
+            AnnotationStatus.Text = I18n.T("edit-retype-hint");
         }
     }
 

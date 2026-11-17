@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -178,8 +179,8 @@ public sealed partial class MainWindow
             _pendingImageEdits.Add((completed.Image.PageIndex, completed.Image.Id));
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = completed.Corner is null ? "Image moved. Save to keep the change."
-                : "Image resized. Save to keep the change.";
+            AnnotationStatus.Text = completed.Corner is null ? I18n.T("edit-image-moved-save")
+                : I18n.T("edit-image-resized-save");
             // The selection frame follows the image: re-read the page and
             // select the same image where it now is, so the next drag starts
             // from what is painted.

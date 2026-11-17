@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.ApplicationModel.DataTransfer;
 
 namespace Pdf.Windows;
@@ -84,7 +85,7 @@ public sealed partial class MainWindow
                 if (result.IsSuccess) Hold(result.Value!.Clip, selection);
                 await AfterContentSelectionEditAsync(selection,
                     result.IsSuccess ? OperationResult<AnnotationState>.Success(result.Value!.State) : OperationResult<AnnotationState>.Failure(result.Error!),
-                    "Cut. Point where it should go and press Ctrl+V.", keep: false);
+                    I18n.T("edit-clipboard-cut-hint"), keep: false);
                 ClearSingleContentSelection();
             }
             else
@@ -97,7 +98,7 @@ public sealed partial class MainWindow
                     return;
                 }
                 Hold(result.Value!, selection);
-                AnnotationStatus.Text = $"Copied {selection.Count} {(selection.Count == 1 ? "item" : "items")}. Point where it should go and press Ctrl+V.";
+                AnnotationStatus.Text = I18n.T("edit-clipboard-copied-hint", ("count", selection.Count));
             }
         }
         finally
@@ -163,7 +164,7 @@ public sealed partial class MainWindow
         ClearSingleContentSelection();
         ClearContentSelection();
         await AfterContentSelectionEditAsync(ContentSelection.Empty(page), result,
-            "Pasted. Drag it into place, or save to keep the change.", keep: false);
+            I18n.T("edit-clipboard-pasted-hint"), keep: false);
         if (_pageContent.TryGetValue(page, out var state) && state.Content is { } content
             && ContentSelection.Gather(content, landed, DrawnBounds).OnlyPending() is { IsEmpty: false } pasted)
         {
@@ -177,7 +178,7 @@ public sealed partial class MainWindow
                 return;
             }
             SetContentSelection(pasted);
-            AnnotationStatus.Text = $"Pasted {pasted.Count} {(pasted.Count == 1 ? "item" : "items")} — drag inside the dashed box to place them.";
+            AnnotationStatus.Text = I18n.T("edit-clipboard-pasted-count", ("count", pasted.Count));
         }
     }
 

@@ -177,6 +177,17 @@ editor-find-submit = Buscar
 editor-no-document = No hay ningún documento abierto
 editor-empty-state = Suelta aquí un PDF para abrirlo o prueba el ejemplo integrado.
 
+## Pages sidebar and side-column dividers: Windows only
+
+editor-page-item = Página { $page }
+editor-resize-pages = Cambiar el tamaño de la lista de páginas
+editor-resize-pages-tooltip = Arrastra para cambiar el tamaño de la lista de páginas o plegarla, o usa las flechas izquierda y derecha cuando tenga el foco
+editor-resize-tools = Cambiar el tamaño del panel de herramientas
+editor-resize-tools-tooltip = Arrastra para cambiar el tamaño del panel de herramientas o plegarlo, o usa las flechas izquierda y derecha cuando tenga el foco
+editor-go-to-page-number = Número de página (1–{ $total })
+editor-go-to-page-go = Ir
+editor-go-to-page-cancel = Cancelar
+
 ## Protect: Windows only
 
 # Status line when the rail's Protect is chosen on a document that forbids it.
@@ -239,3 +250,232 @@ tools-tab-fill-sign = Rellenar y firmar
 metadata-pages-value = Páginas: { $count }
 metadata-pages-none = Páginas: —
 metadata-forbidden = Este documento no permite cambiar sus metadatos.
+
+## Annotate: tool buttons and controls
+
+annotate-tool-highlight = Resaltado
+annotate-tool-underline = Subrayado
+annotate-tool-strikeout = Tachado
+annotate-tool-ink = Tinta
+annotate-tool-note = Nota
+annotate-tool-text-box = Cuadro de texto
+annotate-tool-shape = Forma
+annotate-tool-stamp = Sello
+annotate-previous = Anotación anterior
+annotate-nudge = Desplazar
+annotate-grow = Agrandar
+annotate-restyle = Cambiar estilo
+annotate-delete = Eliminar
+annotate-color-title = Elegir el color de la anotación
+
+## Annotate: status messages and refusals
+
+annotate-stamp-added = Sello de imagen añadido. Los cambios están pendientes de guardar.
+annotate-undone-pending = Cambio deshecho. Los cambios están pendientes de guardar.
+annotate-redone-pending = Cambio rehecho. Los cambios están pendientes de guardar.
+annotate-edited = Anotación editada. Los cambios están pendientes de guardar.
+annotate-moved = Anotación movida. Los cambios están pendientes de guardar.
+annotate-resized = Anotación redimensionada. Los cambios están pendientes de guardar.
+annotate-restyled = Estilo de la anotación cambiado. Los cambios están pendientes de guardar.
+
+## Annotate: note and text box dialogs
+
+annotate-note-canceled = Colocación de la nota cancelada.
+# $page (Number) - one-based page number.
+annotate-note-title = Añadir nota — página { $page }
+annotate-note-text = Texto de la nota
+annotate-dialog-cancel = Cancelar
+annotate-dialog-add = Añadir
+annotate-dialog-save = Guardar
+annotate-dialog-text = Texto
+annotate-text-box-add-canceled = Colocación del cuadro de texto cancelada.
+annotate-text-box-edit-canceled = Edición del cuadro de texto cancelada.
+# $page (Number) - one-based page number.
+annotate-text-box-add-title = Añadir cuadro de texto — página { $page }
+annotate-text-box-added = Cuadro de texto añadido. Los cambios están pendientes de guardar.
+annotate-text-box-edited = Cuadro de texto editado. Los cambios están pendientes de guardar.
+
+## Annotate: Windows only (toolbar commands, numeric geometry dialogs, note reading)
+
+annotate-pointer = Puntero
+annotate-text-box-tooltip = Haz clic o arrastra en una página para añadir un cuadro de texto
+annotate-previous-tooltip = Selecciona la anotación anterior, incluidas las que quedan debajo de otras
+annotate-next = Anotación siguiente
+annotate-next-tooltip = Selecciona la anotación siguiente, incluidas las que quedan debajo de otras
+annotate-edit-text-box = Editar cuadro de texto
+annotate-edit-text-box-tooltip = Reescribe el cuadro de texto seleccionado
+annotate-read-note = Leer nota
+annotate-read-note-tooltip = Lee la nota seleccionada sin cambiar el documento
+annotate-nudge-tooltip = Desplaza la anotación seleccionada
+annotate-move = Mover anotación
+annotate-move-tooltip = Establece la X y la Y de la anotación seleccionada en puntos PDF
+annotate-grow-tooltip = Agranda la anotación seleccionada
+annotate-resize = Cambiar tamaño de la anotación
+annotate-resize-tooltip = Establece el ancho y el alto de la anotación seleccionada en puntos PDF
+annotate-pointer-mode = Modo puntero.
+annotate-text-box-armed = Herramienta Cuadro de texto activada. Haz clic o arrastra en una página para colocarlo.
+annotate-armed = Herramienta { $tool } activada. Arrastra en una página para colocar la anotación.
+annotate-ink-needs-drag-not-tap = La tinta se dibuja arrastrando, no con un toque.
+annotate-image-unsupported = La imagen no es un PNG o JPEG compatible.
+annotate-stamp-canceled = Colocación del sello cancelada.
+annotate-stamp-unreadable = No se pudo leer la imagen de sello seleccionada.
+annotate-selected-on-page = Anotación { $id } de la página { $page } seleccionada.
+annotate-move-title = Mover anotación — página { $page }
+annotate-move-explanation = Coloca la esquina inferior izquierda de la anotación en el espacio PDF sin rotar. X aumenta hacia la derecha; Y aumenta hacia arriba. El tamaño no cambia.
+annotate-position-unchanged = La posición de la anotación no ha cambiado.
+annotate-resize-title = Cambiar tamaño de la anotación — página { $page }
+annotate-resize-explanation = La anotación mantiene su origen actual en el espacio PDF. El ancho y el alto son independientes; los sellos se estiran para ajustarse.
+annotate-dimensions-unchanged = Las dimensiones de la anotación no han cambiado.
+annotate-note-read-title = Nota — página { $page }
+annotate-dialog-close = Cerrar
+annotate-text-box-edit-page-title = Editar cuadro de texto — página { $page }
+
+## Color dialog: Windows only (shared by annotations and form fields)
+
+editor-color-choose = Elegir
+editor-color-cancel = Cancelar
+
+## Numeric geometry dialogs: Windows only (annotations, images and text)
+
+geometry-x = X (pt)
+geometry-y = Y (pt)
+geometry-width = Ancho (pt)
+geometry-height = Alto (pt)
+geometry-move = Mover
+geometry-resize = Cambiar tamaño
+geometry-cancel = Cancelar
+
+## Shared refusals: document permissions and editable-model availability
+
+refusal-content-forbidden = Este documento no permite cambiar su contenido.
+
+## Edit PDF: panel controls, tooltips and gesture hints
+
+edit-heading = Editar PDF
+edit-card-text = Texto
+edit-card-images = Imágenes
+edit-card-shapes = Formas
+edit-card-pages = Páginas
+edit-mode = Editar contenido
+edit-insert-text = Insertar texto
+edit-insert-text-tooltip = Haz clic en la página para colocar un nuevo cuadro de texto
+edit-delete-text = Eliminar texto
+edit-insert-image = Insertar imagen
+edit-insert-image-tooltip = Haz clic en la página para insertar una imagen
+edit-replace-image = Reemplazar imagen
+edit-replace-image-tooltip = Sustituye la imagen seleccionada por un archivo del disco
+edit-delete-image = Eliminar imagen
+edit-delete-image-tooltip = Elimina de la página la imagen seleccionada
+edit-delete-shape = Eliminar forma
+edit-watermark = Añadir marca de agua
+edit-watermark-hint = La marca de agua se incorpora al contenido de las páginas y se deshace en un solo paso.
+edit-no-document = Abre un PDF para editar el texto y las imágenes de sus páginas.
+edit-text-selected = Texto seleccionado: arrástralo para moverlo, pulsa Supr para eliminarlo o haz doble clic o pulsa F2 para reescribirlo.
+edit-no-image-selected = Haz clic en una imagen de la página para seleccionarla.
+edit-image-selected = Imagen seleccionada: puedes reemplazarla o eliminarla.
+
+## Edit PDF: mode activation messages
+
+edit-insert-text-armed = Inserción de texto activada: haz clic en la página para colocar un nuevo cuadro de texto.
+edit-insert-image-armed = Inserción de imágenes activada: haz clic en la página para insertar una imagen.
+
+## Edit PDF: content edit results and refusals
+
+edit-cancelled = Edición cancelada.
+
+## Edit PDF: multi-select and content clipboard
+
+edit-multi-nothing = No hay nada que seleccionar ahí.
+edit-multi-cleared = Selección borrada.
+
+## Edit PDF: Windows only (panel wording, numeric geometry dialogs, statuses
+## that end in "Save to keep the change.")
+
+edit-description-text-images = Modifica el texto y las imágenes que ya están en la página.
+edit-mode-run-tooltip = Activa la edición de contenido y haz clic en un fragmento de texto de la página
+edit-delete-text-run-tooltip = Elimina de la página el fragmento de texto que estás editando (no es un borrado seguro)
+edit-watermark-picture-tooltip = Aplica el mismo texto o imagen en las páginas que elijas
+edit-delete-shape-line-tooltip = Elimina de la página la línea o el recuadro seleccionado
+edit-resize-image = Cambiar tamaño de imagen
+edit-resize-image-tooltip = Cambia el tamaño de una imagen del contenido de la página visible
+edit-move-image = Mover imagen
+edit-move-image-tooltip = Mueve una imagen del contenido de la página visible
+edit-move-text = Mover texto
+edit-move-text-tooltip = Mueve un fragmento de texto de la página visible
+edit-no-pages = Este PDF no tiene páginas que editar.
+edit-busy = Espera mientras se actualiza el documento.
+edit-return-to-document = Vuelve al documento para editar su texto y sus imágenes.
+edit-text-run-hint = Haz clic en un fragmento de texto para reescribirlo en su sitio.
+edit-text-run-selected = Fragmento de texto seleccionado: elimínalo o reescríbelo en su sitio.
+edit-no-text-selected-retype = Haz clic en el texto para seleccionarlo; haz doble clic para reescribirlo en su sitio.
+edit-image-pending-edit = Esta imagen tiene un cambio sin guardar: puedes moverla, cambiar su tamaño o eliminarla. Guarda antes de reemplazarla.
+edit-image-page-changed = La página ha cambiado: vuelve a seleccionar la imagen.
+edit-no-shape-selected-line = Haz clic en una línea o en el borde de un recuadro para seleccionarlo.
+edit-shape-selected-resize = Forma seleccionada: arrástrala, arrastra una esquina para cambiar su tamaño o pulsa Supr.
+edit-shape-page-changed = La página ha cambiado: vuelve a seleccionar la forma.
+edit-content-editing-off = Edición de contenido desactivada.
+edit-content-editing-armed = Edición de contenido activada: haz clic en el texto para seleccionarlo o haz doble clic para reescribirlo.
+edit-content-editing-armed-run = Edición de contenido activada: haz clic en un fragmento de texto para reescribirlo.
+edit-no-editable-text = Ahí no hay texto editable: haz clic en una palabra para reescribirla.
+edit-retype-hint = Escribe para editar el texto; Esc lo deja como estaba.
+edit-retype-substituted = Escribe el texto de sustitución; usará Helvetica. Esc lo deja como estaba.
+edit-font-substitution-title = ¿Reemplazar la fuente de este texto?
+edit-font-substitution-body = Este PDF usa una fuente compuesta que no se puede reescribir con seguridad. Al editarlo, este texto pasará a usar Helvetica y conservará su posición y tamaño. Su aspecto puede cambiar ligeramente.
+edit-font-substitution-accept = Reemplazar la fuente y editar
+edit-font-substitution-cancel = Cancelar
+edit-insert-text-typing = Escribe el texto nuevo: Intro lo inserta, Esc cancela.
+edit-insertion-cancelled = Inserción cancelada.
+edit-text-changed-before-delete = El texto ha cambiado. Vuelve a hacer clic en el fragmento antes de eliminarlo.
+edit-image-unreadable = No se pudo leer la imagen seleccionada.
+edit-text-updated-save = Texto actualizado. Guarda para conservar el cambio.
+edit-text-inserted-save = Texto insertado. Guarda para conservar el cambio.
+edit-text-moved-save = Texto movido. Guarda para conservar el cambio.
+edit-text-deleted-save = Texto eliminado. Guarda para conservar el cambio.
+edit-image-inserted-save = Imagen insertada. Guarda para conservar el cambio.
+edit-image-replaced-save = Imagen reemplazada. Guarda para conservar el cambio.
+edit-image-moved-save = Imagen movida. Guarda para conservar el cambio.
+edit-image-resized-save = Imagen redimensionada. Guarda para conservar el cambio.
+edit-image-deleted-save = Imagen eliminada. Guarda para conservar el cambio.
+edit-shape-moved-save = Forma movida. Guarda para conservar el cambio.
+edit-shape-resized-save = Forma redimensionada. Guarda para conservar el cambio.
+edit-shape-deleted-save = Forma eliminada. Guarda para conservar el cambio.
+edit-selection-moved-save = Selección movida. Guarda para conservar el cambio.
+edit-selection-deleted-save = Selección eliminada. Guarda para conservar el cambio.
+edit-items-selected =
+    { $count ->
+        [one] { $count } elemento seleccionado: arrástralo dentro del recuadro discontinuo para moverlo, pulsa Supr para eliminarlo o Mayús+clic para añadir o quitar uno.
+       *[other] { $count } elementos seleccionados: arrástralos dentro del recuadro discontinuo para moverlos, pulsa Supr para eliminarlos o Mayús+clic para añadir o quitar uno.
+    }
+edit-clipboard-cut-hint = Cortado. Señala dónde debe ir y pulsa Ctrl+V.
+edit-clipboard-copied-hint =
+    { $count ->
+        [one] { $count } elemento copiado. Señala dónde debe ir y pulsa Ctrl+V.
+       *[other] { $count } elementos copiados. Señala dónde deben ir y pulsa Ctrl+V.
+    }
+edit-clipboard-pasted-hint = Pegado. Arrástralo a su sitio o guarda para conservar el cambio.
+edit-clipboard-pasted-count =
+    { $count ->
+        [one] { $count } elemento pegado: arrástralo dentro del recuadro discontinuo para colocarlo.
+       *[other] { $count } elementos pegados: arrástralos dentro del recuadro discontinuo para colocarlos.
+    }
+edit-no-content-images = La página visible no tiene imágenes de contenido editables.
+edit-image-choice = Imagen
+edit-image-choice-item = Imagen { $index }: X { $x }, Y { $y } pt
+edit-image-move-title = Mover imagen — página { $page }
+edit-image-resize-title = Cambiar tamaño de imagen — página { $page }
+edit-image-move-explanation = Las coordenadas usan el espacio PDF: X aumenta hacia la derecha e Y hacia arriba. La imagen conserva su tamaño. Guarda antes de hacer otro cambio de geometría en la misma imagen.
+edit-image-resize-explanation = La imagen mantiene su origen actual. El ancho y el alto son independientes. Guarda antes de hacer otro cambio de geometría en la misma imagen.
+edit-image-position-unchanged = La posición de la imagen no ha cambiado.
+edit-image-dimensions-unchanged = Las dimensiones de la imagen no han cambiado.
+edit-no-text-runs = La página visible no tiene fragmentos de texto editables.
+edit-text-run-choice = Fragmento de texto
+edit-text-move-title = Mover texto — página { $page }
+edit-text-move-explanation = Las coordenadas usan el espacio PDF: X aumenta hacia la derecha e Y hacia arriba. El texto conserva su fuente y su tamaño. Los movimientos repetidos comparten un solo paso de deshacer; mover texto recién insertado actualiza su inserción. Si el texto existente se ha reescrito, guarda y vuelve a abrir el documento antes.
+edit-text-position-unchanged = La posición del texto no ha cambiado.
+
+## Comments: Windows only (the Comments tools page lists the document's comments)
+
+comments-empty = Este documento no tiene comentarios.
+comments-page = Página { $page }
+comments-read-title = Comentario — página { $page }
+comments-close = Cerrar

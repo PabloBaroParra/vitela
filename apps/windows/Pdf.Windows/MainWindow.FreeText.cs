@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -30,9 +31,10 @@ public sealed partial class MainWindow
         var rect = FreeTextInput.PlacementRect(origin, release, width, height);
         var color = new PdfCoreColor(0, 0, 0);
 
-        await PromptFreeTextAsync($"Add text box — page {pageIndex + 1}", "Add", string.Empty, "Text box placement canceled.", session,
+        await PromptFreeTextAsync(I18n.T("annotate-text-box-add-title", ("page", pageIndex + 1)), I18n.T("annotate-dialog-add"),
+            string.Empty, I18n.T("annotate-text-box-add-canceled"), session,
             text => CommitFreeTextAsync(session, new PdfCoreEdit.Add(PdfCoreAnnotationKind.FreeText, pageIndex,
-                new PdfCoreRect(rect.X, rect.Y, rect.Width, rect.Height), color, Contents: text), "Text box added. Changes are pending save.", selectNew: true));
+                new PdfCoreRect(rect.X, rect.Y, rect.Width, rect.Height), color, Contents: text), I18n.T("annotate-text-box-added"), selectNew: true));
     }
 
     private async Task EditSelectedFreeTextAsync()
@@ -43,9 +45,10 @@ public sealed partial class MainWindow
         if (box?.Kind != AnnotationKind.FreeText) return;
         var current = box.Contents ?? string.Empty;
 
-        await PromptFreeTextAsync($"Edit text box — page {box.PageIndex + 1}", "Save", current, "Text box edit canceled.", session,
+        await PromptFreeTextAsync(I18n.T("annotate-text-box-edit-page-title", ("page", box.PageIndex + 1)), I18n.T("annotate-dialog-save"),
+            current, I18n.T("annotate-text-box-edit-canceled"), session,
             text => FreeTextInput.EditChangesText(current, text)
-                ? CommitFreeTextAsync(session, new PdfCoreEdit.SetContents(id, text), "Text box edited. Changes are pending save.", selectNew: false)
+                ? CommitFreeTextAsync(session, new PdfCoreEdit.SetContents(id, text), I18n.T("annotate-text-box-edited"), selectNew: false)
                 : Task.FromResult<string?>(null));
     }
 
@@ -59,7 +62,7 @@ public sealed partial class MainWindow
     {
         var text = new TextBox
         {
-            Header = "Text",
+            Header = I18n.T("annotate-dialog-text"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             Text = initial,
@@ -79,7 +82,7 @@ public sealed partial class MainWindow
             Title = title,
             Content = new StackPanel { Spacing = 8, Children = { text, problem } },
             PrimaryButtonText = primaryText,
-            CloseButtonText = "Cancel",
+            CloseButtonText = I18n.T("annotate-dialog-cancel"),
             DefaultButton = ContentDialogButton.Close,
             IsPrimaryButtonEnabled = FreeTextInput.AddEnabled(initial),
         };

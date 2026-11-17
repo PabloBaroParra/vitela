@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -12,7 +13,7 @@ public sealed partial class MainWindow
         if (_session is not { } session || _isBusy || _organizing || _annotationState?.EditingAllowed != true) return;
         var text = new TextBox
         {
-            Header = "Note text",
+            Header = I18n.T("annotate-note-text"),
             AcceptsReturn = true,
             TextWrapping = TextWrapping.Wrap,
             MinWidth = 300,
@@ -22,10 +23,10 @@ public sealed partial class MainWindow
         var dialog = new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = $"Add note — page {pageIndex + 1}",
+            Title = I18n.T("annotate-note-title", ("page", pageIndex + 1)),
             Content = text,
-            PrimaryButtonText = "Add",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("annotate-dialog-add"),
+            CloseButtonText = I18n.T("annotate-dialog-cancel"),
             DefaultButton = ContentDialogButton.Close,
             IsPrimaryButtonEnabled = false,
         };
@@ -33,7 +34,7 @@ public sealed partial class MainWindow
         dialog.Opened += (_, _) => text.Focus(FocusState.Programmatic);
         if (await ShowModalAsync(dialog) != ContentDialogResult.Primary)
         {
-            if (_session?.SessionId == session.SessionId) AnnotationStatus.Text = "Note placement canceled.";
+            if (_session?.SessionId == session.SessionId) AnnotationStatus.Text = I18n.T("annotate-note-canceled");
             return;
         }
         // The prompt awaits user input: never attach the old page rectangle to

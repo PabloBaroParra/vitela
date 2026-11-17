@@ -1,3 +1,4 @@
+using Pdf.Windows.Localization;
 namespace Pdf.Windows;
 
 /// <summary>Deletion targets the open inline editor, never a different page's dialog choice.</summary>
@@ -34,7 +35,7 @@ public sealed partial class MainWindow
                     return;
                 }
                 CancelContentEditor();
-                await AfterTextBlockEditAsync(editor.PageIndex, removed, "Text deleted. Save to keep the change.");
+                await AfterTextBlockEditAsync(editor.PageIndex, removed, I18n.T("edit-text-deleted-save"));
                 return;
             }
             var targets = await _facade.PageTextEditTargetsAsync(sessionId, editor.PageIndex);
@@ -47,7 +48,7 @@ public sealed partial class MainWindow
             var target = targets.Value!.FirstOrDefault(run => run.Id == editor.Run.Id);
             if (target is null)
             {
-                AnnotationStatus.Text = "The text changed. Click the run again before deleting it.";
+                AnnotationStatus.Text = I18n.T("edit-text-changed-before-delete");
                 return;
             }
             var result = await _facade.RemoveTextRunAsync(sessionId, target);
@@ -82,7 +83,7 @@ public sealed partial class MainWindow
             }
             else await RefreshAnnotationStateAsync();
             RedrawAnnotations();
-            AnnotationStatus.Text = result.IsSuccess ? "Text deleted. Save to keep the change." : result.Error!.Message;
+            AnnotationStatus.Text = result.IsSuccess ? I18n.T("edit-text-deleted-save") : result.Error!.Message;
         }
         finally
         {

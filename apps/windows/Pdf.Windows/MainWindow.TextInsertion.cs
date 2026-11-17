@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.System;
 
@@ -76,7 +77,7 @@ public sealed partial class MainWindow
         _slots[(int)pageIndex].Content.Children.Add(box);
         PlaceInsertEditor(editor);
         box.Focus(FocusState.Programmatic);
-        AnnotationStatus.Text = "Type the new text — Enter inserts it, Escape cancels.";
+        AnnotationStatus.Text = I18n.T("edit-insert-text-typing");
     }
 
     private void InsertEditor_KeyDown(object sender, KeyRoutedEventArgs args)
@@ -90,7 +91,7 @@ public sealed partial class MainWindow
         {
             args.Handled = true;
             CancelInsertEditor();
-            AnnotationStatus.Text = "Insertion cancelled.";
+            AnnotationStatus.Text = I18n.T("edit-insertion-cancelled");
         }
     }
 
@@ -142,7 +143,7 @@ public sealed partial class MainWindow
         }
         _annotationState = result.Value;
         UpdateAnnotationControls(_annotationState);
-        AnnotationStatus.Text = "Text inserted. Save to keep the change.";
+        AnnotationStatus.Text = I18n.T("edit-text-inserted-save");
     }
 
     /// <summary>Drops the open box without recording anything.</summary>

@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -33,33 +34,33 @@ public sealed partial class MainWindow
             }
             if (images.Value!.Count == 0)
             {
-                AnnotationStatus.Text = "The visible page has no editable content images.";
+                AnnotationStatus.Text = I18n.T("edit-no-content-images");
                 return;
             }
 
-            var choice = new ComboBox { Header = "Image", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var choice = new ComboBox { Header = I18n.T("edit-image-choice"), HorizontalAlignment = HorizontalAlignment.Stretch };
             foreach (var image in images.Value)
-                choice.Items.Add($"Image {choice.Items.Count + 1}: X {image.Bounds.X:0.##}, Y {image.Bounds.Y:0.##} pt");
-            var first = new NumberBox { Header = move ? "X (pt)" : "Width (pt)" };
-            var second = new NumberBox { Header = move ? "Y (pt)" : "Height (pt)" };
+                choice.Items.Add(I18n.T("edit-image-choice-item", ("index", choice.Items.Count + 1),
+                    ("x", $"{image.Bounds.X:0.##}"), ("y", $"{image.Bounds.Y:0.##}")));
+            var first = new NumberBox { Header = move ? I18n.T("geometry-x") : I18n.T("geometry-width") };
+            var second = new NumberBox { Header = move ? I18n.T("geometry-y") : I18n.T("geometry-height") };
             var panel = new StackPanel { Spacing = 8 };
             panel.Children.Add(choice);
             panel.Children.Add(first);
             panel.Children.Add(second);
             panel.Children.Add(new TextBlock
             {
-                Text = (move ? "Coordinates use PDF space: X increases rightward and Y upward. The image keeps its size."
-                    : "The image stays at its current origin. Width and height are independent.")
-                    + " Save before making another geometry edit to the same image.",
+                Text = move ? I18n.T("edit-image-move-explanation") : I18n.T("edit-image-resize-explanation"),
                 TextWrapping = TextWrapping.Wrap,
             });
             var dialog = new ContentDialog
             {
                 XamlRoot = PageScroller.XamlRoot,
-                Title = $"{(move ? "Move" : "Resize")} image — page {pageIndex + 1}",
+                Title = move ? I18n.T("edit-image-move-title", ("page", pageIndex + 1))
+                    : I18n.T("edit-image-resize-title", ("page", pageIndex + 1)),
                 Content = panel,
-                PrimaryButtonText = move ? "Move" : "Resize",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = move ? I18n.T("geometry-move") : I18n.T("geometry-resize"),
+                CloseButtonText = I18n.T("geometry-cancel"),
                 DefaultButton = ContentDialogButton.Primary,
             };
             void validate() => dialog.IsPrimaryButtonEnabled =
@@ -92,7 +93,7 @@ public sealed partial class MainWindow
                 : selected.Bounds.Width == first.Value && selected.Bounds.Height == second.Value;
             if (result.IsSuccess && unchanged)
             {
-                AnnotationStatus.Text = move ? "Image position unchanged." : "Image dimensions unchanged.";
+                AnnotationStatus.Text = move ? I18n.T("edit-image-position-unchanged") : I18n.T("edit-image-dimensions-unchanged");
                 return;
             }
             // An edit remains undoable even if rebuilding its preview failed.
@@ -111,7 +112,7 @@ public sealed partial class MainWindow
             _pendingImageEdits.Add((selected.PageIndex, selected.Id));
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = move ? "Image moved. Save to keep the change." : "Image resized. Save to keep the change.";
+            AnnotationStatus.Text = move ? I18n.T("edit-image-moved-save") : I18n.T("edit-image-resized-save");
         }
         finally
         {

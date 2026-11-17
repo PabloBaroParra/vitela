@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -30,15 +31,15 @@ public sealed partial class MainWindow
             }
             if (targets.Value!.Count == 0)
             {
-                AnnotationStatus.Text = "The visible page has no editable text runs.";
+                AnnotationStatus.Text = I18n.T("edit-no-text-runs");
                 return;
             }
-            var choice = new ComboBox { Header = "Text run", HorizontalAlignment = HorizontalAlignment.Stretch };
+            var choice = new ComboBox { Header = I18n.T("edit-text-run-choice"), HorizontalAlignment = HorizontalAlignment.Stretch };
             foreach (var run in targets.Value)
                 choice.Items.Add($"{choice.Items.Count + 1}: {run.Text}");
             var detail = new TextBlock { TextWrapping = TextWrapping.Wrap };
-            var x = new NumberBox { Header = "X (pt)" };
-            var y = new NumberBox { Header = "Y (pt)" };
+            var x = new NumberBox { Header = I18n.T("geometry-x") };
+            var y = new NumberBox { Header = I18n.T("geometry-y") };
             choice.SelectionChanged += (_, _) =>
             {
                 if (choice.SelectedIndex < 0) return;
@@ -55,16 +56,16 @@ public sealed partial class MainWindow
             panel.Children.Add(y);
             panel.Children.Add(new TextBlock
             {
-                Text = "Coordinates use PDF space: X increases rightward and Y upward. The text keeps its font and size. Repeated moves share one Undo step; moving newly inserted text updates its insertion. Save and reopen first if existing text has been retyped.",
+                Text = I18n.T("edit-text-move-explanation"),
                 TextWrapping = TextWrapping.Wrap,
             });
             var dialog = new ContentDialog
             {
                 XamlRoot = PageScroller.XamlRoot,
-                Title = $"Move text — page {pageIndex + 1}",
+                Title = I18n.T("edit-text-move-title", ("page", pageIndex + 1)),
                 Content = panel,
-                PrimaryButtonText = "Move",
-                CloseButtonText = "Cancel",
+                PrimaryButtonText = I18n.T("geometry-move"),
+                CloseButtonText = I18n.T("geometry-cancel"),
                 DefaultButton = ContentDialogButton.Close,
             };
             void validate() => dialog.IsPrimaryButtonEnabled = choice.SelectedIndex >= 0
@@ -79,7 +80,7 @@ public sealed partial class MainWindow
             if (_session?.SessionId != sessionId) return;
             if (result.IsSuccess && selected.Bounds.X == x.Value && selected.Bounds.Y == y.Value)
             {
-                AnnotationStatus.Text = "Text position unchanged.";
+                AnnotationStatus.Text = I18n.T("edit-text-position-unchanged");
                 return;
             }
             // The edit remains undoable if rebuilding its preview failed.
@@ -100,7 +101,7 @@ public sealed partial class MainWindow
             }
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = "Text moved. Save to keep the change.";
+            AnnotationStatus.Text = I18n.T("edit-text-moved-save");
         }
         finally { _editingTextGeometry = false; }
     }

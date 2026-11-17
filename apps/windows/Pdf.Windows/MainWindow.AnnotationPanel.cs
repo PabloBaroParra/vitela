@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -19,14 +20,14 @@ public sealed partial class MainWindow
         var extras = row.Children.ToArray();
         row.Children.Clear();
         foreach (var control in primary) row.Children.Add(control);
-        AnnotationColorButton.Content = "Restyle";
-        AutomationProperties.SetName(AnnotationColorButton, "Restyle");
-        ToolTipService.SetToolTip(AnnotationColorButton, "Choose annotation color");
-        AutomationProperties.SetName(row, "Annotations");
+        AnnotationColorButton.Content = I18n.T("annotate-restyle");
+        AutomationProperties.SetName(AnnotationColorButton, I18n.T("annotate-restyle"));
+        ToolTipService.SetToolTip(AnnotationColorButton, I18n.T("annotate-color-title"));
+        AutomationProperties.SetName(row, I18n.T("tools-annotations"));
         var page = _toolPages["Annotate"];
         page.Children.Insert(0, new TextBlock
         {
-            Text = "Annotations", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Text = I18n.T("tools-annotations"), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
         page.Children.Insert(1, row);
         // Preserve Windows' numeric move/resize, note reading and next-selection commands.
