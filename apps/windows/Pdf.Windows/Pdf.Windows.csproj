@@ -76,10 +76,12 @@
     <!--
       Fluent (.ftl) runtime for the shell's translations (Localization/), the
       .NET counterpart of the fluent-bundle crate the GTK shell uses, so both
-      shells read the same message syntax and keys. MIT OR Apache-2.0. Exact
-      pin; the facade tests reference the same version.
+      shells read the same message syntax and keys. MIT OR Apache-2.0; its
+      notice ships in licenses\linguini (scripts/package-windows*.ps1). Exact
+      pin: "[0.11.0]" is NuGet's exact-version range, where a bare "0.11.0"
+      would mean "0.11.0 or newer". The facade tests reference the same version.
     -->
-    <PackageReference Include="Linguini.Bundle" Version="0.11.0" />
+    <PackageReference Include="Linguini.Bundle" Version="[0.11.0]" />
   </ItemGroup>
 
   <!--
