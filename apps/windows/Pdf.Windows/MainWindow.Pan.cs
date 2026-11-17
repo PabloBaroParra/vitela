@@ -166,6 +166,7 @@ public sealed partial class MainWindow
         _hand.End();
         PageScroller.ReleasePointerCapture(e.Pointer);
         ShowPanCursor();
+        SettleAfterPan();
     }
 
     private void PageScroller_PanCaptureLost(object sender, PointerRoutedEventArgs e)
@@ -174,6 +175,7 @@ public sealed partial class MainWindow
         if (!_hand.Dragging) return;
         _hand.End();
         ShowPanCursor();
+        SettleAfterPan();
     }
 
     private void PageScroller_PanCanceled(object sender, PointerRoutedEventArgs e)
@@ -182,6 +184,7 @@ public sealed partial class MainWindow
         _hand.End();
         PageScroller.ReleasePointerCapture(e.Pointer);
         ShowPanCursor();
+        SettleAfterPan();
     }
 
     /// <summary>Drop everything: the window lost focus.</summary>
@@ -191,6 +194,19 @@ public sealed partial class MainWindow
         _hand.Reset();
         if (dragging) PageScroller.ReleasePointerCaptures();
         ShowPanCursor();
+        if (dragging) SettleAfterPan();
+    }
+
+    /// <summary>
+    /// The drag's moves were reported as intermediate (see
+    /// PageScroller_ViewChanged), so the settle-only work — reading-position
+    /// landing, bitmap eviction, content-edit outlines — runs here, once.
+    /// </summary>
+    private void SettleAfterPan()
+    {
+        if (_session is null || _slots.Count == 0) return;
+        _requestedPage.Landed(PageScroller.VerticalOffset);
+        UpdateViewport(intermediate: false);
     }
 
     /// <summary>
