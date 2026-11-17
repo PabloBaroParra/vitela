@@ -18,10 +18,14 @@ namespace Pdf.Windows.Localization;
 /// </remarks>
 public static class I18n
 {
+    // Built on first use, so a process speaking English never builds Spanish.
+    // Translations.Embedded does not throw (a bundle that fails to build is
+    // logged and left out); PublicationOnly is the second guard, because the
+    // default Lazy mode would cache an exception and rethrow it on every T().
     private static readonly Lazy<Translations>[] Bundles =
     [
-        new(() => Translations.Embedded(Language.English)),
-        new(() => Translations.Embedded(Language.Spanish)),
+        new(() => Translations.Embedded(Language.English), LazyThreadSafetyMode.PublicationOnly),
+        new(() => Translations.Embedded(Language.Spanish), LazyThreadSafetyMode.PublicationOnly),
     ];
 
     private static Language _active = InitialLanguage();

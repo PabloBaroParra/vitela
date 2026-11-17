@@ -22,12 +22,16 @@ public enum Language
 /// </remarks>
 public static class LanguageNegotiation
 {
-    /// <summary>Forces a language (<c>es</c>, <c>en</c>) regardless of the Windows display language.</summary>
+    /// <summary>
+    /// Forces a language (<c>es</c>, <c>en</c>) regardless of the Windows display
+    /// language. Like Linux's LANGUAGE it may be a colon-separated list
+    /// (<c>fr:es</c>); the first supported entry wins.
+    /// </summary>
     public const string OverrideVariable = "VITELA_LANGUAGE";
 
-    /// <summary>The override when it names a supported language, else the UI culture's, else English.</summary>
+    /// <summary>The first supported entry of the override, else the UI culture's language, else English.</summary>
     public static Language Resolve(string? overrideValue, string? uiCultureName) =>
-        Supported(overrideValue) ?? Supported(uiCultureName) ?? Language.English;
+        FirstSupported(overrideValue) ?? Supported(uiCultureName) ?? Language.English;
 
     /// <summary><see cref="Resolve"/> applied to this process.</summary>
     public static Language FromEnvironment() =>
@@ -39,6 +43,9 @@ public static class LanguageNegotiation
         Language.Spanish => "es",
         _ => "en",
     };
+
+    private static Language? FirstSupported(string? list) =>
+        list?.Split(':').Select(Supported).FirstOrDefault(language => language is not null);
 
     /// <summary>The language a culture name asks for, if it is one we have: es, es-ES, es_AR and es-419 are all Spanish.</summary>
     private static Language? Supported(string? value)

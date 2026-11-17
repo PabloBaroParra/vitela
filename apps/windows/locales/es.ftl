@@ -144,7 +144,6 @@ mode-recent = Recientes
 mode-files = Mis archivos
 mode-edit-pdf = Editar PDF
 mode-organize-pages = Organizar páginas
-protect-forbidden = Este documento no permite cambiar su protección.
 
 ## Editor: Windows only toolbar commands, groups and page navigation
 
@@ -177,6 +176,11 @@ editor-organize-tooltip = Mover, girar o eliminar páginas
 editor-find-submit = Buscar
 editor-no-document = No hay ningún documento abierto
 editor-empty-state = Suelta aquí un PDF para abrirlo o prueba el ejemplo integrado.
+
+## Protect: Windows only
+
+# Status line when the rail's Protect is chosen on a document that forbids it.
+protect-forbidden = Este documento no permite cambiar su protección.
 
 ## Organize: shared with the editor toolbar's Extract pages
 

@@ -40,7 +40,7 @@ home-recent-remove-failed = Could not remove { $name } from Recent.
 home-recent-opened-today = Opened today, { $time }
 # $time (String) - the time of day, already formatted (e.g. 10:45).
 home-recent-opened-yesterday = Opened yesterday, { $time }
-# $date (String) - day and abbreviated month, already formatted (e.g. 7 Nov).
+# $date (String) - the short date in the user's regional format, already formatted (e.g. 11/7/2026).
 home-recent-opened-on = Opened { $date }
 # $count (Number) - pages in the document.
 home-recent-page-count =
@@ -156,7 +156,6 @@ mode-recent = Recent
 mode-files = My files
 mode-edit-pdf = Edit PDF
 mode-organize-pages = Organize pages
-protect-forbidden = This document does not permit changes to its protection.
 
 ## Editor: Windows only toolbar commands, groups and page navigation
 
@@ -190,6 +189,11 @@ editor-organize-tooltip = Move, rotate or delete pages
 editor-find-submit = Find
 editor-no-document = No document open
 editor-empty-state = Drop a PDF here to open it, or try the built-in sample.
+
+## Protect: Windows only
+
+# Status line when the rail's Protect is chosen on a document that forbids it.
+protect-forbidden = This document does not permit changes to its protection.
 
 ## Organize: shared with the editor toolbar's Extract pages
 

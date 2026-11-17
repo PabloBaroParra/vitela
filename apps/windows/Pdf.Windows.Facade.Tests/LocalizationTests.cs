@@ -28,6 +28,11 @@ internal static class LocalizationTests
         Check(LanguageNegotiation.Resolve("fr", "es-ES") == Language.Spanish, "an unsupported override falls through to the UI culture");
         Check(LanguageNegotiation.Resolve("", "es-ES") == Language.Spanish, "an empty override counts as unset");
         Check(LanguageNegotiation.Resolve("  ", "en-US") == Language.English, "a blank override counts as unset");
+        // A colon-separated list, like Linux's LANGUAGE: the first supported entry wins.
+        Check(LanguageNegotiation.Resolve("fr:es", "en-US") == Language.Spanish, "the first supported entry of an override list wins");
+        Check(LanguageNegotiation.Resolve("en:es", "es-ES") == Language.English, "an earlier entry beats a later one");
+        Check(LanguageNegotiation.Resolve(":es_MX:en", "en-US") == Language.Spanish, "empty entries in an override list are skipped");
+        Check(LanguageNegotiation.Resolve("fr:de", "es-ES") == Language.Spanish, "a list with no supported entry falls through to the UI culture");
         Check(LanguageNegotiation.OverrideVariable == "VITELA_LANGUAGE", "the override variable is documented as VITELA_LANGUAGE");
         return Task.CompletedTask;
     }
@@ -136,6 +141,56 @@ internal static class LocalizationTests
         Equal(translations.T("needs", ("name", "Ana")), "Hola Ana", "the active language formats when its arguments are complete");
         Check(translations.Has(Language.Spanish, "both") && !translations.Has(Language.Spanish, "only-english"),
             "Has reports a language's own bundle without the English fallback");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>A Spanish file that does not build must not take the app down: it speaks English.</summary>
+    public static Task FallsBackToEnglishWhenSpanishDoesNotBuildAsync()
+    {
+        var warnings = new List<string>();
+        var translations = new Translations(Language.Spanish,
+            english: "both = Both\nneeds = Hello { $name }\n",
+            spanish: "both = Ambos\nbroken = { $name\n= orphan value\n",
+            warn: warnings.Add);
+        Equal(translations.T("both"), "Both", "a Spanish bundle that failed to build is not used at all");
+        Equal(translations.T("needs", ("name", "Ana")), "Hello Ana", "English still formats arguments");
+        Check(warnings.Any(warning => warning.Contains("es.ftl")), "the broken Spanish bundle is logged: " + string.Join(" | ", warnings));
+        Check(!translations.Has(Language.Spanish, "both"), "the broken Spanish bundle reports no messages");
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Should never happen (the parity test parses en.ftl), but then every lookup renders its key.</summary>
+    public static Task RendersKeysWhenEnglishDoesNotBuildAsync()
+    {
+        var warnings = new List<string>();
+        var translations = new Translations(Language.English,
+            english: "broken = { $name\n= orphan value\n",
+            spanish: "",
+            warn: warnings.Add);
+        Equal(translations.T("broken"), "broken", "a lookup renders its key");
+        Equal(translations.T("home-recent-title"), "home-recent-title", "any lookup renders its key");
+        Check(warnings.Any(warning => warning.Contains("en.ftl")), "the broken English bundle is logged");
+        return Task.CompletedTask;
+    }
+
+    public static Task NeverThrowsWhileFormattingAsync()
+    {
+        var warnings = new List<string>();
+        var translations = new Translations(Language.English,
+            english: "needs = Hello { $name }\n", spanish: "", warn: warnings.Add);
+        var text = translations.T("needs", ("name", "Ana"), ("name", "Bea"));
+        Check(text.StartsWith("Hello "), $"a duplicated argument still renders the message, got \"{text}\"");
+        Check(warnings.Any(warning => warning.Contains("name")), "a duplicated argument is logged");
+        return Task.CompletedTask;
+    }
+
+    public static Task LogsEachMissingKeyOnceAsync()
+    {
+        var warnings = new List<string>();
+        var translations = new Translations(Language.English, english: "a = A\n", spanish: "", warn: warnings.Add);
+        for (var i = 0; i < 3; i++) Equal(translations.T("missing-key"), "missing-key", "a missing key renders as itself");
+        translations.T("other-missing-key");
+        Check(warnings.Count == 2, $"each missing key is logged once, got {warnings.Count}: " + string.Join(" | ", warnings));
         return Task.CompletedTask;
     }
 
