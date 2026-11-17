@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using System.Runtime.InteropServices.WindowsRuntime;
 using Windows.Storage.Streams;
@@ -111,11 +112,25 @@ public sealed partial class MainWindow
         SyncAnnotationToolButtons();
         AnnotationStatus.Text = kind switch
         {
-            null => "Pointer mode.",
-            AnnotationKind.FreeText => "Text box armed. Click or drag on a page to place it.",
-            _ => $"{kind} armed. Drag on a page to place it.",
+            null => I18n.T("annotate-pointer-mode"),
+            AnnotationKind.FreeText => I18n.T("annotate-text-box-armed"),
+            { } tool => I18n.T("annotate-armed", ("tool", AnnotationToolName(tool))),
         };
     }
+
+    /// <summary>The localized tool name an armed-tool status names (annotate-tool-*).</summary>
+    private static string AnnotationToolName(AnnotationKind kind) => kind switch
+    {
+        AnnotationKind.Highlight => I18n.T("annotate-tool-highlight"),
+        AnnotationKind.Underline => I18n.T("annotate-tool-underline"),
+        AnnotationKind.Strikeout => I18n.T("annotate-tool-strikeout"),
+        AnnotationKind.Ink => I18n.T("annotate-tool-ink"),
+        AnnotationKind.Shape => I18n.T("annotate-tool-shape"),
+        AnnotationKind.TextNote => I18n.T("annotate-tool-note"),
+        AnnotationKind.Stamp => I18n.T("annotate-tool-stamp"),
+        AnnotationKind.FreeText => I18n.T("annotate-tool-text-box"),
+        _ => kind.ToString(),
+    };
 
     /// <summary>
     /// Reflects the armed tool without creating a second owner of the mode.
@@ -354,7 +369,7 @@ public sealed partial class MainWindow
         {
             if (completed.Trace?.Points is not { Count: >= 2 } points)
             {
-                AnnotationStatus.Text = "Ink needs a drag, not a tap.";
+                AnnotationStatus.Text = I18n.T("annotate-ink-needs-drag-not-tap");
                 return;
             }
             var color = new PdfCoreColor(DefaultAnnotationColor.R, DefaultAnnotationColor.G, DefaultAnnotationColor.B);
@@ -394,7 +409,7 @@ public sealed partial class MainWindow
         if (_annotationState?.EditingAllowed != true) return;
         if (!ImageStampInput.HasSupportedSignature(imageBytes))
         {
-            AnnotationStatus.Text = "The image is not a supported PNG or JPEG.";
+            AnnotationStatus.Text = I18n.T("annotate-image-unsupported");
             return;
         }
 
@@ -422,7 +437,7 @@ public sealed partial class MainWindow
             }
         }
         if (!ImageStampInput.SessionMatches(sessionId, _session?.SessionId)) return;
-        AnnotationStatus.Text = "Image stamp added. Changes are pending save.";
+        AnnotationStatus.Text = I18n.T("annotate-stamp-added");
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
     }
@@ -443,7 +458,7 @@ public sealed partial class MainWindow
         var result = await _facade.EditAnnotationAsync(_session.SessionId, edit);
         if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
         _annotationState = result.Value!;
-        AnnotationStatus.Text = "Annotation edited. Changes are pending save.";
+        AnnotationStatus.Text = I18n.T("annotate-edited");
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
     }
@@ -474,7 +489,7 @@ public sealed partial class MainWindow
             ClearContentImageSelection();
             RedrawContentImageSelection();
         }
-        AnnotationStatus.Text = undo ? "Edit undone. Changes are pending save." : "Edit redone. Changes are pending save.";
+        AnnotationStatus.Text = undo ? I18n.T("annotate-undone-pending") : I18n.T("annotate-redone-pending");
         UpdateAnnotationControls(_annotationState);
         RedrawAnnotations();
         // A step that moved, turned or restored a page changes the whole

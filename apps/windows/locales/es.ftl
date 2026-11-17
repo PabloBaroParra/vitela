@@ -250,3 +250,97 @@ tools-tab-fill-sign = Rellenar y firmar
 metadata-pages-value = Páginas: { $count }
 metadata-pages-none = Páginas: —
 metadata-forbidden = Este documento no permite cambiar sus metadatos.
+
+## Annotate: tool buttons and controls
+
+annotate-tool-highlight = Resaltado
+annotate-tool-underline = Subrayado
+annotate-tool-strikeout = Tachado
+annotate-tool-ink = Tinta
+annotate-tool-note = Nota
+annotate-tool-text-box = Cuadro de texto
+annotate-tool-shape = Forma
+annotate-tool-stamp = Sello
+annotate-previous = Anotación anterior
+annotate-nudge = Desplazar
+annotate-grow = Agrandar
+annotate-restyle = Cambiar estilo
+annotate-delete = Eliminar
+annotate-color-title = Elegir el color de la anotación
+
+## Annotate: status messages and refusals
+
+annotate-stamp-added = Sello de imagen añadido. Los cambios están pendientes de guardar.
+annotate-undone-pending = Cambio deshecho. Los cambios están pendientes de guardar.
+annotate-redone-pending = Cambio rehecho. Los cambios están pendientes de guardar.
+annotate-edited = Anotación editada. Los cambios están pendientes de guardar.
+annotate-moved = Anotación movida. Los cambios están pendientes de guardar.
+annotate-resized = Anotación redimensionada. Los cambios están pendientes de guardar.
+annotate-restyled = Estilo de la anotación cambiado. Los cambios están pendientes de guardar.
+
+## Annotate: note and text box dialogs
+
+annotate-note-canceled = Colocación de la nota cancelada.
+# $page (Number) - one-based page number.
+annotate-note-title = Añadir nota — página { $page }
+annotate-note-text = Texto de la nota
+annotate-dialog-cancel = Cancelar
+annotate-dialog-add = Añadir
+annotate-dialog-save = Guardar
+annotate-dialog-text = Texto
+annotate-text-box-add-canceled = Colocación del cuadro de texto cancelada.
+annotate-text-box-edit-canceled = Edición del cuadro de texto cancelada.
+# $page (Number) - one-based page number.
+annotate-text-box-add-title = Añadir cuadro de texto — página { $page }
+annotate-text-box-added = Cuadro de texto añadido. Los cambios están pendientes de guardar.
+annotate-text-box-edited = Cuadro de texto editado. Los cambios están pendientes de guardar.
+
+## Annotate: Windows only (toolbar commands, numeric geometry dialogs, note reading)
+
+annotate-pointer = Puntero
+annotate-text-box-tooltip = Haz clic o arrastra en una página para añadir un cuadro de texto
+annotate-previous-tooltip = Selecciona la anotación anterior, incluidas las que quedan debajo de otras
+annotate-next = Anotación siguiente
+annotate-next-tooltip = Selecciona la anotación siguiente, incluidas las que quedan debajo de otras
+annotate-edit-text-box = Editar cuadro de texto
+annotate-edit-text-box-tooltip = Reescribe el cuadro de texto seleccionado
+annotate-read-note = Leer nota
+annotate-read-note-tooltip = Lee la nota seleccionada sin cambiar el documento
+annotate-nudge-tooltip = Desplaza la anotación seleccionada
+annotate-move = Mover anotación
+annotate-move-tooltip = Establece la X y la Y de la anotación seleccionada en puntos PDF
+annotate-grow-tooltip = Agranda la anotación seleccionada
+annotate-resize = Cambiar tamaño de la anotación
+annotate-resize-tooltip = Establece el ancho y el alto de la anotación seleccionada en puntos PDF
+annotate-pointer-mode = Modo puntero.
+annotate-text-box-armed = Herramienta Cuadro de texto activada. Haz clic o arrastra en una página para colocarlo.
+annotate-armed = Herramienta { $tool } activada. Arrastra en una página para colocar la anotación.
+annotate-ink-needs-drag-not-tap = La tinta se dibuja arrastrando, no con un toque.
+annotate-image-unsupported = La imagen no es un PNG o JPEG compatible.
+annotate-stamp-canceled = Colocación del sello cancelada.
+annotate-stamp-unreadable = No se pudo leer la imagen de sello seleccionada.
+annotate-selected-on-page = Anotación { $id } de la página { $page } seleccionada.
+annotate-move-title = Mover anotación — página { $page }
+annotate-move-explanation = Coloca la esquina inferior izquierda de la anotación en el espacio PDF sin rotar. X aumenta hacia la derecha; Y aumenta hacia arriba. El tamaño no cambia.
+annotate-position-unchanged = La posición de la anotación no ha cambiado.
+annotate-resize-title = Cambiar tamaño de la anotación — página { $page }
+annotate-resize-explanation = La anotación mantiene su origen actual en el espacio PDF. El ancho y el alto son independientes; los sellos se estiran para ajustarse.
+annotate-dimensions-unchanged = Las dimensiones de la anotación no han cambiado.
+annotate-note-read-title = Nota — página { $page }
+annotate-dialog-close = Cerrar
+annotate-text-box-edit-page-title = Editar cuadro de texto — página { $page }
+
+## Color dialog: Windows only (shared by annotations and form fields)
+
+editor-color-choose = Elegir
+editor-color-cancel = Cancelar
+
+## Numeric geometry dialogs: Windows only (annotations, images and text)
+
+geometry-x = X (pt)
+geometry-y = Y (pt)
+geometry-width = Ancho (pt)
+geometry-height = Alto (pt)
+geometry-move = Mover
+geometry-resize = Cambiar tamaño
+geometry-cancel = Cancelar

@@ -271,3 +271,103 @@ tools-tab-fill-sign = Fill & Sign
 metadata-pages-value = Pages: { $count }
 metadata-pages-none = Pages: —
 metadata-forbidden = This document does not permit metadata changes.
+
+## Annotate: tool buttons and controls
+
+annotate-tool-highlight = Highlight
+annotate-tool-underline = Underline
+annotate-tool-strikeout = Strikeout
+annotate-tool-ink = Ink
+annotate-tool-note = Note
+annotate-tool-text-box = Text box
+annotate-tool-shape = Shape
+annotate-tool-stamp = Stamp
+annotate-previous = Previous annotation
+annotate-nudge = Nudge
+annotate-grow = Grow
+annotate-restyle = Restyle
+annotate-delete = Delete
+annotate-color-title = Choose annotation color
+
+## Annotate: status messages and refusals
+
+annotate-stamp-added = Image stamp added. Changes are pending save.
+annotate-undone-pending = Edit undone. Changes are pending save.
+annotate-redone-pending = Edit redone. Changes are pending save.
+annotate-edited = Annotation edited. Changes are pending save.
+annotate-moved = Annotation moved. Changes are pending save.
+annotate-resized = Annotation resized. Changes are pending save.
+annotate-restyled = Annotation restyled. Changes are pending save.
+
+## Annotate: note and text box dialogs
+
+annotate-note-canceled = Note placement canceled.
+# $page (Number) - one-based page number.
+annotate-note-title = Add note — page { $page }
+annotate-note-text = Note text
+annotate-dialog-cancel = Cancel
+annotate-dialog-add = Add
+annotate-dialog-save = Save
+annotate-dialog-text = Text
+annotate-text-box-add-canceled = Text box placement canceled.
+annotate-text-box-edit-canceled = Text box edit canceled.
+# $page (Number) - one-based page number.
+annotate-text-box-add-title = Add text box — page { $page }
+annotate-text-box-added = Text box added. Changes are pending save.
+annotate-text-box-edited = Text box edited. Changes are pending save.
+
+## Annotate: Windows only (toolbar commands, numeric geometry dialogs, note reading)
+
+annotate-pointer = Pointer
+annotate-text-box-tooltip = Click or drag on a page to add a text box
+annotate-previous-tooltip = Select the previous annotation, including ones underneath others
+annotate-next = Next annotation
+annotate-next-tooltip = Select the next annotation, including ones underneath others
+annotate-edit-text-box = Edit text box
+annotate-edit-text-box-tooltip = Retype the selected text box
+annotate-read-note = Read note
+annotate-read-note-tooltip = Read the selected note without changing the document
+annotate-nudge-tooltip = Shift the selected annotation
+annotate-move = Move annotation
+annotate-move-tooltip = Set the selected annotation's X and Y in PDF points
+annotate-grow-tooltip = Enlarge the selected annotation
+annotate-resize = Resize annotation
+annotate-resize-tooltip = Set the selected annotation's width and height in PDF points
+annotate-pointer-mode = Pointer mode.
+annotate-text-box-armed = Text box armed. Click or drag on a page to place it.
+# $tool (String) - the localized tool name (annotate-tool-*).
+annotate-armed = { $tool } armed. Drag on a page to place it.
+annotate-ink-needs-drag-not-tap = Ink needs a drag, not a tap.
+annotate-image-unsupported = The image is not a supported PNG or JPEG.
+annotate-stamp-canceled = Stamp placement canceled.
+annotate-stamp-unreadable = The selected stamp image could not be read.
+# $id (Number) - the annotation's internal number; $page (Number) - one-based page number.
+annotate-selected-on-page = Selected annotation { $id } on page { $page }.
+# $page (Number) - one-based page number.
+annotate-move-title = Move annotation — page { $page }
+annotate-move-explanation = Position the annotation's bottom-left bounds in unrotated PDF space. X increases rightward; Y increases upward. Size stays unchanged.
+annotate-position-unchanged = Annotation position unchanged.
+# $page (Number) - one-based page number.
+annotate-resize-title = Resize annotation — page { $page }
+annotate-resize-explanation = The annotation stays at its current PDF-space origin. Width and height are independent; stamps stretch to fit.
+annotate-dimensions-unchanged = Annotation dimensions unchanged.
+# $page (Number) - one-based page number.
+annotate-note-read-title = Note — page { $page }
+annotate-dialog-close = Close
+# $page (Number) - one-based page number.
+annotate-text-box-edit-page-title = Edit text box — page { $page }
+
+## Color dialog: Windows only (shared by annotations and form fields)
+
+editor-color-choose = Choose
+editor-color-cancel = Cancel
+
+## Numeric geometry dialogs: Windows only (annotations, images and text)
+
+geometry-x = X (pt)
+geometry-y = Y (pt)
+geometry-width = Width (pt)
+geometry-height = Height (pt)
+geometry-move = Move
+geometry-resize = Resize
+geometry-cancel = Cancel

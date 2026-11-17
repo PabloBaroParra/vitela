@@ -183,19 +183,19 @@
         </Border>
 
         <viewer:ToolbarPanel x:Name="EditingToolbar" Grid.Row="1">
-            <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click">Highlight</ToggleButton>
-            <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click">Underline</ToggleButton>
-            <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click">Strikeout</ToggleButton>
-            <ToggleButton x:Name="ShapeButton" Click="ShapeButton_Click">Shape</ToggleButton>
-            <ToggleButton x:Name="InkButton" Click="InkButton_Click">Ink</ToggleButton>
-            <ToggleButton x:Name="NoteButton" Click="NoteButton_Click">Note</ToggleButton>
-            <ToggleButton x:Name="FreeTextButton" Click="FreeTextButton_Click" ToolTipService.ToolTip="Click or drag on a page to add a text box">Text box</ToggleButton>
-            <ToggleButton x:Name="StampButton" Click="StampButton_Click">Stamp</ToggleButton>
-            <Button x:Name="PointerButton" Click="PointerButton_Click">Pointer</Button>
-            <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="Select the previous annotation, including ones underneath others" IsEnabled="False">Previous annotation</Button>
-            <Button x:Name="NextAnnotationButton" Click="NextAnnotationButton_Click" ToolTipService.ToolTip="Select the next annotation, including ones underneath others" IsEnabled="False">Next annotation</Button>
-            <Button x:Name="EditFreeTextButton" Click="EditFreeTextButton_Click" ToolTipService.ToolTip="Retype the selected text box" IsEnabled="False">Edit text box</Button>
-            <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="Read the selected note without changing the document" IsEnabled="False">Read note</Button>
+            <ToggleButton x:Name="HighlightButton" Click="HighlightButton_Click" Content="{i18n:T Key=annotate-tool-highlight}" />
+            <ToggleButton x:Name="UnderlineButton" Click="UnderlineButton_Click" Content="{i18n:T Key=annotate-tool-underline}" />
+            <ToggleButton x:Name="StrikeoutButton" Click="StrikeoutButton_Click" Content="{i18n:T Key=annotate-tool-strikeout}" />
+            <ToggleButton x:Name="ShapeButton" Click="ShapeButton_Click" Content="{i18n:T Key=annotate-tool-shape}" />
+            <ToggleButton x:Name="InkButton" Click="InkButton_Click" Content="{i18n:T Key=annotate-tool-ink}" />
+            <ToggleButton x:Name="NoteButton" Click="NoteButton_Click" Content="{i18n:T Key=annotate-tool-note}" />
+            <ToggleButton x:Name="FreeTextButton" Click="FreeTextButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-text-box-tooltip}" Content="{i18n:T Key=annotate-tool-text-box}" />
+            <ToggleButton x:Name="StampButton" Click="StampButton_Click" Content="{i18n:T Key=annotate-tool-stamp}" />
+            <Button x:Name="PointerButton" Click="PointerButton_Click" Content="{i18n:T Key=annotate-pointer}" />
+            <Button x:Name="PreviousAnnotationButton" Click="PreviousAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-previous-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-previous}" />
+            <Button x:Name="NextAnnotationButton" Click="NextAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-next-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-next}" />
+            <Button x:Name="EditFreeTextButton" Click="EditFreeTextButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-edit-text-box-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-edit-text-box}" />
+            <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-read-note-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-read-note}" />
             <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>
             <Button x:Name="ResizeImageButton" Content="Resize image" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Resize a content image on the visible page" />
             <Button x:Name="MoveImageButton" Content="Move image" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a content image on the visible page" />
@@ -206,12 +206,12 @@
             <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
             <ToggleButton x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to place a new text box" />
             <Button x:Name="AddWatermarkButton" Content="Add watermark" Click="AddWatermarkButton_Click" IsEnabled="False" ToolTipService.ToolTip="Stamp the same text or picture across the pages you choose" />
-            <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="Shift the selected annotation">Nudge</Button>
-            <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's X and Y in PDF points" IsEnabled="False">Move annotation</Button>
-            <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="Enlarge the selected annotation">Grow</Button>
-            <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="Set the selected annotation's width and height in PDF points" IsEnabled="False">Resize annotation</Button>
+            <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-nudge-tooltip}" Content="{i18n:T Key=annotate-nudge}" />
+            <Button x:Name="MoveAnnotationButton" Click="MoveAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-move-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-move}" />
+            <Button x:Name="GrowButton" Click="GrowButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-grow-tooltip}" Content="{i18n:T Key=annotate-grow}" />
+            <Button x:Name="ResizeAnnotationButton" Click="ResizeAnnotationButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-resize-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-resize}" />
             <Button x:Name="AnnotationColorButton" AutomationProperties.Name="Change selected annotation color" ToolTipService.ToolTip="Change selected annotation color" Click="AnnotationColorButton_Click">Color</Button>
-            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto">Delete
+            <Button x:Name="DeleteAnnotationButton" Click="DeleteAnnotationButton_Click" KeyboardAcceleratorPlacementMode="Auto" Content="{i18n:T Key=annotate-delete}">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Delete" Invoked="DeleteAnnotation_Invoked" /></Button.KeyboardAccelerators>
             </Button>
         </viewer:ToolbarPanel>

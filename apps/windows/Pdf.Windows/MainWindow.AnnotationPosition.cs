@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -16,23 +17,23 @@ public sealed partial class MainWindow
         var selected = _annotationState.Annotations.LastOrDefault(annotation => annotation.Id == id);
         if (selected is null || AnnotationBounds(selected) is not { } bounds) return;
 
-        var x = new NumberBox { Header = "X (pt)", Value = bounds.X };
-        var y = new NumberBox { Header = "Y (pt)", Value = bounds.Y };
+        var x = new NumberBox { Header = I18n.T("geometry-x"), Value = bounds.X };
+        var y = new NumberBox { Header = I18n.T("geometry-y"), Value = bounds.Y };
         var panel = new StackPanel { Spacing = 8, MinWidth = 300 };
         panel.Children.Add(x);
         panel.Children.Add(y);
         panel.Children.Add(new TextBlock
         {
-            Text = "Position the annotation's bottom-left bounds in unrotated PDF space. X increases rightward; Y increases upward. Size stays unchanged.",
+            Text = I18n.T("annotate-move-explanation"),
             TextWrapping = TextWrapping.Wrap,
         });
         var dialog = new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = $"Move annotation — page {selected.PageIndex + 1}",
+            Title = I18n.T("annotate-move-title", ("page", selected.PageIndex + 1)),
             Content = panel,
-            PrimaryButtonText = "Move",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("geometry-move"),
+            CloseButtonText = I18n.T("geometry-cancel"),
             DefaultButton = ContentDialogButton.Primary,
         };
         bool valid() => double.IsFinite(x.Value) && double.IsFinite(y.Value)
@@ -48,7 +49,7 @@ public sealed partial class MainWindow
         if (_annotationState.Annotations.LastOrDefault(annotation => annotation.Id == id) != selected) return;
         if (x.Value == bounds.X && y.Value == bounds.Y)
         {
-            AnnotationStatus.Text = "Annotation position unchanged.";
+            AnnotationStatus.Text = I18n.T("annotate-position-unchanged");
             return;
         }
 
@@ -64,7 +65,7 @@ public sealed partial class MainWindow
                 return;
             }
             _annotationState = result.Value!;
-            AnnotationStatus.Text = "Annotation moved. Changes are pending save.";
+            AnnotationStatus.Text = I18n.T("annotate-moved");
             RedrawAnnotations();
         }
         finally
