@@ -5,7 +5,8 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { DocumentViewer } from './DocumentViewer';
 
-const VIEWPORT = { width: 800, height: 600 };
+// Wide enough for a Letter page at 100%, so documents open at 100% (see initialZoom).
+const VIEWPORT = { width: 1000, height: 600 };
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 const pages: PageSize[] = Array(40).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 });
 const doc: OpenDocument = {
@@ -63,6 +64,21 @@ afterEach(() => {
 });
 
 describe('DocumentViewer', () => {
+  it('follows the scroll after opening at fit width on a narrow viewport', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(390);
+    const { container, getByText } = render(<DocumentViewer engine={engine} document={doc} />);
+    const scroller = container.querySelector<HTMLElement>('.viewer__scroller')!;
+    expect(Number(scroller.dataset.zoom)).toBeLessThan(1);
+
+    // Well past page 1 at any fit-width zoom.
+    act(() => {
+      scroller.scrollTop = 10 * PAGE_STEP;
+      fireEvent.scroll(scroller);
+    });
+
+    await waitFor(() => expect(getByText(/^Page \d+ of 40$/).textContent).not.toBe('Page 1 of 40'));
+  });
+
   it('keeps the page under the viewport mounted through a zoom deep in the document', async () => {
     const { container } = render(<DocumentViewer engine={engine} document={doc} />);
     const scroller = container.querySelector<HTMLElement>('.viewer__scroller')!;

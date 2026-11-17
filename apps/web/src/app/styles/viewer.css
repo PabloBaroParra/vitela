@@ -1,0 +1,228 @@
+/* The open document: workspace bar, viewer, text layer, drop hint. */
+
+.page-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Workspace: the open bar on top, the viewer filling the rest. */
+.workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px;
+}
+
+.workspace__bar {
+  padding-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+
+.workspace__bar .status-line {
+  margin: 8px 0;
+}
+
+.viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.viewer__toolbars {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 24px;
+}
+
+.viewer__toolbars > .viewer-toolbar:first-child {
+  flex: 1 1 auto;
+}
+
+.viewer-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.viewer-toolbar__zoom {
+  min-width: 4.5ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-toolbar__page {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer__scroller {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--viewer-bg);
+  margin: 0 -16px;
+}
+
+.viewer__content {
+  position: relative;
+}
+
+.page-slot {
+  position: absolute;
+  background: #fff;
+  box-shadow: var(--page-shadow);
+}
+
+/* The text layer covers the page: highlights, selection, pointer input. */
+.text-layer {
+  position: absolute;
+  inset: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.text-layer[data-selectable='true'] {
+  cursor: text;
+  /* Pointer drags select text instead of panning on touch screens. */
+  touch-action: pan-y;
+}
+
+.search-hit,
+.text-selection {
+  position: absolute;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.search-hit {
+  background: var(--search-hit);
+}
+
+.search-hit--current {
+  background: var(--search-hit-current);
+  outline: 2px solid var(--search-hit-current);
+}
+
+.text-selection {
+  background: var(--text-selection);
+}
+
+.page-slot__error {
+  margin: 16px;
+  color: #b42318;
+}
+
+/* Text toolbar: find and copy. */
+.text-toolbar__search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.text-toolbar__search input {
+  font: inherit;
+  color: inherit;
+  width: 16em;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+}
+
+.text-toolbar__search input:disabled {
+  opacity: 0.5;
+}
+
+.text-toolbar__search input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.text-toolbar__result,
+.text-toolbar__copied {
+  min-width: 7ch;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-toolbar__blocked {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--error);
+}
+
+/* Shown while a file is dragged over the window. */
+.drop-hint {
+  position: fixed;
+  inset: 12px;
+  display: grid;
+  place-items: center;
+  border: 3px dashed var(--accent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  font-size: 1.3rem;
+  pointer-events: none;
+}
+
+/* Phones: the document bar and the toolbars stay compact so the page gets
+   the screen. The file name gives way first. */
+@media (max-width: 600px) {
+  .workspace__bar {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
+  .workspace__bar .status-line {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: 0.88rem;
+  }
+
+  .workspace__bar > :last-child,
+  .workspace__bar .file-picker {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .viewer__toolbars {
+    column-gap: 12px;
+  }
+
+  .viewer-toolbar {
+    gap: 4px;
+    padding: 4px 0;
+  }
+
+  .text-toolbar {
+    width: 100%;
+  }
+
+  .text-toolbar__search {
+    flex: 1 1 60%;
+    min-width: 0;
+  }
+
+  .text-toolbar__search input {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    /* 16px stops iOS Safari zooming the page when the field takes focus. */
+    font-size: 16px;
+  }
+
+  .text-toolbar__result,
+  .text-toolbar__copied {
+    min-width: 0;
+  }
+}

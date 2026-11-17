@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './app/App';
 import { createEngine } from '@vitela/core';
-import './app/styles.css';
+import './app/styles/index.css';
 
 const engine = createEngine();
 

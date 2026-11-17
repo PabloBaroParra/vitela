@@ -3,7 +3,8 @@
   Cloudflare Pages serves this for any path that is not a file. Without it,
   Pages falls back to index.html for every unknown URL, so a stale
   /assets/<hash>.js would be answered with HTML under the immutable
-  Cache-Control from _headers. The web has no client-side routes.
+  Cache-Control from _headers. Tool routes (/view, /edit, ...) are rewritten
+  explicitly in _redirects; there is no catch-all.
 -->
 <html lang="en">
   <head>
