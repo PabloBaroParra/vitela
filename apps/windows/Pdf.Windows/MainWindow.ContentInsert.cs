@@ -63,6 +63,10 @@ public sealed partial class MainWindow
     {
         InsertTextButton.IsChecked = _contentInsertKind == ContentInsertKind.Text;
         InsertImageButton.IsChecked = _contentInsertKind == ContentInsertKind.Image;
+        // Armed, every click places something new: nothing on the page is
+        // what a press would grab.
+        if (_contentInsertKind is not null) ClearContentHover();
+        ScheduleQuickActions();
     }
 
     /// <summary>

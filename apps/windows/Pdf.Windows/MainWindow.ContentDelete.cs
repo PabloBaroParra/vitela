@@ -69,7 +69,7 @@ public sealed partial class MainWindow
             // A failed preview can still leave a recorded, undoable deletion.
             CancelContentEditor();
             _contentEditedPages.Add(editor.PageIndex);
-            _pageContent.Remove(editor.PageIndex);
+            ForgetPageContent(editor.PageIndex);
             foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == editor.PageIndex).ToArray())
                 _pendingRunBounds.Remove(key);
             if (editor.PageIndex < _slots.Count) ClearContentOutlines(_slots[(int)editor.PageIndex]);

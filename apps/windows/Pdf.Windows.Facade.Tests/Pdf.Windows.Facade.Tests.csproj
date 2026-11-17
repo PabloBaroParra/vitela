@@ -81,6 +81,8 @@
     <Compile Include="..\Pdf.Windows\Viewer\FileDropRouting.cs" Link="Viewer\FileDropRouting.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentHitTest.cs" Link="Viewer\ContentHitTest.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ImageCardRules.cs" Link="Viewer\ImageCardRules.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ContentHover.cs" Link="Viewer\ContentHover.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\ContentQuickActions.cs" Link="Viewer\ContentQuickActions.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\PdfFontMatch.cs" Link="Viewer\PdfFontMatch.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\EditorRunSelection.cs" Link="Viewer\EditorRunSelection.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ContentEditPump.cs" Link="Viewer\ContentEditPump.cs" />

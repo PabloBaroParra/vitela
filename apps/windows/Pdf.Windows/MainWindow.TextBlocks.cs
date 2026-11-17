@@ -33,6 +33,9 @@ public sealed partial class MainWindow
 
     private TextBlockDrag? _textBlockDrag;
 
+    /// <summary>A block whose font editing substitutes: purple and dashed, apart from the grey resting ones.</summary>
+    private static readonly SolidColorBrush SubstitutedRunBrush = new(global::Windows.UI.Color.FromArgb(120, 170, 90, 220));
+
     private const string TextBlockSelectedHint =
         "Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.";
 
@@ -248,6 +251,19 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
+    /// What Delete removes right now — the selection, then a block, an image
+    /// or a shape, each under its card's own gate — or <c>null</c> when it
+    /// would remove nothing. The Delete key and the quick-action bar's Delete
+    /// both ask here.
+    /// </summary>
+    private Func<Task>? SelectedContentDeletion() =>
+        _contentSelection is not null ? DeleteContentSelectionAsync
+        : _selectedTextBlock is not null ? DeleteSelectedTextBlockAsync
+        : _selectedContentImage is not null && DeleteImageButton.IsEnabled ? DeleteSelectedImageAsync
+        : _selectedContentPath is not null && _deleteShapeButton.IsEnabled ? DeleteSelectedPathAsync
+        : null;
+
+    /// <summary>
     /// Delete for whatever Edit content has selected — a text block, an image
     /// or a shape — and F2 to retype a selected block. Both stand down while a
     /// text field has focus: Delete there removes a character.
@@ -266,26 +282,9 @@ public sealed partial class MainWindow
         delete.Invoked += async (_, args) =>
         {
             if (TextInputHasFocus() || IsPaletteOpen || !_contentEditMode || _pump.Box is not null) return;
-            if (_contentSelection is not null)
-            {
-                args.Handled = true;
-                await DeleteContentSelectionAsync();
-            }
-            else if (_selectedTextBlock is not null)
-            {
-                args.Handled = true;
-                await DeleteSelectedTextBlockAsync();
-            }
-            else if (_selectedContentImage is not null && DeleteImageButton.IsEnabled)
-            {
-                args.Handled = true;
-                await DeleteSelectedImageAsync();
-            }
-            else if (_selectedContentPath is not null && _deleteShapeButton.IsEnabled)
-            {
-                args.Handled = true;
-                await DeleteSelectedPathAsync();
-            }
+            if (SelectedContentDeletion() is not { } deletion) return;
+            args.Handled = true;
+            await deletion();
         };
         PageScroller.KeyboardAccelerators.Add(delete);
 
@@ -312,7 +311,7 @@ public sealed partial class MainWindow
     /// <summary>Drops one page's parsed content and its estimated boxes, then reads it again.</summary>
     private async Task RereadPageContentAsync(uint pageIndex)
     {
-        _pageContent.Remove(pageIndex);
+        ForgetPageContent(pageIndex);
         foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == pageIndex).ToArray())
             _pendingRunBounds.Remove(key);
         if (pageIndex < _slots.Count) ClearContentOutlines(_slots[(int)pageIndex]);
@@ -332,9 +331,9 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// The outlines of one page's text: one box per block, solid when the
-    /// font is preserved, dashed when editing substitutes one. A block being
-    /// dragged is drawn where it would land.
+    /// The outlines of one page's text: one box per block, grey dashes at
+    /// rest, purple dashes when editing substitutes the font, solid blue when
+    /// selected. A block being dragged is drawn where it would land.
     /// </summary>
     private void DrawTextBlockOutlines(PageSlot slot, uint pageIndex, PageContent content)
     {
@@ -346,18 +345,20 @@ public sealed partial class MainWindow
         {
             var dragged = _textBlockDrag is { Dragging: true } drag && block is not null && ReferenceEquals(drag.Block, block);
             var selected = !dragged && block is not null && ReferenceEquals(_selectedTextBlock, block);
-            var outline = new Rectangle
-            {
-                StrokeThickness = dragged || selected ? 2 : 1,
-                Stroke = dragged || selected ? TextBlockDragBrush : new SolidColorBrush(substitutes
-                    ? global::Windows.UI.Color.FromArgb(120, 170, 90, 220)
-                    : global::Windows.UI.Color.FromArgb(120, 40, 120, 235)),
-                IsHitTestVisible = false,
-            };
-            if (substitutes && !dragged && !selected)
-            {
-                outline.StrokeDashArray = [2, 2];
-            }
+            // At rest a block wears the grey dashes every editable item does;
+            // one whose font editing would substitute keeps its own colour and
+            // dash, so the difference reads even without colour.
+            var outline = dragged || selected
+                ? new Rectangle { StrokeThickness = 2, Stroke = TextBlockDragBrush, IsHitTestVisible = false }
+                : substitutes
+                    ? new Rectangle
+                    {
+                        StrokeThickness = 1,
+                        Stroke = SubstitutedRunBrush,
+                        StrokeDashArray = [2, 2],
+                        IsHitTestVisible = false,
+                    }
+                    : RestingOutline();
 
             var placed = dragged ? MovedRect(bounds, _textBlockDrag!.Origin, _textBlockDrag.Current) : bounds;
             PlaceOverPage(outline, slot, (int)pageIndex, placed);

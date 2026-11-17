@@ -217,6 +217,9 @@ public sealed partial class MainWindow : Window
 
         _dialogOpen = true;
         UpdatePageNavigationControls();
+        // The quick-action bar hides behind a dialog and comes back after it:
+        // nothing else re-places it when only the flag changed.
+        ScheduleQuickActions();
         try
         {
             return await dialog.ShowAsync();
@@ -225,6 +228,7 @@ public sealed partial class MainWindow : Window
         {
             _dialogOpen = false;
             UpdatePageNavigationControls();
+            ScheduleQuickActions();
         }
     }
 

@@ -62,6 +62,8 @@ public sealed partial class MainWindow
         if (state is null || state.ContentBaseGeneration == _contentBaseGeneration) return;
         _contentBaseGeneration = state.ContentBaseGeneration;
         _pendingRunBounds.Clear();
+        // The hovered block's box may have been one of those estimates.
+        ClearContentHover();
         if (_contentEditedPages.Count > 0) InvalidateContentEditedPages();
     }
 
@@ -148,6 +150,9 @@ public sealed partial class MainWindow
         var point = ToPdf(slot, pageIndex, args.GetCurrentPoint(slot.Annotations).Position);
         _contentPointerDown = true;
         _contentPressShift = args.KeyModifiers.HasFlag(global::Windows.System.VirtualKeyModifiers.Shift);
+        // Read before the press commits it: a press that resolves an open
+        // editor never also moves an item by its border.
+        _contentPressEditorOpen = ContentEditorOpen;
         _ = BeginContentGestureAsync(slot, pageIndex, point, args);
         return true;
     }
@@ -191,7 +196,7 @@ public sealed partial class MainWindow
             // The core reads a page with its pending edits applied, so the
             // parsed content of an edited page describes the step just undone
             // or redone — a moved block where it no longer is. Read it again.
-            _pageContent.Remove(pageIndex);
+            ForgetPageContent(pageIndex);
             if (pageIndex < _slots.Count)
             {
                 ClearContentOutlines(_slots[(int)pageIndex]);
@@ -211,6 +216,8 @@ public sealed partial class MainWindow
     /// </summary>
     private void UpdateContentEditOverlays(PageWindow visible)
     {
+        // Scrolled or zoomed: the bar follows the selection.
+        ScheduleQuickActions();
         if (!_contentEditMode)
         {
             return;
@@ -277,10 +284,14 @@ public sealed partial class MainWindow
         {
             DrawTextBlockOutlines(slot, pageIndex, content);
             DrawContentPaths(slot, pageIndex, content);
+            DrawRestingImageOutlines(slot, pageIndex, content);
         }
 
         DrawContentImageSelection(slot, pageIndex);
         DrawContentSelection(slot, pageIndex);
+        // On top of everything else, where the pointer rests.
+        if (_contentHover?.PageIndex == pageIndex) ShowContentHover();
+        ScheduleQuickActions();
     }
 
     /// <summary>
@@ -311,6 +322,8 @@ public sealed partial class MainWindow
     /// <summary>Drops the outlines and the open editor, leaving the parsed content alone.</summary>
     private void ClearContentEditVisuals()
     {
+        ClearContentHover();
+        ScheduleQuickActions();
         CancelContentEditor();
         CancelInsertEditor();
         foreach (var slot in _slots)

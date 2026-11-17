@@ -67,7 +67,7 @@ public sealed partial class MainWindow
         foreach (var pageIndex in added.Pages)
         {
             _contentEditedPages.Add(pageIndex);
-            _pageContent.Remove(pageIndex);
+            ForgetPageContent(pageIndex);
             InvalidatePageCharacters(pageIndex);
             if (pageIndex < _slots.Count)
             {

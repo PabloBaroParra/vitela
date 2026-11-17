@@ -17,6 +17,9 @@ public sealed partial class MainWindow
     private async Task BeginContentGestureAsync(PageSlot slot, int pageIndex, AnnotationPoint point,
         Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
     {
+        // What the press was aimed at, before the awaits below let the
+        // pointer move the hover elsewhere (MainWindow.ContentHover.cs).
+        _contentPressHover = _contentHover;
         if (_session is null || !_contentEditMode || !ContentEditButton.IsEnabled || _isBusy || _dialogOpen)
         {
             return;
@@ -225,6 +228,18 @@ public sealed partial class MainWindow
         foreach (var index in Enumerable.Range(0, _slots.Count))
         {
             DrawContentOutlines((uint)index);
+        }
+    }
+
+    /// <summary>The resting grey dashes round every image but the selected one, which draws its own frame.</summary>
+    private void DrawRestingImageOutlines(PageSlot slot, uint pageIndex, PageContent content)
+    {
+        foreach (var image in content.Images)
+        {
+            if (_selectedContentImage is { } selected && selected.PageIndex == pageIndex && selected.Id == image.Id) continue;
+            var outline = RestingOutline();
+            PlaceOverPage(outline, slot, (int)pageIndex, image.Bounds, minSide: 2);
+            slot.Content.Children.Add(outline);
         }
     }
 

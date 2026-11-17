@@ -31,8 +31,6 @@ public sealed partial class MainWindow
     private const string NoShapeSelectedHint = "Click a line or the border of a box to select it.";
     private const string ShapeSelectedHint = "Shape selected — drag it, drag a corner to resize, or press Delete.";
 
-    private static readonly SolidColorBrush PathOutlineBrush = new(global::Windows.UI.Color.FromArgb(110, 30, 150, 90));
-
     private ContentPath? _selectedContentPath;
     private ContentPathDrag? _contentPathDrag;
     /// <summary>
@@ -62,6 +60,8 @@ public sealed partial class MainWindow
         var selected = _session is not null && ContentEditButton.IsEnabled && _contentEditMode && _selectedContentPath is not null;
         _deleteShapeButton.IsEnabled = selected && !_isBusy && !_editingPath;
         _editShapeHint.Text = selected ? ShapeSelectedHint : NoShapeSelectedHint;
+        // The quick-action bar reads this button and the edit in flight.
+        ScheduleQuickActions();
     }
 
     /// <summary>
@@ -296,13 +296,13 @@ public sealed partial class MainWindow
         }
     }
 
-    /// <summary>Faint outlines for every path, so a reader can see what is selectable, then the selection.</summary>
+    /// <summary>The resting grey dashes round every path, so a reader can see what is selectable, then the selection.</summary>
     private void DrawContentPaths(PageSlot slot, uint pageIndex, PageContent content)
     {
         foreach (var path in content.Paths)
         {
             if (ReferenceEquals(path, _selectedContentPath)) continue;
-            var outline = new Rectangle { Stroke = PathOutlineBrush, StrokeThickness = 1, StrokeDashArray = [1, 2], IsHitTestVisible = false };
+            var outline = RestingOutline();
             PlaceOverPage(outline, slot, (int)pageIndex, path.Bounds, minSide: 2);
             slot.Content.Children.Add(outline);
         }

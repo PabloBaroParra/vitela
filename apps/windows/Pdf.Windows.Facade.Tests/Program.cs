@@ -129,6 +129,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("records annotation edits in core history", RecordsAnnotationEditsInCoreHistoryAsync)
     ,("keeps stationary ink gestures as one sample and preserves real strokes", InkPointerTraceTests.RunAsync)
     ,("shows a note's text on hover only when it has some and the viewer is idle", NoteHoverTests.RunAsync)
+    ,("outlines and borders the content item under the pointer, and drops a stale hover", ContentHoverTests.RunAsync)
+    ,("places and gates the quick-action bar beside an Edit content selection", ContentQuickActionsTests.RunAsync)
     ,("decides FreeText dialog, placement, resize and drawing rules without a window", FreeTextInputTests.RunAsync)
     ,("carries FreeText contents and core layout, retypes in one undo step and names unshowable characters", FreeTextFacadeTests.RunAsync)
     ,("crops a drawn signature to its ink as a transparent PNG", DrawnSignatureTests.RunAsync)

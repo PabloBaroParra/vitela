@@ -85,7 +85,7 @@ public sealed partial class MainWindow
             // The edit remains undoable if rebuilding its preview failed.
             _contentEditedPages.Add(pageIndex);
             CancelContentEditor();
-            _pageContent.Remove(pageIndex);
+            ForgetPageContent(pageIndex);
             foreach (var key in _pendingRunBounds.Keys.Where(key => key.Page == pageIndex).ToArray())
                 _pendingRunBounds.Remove(key);
             if (pageIndex < _slots.Count) ClearContentOutlines(_slots[(int)pageIndex]);
