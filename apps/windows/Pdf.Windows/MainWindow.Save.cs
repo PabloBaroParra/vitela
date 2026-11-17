@@ -23,7 +23,7 @@ public sealed partial class MainWindow
             if (!await PrepareDocumentLifecycleAsync()) return false;
             var picker = new FileSavePicker
             {
-                SuggestedFileName = "document",
+                SuggestedFileName = I18n.T("write-default-name"),
                 DefaultFileExtension = ".pdf",
                 CommitButtonText = I18n.T("write-accept"),
             };

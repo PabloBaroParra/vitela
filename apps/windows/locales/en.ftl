@@ -1010,3 +1010,44 @@ write-signature-share-proceed = Share anyway
 selection-copy-select-first = Select text on a page before copying.
 selection-text-copied = Text copied.
 selection-copy-failed = Could not copy the selected text.
+
+## Viewer: dropping and pasting files
+
+drop-unsupported = Dropped file is neither a PDF nor a supported image.
+paste-no-image = Clipboard does not contain a bitmap image.
+
+## Viewer: dropping and pasting files: Windows only (a dropped or pasted
+## picture becomes a stamp annotation)
+
+drop-unsupported-file = Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp.
+drop-unreadable = The dropped file could not be read.
+drop-open-first = Open a PDF first, then drop an image onto a page to stamp it.
+drop-image-onto-page = Drop the image onto a page to place it as a stamp.
+drop-annotation-forbidden = This document does not allow annotation edits.
+paste-open-editable-first = Open an editable PDF before pasting an image.
+paste-image-unusable = The clipboard bitmap could not be used.
+
+## Opening documents, page rendering and form fill
+
+open-no-pages = The PDF contains no pages.
+# $page, $total (Number) - one-based page and page count; $error (String) - renderer detail, kept verbatim.
+render-page-failed = Could not render page { $page } of { $total }: { $error }
+forms-none-choice = (none)
+
+## Window chrome, file names and failure references: Windows only
+
+# Accessible name of the column that holds the tools panels.
+editor-document-panels = Document panels
+# Accessible name of the status bar at the bottom of the window.
+editor-status-bar = Status
+# Accessible name of the drawing area in the Draw signature dialog.
+signature-pad-name = Signature pad
+# $id (String) - the failure's reference id in the diagnostic log, kept verbatim.
+error-reference = Reference: { $id }
+# Name of a new blank document until it is saved.
+editor-untitled = Untitled
+# File name (without .pdf) a save picker suggests and a shared copy falls back to.
+write-default-name = document
+# $name (String) - the signed document's file name without its extension.
+sign-suggested-name = { $name }-signed
+

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -22,7 +23,7 @@ public sealed partial class MainWindow
     private void ShowError(UserSafeError error)
     {
         CloseOrganizeView();
-        ErrorState.Text = $"{error.Message} Reference: {error.CorrelationId}";
+        ErrorState.Text = error.Message + " " + I18n.T("error-reference", ("id", error.CorrelationId));
         ErrorState.Visibility = Visibility.Visible;
         EmptyState.Visibility = Visibility.Collapsed;
         PageScroller.Visibility = Visibility.Collapsed;

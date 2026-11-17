@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows.Viewer;
 
@@ -39,7 +40,7 @@ public sealed class SignaturePadView : Grid
             BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"],
             CornerRadius = new CornerRadius(4),
         });
-        AutomationProperties.SetName(this, "Signature pad");
+        AutomationProperties.SetName(this, I18n.T("signature-pad-name"));
         AutomationProperties.SetAutomationId(this, "SignaturePad");
         _canvas.SizeChanged += (_, _) => _canvas.Clip = new RectangleGeometry { Rect = new global::Windows.Foundation.Rect(0, 0, _canvas.ActualWidth, _canvas.ActualHeight) };
         _canvas.PointerPressed += OnPressed;

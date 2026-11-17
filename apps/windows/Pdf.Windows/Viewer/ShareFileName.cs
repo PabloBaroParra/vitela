@@ -1,3 +1,5 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Viewer;
 
 /// <summary>
@@ -7,13 +9,12 @@ namespace Pdf.Windows.Viewer;
 /// </summary>
 public static class ShareFileName
 {
-    private const string Fallback = "document";
 
     public static string For(string displayName)
     {
         var invalid = Path.GetInvalidFileNameChars();
         var name = new string(displayName.Trim().Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
-        if (name.Length == 0) name = Fallback;
+        if (name.Length == 0) name = I18n.T("write-default-name");
         return name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? name : name + ".pdf";
     }
 }

@@ -926,3 +926,35 @@ write-signature-share-proceed = Compartir de todos modos
 selection-copy-select-first = Selecciona texto en una página antes de copiar.
 selection-text-copied = Texto copiado.
 selection-copy-failed = No se pudo copiar el texto seleccionado.
+
+## Viewer: dropping and pasting files
+
+drop-unsupported = El archivo soltado no es un PDF ni una imagen compatible.
+paste-no-image = El portapapeles no contiene una imagen de mapa de bits.
+
+## Viewer: dropping and pasting files: Windows only
+
+drop-unsupported-file = Vitela abre archivos PDF. Suelta un PNG o JPEG sobre una página para añadirlo como sello.
+drop-unreadable = No se pudo leer el archivo soltado.
+drop-open-first = Abre primero un PDF y después suelta una imagen sobre una página para estamparla.
+drop-image-onto-page = Suelta la imagen sobre una página para colocarla como sello.
+drop-annotation-forbidden = Este documento no permite editar anotaciones.
+paste-open-editable-first = Abre un PDF editable antes de pegar una imagen.
+paste-image-unusable = No se pudo usar la imagen del portapapeles.
+
+## Opening documents, page rendering and form fill
+
+open-no-pages = El PDF no contiene páginas.
+render-page-failed = No se pudo mostrar la página { $page } de { $total }: { $error }
+forms-none-choice = (ninguna)
+
+## Window chrome, file names and failure references: Windows only
+
+editor-document-panels = Paneles del documento
+editor-status-bar = Estado
+signature-pad-name = Área de firma
+error-reference = Referencia: { $id }
+editor-untitled = Sin título
+write-default-name = documento
+sign-suggested-name = { $name }-firmado
+

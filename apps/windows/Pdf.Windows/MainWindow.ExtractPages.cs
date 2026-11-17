@@ -55,7 +55,7 @@ public sealed partial class MainWindow
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
-            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = I18n.T("write-accept") };
+            var picker = new FileSavePicker { SuggestedFileName = I18n.T("write-default-name"), DefaultFileExtension = ".pdf", CommitButtonText = I18n.T("write-accept") };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var file = await picker.PickSaveFileAsync();
