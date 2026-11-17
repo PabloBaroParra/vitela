@@ -6,6 +6,9 @@ var tests = new (string Name, Func<Task> Run)[]
     ("shell lifecycle conservatively guards full Undo without changing the default", DocumentStatesParityTests.RunAsync),
     ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
     ("shares a save-equivalent copy without marking the session saved", ShareParityTests.RunAsync),
+    ("observes, snapshots and reopens documents for crash recovery", RecoveryFacadeTests.RunAsync),
+    ("stores, claims and discards crash-recovery entries", RecoveryStoreTests.RunAsync),
+    ("autosaves unsaved work and never resurrects a forgotten entry", AutosaveSchedulerTests.RunAsync),
     ("document block snapshots, single commands and stale guards", OrganizeParityTests.RunAsync),
     ("prepares PDFs without edits and imports the whole batch as one undo step", ImportParityTests.RunAsync),
     ("edits metadata dates and individual properties without losing offsets", MetadataParityTests.RunAsync),
@@ -4627,7 +4630,12 @@ sealed partial class FakeCore : IPdfCore
     /// <summary>The acknowledgement the facade passed on the last save.</summary>
     public bool? LastSaveAcknowledgedSignatures;
 
-    public bool WillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
+    /// <summary>Makes the signature question itself fail, for callers that must fail closed.</summary>
+    public bool SignatureQueryFails { get; init; }
+    public bool WillInvalidateSignatures(IPdfCoreDocument document) =>
+        SignatureQueryFails ? throw new PdfCoreException(PdfCoreError.Internal, "signature scan failed") : SignedDocument;
+    public bool EncryptedContent { get; set; }
+    public bool HoldsEncryptedContent(IPdfCoreDocument document) => EncryptedContent;
     public bool ProtectionWillInvalidateSignatures(IPdfCoreDocument document) => SignedDocument;
 
     public (string Open, string Permissions)? LastProtectionPasswords;

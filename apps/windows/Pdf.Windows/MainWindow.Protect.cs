@@ -70,7 +70,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = reopened.Error!.Message;
                 return;
             }
-            ShowOpenedDocument(reopened.Value!);
+            ShowOpenedDocument(reopened.Value!, file.Path);
             AnnotationStatus.Text = "Protected PDF saved and reopened.";
         }
         catch (Exception error)

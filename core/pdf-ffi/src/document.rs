@@ -1176,6 +1176,30 @@ impl DocumentHandle {
         content_editing_is_allowed(&self.lock().document)
     }
 
+    /// Whether any part of this session came from an encrypted PDF — the
+    /// question a shell asks before writing the session's bytes somewhere
+    /// the user never chose, such as a crash-recovery copy.
+    ///
+    /// Such a copy cannot be re-encrypted: a save only re-applies encryption
+    /// when it holds every credential, and the copy would then need a
+    /// password the shell never stores to be restored. So any trace of
+    /// encryption answers `true`: a security context on the model (which
+    /// includes the "opens without a prompt but restricts" kind), a password
+    /// pdfium needs, a base that was decrypted on load, or an imported page
+    /// from a PDF that was. The FFI twin of the Linux shell's
+    /// `recovery::policy::holds_encrypted_content`.
+    pub fn holds_encrypted_content(&self) -> bool {
+        let state = self.lock();
+        state.document.security.is_some()
+            || state.render_password.is_some()
+            || state.base.as_lopdf().encryption_state.is_some()
+            || state
+                .imported
+                .pairs()
+                .iter()
+                .any(|(_, source)| source.as_lopdf().encryption_state.is_some())
+    }
+
     /// Whether an existing run has an unsaved movement. Retyping such a run
     /// is no longer refused when the session can checkpoint (see
     /// `document::checkpoint`); a shell that still gates on this keeps the

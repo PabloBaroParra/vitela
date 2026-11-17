@@ -108,7 +108,7 @@ public sealed partial class MainWindow
                 temporary = null;
             });
             if (!result.IsSuccess) { AnnotationStatus.Text = result.Error!.Message; return; }
-            ShowOpenedDocument(result.Value!);
+            ShowOpenedDocument(result.Value!, output.Path);
             SelectToolPage("Sign");
             AnnotationStatus.Text = "Signed PDF saved and reopened.";
         }

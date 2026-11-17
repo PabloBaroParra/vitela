@@ -28,6 +28,7 @@ public sealed partial class MainWindow
             };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
+            await SuggestOriginAsync(picker);
             var file = await picker.PickSaveFileAsync();
             if (file is null)
             {
@@ -76,6 +77,8 @@ public sealed partial class MainWindow
                 return false;
             }
             AnnotationStatus.Text = "PDF saved. Changes remain editable in this session.";
+            _documentOrigin = file.Path;
+            ForgetRecoveryEntry();
             return true;
         }
         catch (Exception error)
@@ -87,6 +90,30 @@ public sealed partial class MainWindow
         {
             try { if (temporary is not null) await temporary.DeleteAsync(); }
             catch (Exception error) { AnnotationStatus.Text = _facade.SaveWriteFailure(error).Error!.Message; }
+        }
+    }
+
+    /// <summary>
+    /// Pre-selects the file the document came from — for a restored document,
+    /// the one that crashed — so Save lands where the reader expects. It stays a
+    /// picker with the usual overwrite confirmation; a document with no origin
+    /// keeps the plain suggestion.
+    /// </summary>
+    private async Task SuggestOriginAsync(FileSavePicker picker)
+    {
+        // A storage item without a file-system path reports an empty one.
+        if (string.IsNullOrWhiteSpace(_documentOrigin) || !Path.IsPathFullyQualified(_documentOrigin)) return;
+        var origin = _documentOrigin;
+        var name = Path.GetFileNameWithoutExtension(origin);
+        if (name.Length == 0) return;
+        picker.SuggestedFileName = name;
+        try
+        {
+            picker.SuggestedSaveFile = await StorageFile.GetFileFromPathAsync(origin);
+        }
+        catch (Exception)
+        {
+            // Moved, deleted or unreachable: the name alone is still the best suggestion.
         }
     }
 

@@ -125,7 +125,8 @@ public sealed partial class MainWindow : Window
     /// was the other way round, that retry fell straight through to
     /// <see cref="ReportFailedOpen"/> without ever prompting.
     /// </remarks>
-    private async Task OpenDocumentAsync(string displayName, byte[] bytes)
+    /// <param name="origin">The file the bytes were read from, if any; see <see cref="ShowOpenedDocument"/>.</param>
+    private async Task OpenDocumentAsync(string displayName, byte[] bytes, string? origin = null)
     {
         SetBusy(true);
         if (!await PrepareDocumentLifecycleAsync())
@@ -188,7 +189,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        ShowOpenedDocument(result.Value!);
+        ShowOpenedDocument(result.Value!, origin);
     }
 
     /// <summary>

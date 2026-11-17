@@ -271,6 +271,7 @@ internal sealed partial class GeneratedPdfCore : IPdfCore
 
     public bool AnnotationEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.AnnotationEditingAllowed();
     public bool ContentEditingAllowed(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.ContentEditingAllowed();
+    public bool HoldsEncryptedContent(IPdfCoreDocument document) => ((GeneratedDocument)document).Handle.HoldsEncryptedContent();
 
     public bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id)
     {

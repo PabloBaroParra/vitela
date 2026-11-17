@@ -193,6 +193,14 @@ internal interface IPdfCore
     /// </summary>
     bool ContentEditingAllowed(IPdfCoreDocument document);
 
+    /// <summary>
+    /// Whether any part of the session came from an encrypted PDF — the
+    /// opened file, a password it needed, or an imported page. A crash
+    /// recovery copy of such a session would be a plaintext copy of a
+    /// protected document, so autosave never writes one.
+    /// </summary>
+    bool HoldsEncryptedContent(IPdfCoreDocument document);
+
     /// <summary>Whether an existing run has an unsaved movement.</summary>
     bool TextRunHasPendingMove(IPdfCoreDocument document, uint pageIndex, ulong id);
 
