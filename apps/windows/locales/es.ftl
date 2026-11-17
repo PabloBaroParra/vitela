@@ -71,11 +71,17 @@ home-shortcut-new = Nuevo
 home-shortcut-save = Guardar
 home-shortcut-find = Buscar
 home-shortcut-print = Imprimir
+home-shortcut-command-palette = Paleta de comandos
 
 ## Home: version footer
 
 home-version = Vitela { $version }
 home-version-dev = desarrollo
+
+## Home: Windows only
+
+home-return-to-document = Volver al documento
+home-recent-files = Archivos recientes
 
 ## Search: status messages
 

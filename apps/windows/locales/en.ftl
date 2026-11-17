@@ -81,12 +81,19 @@ home-shortcut-new = New
 home-shortcut-save = Save
 home-shortcut-find = Find
 home-shortcut-print = Print
+home-shortcut-command-palette = Command palette
 
 ## Home: version footer
 
 # $version (String) - the release version, or home-version-dev.
 home-version = Vitela { $version }
 home-version-dev = dev
+
+## Home: Windows only
+
+home-return-to-document = Return to document
+# Accessible name of the list of recent-document cards.
+home-recent-files = Recent files
 
 ## Search: status messages
 

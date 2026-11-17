@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.Storage;
 
 namespace Pdf.Windows;
@@ -68,7 +69,13 @@ public sealed partial class MainWindow
             var matching = entries.Where(entry => RecentBucket(entry.OpenedUtc.ToLocalTime().Date, today) == bucket).ToArray();
             if (matching.Length == 0) continue;
             var group = new StackPanel { Spacing = 8 };
-            group.Children.Add(new Border { Child = new TextBlock { Text = bucket, Style = HomeStyle("DayChipTextStyle") }, Style = HomeStyle("DayChipStyle") });
+            var heading = bucket switch
+            {
+                "Today" => I18n.T("home-recent-today"),
+                "Yesterday" => I18n.T("home-recent-yesterday"),
+                _ => I18n.T("home-recent-earlier"),
+            };
+            group.Children.Add(new Border { Child = new TextBlock { Text = heading, Style = HomeStyle("DayChipTextStyle") }, Style = HomeStyle("DayChipStyle") });
             var flow = new Viewer.ToolbarPanel { ColumnSpacing = 10, RowSpacing = 10 }; // .home flow: 10/10 as in recents.rs
             group.Children.Add(flow);
             var cards = new List<Button>();
@@ -76,7 +83,12 @@ public sealed partial class MainWindow
             {
                 var name = Path.GetFileName(entry.Path);
                 var local = entry.OpenedUtc.ToLocalTime();
-                var opened = bucket == "Earlier" ? $"Opened {local:d}" : $"Opened {bucket.ToLowerInvariant()}, {local:t}";
+                var opened = bucket switch
+                {
+                    "Today" => I18n.T("home-recent-opened-today", ("time", local.ToString("t"))),
+                    "Yesterday" => I18n.T("home-recent-opened-yesterday", ("time", local.ToString("t"))),
+                    _ => I18n.T("home-recent-opened-on", ("date", local.ToString("d"))),
+                };
                 var image = new Image { Stretch = Stretch.Uniform };
                 var meta = new TextBlock { Text = opened, Style = HomeStyle("HomeMetaStyle") };
                 // The 108px preview frame also sets the card's text width, as in Linux.
@@ -85,10 +97,10 @@ public sealed partial class MainWindow
                 content.Children.Add(new TextBlock { Text = name, Style = HomeStyle("RecentNameStyle") });
                 content.Children.Add(meta);
                 var button = new Button { Content = content, Tag = name, Style = HomeStyle("RecentCardButtonStyle"), VerticalAlignment = VerticalAlignment.Stretch };
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"Open {name}");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, I18n.T("home-recent-open-card", ("name", name)));
                 ToolTipService.SetToolTip(button, entry.Path);
                 button.Click += async (_, _) => await OpenRecentFileAsync(entry.Path);
-                var remove = new MenuFlyoutItem { Text = "Remove from Recent" };
+                var remove = new MenuFlyoutItem { Text = I18n.T("home-recent-remove") };
                 remove.Click += async (_, _) => await HideRecentFileAsync(entry.Path, refocus: false);
                 var menu = new MenuFlyout();
                 menu.Items.Add(remove);
@@ -125,13 +137,14 @@ public sealed partial class MainWindow
                 var bitmap = await MaterializeBitmapAsync(page);
                 if (generation != _recentGeneration) return;
                 preview.Image.Source = bitmap;
-                var pages = session.PageCount == 1 ? "1 page" : $"{session.PageCount} pages";
+                var pages = I18n.T("home-recent-page-count", ("count", session.PageCount));
                 preview.Meta.Text = $"{preview.Opened} · {pages}";
             }
             catch { /* Passwords, missing files and failed thumbnails leave a blank frame. */ }
         }
     }
 
+    /// <summary>The day group's id; its heading is localized where it is drawn.</summary>
     private static string RecentBucket(DateTime opened, DateTime today) => opened == today ? "Today" : opened == today.AddDays(-1) ? "Yesterday" : "Earlier";
 
     private void FilterRecentFiles(string query)
@@ -150,8 +163,8 @@ public sealed partial class MainWindow
             shown += count;
         }
         RecentEmptyMessage.Text = _recentGroups.Count == 0
-            ? "No recent documents yet. Open a PDF and it will show up here."
-            : "No recent document matches that search.";
+            ? I18n.T("home-recent-empty")
+            : I18n.T("home-recent-no-match");
         RecentEmptyMessage.Visibility = shown == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -173,7 +186,7 @@ public sealed partial class MainWindow
         var hidden = await Task.Run(() => _hiddenRecents.Hide(path, DateTime.UtcNow));
         if (!hidden)
         {
-            AnnotationStatus.Text = $"Could not remove {Path.GetFileName(path)} from Recent.";
+            AnnotationStatus.Text = I18n.T("home-recent-remove-failed", ("name", Path.GetFileName(path)));
             return;
         }
         await RefreshRecentFilesAsync();

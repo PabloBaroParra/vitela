@@ -3,6 +3,7 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:viewer="using:Pdf.Windows.Viewer"
+    xmlns:i18n="using:Pdf.Windows.Localization"
     Title="Vitela">
     <!--
         KeyboardAcceleratorPlacementMode=Hidden because shell accelerators
@@ -59,21 +60,21 @@
         <Grid RowDefinitions="Auto,*" Background="{ThemeResource VitelaWindowBackgroundBrush}">
             <Border Style="{StaticResource HomeHeaderStyle}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBox x:Name="HomeSearchBox" PlaceholderText="Search recent files and tools" MaxWidth="340" VerticalAlignment="Center"
-                             AutomationProperties.Name="Search recent files and tools" TextChanged="HomeSearchBox_TextChanged" />
-                    <Button Grid.Column="1" Content="Open file" Style="{StaticResource HomePrimaryButtonStyle}" VerticalAlignment="Center"
-                            Click="ShellOpen_Click" ToolTipService.ToolTip="Open a PDF (Ctrl+O)" />
+                    <TextBox x:Name="HomeSearchBox" PlaceholderText="{i18n:T Key=home-search-placeholder}" MaxWidth="340" VerticalAlignment="Center"
+                             AutomationProperties.Name="{i18n:T Key=home-search-placeholder}" TextChanged="HomeSearchBox_TextChanged" />
+                    <Button Grid.Column="1" Content="{i18n:T Key=home-open-file}" Style="{StaticResource HomePrimaryButtonStyle}" VerticalAlignment="Center"
+                            Click="ShellOpen_Click" ToolTipService.ToolTip="{i18n:T Key=home-open-file-tooltip}" />
                 </Grid>
             </Border>
             <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
                 <StackPanel>
                 <Grid x:Name="HomeBody" Padding="24" ColumnSpacing="20" RowSpacing="0" RowDefinitions="Auto,Auto" ColumnDefinitions="*,268" SizeChanged="HomeBody_SizeChanged">
                     <StackPanel x:Name="HomeMainColumn" Spacing="20">
-                        <Button x:Name="ReturnToDocumentButton" Content="Return to document" Click="ReturnToDocument_Click" Visibility="Collapsed" Style="{StaticResource HomePrimaryButtonStyle}" HorizontalAlignment="Left" />
+                        <Button x:Name="ReturnToDocumentButton" Content="{i18n:T Key=home-return-to-document}" Click="ReturnToDocument_Click" Visibility="Collapsed" Style="{StaticResource HomePrimaryButtonStyle}" HorizontalAlignment="Left" />
                         <StackPanel Spacing="6">
-                            <TextBlock Text="Welcome to Vitela" Style="{StaticResource HomeHeroTitleStyle}" />
-                            <TextBlock Text="Your fast, private PDF workspace." Style="{StaticResource HomeSubtitleStyle}" Margin="0,0,0,10" />
-                            <TextBlock Text="Start a new task" Style="{StaticResource HomeSectionTitleStyle}" Margin="0,0,0,6" />
+                            <TextBlock Text="{i18n:T Key=home-welcome-title}" Style="{StaticResource HomeHeroTitleStyle}" />
+                            <TextBlock Text="{i18n:T Key=home-welcome-subtitle}" Style="{StaticResource HomeSubtitleStyle}" Margin="0,0,0,10" />
+                            <TextBlock Text="{i18n:T Key=home-start-task}" Style="{StaticResource HomeSectionTitleStyle}" Margin="0,0,0,6" />
                             <Border x:Name="HomeDropZone" Background="{ThemeResource VitelaEditorBackgroundBrush}" CornerRadius="14"
                                     Tapped="HomeDropZone_Tapped" AllowDrop="True"
                                     DragOver="HomeDropZone_DragOver" DragLeave="HomeDropZone_DragLeave" Drop="HomeDropZone_Drop">
@@ -82,22 +83,22 @@
                                     <Rectangle x:Name="HomeDropZoneOutline" RadiusX="13" RadiusY="13" StrokeThickness="2" StrokeDashArray="4 3"
                                                Stroke="{ThemeResource VitelaStrongSeparatorBrush}" IsHitTestVisible="False" />
                                     <StackPanel Spacing="10" Margin="28">
-                                        <TextBlock Text="Drag and drop a PDF here" TextAlignment="Center" Style="{StaticResource HomeSubtitleStyle}" />
-                                        <TextBlock Text="or click anywhere in this area to open one" TextAlignment="Center" Style="{StaticResource HomeMetaStyle}" />
-                                        <Button x:Name="HomeSelectFileButton" Content="Select file" Style="{StaticResource HomePrimaryButtonStyle}"
+                                        <TextBlock Text="{i18n:T Key=home-drop-prompt}" TextAlignment="Center" Style="{StaticResource HomeSubtitleStyle}" />
+                                        <TextBlock Text="{i18n:T Key=home-drop-hint}" TextAlignment="Center" Style="{StaticResource HomeMetaStyle}" />
+                                        <Button x:Name="HomeSelectFileButton" Content="{i18n:T Key=home-select-file}" Style="{StaticResource HomePrimaryButtonStyle}"
                                                 Click="ShellOpen_Click" HorizontalAlignment="Center" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
                         </StackPanel>
                         <StackPanel Spacing="10">
-                            <TextBlock Text="Recent" Style="{StaticResource HomeSectionTitleStyle}" />
-                            <ItemsControl x:Name="RecentFilesList" AutomationProperties.Name="Recent files" IsTabStop="False">
+                            <TextBlock Text="{i18n:T Key=home-recent-title}" Style="{StaticResource HomeSectionTitleStyle}" />
+                            <ItemsControl x:Name="RecentFilesList" AutomationProperties.Name="{i18n:T Key=home-recent-files}" IsTabStop="False">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate><StackPanel Spacing="14" /></ItemsPanelTemplate>
                                 </ItemsControl.ItemsPanel>
                             </ItemsControl>
-                            <TextBlock x:Name="RecentEmptyMessage" Text="No recent documents yet. Open a PDF and it will show up here." Style="{StaticResource HomeSubtitleStyle}" />
+                            <TextBlock x:Name="RecentEmptyMessage" Text="{i18n:T Key=home-recent-empty}" Style="{StaticResource HomeSubtitleStyle}" />
                         </StackPanel>
                     </StackPanel>
                     <StackPanel x:Name="HomeToolsColumn" Grid.Column="1" Spacing="16" VerticalAlignment="Top" />
