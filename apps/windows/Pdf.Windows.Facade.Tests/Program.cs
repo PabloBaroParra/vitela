@@ -39,6 +39,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("stamps a watermark as one undoable content edit over the chosen pages", WatermarkParityTests.RunAsync),
     ("moves, resizes and deletes vector paths with history and stale guards", PathParityTests.RunAsync),
     ("groups text runs into blocks and moves, deletes and retypes them whole", TextBlockParityTests.RunAsync),
+    ("reads a stacked paragraph as one block and retypes it with line feeds", ParagraphBlockTests.RunAsync),
     ("shows and toggles bold, italic and underline on existing text", TextStyleParityTests.RunAsync),
     ("maps a retype editor selection onto the runs it covers whole", EditorRunSelectionTests.RunAsync),
     ("gathers multi-item selections and moves or deletes them as one edit", ContentSelectionParityTests.RunAsync),
@@ -265,6 +266,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("keeps the box open when a write the commit never saw is refused", ARefusalOnAWriteTheCommitNeverSawKeepsTheBoxOpen)
     ,("lands the writes then closes the box, before history moves", SettlingForHistoryLandsTheWritesThenClosesTheBox)
     ,("leaves nothing that could write the undone text back", AHistoryStepLeavesNothingThatCouldWriteTheUndoneTextBack)
+    ,("writes a paragraph box's unwritten text before a history step", AHistoryStepWritesAParagraphBoxFirst)
     ,("asks for an undo when abandoning an edit it created", AbandoningAnEditThisSessionCreatedAsksForAnUndo)
     ,("writes the earlier text back when abandoning on top of it", AbandoningAnEditOnTopOfAnEarlierOneWritesTheEarlierTextBack)
     ,("stops the pump without latching a refusal when the document goes", ADocumentGoingAwayStopsThePumpWithoutLatchingARefusal)
@@ -3924,6 +3926,34 @@ static Task SettlingForHistoryLandsTheWritesThenClosesTheBox()
     return Task.CompletedTask;
 }
 
+// A paragraph box writes only when it commits, so a history step settling it
+// has to write what it holds first, or the typing is lost and the step undoes
+// an earlier edit instead. A refused write keeps the box and stops the step.
+static Task AHistoryStepWritesAParagraphBoxFirst()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        foreach (var outcome in new[] { ContentWriteOutcome.Written, ContentWriteOutcome.Refused })
+        {
+            var writer = new GatedWriter();
+            var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+            var box = new FakeBox(0, 7, "Uno", "Uno") { Text = "Uno dos", WritesOnCommit = true };
+            pump.Open(box);
+
+            var settling = pump.SettleForHistoryAsync();
+            dispatcher.Drain();
+            Assert(writer.Sent.SequenceEqual(["Uno dos"]) && !box.Closed, "the typed paragraph is written before the box closes");
+
+            writer.Answer(outcome);
+            dispatcher.Drain();
+            var written = outcome == ContentWriteOutcome.Written;
+            Assert(settling.IsCompleted && settling.Result == written, "the step goes ahead only once the paragraph is written");
+            Assert(box.Closed == written && ReferenceEquals(pump.Box, written ? null : box), "a refused paragraph keeps its box");
+        }
+    });
+    return Task.CompletedTask;
+}
+
 static Task AHistoryStepLeavesNothingThatCouldWriteTheUndoneTextBack()
 {
     TestDispatcher.Run(dispatcher =>
@@ -4972,6 +5002,7 @@ sealed class FakeBox(uint pageIndex, ulong runId, string runText, string openedW
     public string RunText { get; } = runText;
     public string OpenedWith { get; } = openedWith;
     public string Text { get; set; } = openedWith;
+    public bool WritesOnCommit { get; init; }
     public bool Closed { get; private set; }
     public int Closes { get; private set; }
 

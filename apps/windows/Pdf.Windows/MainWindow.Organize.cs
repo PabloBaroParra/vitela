@@ -74,7 +74,11 @@ public sealed partial class MainWindow
         // An open text editor has writes in flight against a page position
         // the grid is about to let the reader change. Land them first, then
         // drop the mode: its parsed runs are keyed by position too.
-        await SettleContentEditorForHistoryAsync();
+        if (!await SettleContentEditorForHistoryAsync())
+        {
+            OrganizeButton.IsChecked = false;
+            return;
+        }
         if (_session?.SessionId != sessionId || _isBusy) return;
         ResetContentEditMode();
         StopPlacingFormField();

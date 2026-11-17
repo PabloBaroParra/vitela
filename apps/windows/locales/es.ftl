@@ -418,6 +418,7 @@ edit-content-editing-armed = Edición de contenido activada: haz clic en el text
 edit-content-editing-armed-run = Edición de contenido activada: haz clic en un fragmento de texto para reescribirlo.
 edit-no-editable-text = Ahí no hay texto editable: haz clic en una palabra para reescribirla.
 edit-retype-hint = Escribe para editar el texto; Esc lo deja como estaba.
+edit-retype-paragraph-hint = Escribe para editar el párrafo; Intro añade una línea, Ctrl+Intro lo aplica y Esc lo deja como estaba.
 edit-retype-substituted = Escribe el texto de sustitución; usará Helvetica. Esc lo deja como estaba.
 edit-font-substitution-title = ¿Reemplazar la fuente de este texto?
 edit-font-substitution-body = Este PDF usa una fuente compuesta que no se puede reescribir con seguridad. Al editarlo, este texto pasará a usar Helvetica y conservará su posición y tamaño. Su aspecto puede cambiar ligeramente.

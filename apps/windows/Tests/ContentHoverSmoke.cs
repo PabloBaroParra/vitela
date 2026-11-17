@@ -257,7 +257,8 @@ public sealed partial class MainWindow
     private static byte[] HoverTablePdf(int rotate, bool overlap = false)
     {
         var content = "0.5 w 300 600 200 80 re S "
-            + "BT /F1 12 Tf 310 650 Td (Cliente) Tj 0 -20 Td (Domingo) Tj ET "
+            // 30pt apart, past the 2.4 em a paragraph allows: two blocks, not one.
+            + "BT /F1 12 Tf 310 650 Td (Cliente) Tj 0 -30 Td (Domingo) Tj ET "
             + "q 60 0 0 40 100 620 cm /Im1 Do Q "
             // The same picture again, drawn over the first one's right half.
             + (overlap ? "q 60 0 0 40 140 630 cm /Im1 Do Q " : "")

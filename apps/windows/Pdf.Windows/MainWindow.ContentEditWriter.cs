@@ -67,6 +67,12 @@ public sealed partial class MainWindow
             PlaceEditor(_slots[(int)editor.PageIndex], editor.PageIndex, editor);
         }
 
+        // A paragraph is written when its editor commits, as on Linux, never
+        // on a pause: each write after one that grew a line is an undo step of
+        // its own, so typing would leave a trail of them (pdf-ffi
+        // `paragraph_read.rs`).
+        if (_pump.Box is { IsParagraph: true }) return;
+
         _pump.Schedule();
     }
 
@@ -107,10 +113,11 @@ public sealed partial class MainWindow
     /// <see cref="ContentEditPump{TBox}.SettleForHistoryAsync"/> for why a
     /// history step cannot leave a box open over the run it is about to move.
     /// </summary>
-    private async Task SettleContentEditorForHistoryAsync()
+    /// <returns><c>false</c> when an open paragraph's text was refused: its box stays, and the caller stops.</returns>
+    private async Task<bool> SettleContentEditorForHistoryAsync()
     {
         await CommitInsertEditorAsync();
-        await _pump.SettleForHistoryAsync();
+        return await _pump.SettleForHistoryAsync();
     }
 
     /// <summary>
@@ -141,8 +148,10 @@ public sealed partial class MainWindow
         }
 
         var sessionId = _session.SessionId;
-        // A block editor sends the runs it opened over every time; the core
-        // folds each write into the first, so typing stays one undo step.
+        // A one-line block editor sends the runs it opened over every time; the
+        // core folds each write into the first, so typing stays one undo step.
+        // A paragraph editor sends the runs the page held after its last write
+        // (`RefindParagraphAfterWrite`), and writes only when it commits.
         var result = editor.Block is { } block
             ? await _facade.RetypeTextBlockAsync(sessionId, block, text)
             : editor.Run.RequiresFontSubstitution
@@ -166,6 +175,7 @@ public sealed partial class MainWindow
         // retyped run in its real font — the estimate below is only the
         // fallback for a run the re-read no longer has.
         await RereadPageContentAsync(editor.PageIndex);
+        RefindParagraphAfterWrite(editor, text);
         if (_pageContent.TryGetValue(editor.PageIndex, out var reread)
             && reread.Content?.TextRuns.FirstOrDefault(run => run.Id == editor.Run.Id) is { } measured)
         {

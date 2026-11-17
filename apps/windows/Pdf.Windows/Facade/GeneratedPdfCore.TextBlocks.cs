@@ -4,12 +4,15 @@ namespace Pdf.Windows.Facade;
 
 internal sealed partial class GeneratedPdfCore
 {
-    public IReadOnlyList<PdfCoreTextBlock> ReadPageTextBlocks(IPdfCoreDocument document, uint pageIndex)
+    // Paragraphs, not lines: this shell's editor is multi-line, as Linux's
+    // is. The core still reads a composite-font paragraph line by line.
+    public IReadOnlyList<PdfCoreTextBlock> ReadPageParagraphBlocks(IPdfCoreDocument document, uint pageIndex)
     {
         try
         {
-            return [.. PdfFfiMethods.ReadPageTextBlocks(((GeneratedDocument)document).Handle, pageIndex)
-                .Select(block => new PdfCoreTextBlock([.. block.Runs.Select(run => run.Id)], Rect(block.Bbox), block.Text))];
+            return [.. PdfFfiMethods.ReadPageParagraphBlocks(((GeneratedDocument)document).Handle, pageIndex)
+                .Select(block => new PdfCoreTextBlock([.. block.Runs.Select(run => run.Id)], Rect(block.Bbox), block.Text,
+                    Math.Max(1, block.Lines.Length), block.Leading))];
         }
         catch (FfiException error) { throw Translate(error); }
     }

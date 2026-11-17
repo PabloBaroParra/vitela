@@ -31,6 +31,12 @@ public interface IContentEditBox
     /// <summary>What the box says now.</summary>
     string Text { get; set; }
 
+    /// <summary>
+    /// Whether the box is written only when it commits (a paragraph), never on
+    /// a pause in the typing.
+    /// </summary>
+    bool WritesOnCommit => false;
+
     /// <summary>Takes the box off the page. Called at most once per box.</summary>
     void Close();
 }
@@ -391,11 +397,24 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     /// what makes that a single step to begin with. A write left running would
     /// instead land after the step and undo it.
     /// </remarks>
-    public async Task SettleForHistoryAsync()
+    /// <returns>
+    /// <c>false</c> when a box that writes only on commit kept text the core
+    /// refused: the box stays open and the step must not run.
+    /// </returns>
+    public async Task<bool> SettleForHistoryAsync()
     {
         pause.Stop();
         await DrainAsync();
+        // A paragraph box has sent nothing while the reader typed. Closing it
+        // unwritten would drop the typing, and the step would then move an
+        // earlier edit; written first, the step lands on this one.
+        if (_box is IContentEditBox { WritesOnCommit: true })
+        {
+            await PumpAsync();
+            if (_box is not null && _refused) return false;
+        }
         Close();
+        return true;
     }
 
     /// <summary>The text the document currently holds for a box's run.</summary>

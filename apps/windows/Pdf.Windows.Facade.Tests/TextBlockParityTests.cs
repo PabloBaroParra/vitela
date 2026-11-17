@@ -117,7 +117,7 @@ sealed partial class FakeCore
     public List<PdfCoreTextBlockEdit> TextBlockEdits { get; } = [];
     public string? TextBlockRefusal { get; set; }
 
-    public IReadOnlyList<PdfCoreTextBlock> ReadPageTextBlocks(IPdfCoreDocument document, uint pageIndex) =>
+    public IReadOnlyList<PdfCoreTextBlock> ReadPageParagraphBlocks(IPdfCoreDocument document, uint pageIndex) =>
         PageTextBlocks ?? [.. PageTextRuns.Select(run => new PdfCoreTextBlock([run.Id], run.Bbox, run.Text))];
 
     public void ApplyTextBlockEdit(IPdfCoreDocument document, PdfCoreTextBlockEdit edit)

@@ -135,7 +135,8 @@ pub use sign_sources::{
 };
 pub use split::{plan_split, FfiSplitPart};
 pub use text_blocks::{
-    move_text_block, read_page_text_blocks, remove_text_block, retype_text_block,
+    move_text_block, read_page_paragraph_blocks, read_page_text_blocks, remove_text_block,
+    retype_text_block,
 };
 pub use text_style::{
     restyle_text_runs, text_run_look, FfiTextRunLook, FfiTextRunLookState, FfiTextRunRestyle,

@@ -196,7 +196,7 @@ public sealed partial class MainWindow
         UpdateShapeCard();
         try
         {
-            await SettleContentEditorForHistoryAsync();
+            if (!await SettleContentEditorForHistoryAsync()) return;
             if (_session?.SessionId != sessionId || !ReferenceEquals(_selectedContentPath, selected)) return;
             if (await CurrentContentPathAsync(sessionId, selected) is not { } current) return;
             var result = await _facade.RemovePathAsync(sessionId, current);
