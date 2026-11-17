@@ -197,13 +197,13 @@
             <Button x:Name="EditFreeTextButton" Click="EditFreeTextButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-edit-text-box-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-edit-text-box}" />
             <Button x:Name="ReadNoteButton" Click="ReadNoteButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-read-note-tooltip}" IsEnabled="False" Content="{i18n:T Key=annotate-read-note}" />
             <ToggleButton x:Name="ContentEditButton" Click="ContentEditButton_Click" ToolTipService.ToolTip="Click a text run on the page to retype it">Edit text</ToggleButton>
-            <Button x:Name="ResizeImageButton" Content="Resize image" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Resize a content image on the visible page" />
-            <Button x:Name="MoveImageButton" Content="Move image" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a content image on the visible page" />
+            <Button x:Name="ResizeImageButton" Content="{i18n:T Key=edit-resize-image}" Click="ResizeImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-resize-image-tooltip}" />
+            <Button x:Name="MoveImageButton" Content="{i18n:T Key=edit-move-image}" Click="MoveImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-move-image-tooltip}" />
             <Button x:Name="DeleteImageButton" Content="Delete image" Click="DeleteImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Remove the selected image from the page" />
             <Button x:Name="ReplaceImageButton" Content="Replace image" Click="ReplaceImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Swap the selected image for a file on disk" />
             <ToggleButton x:Name="InsertImageButton" Content="Insert image" Click="InsertImageButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to insert a picture" />
             <Button x:Name="DeleteTextButton" Content="Delete text" Click="DeleteTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Delete a text run on the visible page" />
-            <Button x:Name="MoveTextButton" Content="Move text" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Move a text run on the visible page" />
+            <Button x:Name="MoveTextButton" Content="{i18n:T Key=edit-move-text}" Click="MoveTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="{i18n:T Key=edit-move-text-tooltip}" />
             <ToggleButton x:Name="InsertTextButton" Content="Insert text" Click="InsertTextButton_Click" IsEnabled="False" ToolTipService.ToolTip="Click the page to place a new text box" />
             <Button x:Name="AddWatermarkButton" Content="Add watermark" Click="AddWatermarkButton_Click" IsEnabled="False" ToolTipService.ToolTip="Stamp the same text or picture across the pages you choose" />
             <Button x:Name="NudgeButton" Click="NudgeButton_Click" ToolTipService.ToolTip="{i18n:T Key=annotate-nudge-tooltip}" Content="{i18n:T Key=annotate-nudge}" />

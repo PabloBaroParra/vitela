@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -12,18 +13,18 @@ public sealed partial class MainWindow
     /// <summary>EDIT_ICON_PX (content_edit/panel.rs): the cards' tiles carry 16px accent icons, muted when unavailable.</summary>
     private const double EditIconSize = 16;
 
-    private readonly TextBlock _editAvailability = EditHint("Open a PDF to edit the text and images on its pages.");
+    private readonly TextBlock _editAvailability = EditHint(I18n.T("edit-no-document"));
     private Border? _editNotice;
-    private readonly TextBlock _editTextHint = EditHint("Click a text run to retype it in place.");
+    private readonly TextBlock _editTextHint = EditHint(I18n.T("edit-text-run-hint"));
     private readonly TextBlock _editImageHint = EditHint(NoImageSelectedHint);
 
     private void BuildEditPanel(Viewer.ToolbarPanel row)
     {
         var page = _toolPages["Edit"];
-        var heading = new TextBlock { Text = "Edit PDF", Style = NamedStyle("EditPanelHeadingStyle") };
+        var heading = new TextBlock { Text = I18n.T("edit-heading"), Style = NamedStyle("EditPanelHeadingStyle") };
         AutomationProperties.SetAutomationId(heading, "EditPanelHeading");
         page.Children.Add(heading);
-        page.Children.Add(EditHint("Change the text and images already on the page."));
+        page.Children.Add(EditHint(I18n.T("edit-description-text-images")));
         AutomationProperties.SetAutomationId(_editAvailability, "EditAvailability");
         _editAvailability.Style = NamedStyle("EditNoticeTextStyle");
         _editNotice = new Border { Child = _editAvailability, Style = NamedStyle("EditNoticeStyle") };
@@ -31,33 +32,39 @@ public sealed partial class MainWindow
 
         // Explicit collection removal also works before this hidden subtree loads.
         foreach (var control in row.Children.ToArray()) row.Children.Remove(control);
-        ToolbarIcon(ContentEditButton, ShellIcon.Edit, "Edit content",
-            "Turn on content editing, then click a text run on the page", "Edit content", EditIconSize, IconTint.Accent);
-        ToolbarIcon(InsertTextButton, ShellIcon.Text, "Insert text", "Click the page to place a new text box", "Insert text", EditIconSize, IconTint.Accent);
-        ToolbarIcon(DeleteTextButton, ShellIcon.Delete, "Delete text", "Remove the text run being edited from the page (not secure redaction)", "Delete text", EditIconSize, IconTint.Accent);
+        ToolbarIcon(ContentEditButton, ShellIcon.Edit, I18n.T("edit-mode"),
+            I18n.T("edit-mode-run-tooltip"), I18n.T("edit-mode"), EditIconSize, IconTint.Accent);
+        ToolbarIcon(InsertTextButton, ShellIcon.Text, I18n.T("edit-insert-text"), I18n.T("edit-insert-text-tooltip"),
+            I18n.T("edit-insert-text"), EditIconSize, IconTint.Accent);
+        ToolbarIcon(DeleteTextButton, ShellIcon.Delete, I18n.T("edit-delete-text"), I18n.T("edit-delete-text-run-tooltip"),
+            I18n.T("edit-delete-text"), EditIconSize, IconTint.Accent);
         // Keep the inline target when clicked, without removing keyboard access.
         DeleteTextButton.AllowFocusOnInteraction = false;
         WireTextBlockKeys();
         BuildQuickActions();
-        ToolbarIcon(InsertImageButton, ShellIcon.Image, "Insert image", "Click the page to insert a picture", "Insert image", EditIconSize, IconTint.Accent);
-        ToolbarIcon(ReplaceImageButton, ShellIcon.Image, "Replace image", "Swap the selected image for a file on disk", "Replace image", EditIconSize, IconTint.Accent);
-        ToolbarIcon(DeleteImageButton, ShellIcon.Delete, "Delete image", "Remove the selected image from the page", "Delete image", EditIconSize, IconTint.Accent);
+        ToolbarIcon(InsertImageButton, ShellIcon.Image, I18n.T("edit-insert-image"), I18n.T("edit-insert-image-tooltip"),
+            I18n.T("edit-insert-image"), EditIconSize, IconTint.Accent);
+        ToolbarIcon(ReplaceImageButton, ShellIcon.Image, I18n.T("edit-replace-image"), I18n.T("edit-replace-image-tooltip"),
+            I18n.T("edit-replace-image"), EditIconSize, IconTint.Accent);
+        ToolbarIcon(DeleteImageButton, ShellIcon.Delete, I18n.T("edit-delete-image"), I18n.T("edit-delete-image-tooltip"),
+            I18n.T("edit-delete-image"), EditIconSize, IconTint.Accent);
         // .edit-tile: the cards' buttons are tiles; an armed mode (Edit content, Insert text/image) moves its border to the accent.
         foreach (var mode in new[] { ContentEditButton, InsertTextButton, InsertImageButton })
             mode.Style = NamedStyle("EditTileToggleStyle");
-        ToolbarIcon(AddWatermarkButton, ShellIcon.Text, "Add watermark", "Stamp the same text or picture across the pages you choose", "Add watermark", EditIconSize, IconTint.Accent);
+        ToolbarIcon(AddWatermarkButton, ShellIcon.Text, I18n.T("edit-watermark"), I18n.T("edit-watermark-picture-tooltip"),
+            I18n.T("edit-watermark"), EditIconSize, IconTint.Accent);
         foreach (var tile in new Button[] { DeleteTextButton, ReplaceImageButton, DeleteImageButton, AddWatermarkButton })
             tile.Style = NamedStyle("EditTileButtonStyle");
 
-        page.Children.Add(EditCard("Text", "EditTextCard",
+        page.Children.Add(EditCard(I18n.T("edit-card-text"), "EditTextCard",
             _editTextHint,
             ContentEditButton, InsertTextButton, DeleteTextButton, BuildTextStyleToggles()));
-        page.Children.Add(EditCard("Images", "EditImagesCard",
+        page.Children.Add(EditCard(I18n.T("edit-card-images"), "EditImagesCard",
             _editImageHint,
             InsertImageButton, ReplaceImageButton, DeleteImageButton));
         page.Children.Add(BuildShapesCard());
-        page.Children.Add(EditCard("Pages", "EditPagesCard",
-            EditHint("A watermark is painted into the pages themselves and is one undo step."),
+        page.Children.Add(EditCard(I18n.T("edit-card-pages"), "EditPagesCard",
+            EditHint(I18n.T("edit-watermark-hint")),
             AddWatermarkButton));
 
         // Preserve working Windows-only numeric geometry commands below the primary cards.
@@ -95,11 +102,11 @@ public sealed partial class MainWindow
         UpdateImageCard();
         UpdateShapeCard();
         if (_editNotice is null) return;
-        var reason = _session is null ? "Open a PDF to edit the text and images on its pages."
-            : !_session.ContentEditingAllowed ? "This document does not permit content changes."
-            : _session.PageCount == 0 ? "This PDF has no pages to edit."
-            : _isBusy ? "Please wait while the document is being updated."
-            : _organizing ? "Return to the document to edit its text and images." : null;
+        var reason = _session is null ? I18n.T("edit-no-document")
+            : !_session.ContentEditingAllowed ? I18n.T("refusal-content-forbidden")
+            : _session.PageCount == 0 ? I18n.T("edit-no-pages")
+            : _isBusy ? I18n.T("edit-busy")
+            : _organizing ? I18n.T("edit-return-to-document") : null;
         _editAvailability.Text = reason ?? string.Empty;
         _editNotice.Visibility = reason is null ? Visibility.Collapsed : Visibility.Visible;
     }
@@ -114,9 +121,9 @@ public sealed partial class MainWindow
         DeleteTextButton.IsEnabled = ContentEditButton.IsEnabled && _contentEditMode && !_deletingContentText && !_isBusy
             && (editor is not null || block is not null);
         _editTextHint.Text = editor is not null
-            ? "Text run selected — delete it, or retype it in place."
+            ? I18n.T("edit-text-run-selected")
             : block is not null ? TextBlockSelectedHint
-            : "Click text to select it; double-click to retype it in place.";
+            : I18n.T("edit-no-text-selected-retype");
         UpdateTextStyleToggles();
         ScheduleQuickActions();
     }

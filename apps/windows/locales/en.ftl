@@ -372,6 +372,141 @@ geometry-move = Move
 geometry-resize = Resize
 geometry-cancel = Cancel
 
+## Shared refusals: document permissions and editable-model availability
+
+refusal-content-forbidden = This document does not permit content changes.
+
+## Edit PDF: panel controls, tooltips and gesture hints
+
+edit-heading = Edit PDF
+edit-card-text = Text
+edit-card-images = Images
+edit-card-shapes = Shapes
+edit-card-pages = Pages
+edit-mode = Edit content
+edit-insert-text = Insert text
+edit-insert-text-tooltip = Click the page to place a new text box
+edit-delete-text = Delete text
+edit-insert-image = Insert image
+edit-insert-image-tooltip = Click the page to insert a picture
+edit-replace-image = Replace image
+edit-replace-image-tooltip = Swap the selected image for a file on disk
+edit-delete-image = Delete image
+edit-delete-image-tooltip = Remove the selected image from the page
+edit-delete-shape = Delete shape
+edit-watermark = Add watermark
+edit-watermark-hint = A watermark is painted into the pages themselves and is one undo step.
+edit-no-document = Open a PDF to edit the text and images on its pages.
+edit-text-selected = Text selected — drag to move it, press Delete to remove it, double-click or F2 to retype it.
+edit-no-image-selected = Click an image on the page to select it.
+edit-image-selected = Image selected — replace or delete it.
+
+## Edit PDF: mode activation messages
+
+edit-insert-text-armed = Insert text armed — click the page to place a new text box.
+edit-insert-image-armed = Insert image armed — click the page to insert a picture.
+
+## Edit PDF: content edit results and refusals
+
+edit-cancelled = Edit cancelled.
+
+## Edit PDF: multi-select and content clipboard
+
+edit-multi-nothing = Nothing there to select.
+edit-multi-cleared = Selection cleared.
+
+## Edit PDF: Windows only (panel wording, numeric geometry dialogs, statuses
+## that end in "Save to keep the change.")
+
+edit-description-text-images = Change the text and images already on the page.
+edit-mode-run-tooltip = Turn on content editing, then click a text run on the page
+edit-delete-text-run-tooltip = Remove the text run being edited from the page (not secure redaction)
+edit-watermark-picture-tooltip = Stamp the same text or picture across the pages you choose
+edit-delete-shape-line-tooltip = Remove the selected line or box from the page
+edit-resize-image = Resize image
+edit-resize-image-tooltip = Resize a content image on the visible page
+edit-move-image = Move image
+edit-move-image-tooltip = Move a content image on the visible page
+edit-move-text = Move text
+edit-move-text-tooltip = Move a text run on the visible page
+edit-no-pages = This PDF has no pages to edit.
+edit-busy = Please wait while the document is being updated.
+edit-return-to-document = Return to the document to edit its text and images.
+edit-text-run-hint = Click a text run to retype it in place.
+edit-text-run-selected = Text run selected — delete it, or retype it in place.
+edit-no-text-selected-retype = Click text to select it; double-click to retype it in place.
+edit-image-pending-edit = This image has an unsaved edit — move, resize or delete it. Save before replacing it.
+edit-image-page-changed = The page changed — select the image again.
+edit-no-shape-selected-line = Click a line or the border of a box to select it.
+edit-shape-selected-resize = Shape selected — drag it, drag a corner to resize, or press Delete.
+edit-shape-page-changed = The page changed — select the shape again.
+edit-content-editing-off = Content editing off.
+edit-content-editing-armed = Content editing armed — click text to select it, double-click to retype it.
+edit-content-editing-armed-run = Content editing armed — click a text run to retype it.
+edit-no-editable-text = No editable text there — click a word to retype it.
+edit-retype-hint = Type to edit the text — Escape puts it back.
+edit-retype-substituted = Type replacement text — it will use Helvetica. Escape puts it back.
+edit-font-substitution-title = Replace this text's font?
+edit-font-substitution-body = This PDF uses a composite font that cannot be retyped safely. Editing will replace this text with Helvetica while keeping its position and size. The appearance may change slightly.
+edit-font-substitution-accept = Replace font and edit
+edit-font-substitution-cancel = Cancel
+edit-insert-text-typing = Type the new text — Enter inserts it, Escape cancels.
+edit-insertion-cancelled = Insertion cancelled.
+edit-text-changed-before-delete = The text changed. Click the run again before deleting it.
+edit-image-unreadable = The selected image could not be read.
+edit-text-updated-save = Text updated. Save to keep the change.
+edit-text-inserted-save = Text inserted. Save to keep the change.
+edit-text-moved-save = Text moved. Save to keep the change.
+edit-text-deleted-save = Text deleted. Save to keep the change.
+edit-image-inserted-save = Image inserted. Save to keep the change.
+edit-image-replaced-save = Image replaced. Save to keep the change.
+edit-image-moved-save = Image moved. Save to keep the change.
+edit-image-resized-save = Image resized. Save to keep the change.
+edit-image-deleted-save = Image deleted. Save to keep the change.
+edit-shape-moved-save = Shape moved. Save to keep the change.
+edit-shape-resized-save = Shape resized. Save to keep the change.
+edit-shape-deleted-save = Shape deleted. Save to keep the change.
+edit-selection-moved-save = Selection moved. Save to keep the change.
+edit-selection-deleted-save = Selection deleted. Save to keep the change.
+# $count (Number) - selected items.
+edit-items-selected =
+    { $count ->
+        [one] { $count } item selected — drag inside the dashed box to move them, press Delete to remove them, SHIFT+click to add or remove one.
+       *[other] { $count } items selected — drag inside the dashed box to move them, press Delete to remove them, SHIFT+click to add or remove one.
+    }
+edit-clipboard-cut-hint = Cut. Point where it should go and press Ctrl+V.
+# $count (Number) - items placed on the content clipboard.
+edit-clipboard-copied-hint =
+    { $count ->
+        [one] Copied { $count } item. Point where it should go and press Ctrl+V.
+       *[other] Copied { $count } items. Point where it should go and press Ctrl+V.
+    }
+edit-clipboard-pasted-hint = Pasted. Drag it into place, or save to keep the change.
+# $count (Number) - pasted items, now selected.
+edit-clipboard-pasted-count =
+    { $count ->
+        [one] Pasted { $count } item — drag inside the dashed box to place them.
+       *[other] Pasted { $count } items — drag inside the dashed box to place them.
+    }
+edit-no-content-images = The visible page has no editable content images.
+edit-image-choice = Image
+# $index (Number) - one-based image number; $x, $y (String) - coordinates in points, already formatted.
+edit-image-choice-item = Image { $index }: X { $x }, Y { $y } pt
+# $page (Number) - one-based page number.
+edit-image-move-title = Move image — page { $page }
+# $page (Number) - one-based page number.
+edit-image-resize-title = Resize image — page { $page }
+edit-image-move-explanation = Coordinates use PDF space: X increases rightward and Y upward. The image keeps its size. Save before making another geometry edit to the same image.
+edit-image-resize-explanation = The image stays at its current origin. Width and height are independent. Save before making another geometry edit to the same image.
+edit-image-position-unchanged = Image position unchanged.
+edit-image-dimensions-unchanged = Image dimensions unchanged.
+edit-no-text-runs = The visible page has no editable text runs.
+edit-text-run-choice = Text run
+# $page (Number) - one-based page number.
+edit-text-move-title = Move text — page { $page }
+edit-text-move-explanation = Coordinates use PDF space: X increases rightward and Y upward. The text keeps its font and size. Repeated moves share one Undo step; moving newly inserted text updates its insertion. Save and reopen first if existing text has been retyped.
+edit-text-position-unchanged = Text position unchanged.
+
 ## Comments: Windows only (the Comments tools page lists the document's comments)
 
 comments-empty = No comments in this document.

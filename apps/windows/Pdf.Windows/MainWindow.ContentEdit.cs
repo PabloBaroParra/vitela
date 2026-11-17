@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.System;
 
@@ -109,7 +110,7 @@ public sealed partial class MainWindow
             _selectionGesture = null;
             UpdateEditTextSelection();
             ClearContentEditVisuals();
-            AnnotationStatus.Text = "Content editing off.";
+            AnnotationStatus.Text = I18n.T("edit-content-editing-off");
             return;
         }
 
@@ -124,7 +125,7 @@ public sealed partial class MainWindow
         _textSelection = null;
         _textDragActive = false;
         RedrawSelection();
-        AnnotationStatus.Text = "Content editing armed — click text to select it, double-click to retype it.";
+        AnnotationStatus.Text = I18n.T("edit-content-editing-armed");
         UpdateContentEditOverlays(VisiblePageWindow());
     }
 
@@ -138,7 +139,7 @@ public sealed partial class MainWindow
         if (_isBusy || _deletingContentText) return true;
         if (!ContentEditButton.IsEnabled)
         {
-            AnnotationStatus.Text = "This document does not permit content changes.";
+            AnnotationStatus.Text = I18n.T("refusal-content-forbidden");
             return true;
         }
 

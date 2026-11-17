@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -27,9 +28,6 @@ public sealed partial class MainWindow
         AnnotationPoint Origin, AnnotationPoint Current, bool Dragging, ContentSelection? Base);
 
     private static readonly SolidColorBrush MarqueeFill = new(global::Windows.UI.Color.FromArgb(28, 26, 89, 217));
-
-    private const string ContentSelectionHint =
-        "drag inside the dashed box to move them, press Delete to remove them, SHIFT+click to add or remove one.";
 
     /// <summary>What a marquee or SHIFT+click gathered, or <c>null</c>.</summary>
     private ContentSelection? _contentSelection;
@@ -217,7 +215,7 @@ public sealed partial class MainWindow
         {
             var result = await _facade.MoveContentSelectionAsync(completed.SessionId, selection, dx, dy);
             if (_session?.SessionId != completed.SessionId) return;
-            await AfterContentSelectionEditAsync(selection, result, "Selection moved. Save to keep the change.", keep: true);
+            await AfterContentSelectionEditAsync(selection, result, I18n.T("edit-selection-moved-save"), keep: true);
         }
         finally
         {
@@ -249,7 +247,7 @@ public sealed partial class MainWindow
         if (selection.IsEmpty)
         {
             DrawContentOutlines(completed.PageIndex);
-            AnnotationStatus.Text = "Nothing there to select.";
+            AnnotationStatus.Text = I18n.T("edit-multi-nothing");
         }
     }
 
@@ -285,7 +283,7 @@ public sealed partial class MainWindow
                 ClearContentPathSelection();
             }
             ClaimPageFocus();
-            AnnotationStatus.Text = $"{selection.Count} {(selection.Count == 1 ? "item" : "items")} selected — {ContentSelectionHint}";
+            AnnotationStatus.Text = I18n.T("edit-items-selected", ("count", selection.Count));
         }
         if (previous is not null && previous.PageIndex != selection?.PageIndex) DrawContentOutlines(previous.PageIndex);
         if (selection is not null) DrawContentOutlines(selection.PageIndex);
@@ -308,7 +306,7 @@ public sealed partial class MainWindow
         {
             var result = await _facade.RemoveContentSelectionAsync(sessionId, selection);
             if (_session?.SessionId != sessionId) return;
-            await AfterContentSelectionEditAsync(selection, result, "Selection deleted. Save to keep the change.", keep: false);
+            await AfterContentSelectionEditAsync(selection, result, I18n.T("edit-selection-deleted-save"), keep: false);
         }
         finally
         {

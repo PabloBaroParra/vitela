@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
 using Pdf.Windows.Viewer;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -16,9 +17,9 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
-    private const string NoImageSelectedHint = "Click an image on the page to select it.";
-    private const string ImageSelectedHint = "Image selected — replace or delete it.";
-    private const string ImagePendingEditHint = "This image has an unsaved edit — save the document before replacing it.";
+    private static string NoImageSelectedHint => I18n.T("edit-no-image-selected");
+    private static string ImageSelectedHint => I18n.T("edit-image-selected");
+    private static string ImagePendingEditHint => I18n.T("edit-image-pending-edit");
 
     private ImageControls CurrentImageControls()
     {
@@ -73,7 +74,7 @@ public sealed partial class MainWindow
             return null;
         }
         var current = ImageCardRules.Current(images.Value!, selected);
-        if (current is null) AnnotationStatus.Text = "The page changed — select the image again.";
+        if (current is null) AnnotationStatus.Text = I18n.T("edit-image-page-changed");
         return current;
     }
 
@@ -108,7 +109,7 @@ public sealed partial class MainWindow
             }
             _annotationState = result.Value;
             UpdateAnnotationControls(_annotationState);
-            AnnotationStatus.Text = "Image deleted. Save to keep the change.";
+            AnnotationStatus.Text = I18n.T("edit-image-deleted-save");
         }
         finally
         {

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows;
 
@@ -46,9 +47,9 @@ public sealed partial class MainWindow
         SyncContentInsertToggles();
         AnnotationStatus.Text = _contentInsertKind switch
         {
-            ContentInsertKind.Text => "Insert text armed — click the page to place a new text box.",
-            ContentInsertKind.Image => "Insert image armed — click the page to insert a picture.",
-            _ => _contentEditMode ? "Content editing armed — click a text run to retype it." : AnnotationStatus.Text,
+            ContentInsertKind.Text => I18n.T("edit-insert-text-armed"),
+            ContentInsertKind.Image => I18n.T("edit-insert-image-armed"),
+            _ => _contentEditMode ? I18n.T("edit-content-editing-armed-run") : AnnotationStatus.Text,
         };
     }
 
