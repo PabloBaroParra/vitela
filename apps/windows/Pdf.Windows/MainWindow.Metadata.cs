@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.System;
 
 namespace Pdf.Windows;
@@ -20,7 +21,7 @@ public sealed partial class MainWindow
     {
         var enabled = !_isBusy && _session?.ContentEditingAllowed == true && _session.SessionId == _metadataSessionId;
         foreach (var entry in MetadataEntries) entry.IsEnabled = enabled;
-        MetadataPages.Text = _session is null ? "Pages: —" : $"Pages: {_session.PageCount}";
+        MetadataPages.Text = _session is null ? I18n.T("metadata-pages-none") : I18n.T("metadata-pages-value", ("count", _session.PageCount));
     }
 
     private async Task RefreshDocumentInfoAsync()
@@ -33,7 +34,7 @@ public sealed partial class MainWindow
             _metadataSyncing = true;
             foreach (var entry in MetadataEntries) entry.Text = "";
             _metadataSyncing = false;
-            MetadataPermission.Text = "Open a PDF before editing its properties.";
+            MetadataPermission.Text = I18n.T("metadata-open-first");
             UpdateMetadataControls();
             return;
         }
@@ -61,7 +62,7 @@ public sealed partial class MainWindow
             MetadataCreated.Text = MetadataDateText.Format(info.CreationDate);
             MetadataModified.Text = MetadataDateText.Format(info.ModDate);
             _metadataSessionId = sessionId;
-            MetadataPermission.Text = _session.ContentEditingAllowed ? "" : "This document does not permit metadata changes.";
+            MetadataPermission.Text = _session.ContentEditingAllowed ? "" : I18n.T("metadata-forbidden");
         }
         finally { _metadataSyncing = false; }
         UpdateMetadataControls();
@@ -108,6 +109,6 @@ public sealed partial class MainWindow
 
     private void ReportMetadataResult(OperationResult<DocumentInfo> result)
     {
-        AnnotationStatus.Text = result.IsSuccess ? "Document properties updated. Changes are pending save." : result.Error!.Message;
+        AnnotationStatus.Text = result.IsSuccess ? I18n.T("metadata-updated") : result.Error!.Message;
     }
 }

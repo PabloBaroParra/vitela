@@ -1,10 +1,12 @@
+using Pdf.Windows.Localization;
+
 namespace Pdf.Windows.Viewer;
 
 /// <summary>Steps through search hits, wrapping at either end.</summary>
 public static class SearchSelection
 {
     public static string Status(string query, int selectedIndex, int count) =>
-        $"Match {selectedIndex + 1} of {count} for \"{query}\".";
+        I18n.T("search-match", ("index", selectedIndex + 1), ("total", count), ("query", query));
 
     public static int StepIndex(int selectedIndex, int count, int delta)
     {

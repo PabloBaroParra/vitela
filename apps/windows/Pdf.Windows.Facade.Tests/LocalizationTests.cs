@@ -96,6 +96,9 @@ internal static class LocalizationTests
             Equal(I18n.T("home-recent-page-count", ("count", 12)), "12 páginas", "Spanish plural");
             Equal(I18n.T("home-recent-opened-today", ("time", "10:45")), "Abierto hoy, 10:45", "Spanish placeable");
             Equal(I18n.T("search-no-matches", ("query", "{PDF} á")), "No hay coincidencias para «{PDF} á».", "arguments are kept verbatim");
+            Equal(Pdf.Windows.Viewer.SearchSelection.Status("needle", 0, 3), "Coincidencia 1 de 3 para «needle».", "Spanish search status");
+            Equal(I18n.T("search-result", ("page", 4u), ("text", "a.b")), "Página 4: a.b", "unsigned page numbers format as numbers");
+            Equal(I18n.T("metadata-pages-value", ("count", 12u)), "Páginas: 12", "Spanish page count in properties");
         }
         return Task.CompletedTask;
     }

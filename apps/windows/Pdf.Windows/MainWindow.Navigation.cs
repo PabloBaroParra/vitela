@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Localization;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
 
@@ -112,7 +113,7 @@ public sealed partial class MainWindow
         if (destination == "Protect")
         {
             if (ProtectButton.IsEnabled) ProtectButton_Click(ProtectButton, e);
-            else AnnotationStatus.Text = "This document does not permit changes to its protection.";
+            else AnnotationStatus.Text = I18n.T("protect-forbidden");
             return;
         }
         if (destination == "Compress")

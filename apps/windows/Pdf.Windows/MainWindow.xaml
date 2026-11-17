@@ -45,7 +45,7 @@
                     <TextBlock Text="Vitela" Style="{StaticResource BrandWordStyle}" />
                 </StackPanel>
                 <viewer:ToolbarPanel x:Name="ModeBar" Grid.Column="1" VerticalAlignment="Center"
-                                     AutomationProperties.Name="Vitela sections" />
+                                     AutomationProperties.Name="{i18n:T Key=mode-bar-sections}" />
             </Grid>
         </Border>
         <!--
@@ -112,75 +112,72 @@
         </UserControl>
         <Grid x:Name="EditorView" Grid.Row="1" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
         <Border Grid.Row="0" Style="{StaticResource EditorToolbarStyle}">
+        <!--
+            BuildEditorToolbar (MainWindow.Toolbar.cs) gives every button here
+            its icon, caption, accessible name and tooltip, and regroups them;
+            only text it does not set is declared below.
+        -->
         <viewer:ToolbarPanel x:Name="EditorToolbar">
-            <Button x:Name="OpenButton" Click="OpenButton_Click" ToolTipService.ToolTip="Open a PDF (Ctrl+O)">
-                Open
-            </Button>
-            <Button x:Name="OpenSampleButton" Content="Open sample">
+            <Button x:Name="OpenButton" Click="OpenButton_Click" />
+            <Button x:Name="OpenSampleButton">
                 <Button.Flyout>
                     <MenuFlyout>
-                        <MenuFlyoutItem Text="Vitela sample" Click="OpenSamplePlain_Click" />
-                        <MenuFlyoutItem Text="AES-128 sample (user-aes-pass)" Click="OpenSampleAes128_Click" />
-                        <MenuFlyoutItem Text="RC4-128 sample (user-rc4-pass)" Click="OpenSampleRc4128_Click" />
+                        <MenuFlyoutItem Text="{i18n:T Key=editor-sample-plain}" Click="OpenSamplePlain_Click" />
+                        <MenuFlyoutItem Text="{i18n:T Key=editor-sample-aes128}" Click="OpenSampleAes128_Click" />
+                        <MenuFlyoutItem Text="{i18n:T Key=editor-sample-rc4128}" Click="OpenSampleRc4128_Click" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-            <Button x:Name="PrintButton" Click="PrintButton_Click" ToolTipService.ToolTip="Print (Ctrl+P)">
-                Print
-            </Button>
-            <Button x:Name="ShareButton" Content="Share" Click="ShareButton_Click" ToolTipService.ToolTip="Send a copy with Nearby Sharing, Phone Link or another app" />
-            <Button x:Name="SaveButton" Click="SaveButton_Click" ToolTipService.ToolTip="Save as (Ctrl+S)">
-                Save
-            </Button>
-            <Button x:Name="ProtectButton" Content="Protect" Click="ProtectButton_Click" />
-            <Button x:Name="CompressButton" Content="Compress" Click="CompressButton_Click" />
-            <Button x:Name="ExportImagesButton" Content="Export images" Click="ExportImagesButton_Click" ToolTipService.ToolTip="Save pages as PNG or JPEG files" />
-            <Button x:Name="ExtractPagesButton" Content="Extract pages" Click="ExtractPagesButton_Click" ToolTipService.ToolTip="Save chosen pages as a new PDF" />
-            <Button x:Name="SplitPagesButton" Content="Split PDF" Click="SplitPagesButton_Click" ToolTipService.ToolTip="Cut the document into several PDFs" />
-            <ToggleButton x:Name="OrganizeButton" Content="Organize" Click="OrganizeButton_Click" ToolTipService.ToolTip="Move, rotate or delete pages" />
-            <ToggleButton x:Name="PagesPanelButton" Content="Pages" IsChecked="True" Click="PagesPanelButton_Click" ToolTipService.ToolTip="Show or hide the page list" />
-            <ToggleButton x:Name="ToolsPanelButton" Content="Tools" IsChecked="True" Click="ToolsPanelButton_Click" ToolTipService.ToolTip="Show or hide tools, properties, form fields and search results" />
-            <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="No document open" MaxWidth="200" TextTrimming="CharacterEllipsis" />
+            <Button x:Name="PrintButton" Click="PrintButton_Click" />
+            <Button x:Name="ShareButton" Click="ShareButton_Click" />
+            <Button x:Name="SaveButton" Click="SaveButton_Click" />
+            <Button x:Name="ProtectButton" Click="ProtectButton_Click" />
+            <Button x:Name="CompressButton" Click="CompressButton_Click" />
+            <Button x:Name="ExportImagesButton" Click="ExportImagesButton_Click" />
+            <Button x:Name="ExtractPagesButton" Click="ExtractPagesButton_Click" />
+            <Button x:Name="SplitPagesButton" Click="SplitPagesButton_Click" />
+            <ToggleButton x:Name="OrganizeButton" Click="OrganizeButton_Click" />
+            <ToggleButton x:Name="PagesPanelButton" IsChecked="True" Click="PagesPanelButton_Click" />
+            <ToggleButton x:Name="ToolsPanelButton" IsChecked="True" Click="ToolsPanelButton_Click" />
+            <TextBlock x:Name="DocumentTitle" VerticalAlignment="Center" Text="{i18n:T Key=editor-no-document}" MaxWidth="200" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="PageCounter" VerticalAlignment="Center" MinWidth="54" TextAlignment="Center" />
-            <Button x:Name="FirstPageButton" Content="First page" Click="FirstPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the first page of the document (Ctrl+Home)">
+            <Button x:Name="FirstPageButton" Click="FirstPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="Home" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button x:Name="PreviousPageButton" Content="Previous page" Click="PreviousPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the page before the current viewport page (Ctrl+Up)">
+                <Button x:Name="PreviousPageButton" Click="PreviousPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto">
                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Up" Modifiers="Control" /></Button.KeyboardAccelerators>
                 </Button>
-                <Button x:Name="NextPageButton" Content="Next page" Click="NextPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the page after the current viewport page (Ctrl+Down)">
+                <Button x:Name="NextPageButton" Click="NextPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto">
                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Down" Modifiers="Control" /></Button.KeyboardAccelerators>
                 </Button>
             </StackPanel>
-            <Button x:Name="LastPageButton" Content="Last page" Click="LastPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Go to the last page of the document (Ctrl+End)">
+            <Button x:Name="LastPageButton" Click="LastPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="End" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
-            <Button x:Name="GoToPageButton" Content="Go to page" Click="GoToPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto" ToolTipService.ToolTip="Jump to a page by number">
+            <Button x:Name="GoToPageButton" Click="GoToPageButton_Click" IsEnabled="False" KeyboardAcceleratorPlacementMode="Auto">
                 <Button.KeyboardAccelerators><KeyboardAccelerator Key="G" Modifiers="Control" /></Button.KeyboardAccelerators>
             </Button>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" ToolTipService.ToolTip="Zoom out">&#x2212;</Button>
+                <Button x:Name="ZoomOutButton" Click="ZoomOutButton_Click" />
                 <TextBlock x:Name="ZoomLevel" VerticalAlignment="Center" MinWidth="48" TextAlignment="Center" />
-                <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" ToolTipService.ToolTip="Zoom in">&#x002B;</Button>
+                <Button x:Name="ZoomInButton" Click="ZoomInButton_Click" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <Button x:Name="FitWidthButton" Click="FitWidthButton_Click">Fit width</Button>
-                <Button x:Name="FitPageButton" Click="FitPageButton_Click">Fit page</Button>
+                <Button x:Name="FitWidthButton" Click="FitWidthButton_Click" />
+                <Button x:Name="FitPageButton" Click="FitPageButton_Click" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
                 <Button x:Name="UndoButton" Click="UndoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
-                    Undo
                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Z" Modifiers="Control" /></Button.KeyboardAccelerators>
                 </Button>
                 <Button x:Name="RedoButton" Click="RedoButton_Click" KeyboardAcceleratorPlacementMode="Auto">
-                    Redo
                     <Button.KeyboardAccelerators><KeyboardAccelerator Key="Y" Modifiers="Control" /></Button.KeyboardAccelerators>
                 </Button>
             </StackPanel>
             <StackPanel Orientation="Horizontal" Spacing="12">
-                <TextBox x:Name="SearchBox" Width="220" PlaceholderText="Find exact text" ToolTipService.ToolTip="Case-sensitive. Press Enter to search." KeyDown="SearchBox_KeyDown" />
-                <Button x:Name="SearchButton" Click="SearchButton_Click">Find</Button>
+                <TextBox x:Name="SearchBox" Width="220" ToolTipService.ToolTip="{i18n:T Key=editor-find-hint}" KeyDown="SearchBox_KeyDown" />
+                <Button x:Name="SearchButton" Content="{i18n:T Key=editor-find-submit}" Click="SearchButton_Click" />
             </StackPanel>
         </viewer:ToolbarPanel>
         </Border>
@@ -235,7 +232,7 @@
             <ProgressRing x:Name="BusyIndicator" Grid.Column="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
                 <Image Source="{ThemeResource AppMarkImageSource}" Width="96" Height="96" HorizontalAlignment="Center" AutomationProperties.AccessibilityView="Raw" />
-                <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="Drop a PDF here to open it, or try the built-in sample." />
+                <TextBlock x:Name="EmptyStateMessage" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Text="{i18n:T Key=editor-empty-state}" />
             </StackPanel>
             <TextBlock x:Name="ErrorState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" Visibility="Collapsed" />
             <ScrollViewer
@@ -276,18 +273,18 @@
                           AutomationProperties.Name="Document panels">
                 <StackPanel x:Name="SidebarContent" Spacing="8">
                     <StackPanel x:Name="DocumentProperties" Spacing="6">
-                        <TextBlock Text="Document properties" FontWeight="SemiBold" />
+                        <TextBlock Text="{i18n:T Key=metadata-heading}" FontWeight="SemiBold" />
                         <StackPanel Spacing="6" Padding="0,8,0,8">
                             <TextBlock x:Name="MetadataPermission" TextWrapping="Wrap" />
-                            <TextBlock x:Name="MetadataPages" Text="Pages: —" />
-                            <TextBox x:Name="MetadataTitle" Header="Title" Tag="Title" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataAuthor" Header="Author" Tag="Author" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataSubject" Header="Subject" Tag="Subject" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataKeywords" Header="Keywords" Tag="Keywords" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataCreator" Header="Creator" Tag="Creator" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataProducer" Header="Producer" Tag="Producer" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
-                            <TextBox x:Name="MetadataCreated" Header="Created" Tag="Created" IsEnabled="False" PlaceholderText="YYYY-MM-DD HH:MM:SS" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
-                            <TextBox x:Name="MetadataModified" Header="Modified" Tag="Modified" IsEnabled="False" PlaceholderText="YYYY-MM-DD HH:MM:SS" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
+                            <TextBlock x:Name="MetadataPages" Text="{i18n:T Key=metadata-pages-none}" />
+                            <TextBox x:Name="MetadataTitle" Header="{i18n:T Key=metadata-title}" Tag="Title" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataAuthor" Header="{i18n:T Key=metadata-author}" Tag="Author" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataSubject" Header="{i18n:T Key=metadata-subject}" Tag="Subject" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataKeywords" Header="{i18n:T Key=metadata-keywords}" Tag="Keywords" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataCreator" Header="{i18n:T Key=metadata-creator}" Tag="Creator" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataProducer" Header="{i18n:T Key=metadata-producer}" Tag="Producer" IsEnabled="False" TextChanged="MetadataText_TextChanged" />
+                            <TextBox x:Name="MetadataCreated" Header="{i18n:T Key=metadata-created}" Tag="Created" IsEnabled="False" PlaceholderText="{i18n:T Key=metadata-date-placeholder}" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
+                            <TextBox x:Name="MetadataModified" Header="{i18n:T Key=metadata-modified}" Tag="Modified" IsEnabled="False" PlaceholderText="{i18n:T Key=metadata-date-placeholder}" KeyDown="MetadataDate_KeyDown" LostFocus="MetadataDate_LostFocus" />
                         </StackPanel>
                     </StackPanel>
                     <StackPanel x:Name="FormFieldsPanel" Spacing="10">
@@ -319,8 +316,8 @@
                         </StackPanel>
                     </StackPanel>
                     <StackPanel x:Name="SearchMatchControls" Orientation="Horizontal" Spacing="8">
-                        <Button x:Name="PreviousMatchButton" Click="PreviousMatchButton_Click" IsEnabled="False">Previous match</Button>
-                        <Button x:Name="NextMatchButton" Click="NextMatchButton_Click" IsEnabled="False">Next match</Button>
+                        <Button x:Name="PreviousMatchButton" Click="PreviousMatchButton_Click" IsEnabled="False" />
+                        <Button x:Name="NextMatchButton" Click="NextMatchButton_Click" IsEnabled="False" />
                     </StackPanel>
                     <ListView x:Name="SearchResultsList" MaxHeight="240" SelectionChanged="SearchResultsList_SelectionChanged" />
                 </StackPanel>
@@ -375,7 +372,7 @@
         <Border Grid.Row="2" Style="{StaticResource StatusBarStyle}"
                 AutomationProperties.Name="Status">
             <StackPanel Spacing="4">
-                <TextBlock x:Name="AnnotationStatus" Style="{StaticResource StatusTextStyle}" Text="Choose a PDF file to view, or open the built-in sample."
+                <TextBlock x:Name="AnnotationStatus" Style="{StaticResource StatusTextStyle}" Text="{i18n:T Key=editor-idle-status}"
                            TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"
                            ToolTipService.ToolTip="{Binding Text, ElementName=AnnotationStatus}" />
                 <TextBlock x:Name="PrintStatus" Style="{StaticResource StatusTextStyle}" TextTrimming="CharacterEllipsis" AutomationProperties.LiveSetting="Polite"
