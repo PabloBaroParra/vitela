@@ -9,7 +9,7 @@
 // layout effect must write the scroll first.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import type { Point } from './layout';
 import { fitWidthZoom, wheelZoom, zoomAround } from './zoom';
 

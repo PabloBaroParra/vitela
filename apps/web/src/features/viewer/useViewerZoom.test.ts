@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { useViewerZoom } from './useViewerZoom';
 import { MAX_ZOOM, zoomAround } from './zoom';
 

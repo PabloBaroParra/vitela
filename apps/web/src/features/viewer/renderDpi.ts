@@ -1,7 +1,7 @@
 // The resolution a page is rendered at for a given zoom. The core renders
 // at a whole DPI (the contract every shell shares), so this rounds.
 
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { CSS_PX_PER_PT } from './layout';
 
 /**

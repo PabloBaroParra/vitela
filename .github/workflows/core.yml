@@ -144,7 +144,7 @@ jobs:
     timeout-minutes: 20
     env:
       # Bump together with core/pdf-wasm/Cargo.toml's wasm-bindgen pin,
-      # apps/web/scripts/build-wasm.sh and web.yml.
+      # packages/vitela-core/scripts/build-wasm.sh and web.yml.
       WASM_BINDGEN_VERSION: "0.2.130"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

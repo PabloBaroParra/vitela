@@ -3,7 +3,7 @@
 // inside a page slot. Pure: the only conversion left to the web shell is
 // the zoom.
 
-import type { PagePoint, PageRects } from '../../core/types';
+import type { PagePoint, PageRects } from '@vitela/core';
 import type { Rect } from '../viewer/layout';
 
 /** Floats per rect in a `PageRects` buffer: left, top, width, height. */

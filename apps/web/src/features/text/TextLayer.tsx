@@ -4,7 +4,7 @@
 // the page as drawn; this only scales them by the zoom.
 
 import { memo, useRef, type PointerEvent, type MouseEvent } from 'react';
-import type { PageRects } from '../../core/types';
+import type { PageRects } from '@vitela/core';
 import { toCssRects, toPagePoint } from './pageRects';
 import type { TextInput } from './useTextSelection';
 

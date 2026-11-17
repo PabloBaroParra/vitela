@@ -21,7 +21,8 @@
 //! pdfium is a separate Emscripten module. JavaScript must load it, apply
 //! the `_PDFium_Init` alias, and call `initialize_pdfium_render(pdfium,
 //! thisModuleExports, debug)` — exported from this module by pdfium-render —
-//! before constructing an `Engine`. See `apps/web/src/worker/pdfium.ts`.
+//! before constructing an `Engine`. See
+//! `packages/vitela-core/src/worker/pdfium.ts`.
 
 pub mod convert;
 pub mod error;

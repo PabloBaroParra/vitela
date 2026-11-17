@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { EngineError } from '../../core/errors';
-import type { Engine } from '../../core/types';
+import { EngineError } from '@vitela/core';
+import type { Engine } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import type { Delivery, Destination, SaveIntent } from './delivery';

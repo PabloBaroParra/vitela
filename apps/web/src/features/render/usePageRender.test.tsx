@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import type { Engine, RenderedPage } from '../../core/types';
+import type { Engine, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { usePageRender } from './usePageRender';
 

@@ -1,10 +1,10 @@
 //! The `Engine` against the real pdfium, in a headless browser.
 //!
-//! Runs in a dedicated worker — where `apps/web` runs the engine — with
+//! Runs in a dedicated worker — where `@vitela/core` runs the engine — with
 //! pdfium's glue evaluated as a function body exactly as the worker does it
-//! (`apps/web/src/worker/pdfium.ts`). pdfium itself is compiled in from
-//! `PDFIUM_WASM_DIR` (fetched by `scripts/fetch-pdfium.sh`), so the test
-//! server needs to serve nothing but the test module.
+//! (`packages/vitela-core/src/worker/pdfium.ts`). pdfium itself is compiled
+//! in from `PDFIUM_WASM_DIR` (fetched by `scripts/fetch-pdfium.sh`), so the
+//! test server needs to serve nothing but the test module.
 //!
 //! ```sh
 //! core/pdf-wasm/scripts/fetch-pdfium.sh target/pdfium-wasm

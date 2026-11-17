@@ -1,6 +1,7 @@
 node_modules/
 dist/
-# Built by scripts/build-wasm.sh: wasm-bindgen output and the pinned pdfium.
+# Pre-@vitela/core checkouts built WASM here; the engine now lives in
+# packages/vitela-core/src/generated/. Kept ignored so stale copies stay out.
 generated/
 test-results/
 playwright-report/

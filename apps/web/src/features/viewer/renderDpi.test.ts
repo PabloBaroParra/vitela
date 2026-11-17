@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PageSize } from '../../core/types';
+import type { PageSize } from '@vitela/core';
 import { MAX_RENDER_PIXELS, renderDpi } from './renderDpi';
 
 const letter: PageSize = { widthPt: 612, heightPt: 792, rotationDegrees: 0 };

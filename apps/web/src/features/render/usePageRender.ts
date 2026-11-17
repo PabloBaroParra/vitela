@@ -2,7 +2,7 @@
 // changes. Container logic only; PageCanvas does the painting.
 
 import { useEffect, useRef, useState } from 'react';
-import type { DocumentHandle, Engine, RenderedPage } from '../../core/types';
+import type { DocumentHandle, Engine, RenderedPage } from '@vitela/core';
 
 export type PageRenderState =
   | { readonly status: 'idle' }

@@ -1,0 +1,12 @@
+{
+  // The worker (WebWorker side) into dist/worker/. No declarations: it is
+  // reached through `new Worker(...)`, never imported.
+  "extends": "./tsconfig.worker.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": null,
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "exclude": ["src/**/*.test.ts"]
+}

@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Engine, PageSize, RenderedPage } from '../../core/types';
+import type { Engine, PageSize, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { DocumentViewer } from './DocumentViewer';

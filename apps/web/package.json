@@ -6,16 +6,18 @@
   "description": "Vitela web shell: the Rust core as WASM in a Web Worker, React UI.",
   "license": "MIT OR Apache-2.0",
   "scripts": {
-    "build:wasm": "bash scripts/build-wasm.sh",
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build:wasm": "npm run build:wasm --workspace @vitela/core",
+    "build:core": "npm run build --workspace @vitela/core",
+    "dev": "npm run build:core && node scripts/dev.mjs",
+    "build": "npm run build:core && tsc -b && vite build",
     "preview": "vite preview --strictPort",
-    "typecheck": "tsc -b",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "typecheck": "npm run build:core && tsc -b",
+    "test": "npm run build:core && vitest run",
+    "test:watch": "npm run build:core && vitest",
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@vitela/core": "0.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

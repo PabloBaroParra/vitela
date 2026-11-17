@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { EngineError } from '../../core/errors';
-import type { PagePoint, TextSelection } from '../../core/types';
+import { EngineError } from '@vitela/core';
+import type { PagePoint, TextSelection } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { useTextSelection } from './useTextSelection';
 

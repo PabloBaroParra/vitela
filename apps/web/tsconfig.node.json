@@ -19,7 +19,6 @@
   "include": [
     "vite.config.ts",
     "playwright.config.ts",
-    "e2e",
-    "src/worker/**/*.real.test.ts"
+    "e2e"
   ]
 }
