@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.Storage;
 using Windows.Storage.Pickers;
@@ -40,7 +41,7 @@ public sealed partial class MainWindow
             var plan = await AskImageExportAsync(session);
             if (plan is null)
             {
-                AnnotationStatus.Text = "Export cancelled.";
+                AnnotationStatus.Text = I18n.T("export-cancelled");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
@@ -50,7 +51,7 @@ public sealed partial class MainWindow
             var folder = await picker.PickSingleFolderAsync();
             if (folder is null)
             {
-                AnnotationStatus.Text = "Export cancelled. No file was written.";
+                AnnotationStatus.Text = I18n.T("export-nothing-written");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
@@ -86,21 +87,21 @@ public sealed partial class MainWindow
         StorageFile? incomplete = null;
         try
         {
-            AnnotationStatus.Text = "Preparing to export...";
+            AnnotationStatus.Text = I18n.T("export-preparing");
             var prepared = await _facade.PrepareImageExportAsync(sessionId);
             if (!prepared.IsSuccess)
             {
-                AnnotationStatus.Text = $"Could not prepare the document for export: {prepared.Error!.Message}";
+                AnnotationStatus.Text = I18n.T("export-prepare-failed", ("error", prepared.Error!.Message));
                 return;
             }
 
             foreach (var file in plan.Files)
             {
-                AnnotationStatus.Text = $"Exporting page {file.PageIndex + 1} ({written + 1} of {plan.Files.Count})...";
+                AnnotationStatus.Text = I18n.T("export-busy-page", ("page", file.PageIndex + 1), ("index", written + 1), ("total", plan.Files.Count));
                 var image = await _facade.ExportPageImageAsync(sessionId, file.PageIndex, plan.Dpi, plan.Format);
                 if (!image.IsSuccess)
                 {
-                    AnnotationStatus.Text = $"Page {file.PageIndex + 1} could not be exported: {image.Error!.Message} {written} written.";
+                    AnnotationStatus.Text = I18n.T("export-page-failed-written", ("page", file.PageIndex + 1), ("error", image.Error!.Message), ("written", written));
                     return;
                 }
 
@@ -116,7 +117,7 @@ public sealed partial class MainWindow
         }
         catch (Exception error)
         {
-            AnnotationStatus.Text = $"Export stopped after {written} written: {_facade.SaveWriteFailure(error).Error!.Message}";
+            AnnotationStatus.Text = I18n.T("export-stopped", ("written", written), ("error", _facade.SaveWriteFailure(error).Error!.Message));
         }
         finally
         {
@@ -140,16 +141,16 @@ public sealed partial class MainWindow
     {
         var currentPage = session.PageCount == 0 ? 0 : Math.Min((uint)Math.Max(0, _firstVisiblePage), session.PageCount - 1);
 
-        var pages = new RadioButtons { Header = "Pages" };
+        var pages = new RadioButtons { Header = I18n.T("export-pages-label") };
         var range = new TextBox { PlaceholderText = "1-3,7", MinWidth = 200, IsEnabled = false, Name = "ExportPageRange" };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(range, "Page range");
-        pages.Items.Add(new RadioButton { Content = "All pages", Tag = ImageExportPages.All });
-        pages.Items.Add(new RadioButton { Content = "Current page", Tag = ImageExportPages.Current });
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(range, I18n.T("export-page-range"));
+        pages.Items.Add(new RadioButton { Content = I18n.T("export-all-pages"), Tag = ImageExportPages.All });
+        pages.Items.Add(new RadioButton { Content = I18n.T("export-current-page"), Tag = ImageExportPages.Current });
         var custom = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        custom.Children.Add(new TextBlock { Text = "Pages", VerticalAlignment = VerticalAlignment.Center });
+        custom.Children.Add(new TextBlock { Text = I18n.T("export-custom-pages"), VerticalAlignment = VerticalAlignment.Center });
         custom.Children.Add(range);
         var customChoice = new RadioButton { Content = custom, Tag = ImageExportPages.Custom };
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(customChoice, "Pages");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(customChoice, I18n.T("export-custom-pages"));
         pages.Items.Add(customChoice);
         pages.SelectedIndex = 0;
         pages.SelectionChanged += (_, _) =>
@@ -158,7 +159,7 @@ public sealed partial class MainWindow
             if (range.IsEnabled) range.Focus(FocusState.Programmatic);
         };
 
-        var format = new ComboBox { Header = "Format", MinWidth = 120 };
+        var format = new ComboBox { Header = I18n.T("export-format-label"), MinWidth = 120 };
         foreach (var choice in Enum.GetValues<ImageExportFormat>())
         {
             format.Items.Add(new ComboBoxItem { Content = ImageExportWording.FormatName(choice), Tag = choice });
@@ -167,7 +168,7 @@ public sealed partial class MainWindow
 
         var dpi = new NumberBox
         {
-            Header = "Resolution (DPI)",
+            Header = I18n.T("export-resolution-label"),
             Minimum = ImageExportLimits.MinDpi,
             Maximum = ImageExportLimits.MaxDpi,
             Value = ImageExportLimits.DefaultDpi,
@@ -191,10 +192,10 @@ public sealed partial class MainWindow
 
         var dialog = new ContentDialog
         {
-            Title = "Export pages as images",
+            Title = I18n.T("export-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Export",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("export-accept"),
+            CloseButtonText = I18n.T("export-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };

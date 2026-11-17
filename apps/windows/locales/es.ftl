@@ -657,3 +657,131 @@ organize-imported-summary =
         [one] { $files } PDF
        *[other] { $files } PDF
     }. Los cambios están pendientes de guardar.
+
+## Write chains: shared by every write (destination chooser)
+
+write-accept = Guardar
+
+## Protect: password dialog, hints and progress
+
+protect-dialog-title = Proteger con contraseña
+protect-open-label = Contraseña para abrir el documento
+protect-permissions-label = Contraseña de permisos
+protect-permissions-tooltip = Determina qué pueden hacer los lectores con el documento una vez abierto y levanta esas restricciones para quien la tenga. No puede ser igual que la contraseña de apertura.
+protect-cancel = Cancelar
+protect-accept = Proteger
+protect-open-missing = Introduce la contraseña que pedirá el documento al abrirlo.
+protect-permissions-missing = Introduce la contraseña de permisos.
+protect-same-passwords = Las dos contraseñas deben ser distintas. Si fueran iguales, cualquiera que pueda abrir el documento podría cambiar también lo que permite.
+protect-cancelled = Protección cancelada.
+
+## Compress: dialog, presets and sizes
+
+compress-dialog-title = Comprimir PDF
+compress-current-size = Este archivo ocupa { $size } en el disco.
+compress-preset-lossless = Sin pérdida
+compress-preset-lossless-description = Solo reorganiza el archivo. Todas las páginas se ven exactamente igual que ahora.
+compress-preset-balanced = Equilibrado
+compress-preset-balanced-description = Además, reduce las imágenes a 150 DPI. En pantalla no se aprecia la diferencia y en el disco ocupa bastante menos.
+compress-preset-small = Pequeño
+compress-preset-small-description = Además, reduce las imágenes a 96 DPI. Para cuando el archivo tiene que caber en algún sitio y los píxeles importan menos que eso.
+compress-cancel = Cancelar
+compress-accept = Comprimir
+compress-writing = Escribiendo el PDF comprimido...
+compress-size-megabytes = { $whole },{ $tenth } MB
+compress-size-kilobytes = { $size } kB
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+compress-refusals = No se pudo hacer todo: { $reasons }.
+compress-reduced = { $before } sin comprimir → { $after } comprimido ({ $percent } % menos). Elige dónde guardarlo.
+compress-no-gain = No hay nada que ganar: comprimido, este documento ocupa los mismos { $size } que al guardarlo sin comprimir, así que no se ha escrito ningún archivo.
+compress-written = PDF comprimido guardado en { $path } ({ $before } → { $after }, { $percent } % menos).
+compress-cancelled = Compresión cancelada.
+compress-busy = Comprimiendo el PDF...
+
+## Split: dialog, folder and results
+
+split-dialog-title = Dividir PDF
+split-cuts-label = Dividir después de la página
+split-range-hint = Este documento tiene { $total } páginas. Cada corte empieza un archivo nuevo.
+split-cancel = Cancelar
+split-accept = Dividir
+split-replace-title =
+    { $count ->
+        [one] ¿Reemplazar { $count } PDF existente?
+       *[other] ¿Reemplazar { $count } PDF existentes?
+    }
+split-replace-detail =
+    { $count ->
+        [one] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existe allí.
+       *[other] Al dividir en esta carpeta se escriben { $total } archivos con el nombre del documento, y { $count } de ellos ya existen allí.
+    }
+split-replace = Reemplazar
+split-summary = PDF dividido en { $count } archivos en { $folder }.
+split-signed-note = El documento original está firmado, así que la firma de cada parte ya no es válida.
+split-cancelled = División cancelada.
+
+## Extract: dialog and results
+
+extract-dialog-title = Extraer páginas
+extract-pages-label = Páginas que extraer
+extract-range-hint =
+    { $count ->
+        [one] Este documento tiene { $count } página.
+       *[other] Este documento tiene { $count } páginas.
+    }
+extract-cancel = Cancelar
+extract-accept = Extraer
+extract-summary =
+    { $count ->
+        [one] Se ha extraído { $count } página en { $path }.
+       *[other] Se han extraído { $count } páginas en { $path }.
+    }
+extract-signed-note = El documento original está firmado, así que la firma del PDF extraído ya no es válida.
+
+## Export images: dialog, folder and results
+
+export-dialog-title = Exportar páginas como imágenes
+export-pages-label = Páginas
+export-all-pages = Todas las páginas
+export-current-page = Página actual
+export-custom-pages = Páginas
+export-format-label = Formato
+export-resolution-label = Resolución (DPI)
+export-cancel = Cancelar
+export-accept = Exportar
+export-cancelled = Exportación cancelada.
+export-prepare-failed = No se pudo preparar el documento para exportarlo: { $error }
+
+## Output tools: Windows only (cancelled pickers, progress and partial writes)
+
+protect-saved-reopened = PDF protegido guardado y reabierto.
+compress-nothing-written = Compresión cancelada. No se ha escrito ningún archivo.
+compress-no-source-size = No se conoce el tamaño del archivo de origen de este documento nuevo.
+split-nothing-written = División cancelada. No se ha escrito ningún archivo.
+split-writing-part = Escribiendo la parte { $part } de { $total }...
+split-stopped = La división se detuvo tras escribir { $written }: no se pudo escribir { $name }: { $error }
+extract-dialog-cancelled = Extracción cancelada.
+extract-nothing-written = Extracción cancelada. No se ha escrito ningún archivo.
+extract-busy-count =
+    { $count ->
+        [one] Extrayendo { $count } página...
+       *[other] Extrayendo { $count } páginas...
+    }
+export-nothing-written = Exportación cancelada. No se ha escrito ningún archivo.
+export-preparing = Preparando la exportación...
+export-page-range = Intervalo de páginas
+export-busy-page = Exportando la página { $page } ({ $index } de { $total })...
+export-page-failed-written = No se pudo exportar la página { $page }: { $error } Imágenes escritas: { $written }.
+export-stopped = La exportación se detuvo tras escribir { $written }: { $error }
+export-summary-format =
+    { $count ->
+        [one] { $count } página exportada como { $format } a { $folder }.
+       *[other] { $count } páginas exportadas como { $format } a { $folder }.
+    }

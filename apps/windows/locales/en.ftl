@@ -712,3 +712,157 @@ organize-imported-summary =
         [one] { $files } PDF
        *[other] { $files } PDFs
     }. Changes are pending save.
+
+## Write chains: shared by every write (destination chooser)
+
+write-accept = Save
+
+## Protect: password dialog, hints and progress
+
+protect-dialog-title = Protect with a password
+protect-open-label = Password to open the document
+protect-permissions-label = Permissions password
+protect-permissions-tooltip = Governs what readers may do with the document once it is open, and lifts those restrictions for whoever holds it. It must not be the same as the open password.
+protect-cancel = Cancel
+protect-accept = Protect
+protect-open-missing = Enter the password the document will ask for when it is opened.
+protect-permissions-missing = Enter the permissions password.
+protect-same-passwords = The two passwords must be different. If they were the same, everyone who can open the document could also change what it permits.
+protect-cancelled = Protection cancelled.
+
+## Compress: dialog, presets and sizes
+
+compress-dialog-title = Compress PDF
+# $size (String) - the file's size, already formatted (compress-size-*).
+compress-current-size = This file is { $size } on disk.
+compress-preset-lossless = Lossless
+compress-preset-lossless-description = Repack the file only. Every page renders exactly as it does now.
+compress-preset-balanced = Balanced
+# Keep "150 DPI": a test pins the number against the preset.
+compress-preset-balanced-description = Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.
+compress-preset-small = Small
+# Keep "96 DPI": a test pins the number against the preset.
+compress-preset-small-description = Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that.
+compress-cancel = Cancel
+compress-accept = Compress
+compress-writing = Writing the compressed PDF...
+# $whole, $tenth (String) - integer and first decimal digit of the size in MB.
+compress-size-megabytes = { $whole }.{ $tenth } MB
+# $size (String) - the size in kB, already rounded.
+compress-size-kilobytes = { $size } kB
+# $count (Number) - the size in bytes, under 1000.
+compress-size-bytes =
+    { $count ->
+        [one] { $count } byte
+       *[other] { $count } bytes
+    }
+
+## Compress: results
+
+# $reasons (String) - the core's refusal sentences, kept verbatim.
+compress-refusals = Not everything could be done: { $reasons }.
+# $before, $after (String) - formatted sizes; $percent (Number) - whole percent saved.
+compress-reduced = { $before } uncompressed → { $after } compressed ({ $percent }% smaller). Choose where to write it.
+# $size (String) - formatted size.
+compress-no-gain = Nothing to gain: this document compresses to the same { $size } an uncompressed save writes, so no file was written.
+# $path (String) - destination path; $before, $after (String); $percent (Number).
+compress-written = Compressed PDF written to { $path } ({ $before } → { $after }, { $percent }% smaller).
+compress-cancelled = Compression cancelled.
+compress-busy = Compressing PDF...
+
+## Split: dialog, folder and results
+# Cut-list parsing errors come from the facade and stay English.
+
+split-dialog-title = Split PDF
+split-cuts-label = Split after page
+# $total (Number) - pages in the document, always two or more.
+split-range-hint = This document has { $total } pages. Each cut starts a new file.
+split-cancel = Cancel
+split-accept = Split
+# $count (Number) - part files that already exist in the folder.
+split-replace-title =
+    { $count ->
+        [one] Replace { $count } existing PDF?
+       *[other] Replace { $count } existing PDFs?
+    }
+# $total (Number) - files the split writes; $count (Number) - those that already exist.
+split-replace-detail = Splitting into this folder writes { $total } files named after the document, and { $count } of them already exist there.
+split-replace = Replace
+# $count (Number) - files written, always two or more; $folder (String) - folder path.
+split-summary = Split into { $count } PDFs in { $folder }.
+split-signed-note = The original document is signed, so the signature in each part no longer verifies.
+split-cancelled = Split cancelled.
+
+## Extract: dialog and results
+# Page-range parsing errors come from the facade and stay English.
+
+extract-dialog-title = Extract pages
+extract-pages-label = Pages to extract
+# $count (Number) - pages in the document.
+extract-range-hint =
+    { $count ->
+        [one] This document has { $count } page.
+       *[other] This document has { $count } pages.
+    }
+extract-cancel = Cancel
+extract-accept = Extract
+# $count (Number) - pages extracted; $path (String) - destination path.
+extract-summary =
+    { $count ->
+        [one] Extracted { $count } page to { $path }.
+       *[other] Extracted { $count } pages to { $path }.
+    }
+extract-signed-note = The original document is signed, so the extracted PDF's signature no longer verifies.
+
+## Export images: dialog, folder and results
+# Page-range parsing errors come from the facade and stay English.
+
+export-dialog-title = Export pages as images
+export-pages-label = Pages
+export-all-pages = All pages
+export-current-page = Current page
+export-custom-pages = Pages
+export-format-label = Format
+export-resolution-label = Resolution (DPI)
+export-cancel = Cancel
+export-accept = Export
+export-cancelled = Export cancelled.
+# $error (String) - technical detail, kept verbatim.
+export-prepare-failed = Could not prepare the document for export: { $error }
+
+## Output tools: Windows only (cancelled pickers, progress and partial writes)
+
+protect-saved-reopened = Protected PDF saved and reopened.
+compress-nothing-written = Compression cancelled. No file was written.
+compress-no-source-size = No source file size is available for this new document.
+split-nothing-written = Split cancelled. No file was written.
+# $part, $total (Number) - one-based part being written and parts in all.
+split-writing-part = Writing part { $part } of { $total }...
+# $written (Number) - parts already written; $name (String) - part file name;
+# $error (String) - technical detail, kept verbatim.
+split-stopped = Split stopped after { $written } written: { $name } could not be written: { $error }
+extract-dialog-cancelled = Extract cancelled.
+extract-nothing-written = Extract cancelled. No file was written.
+# $count (Number) - pages being extracted.
+extract-busy-count =
+    { $count ->
+        [one] Extracting { $count } page...
+       *[other] Extracting { $count } pages...
+    }
+export-nothing-written = Export cancelled. No file was written.
+export-preparing = Preparing to export...
+# Accessible name of the custom page-range entry.
+export-page-range = Page range
+# $page (Number) - one-based page; $index, $total (Number) - file being written and files in all.
+export-busy-page = Exporting page { $page } ({ $index } of { $total })...
+# $page (Number) - one-based page; $error (String) - technical detail, kept verbatim;
+# $written (Number) - images already written.
+export-page-failed-written = Page { $page } could not be exported: { $error } { $written } written.
+# $written (Number) - images already written; $error (String) - technical detail, kept verbatim.
+export-stopped = Export stopped after { $written } written: { $error }
+# $count (Number) - pages written; $format (String) - PNG or JPEG; $folder (String) - folder path.
+export-summary-format =
+    { $count ->
+        [one] Exported { $count } page as { $format } to { $folder }.
+       *[other] Exported { $count } pages as { $format } to { $folder }.
+    }

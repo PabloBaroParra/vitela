@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Pdf.Windows.Localization;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -15,7 +16,7 @@ public sealed partial class MainWindow
         if (_protectingDocument || _savingDocument || _dialogOpen || _isBusy || _session is not { } session) return;
         if (!session.ContentEditingAllowed)
         {
-            AnnotationStatus.Text = "This document does not permit changes to its protection.";
+            AnnotationStatus.Text = I18n.T("protect-forbidden");
             return;
         }
         _protectingDocument = true;
@@ -30,13 +31,13 @@ public sealed partial class MainWindow
             var acknowledged = await AskSignatureLossAsync(protecting: true);
             if (acknowledged is null || _session?.SessionId != session.SessionId) return;
             SetBusy(true);
-            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = "Save" };
+            var picker = new FileSavePicker { SuggestedFileName = "document", DefaultFileExtension = ".pdf", CommitButtonText = I18n.T("write-accept") };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
             var file = await picker.PickSaveFileAsync();
             if (file is null)
             {
-                AnnotationStatus.Text = "Protection cancelled.";
+                AnnotationStatus.Text = I18n.T("protect-cancelled");
                 return;
             }
             if (_session?.SessionId != session.SessionId) return;
@@ -71,7 +72,7 @@ public sealed partial class MainWindow
                 return;
             }
             ShowOpenedDocument(reopened.Value!, file.Path);
-            AnnotationStatus.Text = "Protected PDF saved and reopened.";
+            AnnotationStatus.Text = I18n.T("protect-saved-reopened");
         }
         catch (Exception error)
         {
@@ -92,9 +93,9 @@ public sealed partial class MainWindow
 
     private async Task<(string Open, string Permissions)?> AskProtectionPasswordsAsync()
     {
-        var open = new PasswordBox { Header = "Password to open the document", PasswordRevealMode = PasswordRevealMode.Peek };
-        var permissions = new PasswordBox { Header = "Permissions password", PasswordRevealMode = PasswordRevealMode.Peek };
-        ToolTipService.SetToolTip(permissions, "Governs what readers may do with the document once it is open, and lifts those restrictions for whoever holds it. It must not be the same as the open password.");
+        var open = new PasswordBox { Header = I18n.T("protect-open-label"), PasswordRevealMode = PasswordRevealMode.Peek };
+        var permissions = new PasswordBox { Header = I18n.T("protect-permissions-label"), PasswordRevealMode = PasswordRevealMode.Peek };
+        ToolTipService.SetToolTip(permissions, I18n.T("protect-permissions-tooltip"));
         var error = new TextBlock
         {
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.Crimson),
@@ -108,10 +109,10 @@ public sealed partial class MainWindow
 
         var dialog = new ContentDialog
         {
-            Title = "Protect with a password",
+            Title = I18n.T("protect-dialog-title"),
             Content = panel,
-            PrimaryButtonText = "Protect",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("protect-accept"),
+            CloseButtonText = I18n.T("protect-cancel"),
             DefaultButton = ContentDialogButton.Primary,
             XamlRoot = Content.XamlRoot,
         };
@@ -126,11 +127,11 @@ public sealed partial class MainWindow
         dialog.PrimaryButtonClick += (_, args) =>
         {
             error.Text = string.IsNullOrEmpty(open.Password)
-                ? "Enter the password the document will ask for when it is opened."
+                ? I18n.T("protect-open-missing")
                 : string.IsNullOrEmpty(permissions.Password)
-                    ? "Enter the permissions password."
+                    ? I18n.T("protect-permissions-missing")
                     : open.Password == permissions.Password
-                        ? "The two passwords must be different. If they were the same, everyone who can open the document could also change what it permits."
+                        ? I18n.T("protect-same-passwords")
                         : "";
             args.Cancel = error.Text.Length != 0;
             error.Visibility = args.Cancel ? Visibility.Visible : Visibility.Collapsed;
@@ -138,7 +139,7 @@ public sealed partial class MainWindow
         try
         {
             if (await ShowModalAsync(dialog) == ContentDialogResult.Primary) return (open.Password, permissions.Password);
-            AnnotationStatus.Text = "Protection cancelled.";
+            AnnotationStatus.Text = I18n.T("protect-cancelled");
             return null;
         }
         finally

@@ -1,5 +1,6 @@
 using System.Globalization;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 
 namespace Pdf.Windows.Viewer;
 
@@ -28,9 +29,9 @@ internal static class CompressionWording
 
     public static (string Name, string Description) Describe(CompressionPreset preset) => preset switch
     {
-        CompressionPreset.Lossless => ("Lossless", "Repack the file only. Every page renders exactly as it does now."),
-        CompressionPreset.Balanced => ("Balanced", "Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk."),
-        CompressionPreset.Small => ("Small", "Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that."),
+        CompressionPreset.Lossless => (I18n.T("compress-preset-lossless"), I18n.T("compress-preset-lossless-description")),
+        CompressionPreset.Balanced => (I18n.T("compress-preset-balanced"), I18n.T("compress-preset-balanced-description")),
+        CompressionPreset.Small => (I18n.T("compress-preset-small"), I18n.T("compress-preset-small-description")),
         _ => throw new ArgumentOutOfRangeException(nameof(preset)),
     };
 
@@ -38,9 +39,14 @@ internal static class CompressionWording
     public static string HumanSize(ulong bytes)
     {
         var size = (double)bytes;
-        if (size >= Mega) return (size / Mega).ToString("0.0", CultureInfo.InvariantCulture) + " MB";
-        if (size >= Kilo) return (size / Kilo).ToString("0", CultureInfo.InvariantCulture) + " kB";
-        return bytes == 1 ? "1 byte" : $"{bytes} bytes";
+        if (size >= Mega)
+        {
+            // Rounded once, then split, so the decimal separator is the language's.
+            var megabytes = (size / Mega).ToString("0.0", CultureInfo.InvariantCulture).Split('.');
+            return I18n.T("compress-size-megabytes", ("whole", megabytes[0]), ("tenth", megabytes[1]));
+        }
+        if (size >= Kilo) return I18n.T("compress-size-kilobytes", ("size", (size / Kilo).ToString("0", CultureInfo.InvariantCulture)));
+        return I18n.T("compress-size-bytes", ("count", bytes));
     }
 
     /// <summary>
@@ -52,7 +58,8 @@ internal static class CompressionWording
 
     /// <summary>What the status line says once smaller bytes exist and only the destination is left to ask.</summary>
     public static string ReductionSummary(CompressionResult result) =>
-        $"{HumanSize(result.BeforeBytes)} uncompressed → {HumanSize(result.AfterBytes)} compressed ({PercentSmaller(result)}% smaller). Choose where to write it.{RefusalClause(result)}";
+        I18n.T("compress-reduced", ("before", HumanSize(result.BeforeBytes)), ("after", HumanSize(result.AfterBytes)),
+            ("percent", PercentSmaller(result))) + RefusalClause(result);
 
     /// <summary>
     /// What it says when nothing smaller came out. No destination is asked
@@ -61,10 +68,11 @@ internal static class CompressionWording
     /// is smaller.
     /// </summary>
     public static string NoGainSummary(CompressionResult result) =>
-        $"Nothing to gain: this document compresses to the same {HumanSize(result.BeforeBytes)} an uncompressed save writes, so no file was written.{RefusalClause(result)}";
+        I18n.T("compress-no-gain", ("size", HumanSize(result.BeforeBytes))) + RefusalClause(result);
 
     public static string WrittenSummary(CompressionResult result, string destination) =>
-        $"Compressed PDF written to {destination} ({HumanSize(result.BeforeBytes)} → {HumanSize(result.AfterBytes)}, {PercentSmaller(result)}% smaller).";
+        I18n.T("compress-written", ("path", destination), ("before", HumanSize(result.BeforeBytes)),
+            ("after", HumanSize(result.AfterBytes)), ("percent", PercentSmaller(result)));
 
     /// <summary>
     /// Both known refusals are gated before the run, so in practice this is
@@ -72,5 +80,5 @@ internal static class CompressionWording
     /// did not ask about must still reach the reader instead of vanishing.
     /// </summary>
     private static string RefusalClause(CompressionResult result) =>
-        result.Refusals.Count == 0 ? "" : $" Not everything could be done: {string.Join("; ", result.Refusals)}.";
+        result.Refusals.Count == 0 ? "" : " " + I18n.T("compress-refusals", ("reasons", string.Join("; ", result.Refusals)));
 }
