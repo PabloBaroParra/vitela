@@ -969,7 +969,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
             // Off the UI thread: answering means scanning every object for a
             // signature dictionary, which on a large document is long enough
             // to be felt as a stutter.
-            var invalidates = await Task.Run(() => _core.WillInvalidateSignatures(session.Document)).ConfigureAwait(false);
+            var invalidates = session.BaseBreaksSignatures || await Task.Run(() => _core.WillInvalidateSignatures(session.Document)).ConfigureAwait(false);
             return OperationResult<bool>.Success(invalidates);
         }
         catch (PdfCoreException error)
@@ -995,7 +995,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
         try
         {
-            return OperationResult<bool>.Success(await Task.Run(() => _core.ProtectionWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
+            return OperationResult<bool>.Success(session.BaseBreaksSignatures || await Task.Run(() => _core.ProtectionWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
         }
         catch (PdfCoreException error)
         {
@@ -1143,7 +1143,7 @@ public sealed partial class PdfDocumentFacade : IDisposable
 
         try
         {
-            return OperationResult<bool>.Success(await Task.Run(() => _core.CompressedSaveWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
+            return OperationResult<bool>.Success(session.BaseBreaksSignatures || await Task.Run(() => _core.CompressedSaveWillInvalidateSignatures(session.Document)).ConfigureAwait(false));
         }
         catch (PdfCoreException error)
         {
@@ -1670,6 +1670,15 @@ public sealed partial class PdfDocumentFacade : IDisposable
         public bool Retired { get; set; }
         public ulong EditRevision { get; set; }
         public ulong SavedRevision { get; set; }
+
+        /// <summary>
+        /// Whether the bytes this session opened from had already broken a
+        /// signature the original file carries — a recovered copy whose edits
+        /// the core can no longer see. Every save-shaped signature question
+        /// answers yes for it, so a Save still asks before overwriting the
+        /// signed original.
+        /// </summary>
+        public bool BaseBreaksSignatures { get; init; }
 
         /// <summary>Whether the document's permissions allow rewriting page content.</summary>
         public bool ContentEditingAllowed { get; }
