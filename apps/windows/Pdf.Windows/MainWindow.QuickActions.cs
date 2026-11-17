@@ -57,18 +57,40 @@ public sealed partial class MainWindow
             QuickActionsButtons.Children.Add(button);
         }
 
-        _quickRetype.Click += async (_, _) => await RetypeSelectedTextBlockAsync();
-        _quickReplace.Click += ReplaceImageButton_Click;
+        // Every change asks its gate again at click time: the buttons are
+        // enabled by a refresh on an idle, which a click can beat.
+        _quickRetype.Click += async (_, _) =>
+        {
+            if (QuickChangesAllowed) await RetypeSelectedTextBlockAsync();
+        };
+        _quickReplace.Click += (sender, args) =>
+        {
+            if (QuickChangesAllowed) ReplaceImageButton_Click(sender, args);
+        };
         _quickCut.Click += (_, _) =>
         {
-            if (ContentClipboardReady && ClipboardSelection() is { } selection) _ = CopyContentAsync(selection, cut: true);
+            if (QuickChangesAllowed && ClipboardSelection() is { } selection) _ = CopyContentAsync(selection, cut: true);
         };
         _quickCopy.Click += (_, _) => TryCopyContent();
         _quickDelete.Click += async (_, _) =>
         {
-            if (_contentEditMode && _pump.Box is null && SelectedContentDeletion() is { } deletion) await deletion();
+            if (QuickChangesAllowed && SelectedContentDeletion() is { } deletion) await deletion();
         };
     }
+
+    /// <summary>
+    /// An image or shape edit still being recorded — the Replace picker open,
+    /// a move or resize landing — which every change from the bar waits for.
+    /// </summary>
+    private bool ContentEditInFlight => _editingImage || _editingPath;
+
+    /// <summary>
+    /// Whether a button of the bar that changes the page may act now: the
+    /// clipboard's gate (mode on, not busy, no dialog, no editor), the
+    /// document's content-edit permission, and no image or shape edit in flight.
+    /// </summary>
+    private bool QuickChangesAllowed =>
+        ContentClipboardReady && !ContentEditorOpen && ContentEditButton.IsEnabled && !ContentEditInFlight;
 
     private void QuickActionsLayer_SizeChanged(object sender, SizeChangedEventArgs e) => ScheduleQuickActions();
 
@@ -118,7 +140,7 @@ public sealed partial class MainWindow
     {
         if (_session is null || selected.PageIndex >= _slots.Count || selected.PageIndex >= _session.Pages.Count) return null;
         var offer = ContentQuickActions.Offer(selected.Kind, ContentClipboardReady, ContentEditButton.IsEnabled,
-            ReplaceImageButton.IsEnabled, DeleteImageButton.IsEnabled, _deleteShapeButton.IsEnabled);
+            ReplaceImageButton.IsEnabled, DeleteImageButton.IsEnabled, _deleteShapeButton.IsEnabled, ContentEditInFlight);
         _quickRetype.Visibility = offer.Retype is null ? Visibility.Collapsed : Visibility.Visible;
         _quickRetype.IsEnabled = offer.Retype == true;
         _quickReplace.Visibility = offer.Replace is null ? Visibility.Collapsed : Visibility.Visible;

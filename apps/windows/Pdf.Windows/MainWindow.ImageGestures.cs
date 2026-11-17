@@ -17,6 +17,9 @@ public sealed partial class MainWindow
     private async Task BeginContentGestureAsync(PageSlot slot, int pageIndex, AnnotationPoint point,
         Microsoft.UI.Xaml.Input.PointerRoutedEventArgs args)
     {
+        // What the press was aimed at, before the awaits below let the
+        // pointer move the hover elsewhere (MainWindow.ContentHover.cs).
+        _contentPressHover = _contentHover;
         if (_session is null || !_contentEditMode || !ContentEditButton.IsEnabled || _isBusy || _dialogOpen)
         {
             return;

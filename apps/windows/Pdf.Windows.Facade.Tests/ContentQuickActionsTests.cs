@@ -65,8 +65,8 @@ internal static class ContentQuickActionsTests
     private static void EachSelectionOffersItsOwnActions()
     {
         static QuickActionsOffer Offer(QuickActionsSelection selection, bool idle = true, bool editable = true,
-            bool replace = true, bool imageDelete = true, bool shapeDelete = true) =>
-            ContentQuickActions.Offer(selection, idle, editable, replace, imageDelete, shapeDelete);
+            bool replace = true, bool imageDelete = true, bool shapeDelete = true, bool editInFlight = false) =>
+            ContentQuickActions.Offer(selection, idle, editable, replace, imageDelete, shapeDelete, editInFlight);
 
         var block = Offer(QuickActionsSelection.TextBlock);
         Check(block == new QuickActionsOffer(Retype: true, Replace: null, Cut: true, Copy: true, Delete: true), "a block retypes, cuts, copies and deletes");
@@ -84,6 +84,17 @@ internal static class ContentQuickActionsTests
 
         var busy = Offer(QuickActionsSelection.TextBlock, idle: false);
         Check(busy == new QuickActionsOffer(Retype: false, Replace: null, Cut: false, Copy: false, Delete: false), "nothing may be pressed while busy");
+
+        // An image or shape edit in flight (the Replace picker open, a drag
+        // being recorded) keeps copy and refuses every change.
+        Check(Offer(QuickActionsSelection.TextBlock, editInFlight: true)
+            == new QuickActionsOffer(Retype: false, Replace: null, Cut: false, Copy: true, Delete: false), "a block waits for the edit in flight");
+        Check(Offer(QuickActionsSelection.Image, editInFlight: true)
+            == new QuickActionsOffer(null, Replace: false, Cut: false, Copy: true, Delete: false), "an image waits for the edit in flight");
+        Check(Offer(QuickActionsSelection.Shape, editInFlight: true)
+            == new QuickActionsOffer(null, null, Cut: false, Copy: true, Delete: false), "a shape waits for the edit in flight");
+        Check(Offer(QuickActionsSelection.Several, editInFlight: true)
+            == new QuickActionsOffer(null, null, Cut: false, Copy: true, Delete: false), "several items wait for the edit in flight");
     }
 
     private static void Check(bool condition, string message)

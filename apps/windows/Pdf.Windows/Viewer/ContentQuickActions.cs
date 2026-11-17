@@ -41,17 +41,21 @@ public static class ContentQuickActions
     /// clipboard's own gate (not busy, no dialog, no editor);
     /// <paramref name="editable"/> the document's content-edit permission; the
     /// image and shape flags are their cards' Replace and Delete buttons.
+    /// <paramref name="editInFlight"/> is an image or shape edit still being
+    /// recorded — the Replace picker open, a drag landing — which every
+    /// change waits for; only Copy, which changes nothing, stays.
     /// </summary>
     public static QuickActionsOffer Offer(QuickActionsSelection selection, bool idle, bool editable,
-        bool replaceEnabled, bool imageDeleteEnabled, bool shapeDeleteEnabled)
+        bool replaceEnabled, bool imageDeleteEnabled, bool shapeDeleteEnabled, bool editInFlight)
     {
-        var changes = idle && editable;
+        var free = idle && !editInFlight;
+        var changes = free && editable;
         return selection switch
         {
             QuickActionsSelection.TextBlock => new(Retype: changes, Replace: null, Cut: changes, Copy: idle, Delete: changes),
-            QuickActionsSelection.Image => new(Retype: null, Replace: idle && replaceEnabled, Cut: changes, Copy: idle,
-                Delete: idle && imageDeleteEnabled),
-            QuickActionsSelection.Shape => new(Retype: null, Replace: null, Cut: changes, Copy: idle, Delete: idle && shapeDeleteEnabled),
+            QuickActionsSelection.Image => new(Retype: null, Replace: free && replaceEnabled, Cut: changes, Copy: idle,
+                Delete: free && imageDeleteEnabled),
+            QuickActionsSelection.Shape => new(Retype: null, Replace: null, Cut: changes, Copy: idle, Delete: free && shapeDeleteEnabled),
             _ => new(Retype: null, Replace: null, Cut: changes, Copy: idle, Delete: changes),
         };
     }

@@ -172,6 +172,34 @@ public static class ContentHover
         }
     }
 
+    /// <summary>
+    /// Whether a press on <paramref name="border"/>'s band may move it:
+    /// only when the hit-test finds nothing there (the outer band, off the
+    /// item's box) or finds the item itself. Another item under the press
+    /// keeps it, so a hover left over from before the press can never take
+    /// what the pointer is actually on.
+    /// </summary>
+    public static bool BorderMayClaim(ContentHoverMember? hit, ContentHoverMember border) =>
+        hit is null || (hit.Kind == border.Kind && hit.Id == border.Id);
+
+    /// <summary>
+    /// Whether <paramref name="member"/> belongs to the several-item selection
+    /// <paramref name="held"/> on <paramref name="pageIndex"/> — the Linux
+    /// shell's <c>in_held_group</c>. Such an item draws no hover box of its
+    /// own: the group frame is the only thing drawn round its items.
+    /// </summary>
+    public static bool InHeldGroup(ContentSelection? held, uint pageIndex, ContentHoverMember member)
+    {
+        if (held is null || held.IsEmpty || held.PageIndex != pageIndex) return false;
+        return member switch
+        {
+            { Block: { } block } => held.Contains(block),
+            { Image: { } image } => held.Contains(image),
+            { Path: { } path } => held.Contains(path),
+            _ => false,
+        };
+    }
+
     /// <summary>Only the border moves an item as a whole, so only it changes the cursor.</summary>
     public static bool ShowsMoveCursor(ContentHoverZone? zone) => zone == ContentHoverZone.Border;
 

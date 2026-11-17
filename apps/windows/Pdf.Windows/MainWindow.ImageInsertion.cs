@@ -49,7 +49,11 @@ public sealed partial class MainWindow
             UpdateAnnotationControls(_annotationState);
             AnnotationStatus.Text = "Image inserted. Save to keep the change.";
         }
-        finally { _editingImage = false; }
+        finally
+        {
+            _editingImage = false;
+            ScheduleQuickActions();
+        }
     }
 
     /// <summary>

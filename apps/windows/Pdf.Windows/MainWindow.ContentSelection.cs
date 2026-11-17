@@ -76,7 +76,7 @@ public sealed partial class MainWindow
             // The outer half of the hovered item's border band lies off its
             // box, where the hit-test finds nothing; a press there still
             // means the item.
-            if ((hit ?? ContentBorderMember(page, content, point, reach)) is { } member) SetContentSelection(Toggled(current, member));
+            if ((hit ?? ContentBorderMember(page, content, point, reach, hit)) is { } member) SetContentSelection(Toggled(current, member));
             else
             {
                 // SHIFT on empty page: a marquee that adds to what is selected.
@@ -94,11 +94,19 @@ public sealed partial class MainWindow
         }
 
         ClearContentSelection();
-        // The border band round the hovered item moves the whole item, even
-        // off its own box, where the asks below would find nothing and start
-        // a marquee. A selected image's or shape's corners kept their handles
-        // above.
-        if (BeginContentBorderMove(slot, page, sessionId, content, point, args)) return true;
+        // An image press comes first, as on Linux (content_edit::begin_drag):
+        // the selected image's body, then whatever image is on top under the
+        // pointer — so the inner band of an image over the selected one
+        // never drags the wrong picture. Its corners kept their handles above.
+        if (hit is { Kind: ContentHoverKind.Image }
+            || (_selectedContentImage is { } chosen && chosen.PageIndex == page && Contains(chosen.Bounds, point)))
+        {
+            return false;
+        }
+        // Then the border band round the hovered item, which moves the whole
+        // item, even off its own box, where the asks below would find nothing
+        // and start a marquee.
+        if (BeginContentBorderMove(slot, page, sessionId, content, point, args, hit)) return true;
         if (hit is not null) return false;
 
         ClearTextBlockSelection();

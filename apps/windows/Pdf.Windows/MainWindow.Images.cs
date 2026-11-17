@@ -116,6 +116,7 @@ public sealed partial class MainWindow
         finally
         {
             _editingImage = false;
+            ScheduleQuickActions();
         }
     }
 }

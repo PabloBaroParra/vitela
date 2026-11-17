@@ -24,6 +24,8 @@ internal static class ContentHoverTests
         RefindsTheItemByItsOuterBandOnlyWhenAsked();
         AStaleHoverIsNotCurrent();
         GatesAndCursor();
+        TheBorderClaimsOnlyWhatIsUnderThePressOrNothing();
+        AHeldGroupMemberHasNoHoverOfItsOwn();
         return Task.CompletedTask;
     }
 
@@ -151,6 +153,29 @@ internal static class ContentHoverTests
         Check(!ContentHover.ShowsMoveCursor(ContentHoverZone.Inside), "inside keeps the arrow");
         Check(!ContentHover.ShowsMoveCursor(ContentHoverZone.Handle), "a handle keeps the arrow");
         Check(!ContentHover.ShowsMoveCursor(null), "nothing hovered keeps the arrow");
+    }
+
+    private static void TheBorderClaimsOnlyWhatIsUnderThePressOrNothing()
+    {
+        var logo = ContentHoverMember.Of(Logo);
+        var frame = ContentHoverMember.Of(Frame);
+        Check(ContentHover.BorderMayClaim(hit: null, logo), "the outer band, where nothing is hit, is the border's");
+        Check(ContentHover.BorderMayClaim(hit: logo, logo), "the inner band of the item itself is the border's");
+        Check(!ContentHover.BorderMayClaim(hit: frame, logo), "another item under the press keeps it");
+        var otherImage = ContentHoverMember.Of(new ContentImage(new PdfCoreContentImage(6, 0, new PdfCoreRect(110, 630, 60, 40), "Im2"), "s", 1));
+        Check(!ContentHover.BorderMayClaim(hit: otherImage, logo), "another image under the press keeps it");
+    }
+
+    private static void AHeldGroupMemberHasNoHoverOfItsOwn()
+    {
+        var content = Page([Cliente], [Logo], [Frame]);
+        var block = content.TextBlocks.Single();
+        var held = ContentSelection.Empty(0).Toggle(Logo).Toggle(block);
+        Check(ContentHover.InHeldGroup(held, 0, ContentHoverMember.Of(Logo)), "a held image is in the group");
+        Check(ContentHover.InHeldGroup(held, 0, ContentHoverMember.Of(block, block.Bounds)), "a held block is in the group");
+        Check(!ContentHover.InHeldGroup(held, 0, ContentHoverMember.Of(Frame)), "an item left out is not");
+        Check(!ContentHover.InHeldGroup(held, 1, ContentHoverMember.Of(Logo)), "a group held on another page is not");
+        Check(!ContentHover.InHeldGroup(null, 0, ContentHoverMember.Of(Logo)), "with nothing held, nothing is");
     }
 
     private static void Check(bool condition, string message)

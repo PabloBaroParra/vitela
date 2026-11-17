@@ -60,6 +60,8 @@ public sealed partial class MainWindow
         var selected = _session is not null && ContentEditButton.IsEnabled && _contentEditMode && _selectedContentPath is not null;
         _deleteShapeButton.IsEnabled = selected && !_isBusy && !_editingPath;
         _editShapeHint.Text = selected ? ShapeSelectedHint : NoShapeSelectedHint;
+        // The quick-action bar reads this button and the edit in flight.
+        ScheduleQuickActions();
     }
 
     /// <summary>

@@ -31,7 +31,9 @@ public partial class App : Application
                 + "hover is found again round where it landed without the pointer moving; the footer moves by its outer "
                 + "band; a click on a block's outer band selects it; the quick-action bar shows beside the selected block "
                 + "with Edit text and without Replace, its Delete removes the block, and both bar and hover stand down "
-                + "under the inline editor.");
+                + "under the inline editor; a dialog hides the bar and closing it brings it back; a held group member "
+                + "shows no hover of its own; the selected image outranks the inner band of one drawn over it; and a "
+                + "border press released before the content loaded selects without dragging.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "content-hover-smoke.log"), "FAIL " + error); }
         finally { _window.Close(); }
@@ -129,6 +131,14 @@ public sealed partial class MainWindow
         if (Math.Abs(barLeft - Math.Round(anchor.X + placed.Width + ContentQuickActions.GapPx)) > 1)
             throw new Exception($"The bar is at x={barLeft}, not beside the block's right edge at {anchor.X + placed.Width}.");
 
+        // A dialog hides the bar, and closing it brings the bar back.
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = "Smoke", CloseButtonText = "Close" };
+        var shown = ShowModalAsync(dialog);
+        await WaitForAsync(() => QuickActionsBar.Visibility == Visibility.Collapsed, "the bar to hide behind a dialog");
+        dialog.Hide();
+        await shown;
+        await WaitForAsync(() => QuickActionsBar.Visibility == Visibility.Visible, "the bar to come back after the dialog");
+
         // Its Delete removes the block — the Delete key's own handler.
         new ButtonAutomationPeer(_quickDelete).Invoke();
         await WaitForAsync(() => !_isBusy && _pageContent.TryGetValue(0, out var state) && state.Content is { } now
@@ -146,6 +156,53 @@ public sealed partial class MainWindow
         Hover(new AnnotationPoint(domingo.Bounds.X + 2, domingo.Bounds.Y + domingo.Bounds.Height / 2));
         if (_contentHover is not null || _contentHoverOutline.Parent is not null) throw new Exception("The hover showed under the editor.");
         CancelContentEditor();
+
+        // A member of a held multi-selection gets no box or move cursor of
+        // its own — the group frame is the only one — and an item left out does.
+        var held = await HoverContentAsync();
+        var logoNow = held.Images.Single();
+        var domingoNow = held.TextBlocks.Single(block => block.Text == "Domingo");
+        SetContentSelection(ContentSelection.Empty(0).Toggle(logoNow).Toggle(held.TextBlocks.Single(block => block.Text == "Pag 1")));
+        Hover(new AnnotationPoint(logoNow.Bounds.X + logoNow.Bounds.Width / 2, logoNow.Bounds.Y + logoNow.Bounds.Height / 2));
+        Hover(new AnnotationPoint(logoNow.Bounds.X - outlineOut, logoNow.Bounds.Y + logoNow.Bounds.Height / 2));
+        if (_contentHoverOutline.Parent is not null || _moveCursorSlot is not null)
+            throw new Exception("A held group member showed its own hover box or move cursor.");
+        Hover(new AnnotationPoint(domingoNow.Bounds.X + 2, domingoNow.Bounds.Y + domingoNow.Bounds.Height / 2));
+        RequireOutlineAround(DrawnBounds(domingoNow), "over an item outside the group");
+        ClearContentSelection();
+
+        // Two overlapping logos, the lower one selected: the inner band of
+        // the top one, over the selected one's body, still presses the
+        // selected one, as on Linux — the image press comes before the band.
+        await OpenHoverSmokeAsync(HoverTablePdf(0, overlap: true));
+        var pair = (await HoverContentAsync()).Images;
+        if (pair.Count != 2) throw new Exception($"The overlap page has {pair.Count} images, not 2.");
+        var (lower, upper) = pair[0].Bounds.X < pair[1].Bounds.X ? (pair[0], pair[1]) : (pair[1], pair[0]);
+        _selectedContentImage = lower;
+        RedrawContentImageSelection();
+        var innerBand = new AnnotationPoint(upper.Bounds.X + 0.5, upper.Bounds.Y + upper.Bounds.Height / 2);
+        Hover(innerBand);
+        RequireHover("on the top logo's inner band", ContentHoverKind.Image, ContentHoverZone.Border);
+        if (_contentHover!.Member.Id != upper.Id) throw new Exception("The hover is not on the top logo.");
+        _contentPointerDown = true;
+        await BeginContentGestureAsync(_slots[0], 0, innerBand, null!);
+        if (_contentImageDrag?.Image.Id != lower.Id)
+            throw new Exception($"The press dragged image {_contentImageDrag?.Image.Id.ToString() ?? "none"}, not the selected {lower.Id}.");
+        _contentPointerDown = false;
+        await CompleteContentImageDragAsync(innerBand);
+
+        // A press released while the content loaded is a click: the border
+        // selects the image and starts no drag.
+        _selectedContentImage = null;
+        RedrawContentImageSelection();
+        var outerBand = new AnnotationPoint(lower.Bounds.X - outlineOut, lower.Bounds.Y + lower.Bounds.Height / 2);
+        Hover(new AnnotationPoint(lower.Bounds.X + 2, outerBand.Y));
+        Hover(outerBand);
+        RequireHover("on the lower logo's outer band", ContentHoverKind.Image, ContentHoverZone.Border);
+        _contentPointerDown = false;
+        await BeginContentGestureAsync(_slots[0], 0, outerBand, null!);
+        if (_contentImageDrag is not null || _selectedContentImage?.Id != lower.Id)
+            throw new Exception($"A released border press dragged {_contentImageDrag is not null} and selected {_selectedContentImage?.Id}.");
     }
 
     private void Hover(AnnotationPoint point) => TrackContentHover(_slots[0], 0, point);
@@ -197,11 +254,13 @@ public sealed partial class MainWindow
     }
 
     /// <summary>The selection smoke's client box, logo and footer, optionally quarter-turned.</summary>
-    private static byte[] HoverTablePdf(int rotate)
+    private static byte[] HoverTablePdf(int rotate, bool overlap = false)
     {
-        const string content = "0.5 w 300 600 200 80 re S "
+        var content = "0.5 w 300 600 200 80 re S "
             + "BT /F1 12 Tf 310 650 Td (Cliente) Tj 0 -20 Td (Domingo) Tj ET "
             + "q 60 0 0 40 100 620 cm /Im1 Do Q "
+            // The same picture again, drawn over the first one's right half.
+            + (overlap ? "q 60 0 0 40 140 630 cm /Im1 Do Q " : "")
             + "BT /F1 10 Tf 300 40 Td (Pag 1) Tj ET";
         string[] objects =
         [

@@ -45,6 +45,8 @@ public sealed partial class MainWindow
             ImageControls.PendingEdit => ImagePendingEditHint,
             _ => NoImageSelectedHint,
         };
+        // The quick-action bar reads these buttons and the edit in flight.
+        ScheduleQuickActions();
     }
 
     /// <summary>

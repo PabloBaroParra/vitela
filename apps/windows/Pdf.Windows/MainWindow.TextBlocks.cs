@@ -251,17 +251,6 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Delete for whatever Edit content has selected — a text block, an image
-    /// or a shape — and F2 to retype a selected block. Both stand down while a
-    /// text field has focus: Delete there removes a character.
-    /// </summary>
-    /// <remarks>
-    /// Hung on the page view, not on the Edit card's buttons: an accelerator
-    /// only fires while its element is shown, and the card is collapsed
-    /// whenever the tools panel is folded or on another tab — which is how
-    /// Delete first did nothing on a selected block.
-    /// </remarks>
-    /// <summary>
     /// What Delete removes right now — the selection, then a block, an image
     /// or a shape, each under its card's own gate — or <c>null</c> when it
     /// would remove nothing. The Delete key and the quick-action bar's Delete
@@ -274,6 +263,17 @@ public sealed partial class MainWindow
         : _selectedContentPath is not null && _deleteShapeButton.IsEnabled ? DeleteSelectedPathAsync
         : null;
 
+    /// <summary>
+    /// Delete for whatever Edit content has selected — a text block, an image
+    /// or a shape — and F2 to retype a selected block. Both stand down while a
+    /// text field has focus: Delete there removes a character.
+    /// </summary>
+    /// <remarks>
+    /// Hung on the page view, not on the Edit card's buttons: an accelerator
+    /// only fires while its element is shown, and the card is collapsed
+    /// whenever the tools panel is folded or on another tab — which is how
+    /// Delete first did nothing on a selected block.
+    /// </remarks>
     private void WireTextBlockKeys()
     {
         // One Delete for whatever Edit content has selected — text, an image
