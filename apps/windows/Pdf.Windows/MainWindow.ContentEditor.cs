@@ -52,7 +52,7 @@ public sealed partial class MainWindow
         await CommitContentEditorAsync();
         // A refused commit keeps its box: opening another would close it and
         // drop what it holds.
-        if (!IsCurrent() || _pump.Box is not null)
+        if (!IsCurrent() || InlineEditStillOpen())
         {
             return;
         }

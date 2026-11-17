@@ -203,6 +203,11 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
         // finds no live editor rather than the one being dismantled.
         var closing = _box;
         _box = null;
+        // A paragraph's write is keyed by its first run only while its box is
+        // open. The core may wrap it into several blocks, and a box reopened
+        // over the first must read the page, which holds pending edits.
+        if (closing is IContentEditBox { WritesOnCommit: true })
+            _written.Remove((closing.PageIndex, closing.RunId));
         closing?.Close();
     }
 
@@ -396,6 +401,11 @@ public sealed class ContentEditPump<TBox>(IContentEditWriter<TBox> writer, IEdit
     /// run's queued command instead of stacking one per keystroke, which is
     /// what makes that a single step to begin with. A write left running would
     /// instead land after the step and undo it.
+    ///
+    /// One exception to closing: a box that writes only when it commits (a
+    /// paragraph) holds text nothing has sent, so it is written first, and the
+    /// step then lands on that write. If the core refuses it the box stays open
+    /// with its text, and the caller must not move the history at all.
     /// </remarks>
     /// <returns>
     /// <c>false</c> when a box that writes only on commit kept text the core

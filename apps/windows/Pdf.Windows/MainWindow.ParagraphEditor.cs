@@ -132,7 +132,8 @@ public sealed partial class MainWindow
     /// </summary>
     private static int ParagraphCaretIndex(ContentTextBlock paragraph, ContentTextRun run, double xPt)
     {
-        var start = paragraph.Text.IndexOf(run.Text, StringComparison.Ordinal);
-        return start < 0 ? paragraph.Text.Length : start + CaretIndexFor(run, run.Text, xPt);
+        var clicked = paragraph.Runs.ToList().FindIndex(member => member.Id == run.Id);
+        return ParagraphEditing.CaretIndex(paragraph.Text, [.. paragraph.Runs.Select(member => member.Text)],
+            clicked < 0 ? paragraph.Runs.Count : clicked, CaretIndexFor(run, run.Text, xPt));
     }
 }

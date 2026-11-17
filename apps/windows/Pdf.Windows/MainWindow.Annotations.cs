@@ -103,6 +103,7 @@ public sealed partial class MainWindow
             SyncAnnotationToolButtons();
             return;
         }
+        if (RefusedEditorHoldsMode()) return;
         StopPlacingFormField();
         // One mode owns a page click at a time: arming a tool leaves content
         // editing, exactly as arming content editing disarms the tools.

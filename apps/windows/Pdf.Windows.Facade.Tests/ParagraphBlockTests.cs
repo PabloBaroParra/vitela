@@ -21,6 +21,16 @@ internal static class ParagraphBlockTests
         TextBoxLineBreaksBecomeLineFeeds();
         PlainEnterIsALineBreakAndCtrlEnterCommits();
         AReReadParagraphIsFoundByARunItKeptOrWhereItStood();
+        TheCaretLandsInTheClickedRunNotItsFirstTwin();
+    }
+
+    private static void TheCaretLandsInTheClickedRunNotItsFirstTwin()
+    {
+        const string text = "Total: 5\nTotal: 7";
+        string[] runs = ["Total:", "5", "Total:", "7"];
+        Assert(ParagraphEditing.CaretIndex(text, runs, 2, 1) == 10, "the second 'Total:' is found after the first");
+        Assert(ParagraphEditing.CaretIndex(text, runs, 3, 0) == 16, "the last run sits past every one before it");
+        Assert(ParagraphEditing.CaretIndex(text, ["Gone"], 0, 0) == text.Length, "a run the text lacks puts the caret at the end");
     }
 
     private static async Task<(FakeCore Core, PdfDocumentFacade Facade, string Session)> OpenAsync()
@@ -96,7 +106,11 @@ internal static class ParagraphBlockTests
         var opened = Block(Run(Composicion), Run(Color));
         var grown = Block(Run(Composicion), Run(Color), Run(Composicion with { Id = (1UL << 40) + 1, Bbox = new PdfCoreRect(60, 572, 90, 10), Text = "UNA" }));
         var total = Block(Run(Total));
-        Assert(ReferenceEquals(ParagraphEditing.Refind([total, grown], opened, "anything"), grown), "the paragraph that kept a run is found");
+        Assert(ReferenceEquals(ParagraphEditing.Refind([total, grown], opened, "COMPOSICIÓN: Aluminio COLOR: Blanco\nUNA"), grown),
+            "the paragraph that kept a run is found");
+        // Ids are renumbered after a checkpoint: a kept id alone is not enough.
+        Assert(ParagraphEditing.Refind([total, grown], opened, "Otra cosa") is null,
+            "a block that kept an id but not the written text is not retargeted");
 
         // A centred paragraph is painted afresh: every run has a new id. Found
         // where its first line stood only when it reads what was written there,

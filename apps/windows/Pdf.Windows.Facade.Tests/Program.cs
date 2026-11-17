@@ -267,6 +267,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ,("lands the writes then closes the box, before history moves", SettlingForHistoryLandsTheWritesThenClosesTheBox)
     ,("leaves nothing that could write the undone text back", AHistoryStepLeavesNothingThatCouldWriteTheUndoneTextBack)
     ,("writes a paragraph box's unwritten text before a history step", AHistoryStepWritesAParagraphBoxFirst)
+    ,("leaves no prefill behind a closed paragraph box", AClosedParagraphBoxLeavesNoPrefillBehind)
     ,("asks for an undo when abandoning an edit it created", AbandoningAnEditThisSessionCreatedAsksForAnUndo)
     ,("writes the earlier text back when abandoning on top of it", AbandoningAnEditOnTopOfAnEarlierOneWritesTheEarlierTextBack)
     ,("stops the pump without latching a refusal when the document goes", ADocumentGoingAwayStopsThePumpWithoutLatchingARefusal)
@@ -3929,6 +3930,35 @@ static Task SettlingForHistoryLandsTheWritesThenClosesTheBox()
 // A paragraph box writes only when it commits, so a history step settling it
 // has to write what it holds first, or the typing is lost and the step undoes
 // an earlier edit instead. A refused write keeps the box and stops the step.
+// A paragraph write is keyed by its first run only while its box is open: the
+// core may wrap it into several blocks, and a box reopened over the first one
+// must read the page, not the whole paragraph it once wrote.
+static Task AClosedParagraphBoxLeavesNoPrefillBehind()
+{
+    TestDispatcher.Run(dispatcher =>
+    {
+        var writer = new GatedWriter();
+        var pump = new ContentEditPump<FakeBox>(writer, new FakePause());
+        var box = new FakeBox(0, 7, "Uno", "Uno") { Text = "Uno\nDos", WritesOnCommit = true };
+        pump.Open(box);
+        var commit = pump.CommitAsync();
+        dispatcher.Drain();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        Assert(commit.IsCompleted && box.Closed, "the paragraph is written and its box closes");
+        Assert(pump.WrittenFor(0, 7) is null, "a closed paragraph box leaves nothing to prefill");
+
+        var line = new FakeBox(0, 8, "Hola", "Hola") { Text = "Hola mundo" };
+        pump.Open(line);
+        var lineCommit = pump.CommitAsync();
+        dispatcher.Drain();
+        writer.Answer(ContentWriteOutcome.Written);
+        dispatcher.Drain();
+        Assert(lineCommit.IsCompleted && pump.WrittenFor(0, 8) == "Hola mundo", "a one-line box still remembers its write");
+    });
+    return Task.CompletedTask;
+}
+
 static Task AHistoryStepWritesAParagraphBoxFirst()
 {
     TestDispatcher.Run(dispatcher =>

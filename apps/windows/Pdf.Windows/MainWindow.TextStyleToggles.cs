@@ -296,7 +296,11 @@ public sealed partial class MainWindow
         // A block retyped as the reader typed is one run now; the others are
         // gone, and the one left reads its new text.
         await RereadPageContentAsync(page);
-        var ids = target.Runs.Select(run => run.Id).ToHashSet();
+        // A paragraph's flush may have grown lines or repainted it whole: the
+        // runs to restyle are the ones it was found under after the write.
+        var targetRuns = editor.IsParagraph && target.Scope == TextStyleScope.Editor && editor.Block is { } now
+            ? now.Runs : target.Runs;
+        var ids = targetRuns.Select(run => run.Id).ToHashSet();
         ContentTextRun[] runs = _pageContent.TryGetValue(page, out var state) && state.Content is { } content
             ? [.. content.TextRuns.Where(run => ids.Contains(run.Id))]
             : [];

@@ -28,7 +28,8 @@ public sealed partial class MainWindow
 
         var sessionId = _session.SessionId;
         await CommitContentEditorAsync();
-        if (_session?.SessionId != sessionId || !_contentEditMode || !ContentEditButton.IsEnabled || _isBusy || _dialogOpen)
+        if (_session?.SessionId != sessionId || !_contentEditMode || !ContentEditButton.IsEnabled || _isBusy || _dialogOpen
+            || InlineEditStillOpen())
         {
             return;
         }
