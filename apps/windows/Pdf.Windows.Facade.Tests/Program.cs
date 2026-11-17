@@ -7,6 +7,8 @@ var tests = new (string Name, Func<Task> Run)[]
     ("lifecycle query follows pending edits, successful writes and stale sessions", QueriesLifecycleChangesAsync),
     ("shares a save-equivalent copy without marking the session saved", ShareParityTests.RunAsync),
     ("observes, snapshots and reopens documents for crash recovery", RecoveryFacadeTests.RunAsync),
+    ("stores, claims and discards crash-recovery entries", RecoveryStoreTests.RunAsync),
+    ("autosaves unsaved work and never resurrects a forgotten entry", AutosaveSchedulerTests.RunAsync),
     ("document block snapshots, single commands and stale guards", OrganizeParityTests.RunAsync),
     ("prepares PDFs without edits and imports the whole batch as one undo step", ImportParityTests.RunAsync),
     ("edits metadata dates and individual properties without losing offsets", MetadataParityTests.RunAsync),
