@@ -198,7 +198,9 @@ test('a signed document: a turn saves without breaking the signature, a deletion
     page.waitForEvent('download'),
     dialog.getByRole('button', { name: 'Save a copy' }).click(),
   ]);
-  expect(download.suggestedFilename()).toBe('rsa2048_sha256 (copy).pdf');
+  // The app names it "rsa2048_sha256 (copy).pdf"; WebKit on Linux reports the
+  // suggested name with the space turned into "_", so accept either.
+  expect(download.suggestedFilename()).toMatch(/^rsa2048_sha256[ _]\(copy\)\.pdf$/);
   await expect(
     page.getByText(
       'Downloaded a copy as rsa2048_sha256 (copy).pdf. The opened file was not changed and still has unsaved changes.',
