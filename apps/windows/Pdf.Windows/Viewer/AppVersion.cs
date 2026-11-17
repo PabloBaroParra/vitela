@@ -16,11 +16,13 @@ public static class AppVersion
     public static string FooterText { get; } =
         Label(typeof(AppVersion).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion);
 
-    /// <summary>The footer's text for an informational version; an unset or blank one is "dev".</summary>
+    /// <summary>The footer's text for an informational version; an unset, blank or "dev" one is a development build.</summary>
     public static string Label(string? version)
     {
         // Defensive: the SDK appends "+<commit>" unless the csproj turns it off.
         var name = version?.Split('+')[0].Trim();
-        return I18n.T("home-version", ("version", string.IsNullOrEmpty(name) ? I18n.T("home-version-dev") : name));
+        // The csproj stamps a non-release build as "dev"; that marker is shown localized, as on Linux.
+        var development = string.IsNullOrEmpty(name) || name == "dev";
+        return I18n.T("home-version", ("version", development ? I18n.T("home-version-dev") : name!));
     }
 }

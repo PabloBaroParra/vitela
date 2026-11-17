@@ -62,6 +62,7 @@ internal static class ThemeParityTests
         using (Pdf.Windows.Localization.I18n.Speak(Pdf.Windows.Localization.Language.Spanish))
         {
             Check(AppVersion.Label(null) == "Vitela desarrollo", "The Spanish footer names a development build in Spanish, as on Linux");
+            Check(AppVersion.Label("dev") == "Vitela desarrollo", "The csproj's \"dev\" stamp is the development marker, not a version name");
             Check(AppVersion.Label("0.1.0-beta.3") == "Vitela 0.1.0-beta.3", "A release version is never translated");
         }
 
