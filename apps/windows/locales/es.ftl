@@ -509,10 +509,10 @@ forms-color-title = Elegir el color del campo
 
 forms-style-font = Fuente
 forms-style-size = Tamaño (pt)
-forms-delete-field-tooltip = Eliminar el campo seleccionado (Delete)
+forms-delete-field-tooltip = Eliminar el campo seleccionado (Supr)
 forms-fill-forbidden = Este documento no permite rellenar su formulario.
 forms-field-name = Nombre del campo: { $name }
-forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Escape cancela.
+forms-field-name-tooltip = Escribe para cambiar el nombre. Intro acepta; Esc cancela.
 forms-place-text-hint = Haz clic o arrastra en una página para colocar un campo de texto.
 forms-place-checkbox-hint = Haz clic o arrastra en una página para colocar una casilla de verificación.
 forms-place-radio-group-hint = Haz clic o arrastra en una página para colocar un grupo de opciones.
@@ -554,7 +554,7 @@ watermark-cancel = Cancelar
 
 watermark-kind-header = Marca de agua
 watermark-no-picture-hint = No se ha elegido ninguna imagen. PNG o JPEG.
-watermark-picture-chosen = Imagen elegida ({ $size } KB).
+watermark-picture-chosen = Imagen elegida ({ $size } kB).
 watermark-page-range = Intervalo de páginas
 watermark-angle-degrees-label = Ángulo (°)
 watermark-placement-label = Colocación
@@ -766,7 +766,11 @@ compress-nothing-written = Compresión cancelada. No se ha escrito ningún archi
 compress-no-source-size = No se conoce el tamaño del archivo de origen de este documento nuevo.
 split-nothing-written = División cancelada. No se ha escrito ningún archivo.
 split-writing-part = Escribiendo la parte { $part } de { $total }...
-split-stopped = La división se detuvo tras escribir { $written }: no se pudo escribir { $name }: { $error }
+split-stopped =
+    La división se detuvo tras escribir { $written ->
+        [one] { $written } archivo
+       *[other] { $written } archivos
+    }: no se pudo escribir { $name }: { $error }
 extract-dialog-cancelled = Extracción cancelada.
 extract-nothing-written = Extracción cancelada. No se ha escrito ningún archivo.
 extract-busy-count =
@@ -779,7 +783,11 @@ export-preparing = Preparando la exportación...
 export-page-range = Intervalo de páginas
 export-busy-page = Exportando la página { $page } ({ $index } de { $total })...
 export-page-failed-written = No se pudo exportar la página { $page }: { $error } Imágenes escritas: { $written }.
-export-stopped = La exportación se detuvo tras escribir { $written }: { $error }
+export-stopped =
+    La exportación se detuvo tras escribir { $written ->
+        [one] { $written } imagen
+       *[other] { $written } imágenes
+    }: { $error }
 export-summary-format =
     { $count ->
         [one] { $count } página exportada como { $format } a { $folder }.
@@ -827,7 +835,7 @@ signature-disarmed = Firma desactivada.
 
 sign-choose-pfx-tooltip = Elige un certificado de firma PKCS#12 (.pfx o .p12).
 sign-no-identities = Este origen de certificados no tiene identidades de firma utilizables.
-sign-busy-document = Firmando el documento…
+sign-busy-document = Firmando el documento...
 sign-saved-reopened = PDF firmado guardado y reabierto.
 sign-token-pin-name = PIN del token
 sign-token-pin-prompt = Introduce el PIN del token o déjalo vacío para usar el aviso de autenticación del propio token.
@@ -836,11 +844,11 @@ sign-continue = Continuar
 sign-pfx-password-name = Contraseña del certificado
 sign-identity-name = Identidad de firma
 signature-heading = Firma
-signature-remember-pc = Recordar en este PC
+signature-remember-pc = Recordar en este equipo
 signature-draw-name = Dibujar firma
 signature-draw-tooltip-short = Dibuja una firma con el ratón y haz clic en una página para colocarla.
 signature-not-drawn = No se pudo dibujar la firma.
-signature-forgotten-pc = Tu firma guardada se ha eliminado de este PC.
+signature-forgotten-pc = Tu firma guardada se ha eliminado de este equipo.
 
 ## Viewer: printing
 
@@ -897,7 +905,7 @@ open-password-open = Abrir
 open-password-busy = Abriendo el PDF protegido con contraseña...
 open-password-waiting = Esperando la contraseña del documento.
 open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
-open-password-cancelled = Se canceló la contraseña.
+open-password-cancelled = Se canceló la introducción de la contraseña.
 
 ## Lifecycle, save, share and text copy: Windows only
 

@@ -546,7 +546,8 @@ forms-color-title = Choose field color
 
 forms-style-font = Font
 forms-style-size = Size (pt)
-# "Delete" is the keyboard key that also deletes the field; keep it as-is.
+# "(Delete)" names the keyboard key that also deletes the field: write it as
+# the key is labelled on keyboards in the target language (Spanish: "Supr").
 forms-delete-field-tooltip = Delete the selected field (Delete)
 forms-fill-forbidden = This document does not permit filling in its form.
 # $name (String) - the field's name, verbatim.
@@ -595,8 +596,8 @@ watermark-cancel = Cancel
 
 watermark-kind-header = Watermark
 watermark-no-picture-hint = No picture chosen. PNG or JPEG.
-# $size (Number) - the picture's size in KB, at least 1.
-watermark-picture-chosen = Picture chosen ({ $size } KB).
+# $size (Number) - the picture's size in kB, at least 1.
+watermark-picture-chosen = Picture chosen ({ $size } kB).
 # Accessible name of the custom page-range entry.
 watermark-page-range = Page range
 watermark-angle-degrees-label = Angle (°)
@@ -910,7 +911,7 @@ signature-disarmed = Signature disarmed.
 
 sign-choose-pfx-tooltip = Choose a PKCS#12 signing certificate (.pfx or .p12).
 sign-no-identities = This certificate source has no usable signing identities.
-sign-busy-document = Signing document…
+sign-busy-document = Signing document...
 sign-saved-reopened = Signed PDF saved and reopened.
 # Accessible name of the PIN entry.
 sign-token-pin-name = Token PIN
