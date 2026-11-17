@@ -26,6 +26,16 @@
   </PropertyGroup>
 
   <!--
+    The opt-in UI smokes (Tests/*Smoke.targets, passed with
+    -p:CustomAfterMicrosoftCommonTargets) match English text, so they start in
+    English on any Windows display language unless VITELA_LANGUAGE says
+    otherwise (Localization/I18n.cs).
+  -->
+  <PropertyGroup Condition="$(CustomAfterMicrosoftCommonTargets.EndsWith('Smoke.targets'))">
+    <DefineConstants>$(DefineConstants);VITELA_UI_SMOKE</DefineConstants>
+  </PropertyGroup>
+
+  <!--
     Microsoft Store build: the same app as an MSIX, opted into with
     -p:VitelaStorePackage=true by scripts/package-windows-store.ps1. Every
     other build (F5, CI, the signed zip) stays unpackaged.

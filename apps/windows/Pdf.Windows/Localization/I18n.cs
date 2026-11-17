@@ -33,6 +33,10 @@ public static class I18n
 #if VITELA_FACADE_TESTS
     // Deterministic tests: English, regardless of the developer's display language.
     private static Language InitialLanguage() => Language.English;
+#elif VITELA_UI_SMOKE
+    // The UI smokes match English text: English unless VITELA_LANGUAGE asks otherwise.
+    private static Language InitialLanguage() => LanguageNegotiation.Resolve(
+        Environment.GetEnvironmentVariable(LanguageNegotiation.OverrideVariable) ?? "en", null);
 #else
     private static Language InitialLanguage() => LanguageNegotiation.FromEnvironment();
 #endif

@@ -45,8 +45,16 @@ an interactive desktop left alone until it exits.
 The shell speaks English or Spanish, chosen once at start-up from the Windows
 display language (`CultureInfo.CurrentUICulture`): any `es-*` culture is Spanish,
 everything else English. `VITELA_LANGUAGE=es` (or `en`) overrides it, which is
-how to try the Spanish UI on an English Windows, and how to run the English
-UI-automation harnesses on a Spanish one.
+how to try the Spanish UI on an English Windows. Like Linux's `LANGUAGE` it may
+be a colon-separated list (`fr:es`); the first supported entry wins.
+
+The UI-automation harnesses match English text. `test-home.ps1` starts the x64
+Debug build with `VITELA_LANGUAGE=en` when no instance is running; the other
+`test-*.ps1` scripts attach to a running app and warn when it is not speaking
+English (`Tests/UiTestLanguage.ps1`). The in-process `Tests/*Smoke.targets`
+builds start in English unless `VITELA_LANGUAGE` says otherwise. A translation
+that fails to build is logged and the shell falls back to English; a message
+that fails to format renders as its key.
 
 Strings live in Fluent files, `apps/windows/locales/en.ftl` and `es.ftl`,
 embedded in the assembly and read with Linguini.Bundle. Keys are shared with
@@ -499,7 +507,8 @@ and skips an entry whose shortcut is no newer than its removal, so the card stay
 gone across restarts and returns only once the document is opened again, here or
 in any other app.
 
-With the app showing Home, run
+With the app showing Home (or none running: the script then starts the Debug
+build in English), run
 `powershell -File apps/windows/test-home.ps1 -TestPicker` from the repository root
 for the UI Automation smoke test. It checks
 the initial screen, recent-card cap, no-match filtering and picker cancellation,

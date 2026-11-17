@@ -3,9 +3,14 @@ param([switch]$TestPicker, [switch]$TestSample)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+# Started here when nothing is running: Home is the screen a fresh launch shows.
+# The started app speaks English whatever the Windows display language.
+. (Join-Path $PSScriptRoot 'Tests\UiTestLanguage.ps1')
 $processes = @(Get-Process Pdf.Windows -ErrorAction SilentlyContinue)
+if ($processes.Count -eq 0) { $processes = @(Start-VitelaInEnglish) }
 if ($processes.Count -ne 1) { throw 'Start exactly one Pdf.Windows instance before running the Home smoke test.' }
 $window = [System.Windows.Automation.AutomationElement]::FromHandle($processes[0].MainWindowHandle)
+Assert-VitelaSpeaksEnglish $window
 
 function Find-Element([string]$Id) {
     $condition = [System.Windows.Automation.PropertyCondition]::new(
