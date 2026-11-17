@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -34,7 +35,7 @@ public sealed partial class MainWindow
             // Place modes are toggles; Protect opens a dialog over any screen, so it is a plain button.
             ButtonBase button = ShellModes.IsPlace(mode) ? new ToggleButton() : new Button();
             button.Style = NamedStyle("ModeTabStyle");
-            var label = ShellModes.Label(mode);
+            var label = ModeLabel(mode);
             ToolbarIcon(button, ShellModes.Icon(mode), label, caption: label, size: ModeIconPx);
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(button, $"Mode_{mode}");
             button.Click += async (_, e) => await ModeButton_ClickAsync(mode, e);
@@ -91,4 +92,15 @@ public sealed partial class MainWindow
         if (mode == ShellMode.Home) ShowHomeView();
         else await NavigateToToolAsync(mode.ToString(), e);
     }
+
+    /// <summary>The tab's translated label; <see cref="ShellModes.Label"/> keeps the English id the tests pin.</summary>
+    private static string ModeLabel(ShellMode mode) => I18n.T(mode switch
+    {
+        ShellMode.Home => "mode-home",
+        ShellMode.Edit => "mode-edit",
+        ShellMode.Annotate => "mode-annotate",
+        ShellMode.Organize => "mode-organize",
+        ShellMode.Sign => "mode-sign",
+        _ => "mode-protect",
+    });
 }

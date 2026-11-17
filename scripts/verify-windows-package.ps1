@@ -123,7 +123,8 @@ foreach ($entry in @(
         'Assets\vitela-sample.pdf',
         'licenses\LICENSE-MIT',
         'licenses\LICENSE-APACHE',
-        'licenses\pdfium\LICENSE')) {
+        'licenses\pdfium\LICENSE',
+        'licenses\linguini\LICENSE')) {
     Require-PackagedFile (Join-Path $installDir $entry)
 }
 if (-not (Get-ChildItem -LiteralPath (Join-Path $installDir 'licenses\pdfium') -File | Where-Object { $_.Name -ne 'LICENSE' })) {

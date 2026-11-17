@@ -93,6 +93,7 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE-MIT') -Destination $l
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE-APACHE') -Destination $licenseDir
 Copy-Item -LiteralPath $pdfium.License -Destination (Join-Path $licenseDir 'pdfium\LICENSE')
 Copy-Item -Path (Join-Path $pdfium.Notices '*') -Destination (Join-Path $licenseDir 'pdfium') -Recurse
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'apps\windows\licenses\linguini') -Destination $licenseDir -Recurse
 
 # A build-time copy of the manifest carries the identity and version, so the
 # committed file never holds release values and a local run never dirties it.
@@ -164,7 +165,8 @@ $requiredEntries = @(
     'Package\Images\StoreLogo.scale-100.png',
     'licenses\LICENSE-MIT',
     'licenses\LICENSE-APACHE',
-    'licenses\pdfium\LICENSE'
+    'licenses\pdfium\LICENSE',
+    'licenses\linguini\LICENSE'
 )
 foreach ($entry in $requiredEntries) {
     Require-File (Join-Path $layoutDir $entry) 'packaged file'

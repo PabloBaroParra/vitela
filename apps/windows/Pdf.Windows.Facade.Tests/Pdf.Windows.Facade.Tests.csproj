@@ -4,7 +4,14 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Localization/I18n.cs starts in English under this symbol, as Linux's i18n does under cfg(test). -->
+    <DefineConstants>$(DefineConstants);VITELA_FACADE_TESTS</DefineConstants>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Same exact pin as the shell (Pdf.Windows.csproj). -->
+    <PackageReference Include="Linguini.Bundle" Version="[0.11.0]" />
+  </ItemGroup>
 
   <ItemGroup>
     <Compile Include="..\Pdf.Windows\Facade\PdfDocumentFacade.Selection.cs" Link="Facade\PdfDocumentFacade.Selection.cs" />
@@ -102,10 +109,15 @@
     <Compile Include="..\Pdf.Windows\Viewer\PaletteCatalog.cs" Link="Viewer\PaletteCatalog.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ShellShortcuts.cs" Link="Viewer\ShellShortcuts.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ShellModes.cs" Link="Viewer\ShellModes.cs" />
+    <Compile Include="..\Pdf.Windows\Localization\Language.cs" Link="Localization\Language.cs" />
+    <Compile Include="..\Pdf.Windows\Localization\Translations.cs" Link="Localization\Translations.cs" />
+    <Compile Include="..\Pdf.Windows\Localization\I18n.cs" Link="Localization\I18n.cs" />
   </ItemGroup>
 
   <!-- The same embedded drawings the shell carries, so ShellIcons.Source resolves here too. -->
   <ItemGroup>
     <EmbeddedResource Include="..\..\..\assets\icons\*.svg" LogicalName="Pdf.Windows.Icons.%(Filename)%(Extension)" />
+    <!-- The same embedded translations, so Translations.EmbeddedSource resolves here too. -->
+    <EmbeddedResource Include="..\locales\*.ftl" LogicalName="Pdf.Windows.Locales.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

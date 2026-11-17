@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -8,7 +9,8 @@ namespace Pdf.Windows;
 /// <summary>Home presentation and filtering; tool dispatch remains shared with the mode bar.</summary>
 public sealed partial class MainWindow
 {
-    private readonly List<Button> _homeToolTiles = [];
+    /// <summary>Each tile with its localized label, which the header's filter matches (home/tools.rs).</summary>
+    private readonly List<(Button Tile, string Label)> _homeToolTiles = [];
     private Border? _homeToolsCard;
 
     private void BuildHomeTools()
@@ -16,34 +18,35 @@ public sealed partial class MainWindow
         var grid = new Grid { RowSpacing = 8, ColumnSpacing = 8 };
         for (var column = 0; column < 3; column++) grid.ColumnDefinitions.Add(new ColumnDefinition());
         for (var row = 0; row < 2; row++) grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        // The first value is the tool's id (the rail's destination), never shown.
         var entries = new[]
         {
-            ("Edit", "Retype text and replace images", ShellIcon.Edit, IconTint.Edit),
-            ("Annotate", "Highlight, draw, and add notes", ShellIcon.Annotate, IconTint.Annotate),
-            ("Sign", "Sign with a certificate, card, or token", ShellIcon.Sign, IconTint.Sign),
-            ("Organize", "Reorder and delete pages", ShellIcon.Organize, IconTint.Organize),
-            ("Compress", "Write a smaller copy of the file", ShellIcon.Compress, IconTint.Compress),
-            ("Protect", "Require a password to open the document", ShellIcon.Protect, IconTint.Protect),
+            ("Edit", I18n.T("home-tool-edit"), I18n.T("home-tool-edit-description"), ShellIcon.Edit, IconTint.Edit),
+            ("Annotate", I18n.T("home-tool-annotate"), I18n.T("home-tool-annotate-description"), ShellIcon.Annotate, IconTint.Annotate),
+            ("Sign", I18n.T("home-tool-sign"), I18n.T("home-tool-sign-description"), ShellIcon.Sign, IconTint.Sign),
+            ("Organize", I18n.T("home-tool-organize"), I18n.T("home-tool-organize-description"), ShellIcon.Organize, IconTint.Organize),
+            ("Compress", I18n.T("home-tool-compress"), I18n.T("home-tool-compress-description"), ShellIcon.Compress, IconTint.Compress),
+            ("Protect", I18n.T("home-tool-protect"), I18n.T("home-tool-protect-description"), ShellIcon.Protect, IconTint.Protect),
         };
         for (var index = 0; index < entries.Length; index++)
         {
-            var (label, description, icon, tint) = entries[index];
+            var (tool, label, description, icon, tint) = entries[index];
             var content = new StackPanel { Spacing = 6, HorizontalAlignment = HorizontalAlignment.Center };
-            var tile = new Button { Tag = label, Style = HomeStyle("ToolTileButtonStyle") };
+            var tile = new Button { Tag = tool, Style = HomeStyle("ToolTileButtonStyle") };
             // TILE_ICON_PX in the tool's own hue; a disabled tile goes muted (home/tools.rs).
             content.Children.Add(ShellIconImage(icon, 24, tint, tile));
             content.Children.Add(new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center });
             tile.Content = content;
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(tile, label);
             ToolTipService.SetToolTip(tile, description);
-            tile.Click += async (_, e) => await NavigateToToolAsync(label, e);
+            tile.Click += async (_, e) => await NavigateToToolAsync(tool, e);
             Grid.SetColumn(tile, index % 3);
             Grid.SetRow(tile, index / 3);
             grid.Children.Add(tile);
-            _homeToolTiles.Add(tile);
+            _homeToolTiles.Add((tile, label));
         }
         HomeVersionText.Text = AppVersion.FooterText;
-        _homeToolsCard = HomeCard("Tools", grid);
+        _homeToolsCard = HomeCard(I18n.T("home-tools-title"), grid);
         HomeToolsColumn.Children.Add(_homeToolsCard);
         BuildHomeQuickActions();
         ApplyHomeFilter();
@@ -54,9 +57,9 @@ public sealed partial class MainWindow
         var actions = new StackPanel { Spacing = 8 };
         foreach (var (label, icon, run) in new (string, ShellIcon, Func<Task>)[]
         {
-            ("New blank PDF", ShellIcon.NewFile, CreateNewDocumentAsync),
-            ("Open file…", ShellIcon.Files, async () => { await PickShellDocumentAsync(); }),
-            ("Open the sample", ShellIcon.Sample, async () =>
+            (I18n.T("home-quick-new-blank"), ShellIcon.NewFile, CreateNewDocumentAsync),
+            (I18n.T("home-quick-open"), ShellIcon.Files, async () => { await PickShellDocumentAsync(); }),
+            (I18n.T("home-quick-sample"), ShellIcon.Sample, async () =>
             {
                 if (!_isBusy && !_dialogOpen && !_shellPickingFile) await OpenSampleFileAsync(SamplePath, SampleDisplayName);
             }),
@@ -72,13 +75,13 @@ public sealed partial class MainWindow
             button.Click += async (_, _) => await run();
             actions.Children.Add(button);
         }
-        HomeToolsColumn.Children.Add(HomeCard("Quick actions", actions));
+        HomeToolsColumn.Children.Add(HomeCard(I18n.T("home-quick-actions-title"), actions));
 
         var shortcuts = new StackPanel { Spacing = 6 };
         // The shared table the palette's rows print too, so the two cannot disagree.
         foreach (var shortcut in ShellShortcuts.HomeCard)
         {
-            var (action, keys) = (shortcut.Name, shortcut.Label);
+            var (action, keys) = (HomeShortcutName(shortcut), shortcut.Label);
             var row = new Grid();
             row.ColumnDefinitions.Add(new ColumnDefinition());
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -89,7 +92,7 @@ public sealed partial class MainWindow
             row.Children.Add(keyLabel);
             shortcuts.Children.Add(row);
         }
-        HomeToolsColumn.Children.Add(HomeCard("Keyboard shortcuts", shortcuts));
+        HomeToolsColumn.Children.Add(HomeCard(I18n.T("home-shortcuts-title"), shortcuts));
     }
 
     private static Border HomeCard(string title, UIElement content)
@@ -168,11 +171,20 @@ public sealed partial class MainWindow
     {
         if (HomeSearchBox is null) return;
         var query = HomeSearchBox.Text;
-        foreach (var tile in _homeToolTiles)
-            tile.Visibility = ((string)tile.Tag).Contains(query, StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var (tile, label) in _homeToolTiles)
+            tile.Visibility = label.Contains(query, StringComparison.CurrentCultureIgnoreCase) ? Visibility.Visible : Visibility.Collapsed;
         if (_homeToolsCard is not null)
-            _homeToolsCard.Visibility = _homeToolTiles.Any(tile => tile.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
+            _homeToolsCard.Visibility = _homeToolTiles.Any(entry => entry.Tile.Visibility == Visibility.Visible) ? Visibility.Visible : Visibility.Collapsed;
         if (RecentFilesList is null) return;
         FilterRecentFiles(query);
     }
+
+    /// <summary>The translated name of one of Home's shortcut rows; the key text stays as is in every language.</summary>
+    private static string HomeShortcutName(ShellShortcut shortcut) => I18n.T(
+        shortcut == ShellShortcuts.Open ? "home-shortcut-open"
+        : shortcut == ShellShortcuts.New ? "home-shortcut-new"
+        : shortcut == ShellShortcuts.Save ? "home-shortcut-save"
+        : shortcut == ShellShortcuts.Find ? "home-shortcut-find"
+        : shortcut == ShellShortcuts.Print ? "home-shortcut-print"
+        : "home-shortcut-command-palette");
 }

@@ -4,10 +4,12 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class LifecycleClose { [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l); }'
+. (Join-Path $PSScriptRoot 'Tests\UiTestLanguage.ps1')
 $processes = @(Get-Process Pdf.Windows -ErrorAction SilentlyContinue)
 if ($processes.Count -ne 1) { throw 'Start exactly one normal Pdf.Windows with the unchanged built-in sample open.' }
 $process = $processes[0]
 $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+Assert-VitelaSpeaksEnglish $window
 function Find-Element([string]$Id) {
     return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
         [System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty, $Id))

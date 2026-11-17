@@ -59,6 +59,12 @@ internal static class ThemeParityTests
         Check(AppVersion.Label("0.1.0-beta.3") == "Vitela 0.1.0-beta.3", "Home's footer shows a release build's tag version");
         Check(AppVersion.Label("0.1.0-beta.3+0fecf15") == "Vitela 0.1.0-beta.3", "Home's footer drops a source-revision suffix");
         Check(AppVersion.Label(null) == "Vitela dev" && AppVersion.Label(" ") == "Vitela dev", "A build without a version says it is a development one");
+        using (Pdf.Windows.Localization.I18n.Speak(Pdf.Windows.Localization.Language.Spanish))
+        {
+            Check(AppVersion.Label(null) == "Vitela desarrollo", "The Spanish footer names a development build in Spanish, as on Linux");
+            Check(AppVersion.Label("dev") == "Vitela desarrollo", "The csproj's \"dev\" stamp is the development marker, not a version name");
+            Check(AppVersion.Label("0.1.0-beta.3") == "Vitela 0.1.0-beta.3", "A release version is never translated");
+        }
 
         // The caption is drawn by the OS from AppWindow.TitleBar colours, which cannot
         // reference XAML resources, so TitleBarColors repeats four palette roles.

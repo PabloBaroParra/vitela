@@ -26,6 +26,16 @@
   </PropertyGroup>
 
   <!--
+    The opt-in UI smokes (Tests/*Smoke.targets, passed with
+    -p:CustomAfterMicrosoftCommonTargets) match English text, so they start in
+    English on any Windows display language unless VITELA_LANGUAGE says
+    otherwise (Localization/I18n.cs).
+  -->
+  <PropertyGroup Condition="$(CustomAfterMicrosoftCommonTargets.EndsWith('Smoke.targets'))">
+    <DefineConstants>$(DefineConstants);VITELA_UI_SMOKE</DefineConstants>
+  </PropertyGroup>
+
+  <!--
     Microsoft Store build: the same app as an MSIX, opted into with
     -p:VitelaStorePackage=true by scripts/package-windows-store.ps1. Every
     other build (F5, CI, the signed zip) stays unpackaged.
@@ -73,6 +83,24 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.250606001" />
+    <!--
+      Fluent (.ftl) runtime for the shell's translations (Localization/), the
+      .NET counterpart of the fluent-bundle crate the GTK shell uses, so both
+      shells read the same message syntax and keys. MIT OR Apache-2.0; its
+      notice ships in licenses\linguini (scripts/package-windows*.ps1). Exact
+      pin: "[0.11.0]" is NuGet's exact-version range, where a bare "0.11.0"
+      would mean "0.11.0 or newer". The facade tests reference the same version.
+    -->
+    <PackageReference Include="Linguini.Bundle" Version="[0.11.0]" />
+  </ItemGroup>
+
+  <!--
+    The translations, embedded rather than copied (Localization/Translations.cs):
+    nothing to find on disk at run time, and no build can ship without them.
+    Same idea as Linux's include_str! of apps/linux-gtk/locales.
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\locales\*.ftl" LogicalName="Pdf.Windows.Locales.%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

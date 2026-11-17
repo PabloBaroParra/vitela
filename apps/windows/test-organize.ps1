@@ -3,9 +3,11 @@ param()
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+. (Join-Path $PSScriptRoot 'Tests\UiTestLanguage.ps1')
 $processes = @(Get-Process Pdf.Windows -ErrorAction SilentlyContinue)
 if ($processes.Count -ne 1) { throw 'Start exactly one Pdf.Windows instance with the built-in sample open.' }
 $window = [System.Windows.Automation.AutomationElement]::FromHandle($processes[0].MainWindowHandle)
+Assert-VitelaSpeaksEnglish $window
 
 function Find-Element([string]$Id) {
     return $window.FindFirst([System.Windows.Automation.TreeScope]::Descendants,

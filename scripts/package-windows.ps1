@@ -109,6 +109,9 @@ Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE-MIT') -Destination $l
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE-APACHE') -Destination $licenseDir -Force
 Copy-Item -LiteralPath $pdfiumLicense -Destination (Join-Path $pdfiumLicenseDir 'LICENSE') -Force
 Copy-Item -Path (Join-Path $pdfiumNotices '*') -Destination $pdfiumLicenseDir -Recurse -Force
+# Linguini (the Fluent runtime behind the translations) ships no license file
+# in its NuGet packages, so its notice is kept in the repository.
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'apps\windows\licenses\linguini') -Destination $licenseDir -Recurse -Force
 
 # What the package is required to contain. Stated here rather than left to the
 # verification script alone, so a broken publish fails at the step that made it.
@@ -131,7 +134,8 @@ $requiredEntries = @(
     'Assets\vitela-sample.pdf',
     'licenses\LICENSE-MIT',
     'licenses\LICENSE-APACHE',
-    'licenses\pdfium\LICENSE'
+    'licenses\pdfium\LICENSE',
+    'licenses\linguini\LICENSE'
 )
 foreach ($entry in $requiredEntries) {
     Require-File (Join-Path $stageDir $entry) "packaged file"

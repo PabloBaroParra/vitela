@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.System;
 
@@ -60,7 +61,7 @@ public sealed partial class MainWindow
         if (_isBusy || _dialogOpen) return;
         if (_session is null)
         {
-            SetSearchStatus("Open a PDF before searching.");
+            SetSearchStatus(I18n.T("search-open-first"));
             return;
         }
 
@@ -68,7 +69,7 @@ public sealed partial class MainWindow
         ClearSearchResults();
         if (query.Length == 0)
         {
-            SetSearchStatus("Enter text to find.");
+            SetSearchStatus(I18n.T("search-enter-text"));
             return;
         }
 
@@ -76,7 +77,7 @@ public sealed partial class MainWindow
         var generation = _searchGeneration;
         _searchPending = true;
         UpdateSearchControls();
-        SetSearchStatus($"Searching for \"{query}\"...");
+        SetSearchStatus(I18n.T("search-running", ("query", query)));
         var result = await _facade.SearchAsync(sessionId, query);
         if (generation != _searchGeneration || _session?.SessionId != sessionId)
         {
@@ -89,12 +90,12 @@ public sealed partial class MainWindow
         if (!result.IsSuccess)
         {
             var error = result.Error!;
-            SetSearchStatus(error.Message == PdfDocumentFacade.TextExtractionRefusalMessage ? error.Message : $"Could not search: {error.Message}");
+            SetSearchStatus(error.Message == PdfDocumentFacade.TextExtractionRefusalMessage ? error.Message : I18n.T("search-failed", ("error", error.Message)));
             return;
         }
 
         var search = result.Value!;
-        SetSearchStatus(search.Hits.Count == 0 ? $"No matches for \"{query}\"." : SearchSelection.Status(query, 0, search.Hits.Count));
+        SetSearchStatus(search.Hits.Count == 0 ? I18n.T("search-no-matches", ("query", query)) : SearchSelection.Status(query, 0, search.Hits.Count));
         _searchQuery = search.Hits.Count == 0 ? null : query;
         foreach (var hit in search.Hits)
         {
@@ -106,7 +107,7 @@ public sealed partial class MainWindow
             pageHits.Add(hit);
             SearchResultsList.Items.Add(new ListViewItem
             {
-                Content = $"Page {hit.PageIndex + 1}: {hit.Text}",
+                Content = I18n.T("search-result", ("page", hit.PageIndex + 1), ("text", hit.Text)),
                 Tag = hit,
             });
         }
@@ -160,7 +161,7 @@ public sealed partial class MainWindow
         if (_session?.SessionId != sessionId || generation != _searchGeneration || !ReferenceEquals(SearchResultsList.SelectedItem, selected)) return;
         if (!navigation.IsSuccess)
         {
-            SetSearchStatus($"Could not navigate to the match: {navigation.Error!.Message}");
+            SetSearchStatus(I18n.T("search-navigate-failed", ("error", navigation.Error!.Message)));
             return;
         }
 

@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.Graphics.Imaging;
@@ -82,7 +83,7 @@ public sealed partial class MainWindow
         if (await ClaimDroppedFileAsync(args) is not { } file)
         {
             AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
-                ? "Only PDF files can be opened from the Home screen."
+                ? I18n.T("home-drop-not-pdf")
                 : UnsupportedDropMessage;
         }
         else if (await ReadDroppedFileAsync(file) is not { } dropped)
@@ -96,7 +97,7 @@ public sealed partial class MainWindow
         else
         {
             AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
-                ? "Only PDF files can be opened from the Home screen."
+                ? I18n.T("home-drop-not-pdf")
                 : _session is null
                 ? "Open a PDF first, then drop an image onto a page to stamp it."
                 : "Drop the image onto a page to place it as a stamp.";
