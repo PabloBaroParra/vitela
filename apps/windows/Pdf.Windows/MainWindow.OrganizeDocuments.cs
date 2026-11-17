@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Windows.ApplicationModel.DataTransfer;
 using Pdf.Windows.Viewer;
 
@@ -28,7 +29,7 @@ public sealed partial class MainWindow
         OrganizePagesToggle.IsChecked = !showDocuments;
         OrganizeDocumentsScroller.Visibility = showDocuments ? Visibility.Visible : Visibility.Collapsed;
         OrganizeGrid.Visibility = showDocuments ? Visibility.Collapsed : Visibility.Visible;
-        OrganizeViewHint.Text = showDocuments ? "Drag a document to move all of its pages." : "Drag a page to reorder it.";
+        OrganizeViewHint.Text = showDocuments ? I18n.T("organize-documents-hint") : I18n.T("organize-pages-hint");
         AnnotationStatus.Text = OrganizeViewHint.Text;
         _thumbnailGeneration++;
         ClearOrganizeDocuments();
@@ -73,11 +74,13 @@ public sealed partial class MainWindow
             var name = block.Source switch
             {
                 DocumentBlockSource.Base => session.DisplayName,
-                DocumentBlockSource.Blank => "Blank pages",
+                DocumentBlockSource.Blank => I18n.T("organize-blank-pages"),
                 _ => ImportedBlockName(session.SessionId, block.ImportedSourceId),
             };
-            if (block.Part is { } part) name += $" — Part {part}";
-            var meta = block.Count == 1 ? $"1 page · {block.Start + 1}" : $"{block.Count} pages · {block.Start + 1}–{block.Start + block.Count}";
+            if (block.Part is { } part) name = I18n.T("organize-block-title-part", ("name", name), ("part", part));
+            var meta = block.Count == 1
+                ? I18n.T("organize-block-meta-one", ("first", block.Start + 1))
+                : I18n.T("organize-block-meta", ("count", block.Count), ("first", block.Start + 1), ("last", block.Start + block.Count));
             var cover = new Image { Width = 96, Height = 124, Stretch = Stretch.Uniform };
             covers.Add((cover, block.Start));
             var sheets = new Grid { Width = 104, Height = 132 };
@@ -94,19 +97,25 @@ public sealed partial class MainWindow
             details.Children.Add(new TextBlock { Text = meta, Style = NamedStyle("OrganizeBlockMetaStyle") });
             var actions = new Viewer.ToolbarPanel { HorizontalAlignment = HorizontalAlignment.Left };
             var capturedPosition = position;
-            void AddAction(ShellIcon icon, string label, DocumentBlockAction action, bool available, int slot = 0)
+            // The automation id stays English: UI scripts find the buttons by it.
+            void AddAction(ShellIcon icon, string id, string label, DocumentBlockAction action, bool available, int slot = 0)
             {
-                var button = CardButton(icon, $"{label}: {name}");
-                AutomationProperties.SetAutomationId(button, $"OrganizeDocument_{position}_{label.Replace(" ", "")}");
+                var button = CardButton(icon, label);
+                AutomationProperties.SetAutomationId(button, $"OrganizeDocument_{position}_{id}");
                 _organizeDocumentActions.Add((button, available));
                 button.Click += async (_, _) => await EditOrganizeBlockAsync(snapshot, capturedPosition, action, slot, session.SessionId, generation);
                 actions.Children.Add(button);
             }
-            AddAction(ShellIcon.MoveUp, "Move up", DocumentBlockAction.Move, position > 0, position - 1);
-            AddAction(ShellIcon.MoveDown, "Move down", DocumentBlockAction.Move, position + 1 < snapshot.Blocks.Count, position + 2);
-            AddAction(ShellIcon.RotateLeft, "Rotate left", DocumentBlockAction.RotateLeft, true);
-            AddAction(ShellIcon.RotateRight, "Rotate right", DocumentBlockAction.RotateRight, true);
-            AddAction(ShellIcon.Delete, "Delete", DocumentBlockAction.Delete, true);
+            AddAction(ShellIcon.MoveUp, "Moveup", I18n.T("organize-block-move-up", ("name", name)),
+                DocumentBlockAction.Move, position > 0, position - 1);
+            AddAction(ShellIcon.MoveDown, "Movedown", I18n.T("organize-block-move-down", ("name", name)),
+                DocumentBlockAction.Move, position + 1 < snapshot.Blocks.Count, position + 2);
+            AddAction(ShellIcon.RotateLeft, "Rotateleft", I18n.T("organize-block-rotate-left", ("name", name)),
+                DocumentBlockAction.RotateLeft, true);
+            AddAction(ShellIcon.RotateRight, "Rotateright", I18n.T("organize-block-rotate-right", ("name", name)),
+                DocumentBlockAction.RotateRight, true);
+            AddAction(ShellIcon.Delete, "Delete", I18n.T("organize-block-delete-named", ("name", name)),
+                DocumentBlockAction.Delete, true);
             // Controls wrap below the details in narrow windows; cover remains a native image.
             details.Children.Add(actions);
             var body = new Grid { ColumnSpacing = 12 };
@@ -116,7 +125,8 @@ public sealed partial class MainWindow
             Grid.SetColumn(details, 1);
             body.Children.Add(details);
             var card = new Border { Child = body, CanDrag = true, Style = NamedStyle("OrganizeCardStyle") };
-            AutomationProperties.SetName(card, $"{name}, {meta}, document {position + 1} of {snapshot.Blocks.Count}");
+            AutomationProperties.SetName(card, I18n.T("organize-block-name", ("title", name), ("meta", meta),
+                ("position", position + 1), ("total", snapshot.Blocks.Count)));
             AutomationProperties.SetAutomationId(card, $"OrganizeDocument_{position}");
             card.DragStarting += (_, args) =>
             {
@@ -184,6 +194,8 @@ public sealed partial class MainWindow
     {
         if (_session?.SessionId != sessionId || generation != _organizeDocumentsGeneration || !_showingOrganizeDocuments) return;
         await EditPagesAsync(new PageEdit.Block(snapshot, position, action, slot),
-            action == DocumentBlockAction.Delete ? "Document deleted." : action == DocumentBlockAction.Move ? "Document moved." : "Document rotated.", _ => { });
+            action == DocumentBlockAction.Delete ? I18n.T("organize-document-deleted-pending")
+                : action == DocumentBlockAction.Move ? I18n.T("organize-document-moved-pending")
+                : I18n.T("organize-document-rotated-pending"), _ => { });
     }
 }

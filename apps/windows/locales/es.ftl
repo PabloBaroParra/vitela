@@ -564,3 +564,96 @@ watermark-summary-save =
         [one] Marca de agua añadida a { $count } página. Guarda para conservar el cambio.
        *[other] Marca de agua añadida a { $count } páginas. Guarda para conservar el cambio.
     }
+
+## Organize: header, view switch and hints
+
+organize-heading = Organizar páginas
+organize-import-progress-name = Progreso de la importación de PDF
+organize-undo = Deshacer
+organize-redo = Rehacer
+organize-add-pdfs = Añadir PDF
+organize-extract = Extraer
+organize-split = Dividir
+organize-split-tooltip = Dividir este PDF en varios PDF nuevos
+organize-save = Guardar
+organize-view-documents = Documentos
+organize-view-pages = Páginas
+organize-documents-hint = Arrastra un documento para mover todas sus páginas.
+organize-pages-hint = Arrastra una página para cambiarla de posición.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+organize-block-title-part = { $name } — Parte { $part }
+organize-block-meta-one = 1 página · { $first }
+organize-block-meta = { $count } páginas · { $first }–{ $last }
+organize-block-name = { $title }, { $meta }, documento { $position } de { $total }
+organize-block-move-up = Subir: { $name }
+organize-block-move-down = Bajar: { $name }
+organize-block-rotate-left = Girar a la izquierda: { $name }
+organize-block-rotate-right = Girar a la derecha: { $name }
+organize-blank-pages = Páginas en blanco
+organize-blank-page = Página en blanco
+organize-imported-pdf = PDF importado
+organize-page-rotate-left = Girar la página a la izquierda
+organize-page-rotate-right = Girar la página a la derecha
+organize-page-delete = Eliminar la página
+
+## Organize: adding PDFs (progress, passwords and results)
+
+organize-import-cancelled = Importación de PDF cancelada.
+organize-import-checking = Comprobando los PDF seleccionados...
+organize-import-progress = { $completed } de { $total } PDF
+organize-import-failed = No se pudo importar { $name }: { $error }
+organize-import-password-title = Se necesita una contraseña
+organize-import-password-prompt = Introduce la contraseña de { $name }.
+organize-import-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+organize-import-password-cancel = Cancelar la importación
+organize-import-unlock = Desbloquear
+organize-import-password-waiting = Esperando la contraseña de { $name }.
+organize-import-warning-title = Parte de la información del documento no se conservará
+organize-import-warning-cancel = Cancelar
+organize-import-anyway = Importar de todos modos
+
+## Organize: Windows only (toolbar, page-card menu and statuses that end in
+## "Changes are pending save.")
+
+organize-add-pdfs-tooltip = Añadir todas las páginas de otros PDF al final
+organize-cancel-import-button = Cancelar la importación
+organize-add-blank-page = Añadir página A4 en blanco
+organize-add-landscape-page = Añadir página A4 horizontal
+organize-rotate-all-left = Girar todo a la izquierda
+organize-rotate-all-left-tooltip = Girar todas las páginas un cuarto de vuelta en sentido antihorario
+organize-rotate-all-right = Girar todo a la derecha
+organize-rotate-all-right-tooltip = Girar todas las páginas un cuarto de vuelta en sentido horario
+organize-return = Volver al documento
+organize-entered-hint = Arrastra una página para moverla. Cada cambio es un paso de deshacer.
+organize-page-name = Página { $page }
+organize-page-actions = Acciones de página
+organize-page-move-earlier = Mover la página antes
+organize-page-move-later = Mover la página después
+organize-page-insert-portrait = Insertar A4 vertical antes
+organize-page-insert-landscape = Insertar A4 horizontal antes
+organize-block-delete-named = Eliminar: { $name }
+organize-blank-page-added-pending = Página en blanco añadida. Los cambios están pendientes de guardar.
+organize-page-moved-pending = Página movida. Los cambios están pendientes de guardar.
+organize-page-deleted-pending = Página eliminada. Los cambios están pendientes de guardar.
+organize-page-rotated-pending = Página girada. Los cambios están pendientes de guardar.
+organize-document-moved-pending = Documento movido. Los cambios están pendientes de guardar.
+organize-document-deleted-pending = Documento eliminado. Los cambios están pendientes de guardar.
+organize-document-rotated-pending = Documento girado. Los cambios están pendientes de guardar.
+organize-import-pick-failed = No se pudieron seleccionar los PDF que importar.
+organize-import-cancelling = Cancelando después del PDF actual...
+organize-import-unreadable = No se pudo importar { $name }: no se pudo leer el archivo.
+organize-import-adding = Añadiendo los PDF seleccionados...
+organize-import-selected-failed = No se pudieron importar los PDF seleccionados.
+organize-import-password-placeholder = Contraseña
+organize-import-password-name = Contraseña de { $name }
+organize-import-warning-detail = Todavía no se ha añadido ninguna página. Importa de todos modos para añadir todo el lote como un solo paso de deshacer.
+organize-imported-summary =
+    { $pages ->
+        [one] { $pages } página importada
+       *[other] { $pages } páginas importadas
+    } de { $files ->
+        [one] { $files } PDF
+       *[other] { $files } PDF
+    }. Los cambios están pendientes de guardar.

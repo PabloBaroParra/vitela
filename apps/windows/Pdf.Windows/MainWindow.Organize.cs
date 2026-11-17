@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -90,7 +91,7 @@ public sealed partial class MainWindow
         HomeView.Visibility = Visibility.Collapsed;
         UpdateOrganizeHeader();
         UpdatePageNavigationControls();
-        AnnotationStatus.Text = "Drag a page to move it. Changes are one undo step each.";
+        AnnotationStatus.Text = I18n.T("organize-entered-hint");
         ShowOrganizeDocuments(showDocuments: true);
         UpdateAnnotationControls(_annotationState);
     }
@@ -208,7 +209,7 @@ public sealed partial class MainWindow
 
     private async Task InsertBlankPageAsync(uint index, PageOrientation orientation)
     {
-        await EditPagesAsync(new PageEdit.InsertBlank(index, orientation), "Blank page added.", onSuccess: _ =>
+        await EditPagesAsync(new PageEdit.InsertBlank(index, orientation), I18n.T("organize-blank-page-added-pending"), onSuccess: _ =>
         {
             _organizeCards.Insert((int)index, CreateOrganizeCard((int)index));
             RenumberOrganizeCards();
@@ -260,7 +261,7 @@ public sealed partial class MainWindow
     {
         if (!OrganizePageDragCurrent(drag) || to < 0 || to >= _organizeCards.Count || to == drag.From) return;
         await EditPagesAsync(new PageEdit.OrganizePage(drag.Snapshot, (uint)drag.From, DocumentBlockAction.Move, (uint)to),
-            "Page moved.", onSuccess: _ => RenumberOrganizeCards());
+            I18n.T("organize-page-moved-pending"), onSuccess: _ => RenumberOrganizeCards());
     }
 
     private async Task EditPageAtCardAsync(Border card, DocumentBlockAction action, int target = -1)
@@ -270,7 +271,9 @@ public sealed partial class MainWindow
         if (index < 0) return;
 
         await EditPagesAsync(new PageEdit.OrganizePage(_organizePageSnapshot!, (uint)index, action, (uint)Math.Max(0, target)),
-            action == DocumentBlockAction.Delete ? "Page deleted." : action == DocumentBlockAction.Move ? "Page moved." : "Page rotated.", onSuccess: _ =>
+            action == DocumentBlockAction.Delete ? I18n.T("organize-page-deleted-pending")
+                : action == DocumentBlockAction.Move ? I18n.T("organize-page-moved-pending")
+                : I18n.T("organize-page-rotated-pending"), onSuccess: _ =>
         {
             switch (action)
             {
@@ -345,7 +348,7 @@ public sealed partial class MainWindow
             }
             // Picks up every card still blank, the turned one included.
             _ = RenderThumbnailsAsync(_thumbnailGeneration);
-            AnnotationStatus.Text = $"{done} Changes are pending save.";
+            AnnotationStatus.Text = done;
             RefreshSessionCommands();
             await RefreshAnnotationStateAsync();
         }
@@ -366,7 +369,7 @@ public sealed partial class MainWindow
         for (var index = 0; index < _organizeCards.Count; index++)
         {
             ((OrganizeCard)_organizeCards[index].Tag).Number.Text = (index + 1).ToString();
-            AutomationProperties.SetName(_organizeCards[index], $"Page {index + 1}");
+            AutomationProperties.SetName(_organizeCards[index], I18n.T("organize-page-name", ("page", index + 1)));
         }
     }
 

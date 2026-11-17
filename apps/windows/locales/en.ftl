@@ -607,3 +607,108 @@ watermark-summary-save =
         [one] Watermark added to { $count } page. Save to keep the change.
        *[other] Watermark added to { $count } pages. Save to keep the change.
     }
+
+## Organize: header, view switch and hints
+
+organize-heading = Organize pages
+organize-import-progress-name = PDF import progress
+organize-undo = Undo
+organize-redo = Redo
+organize-add-pdfs = Add PDFs
+organize-extract = Extract
+organize-split = Split
+organize-split-tooltip = Cut this PDF into several new PDFs
+organize-save = Save
+organize-view-documents = Documents
+organize-view-pages = Pages
+organize-documents-hint = Drag a document to move all of its pages.
+organize-pages-hint = Drag a page to reorder it.
+
+## Organize: page and document cards (accessible names and tooltips)
+
+# $name (String) - the file name of the source PDF.
+# $part (Number) - which run of that file's pages this card is.
+organize-block-title-part = { $name } — Part { $part }
+# $first (Number) - one-based position of the block's only page.
+organize-block-meta-one = 1 page · { $first }
+# $count, $first, $last (Number) - block size and one-based first/last position.
+organize-block-meta = { $count } pages · { $first }–{ $last }
+# $title, $meta (String) - the card's two lines; $position, $total (Number).
+organize-block-name = { $title }, { $meta }, document { $position } of { $total }
+organize-block-move-up = Move up: { $name }
+organize-block-move-down = Move down: { $name }
+organize-block-rotate-left = Rotate left: { $name }
+organize-block-rotate-right = Rotate right: { $name }
+organize-blank-pages = Blank pages
+organize-blank-page = Blank page
+organize-imported-pdf = Imported PDF
+organize-page-rotate-left = Rotate page left
+organize-page-rotate-right = Rotate page right
+organize-page-delete = Delete page
+
+## Organize: adding PDFs (progress, passwords and results)
+
+organize-import-cancelled = PDF import cancelled.
+organize-import-checking = Checking selected PDFs...
+# $completed, $total (Number) - PDFs prepared so far, out of the selection.
+organize-import-progress = { $completed } of { $total } PDFs
+# $name (String) - file name; $error (String) - technical detail, kept verbatim.
+organize-import-failed = Could not import { $name }: { $error }
+organize-import-password-title = Password required
+organize-import-password-prompt = Enter the password for { $name }.
+organize-import-password-wrong = The password is incorrect. Try again.
+organize-import-password-cancel = Cancel import
+organize-import-unlock = Unlock
+organize-import-password-waiting = Waiting for the password for { $name }.
+organize-import-warning-title = Some document-level information will stay behind
+organize-import-warning-cancel = Cancel
+organize-import-anyway = Import anyway
+
+## Organize: Windows only (toolbar, page-card menu and statuses that end in
+## "Changes are pending save.")
+
+organize-add-pdfs-tooltip = Add every page of other PDFs to the end
+organize-cancel-import-button = Cancel import
+organize-add-blank-page = Add blank A4 page
+organize-add-landscape-page = Add landscape A4 page
+organize-rotate-all-left = Rotate all left
+organize-rotate-all-left-tooltip = Turn every page a quarter turn counter-clockwise
+organize-rotate-all-right = Rotate all right
+organize-rotate-all-right-tooltip = Turn every page a quarter turn clockwise
+organize-return = Return to document
+organize-entered-hint = Drag a page to move it. Changes are one undo step each.
+# $page (Number) - one-based page position; the page card's accessible name.
+organize-page-name = Page { $page }
+organize-page-actions = Page actions
+organize-page-move-earlier = Move page earlier
+organize-page-move-later = Move page later
+organize-page-insert-portrait = Insert portrait A4 before
+organize-page-insert-landscape = Insert landscape A4 before
+# $name (String) - the document card's title.
+organize-block-delete-named = Delete: { $name }
+organize-blank-page-added-pending = Blank page added. Changes are pending save.
+organize-page-moved-pending = Page moved. Changes are pending save.
+organize-page-deleted-pending = Page deleted. Changes are pending save.
+organize-page-rotated-pending = Page rotated. Changes are pending save.
+organize-document-moved-pending = Document moved. Changes are pending save.
+organize-document-deleted-pending = Document deleted. Changes are pending save.
+organize-document-rotated-pending = Document rotated. Changes are pending save.
+organize-import-pick-failed = Could not select PDFs to import.
+organize-import-cancelling = Cancelling after the current PDF...
+# $name (String) - file name.
+organize-import-unreadable = Could not import { $name }: the file could not be read.
+organize-import-adding = Adding selected PDFs...
+organize-import-selected-failed = Could not import the selected PDFs.
+organize-import-password-placeholder = Password
+# $name (String) - file name; accessible name of the password entry.
+organize-import-password-name = Password for { $name }
+organize-import-warning-detail = No pages have been added. Import anyway to add the whole batch as one undo step.
+# $pages (Number) - pages imported; $files (Number) - PDFs they came from.
+organize-imported-summary =
+    Imported { $pages ->
+        [one] { $pages } page
+       *[other] { $pages } pages
+    } from { $files ->
+        [one] { $files } PDF
+       *[other] { $files } PDFs
+    }. Changes are pending save.
