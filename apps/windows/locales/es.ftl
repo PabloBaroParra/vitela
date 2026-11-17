@@ -460,7 +460,7 @@ edit-clipboard-pasted-count =
     }
 edit-no-content-images = La página visible no tiene imágenes de contenido editables.
 edit-image-choice = Imagen
-edit-image-choice-item = Imagen { $index }: X { $x }, Y { $y } pt
+edit-image-choice-item = Imagen { $index }: X { $x }; Y { $y } pt
 edit-image-move-title = Mover imagen — página { $page }
 edit-image-resize-title = Cambiar tamaño de imagen — página { $page }
 edit-image-move-explanation = Las coordenadas usan el espacio PDF: X aumenta hacia la derecha e Y hacia arriba. La imagen conserva su tamaño. Guarda antes de hacer otro cambio de geometría en la misma imagen.

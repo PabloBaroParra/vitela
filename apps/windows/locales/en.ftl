@@ -491,6 +491,7 @@ edit-clipboard-pasted-count =
 edit-no-content-images = The visible page has no editable content images.
 edit-image-choice = Image
 # $index (Number) - one-based image number; $x, $y (String) - coordinates in points, already formatted.
+# Spanish separates the two with a semicolon: its decimal comma would make "X 1,5, Y 3" ambiguous.
 edit-image-choice-item = Image { $index }: X { $x }, Y { $y } pt
 # $page (Number) - one-based page number.
 edit-image-move-title = Move image — page { $page }
