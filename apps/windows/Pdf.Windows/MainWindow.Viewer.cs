@@ -49,12 +49,17 @@ public sealed partial class MainWindow
 
     private void PageScroller_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
     {
-        if (!e.IsIntermediate)
+        // A hand-tool pan moves with disableAnimation, so every pointer move
+        // arrives as a settled view. Treat the whole drag as one gesture: the
+        // settle-only work (eviction, content-edit outlines) runs once, when
+        // the pan ends (SettleAfterPan), not on every mouse move.
+        var intermediate = e.IsIntermediate || _hand.Dragging;
+        if (!intermediate)
         {
             _requestedPage.Landed(PageScroller.VerticalOffset);
         }
 
-        UpdateViewport(e.IsIntermediate);
+        UpdateViewport(intermediate);
     }
 
     private void XamlRoot_Changed(XamlRoot sender, XamlRootChangedEventArgs args)
