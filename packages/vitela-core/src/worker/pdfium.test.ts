@@ -5,7 +5,8 @@ import { applyInitAlias, instantiatePdfium } from './pdfium.js';
 // pre-seeded `Module` and calls back once the runtime is up.
 const FAKE_GLUE = `
 var Module = typeof Module != "undefined" ? Module : {};
-Module.wasmPath = Module.locateFile("pdfium.wasm", "/ignored/");
+// Like Emscripten: compile Module.wasmBinary when given, else locate the file.
+Module.wasmPath = Module.wasmBinary ? undefined : Module.locateFile("pdfium.wasm", "/ignored/");
 Module._FPDF_InitLibrary = function () { return "initialised"; };
 var wasmExports;
 setTimeout(function () {
@@ -32,6 +33,14 @@ describe('instantiatePdfium', () => {
     const module = await instantiatePdfium(FAKE_GLUE, '/assets/pdfium-abc123.wasm');
     expect(module.wasmPath).toBe('/assets/pdfium-abc123.wasm');
     expect(module._PDFium_Init).toBe(module._FPDF_InitLibrary);
+  });
+
+  it('hands already-fetched bytes to the glue as wasmBinary instead of a URL', async () => {
+    const bytes = new Uint8Array([0, 97, 115, 109]);
+    const module = await instantiatePdfium(FAKE_GLUE, bytes);
+    expect(module.wasmBinary).toBe(bytes);
+    expect(module.locateFile).toBeUndefined();
+    expect(module.wasmPath).toBeUndefined();
   });
 
   it('does not leak the glue into the global scope', async () => {

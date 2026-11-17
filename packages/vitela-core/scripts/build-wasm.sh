@@ -5,6 +5,8 @@
 #                          ES module the worker imports)
 #   src/generated/pdfium/  bblanchon's Emscripten pdfium, sha256-pinned by
 #                          core/pdf-wasm/scripts/fetch-pdfium.sh
+#   src/generated/integrity.{js,d.ts}  sha256 of the assets above, checked by
+#                          the worker when they come from an assetBaseUrl
 # `npm run build` copies both into dist/generated/.
 #
 # Needs: rustup target wasm32-unknown-unknown, wasm-bindgen-cli matching
@@ -29,3 +31,5 @@ wasm-bindgen --target web \
   "$ROOT/target/wasm32-unknown-unknown/wasm-release/pdf_wasm.wasm"
 
 "$ROOT/core/pdf-wasm/scripts/fetch-pdfium.sh" src/generated/pdfium
+
+node scripts/write-integrity.mjs

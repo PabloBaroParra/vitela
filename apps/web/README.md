@@ -84,8 +84,11 @@ npx playwright install chromium firefox webkit
 npm run e2e           # Playwright on the production build: Chromium, Firefox, WebKit
 ```
 
-`npm run dev` serves the app with hot reload. Changes inside
-`packages/vitela-core` need `npm run build:core` (or a restart of `dev`).
+`npm run dev` serves the app with hot reload, and runs `@vitela/core`'s
+watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
+`packages/vitela-core/src` reach the running app without a restart. After
+`npm run build:wasm`, the watcher re-copies the new WASM into the package's
+`dist/` too.
 
 ## The viewer
 

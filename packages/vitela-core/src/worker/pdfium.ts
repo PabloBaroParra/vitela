@@ -21,7 +21,8 @@ export function applyInitAlias(module: PdfiumModule): void {
 
 /**
  * Evaluates the pdfium glue (`pdfium.js` source) and resolves once its
- * runtime is initialised, with the init alias applied.
+ * runtime is initialised, with the init alias applied. `wasm` is the
+ * `pdfium.wasm` bytes, or its URL (path, under Node) for the glue to load.
  *
  * The glue is non-MODULARIZE: it starts with
  * `var Module = typeof Module != "undefined" ? Module : {}` and fills that
@@ -35,10 +36,14 @@ export function applyInitAlias(module: PdfiumModule): void {
  * `Module.wasmExports.__indirect_function_table` (pdfium-render issue #128),
  * so the glue's own `wasmExports` is exposed on the module instead.
  */
-export function instantiatePdfium(glueSource: string, wasmUrl: string): Promise<PdfiumModule> {
+export function instantiatePdfium(glueSource: string, wasm: string | Uint8Array): Promise<PdfiumModule> {
   return new Promise((resolve, reject) => {
     const module: PdfiumModule = {
-      locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path),
+      // Bytes already fetched (and verified) go in as `wasmBinary`, which
+      // Emscripten compiles instead of fetching; a URL is fetched by the glue.
+      ...(typeof wasm === 'string'
+        ? { locateFile: (path: string) => (path.endsWith('.wasm') ? wasm : path) }
+        : { wasmBinary: wasm }),
       onRuntimeInitialized: () => {
         try {
           applyInitAlias(module);

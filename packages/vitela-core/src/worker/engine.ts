@@ -4,15 +4,24 @@
 
 import initEngine, * as core from '../generated/engine/pdf_wasm.js';
 import type { Engine } from '../core/types.js';
-import type { EngineAssetUrls } from './assets.js';
+import { ASSET_FILE_NAMES, type AssetName, type AssetPlan } from './assets.js';
 import { documentEngine } from './documentEngine.js';
+import { fetchAsset } from './fetchAsset.js';
+import { verifyAsset } from './integrity.js';
 import { instantiatePdfium } from './pdfium.js';
 
 /** Loads both WASM modules, binds pdfium-render to pdfium, starts the core. */
-export async function loadEngine(assets: EngineAssetUrls): Promise<Engine> {
+export async function loadEngine(plan: AssetPlan): Promise<Engine> {
+  // Fetched here rather than by wasm-bindgen / Emscripten, so every file gets
+  // the same deadline and error messages, and is verified before it runs.
+  const [engineWasm, pdfiumGlue, pdfiumWasm] = await Promise.all([
+    loadAsset(plan, 'engineWasm'),
+    loadAsset(plan, 'pdfiumGlue'),
+    loadAsset(plan, 'pdfiumWasm'),
+  ]);
   const [pdfium, engineExports] = await Promise.all([
-    fetchText(assets.pdfiumGlue).then((glue) => instantiatePdfium(glue, assets.pdfiumWasm)),
-    initEngine({ module_or_path: assets.engineWasm }),
+    instantiatePdfium(new TextDecoder().decode(pdfiumGlue), new Uint8Array(pdfiumWasm)),
+    initEngine({ module_or_path: engineWasm }),
   ]);
   if (!core.initialize_pdfium_render(pdfium, engineExports, false)) {
     throw new Error('initialize_pdfium_render refused the pdfium module');
@@ -20,8 +29,11 @@ export async function loadEngine(assets: EngineAssetUrls): Promise<Engine> {
   return documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
 }
 
-async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
-  return response.text();
+async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {
+  const bytes = await fetchAsset(plan.urls[name], plan.timeoutMs);
+  if (plan.integrity) {
+    const fileName = ASSET_FILE_NAMES[name];
+    await verifyAsset(fileName, bytes, plan.integrity[fileName]);
+  }
+  return bytes;
 }

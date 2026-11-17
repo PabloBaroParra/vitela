@@ -3,17 +3,42 @@ Copyright the Vitela contributors.
 Licensed under either of the MIT licence (LICENSE-MIT) or the Apache License,
 Version 2.0 (LICENSE-APACHE), at your option.
 
-This package includes third-party software in binary form:
-
-PDFium (dist/generated/pdfium/pdfium.js, dist/generated/pdfium/pdfium.wasm)
-  An Emscripten build of PDFium (https://pdfium.googlesource.com/pdfium/)
-  from bblanchon/pdfium-binaries, release chromium/7763, asset
-  pdfium-wasm.tgz (https://github.com/bblanchon/pdfium-binaries).
-  PDFium is distributed under its own licence (BSD-style and Apache License
-  2.0; see https://pdfium.googlesource.com/pdfium/+/main/LICENSE), not under
-  this package's licence. It bundles third-party components (in PDFium's
-  third_party/ directory), each under its own licence.
-
 dist/generated/engine/ is Vitela's own Rust core (core/pdf-wasm) compiled to
 WebAssembly, under this package's licence. Its Rust dependencies keep their
 own licences, as listed in the repository's Cargo.lock.
+
+This package also includes third-party software in binary form, which is NOT
+under this package's licence:
+
+PDFium (dist/generated/pdfium/pdfium.js, dist/generated/pdfium/pdfium.wasm)
+  Copyright 2014 The PDFium Authors.
+  An Emscripten build of PDFium (https://pdfium.googlesource.com/pdfium/),
+  release chromium/7763 of bblanchon/pdfium-binaries, asset pdfium-wasm.tgz
+  (sha256 213cad62710dd7b9a6eff84fe35a4b7161aeba8aa41e4c9b46463c09a85601ca,
+  https://github.com/bblanchon/pdfium-binaries). Built with PDFium's
+  standalone configuration: no V8 (JavaScript) and no XFA.
+  Licence: BSD-3-Clause, followed by the Apache License 2.0 text that
+  PDFium's LICENSE file carries. Full text: licenses/pdfium/pdfium.txt.
+
+  The build scripts that produced the binary (bblanchon/pdfium-binaries):
+  MIT, Copyright 2014-2025 Benoit Blanchon. licenses/pdfium/pdfium-binaries.txt.
+
+  Third-party components of PDFium. This list and the licence texts are the
+  ones that release ships in its own licenses/ directory, copied verbatim
+  into licenses/pdfium/. Vitela has not independently verified which of them
+  are linked into pdfium.wasm (the binary carries no symbol names); with XFA
+  disabled, some (e.g. libtiff) may be unused.
+
+    Abseil                    Apache-2.0                    abseil.txt
+    Anti-Grain Geometry 2.3   AGG licence (permissive)      agg23.txt
+    fast_float                MIT                           fast_float.txt
+    FreeType                  FreeType Project License      freetype.txt
+    ICU                       Unicode License V3            icu.txt
+    Little CMS (lcms2)        MIT                           lcms.txt
+    libjpeg-turbo             IJG + BSD-3-Clause            libjpeg_turbo.md,
+                                                            libjpeg_turbo.ijg
+    OpenJPEG                  BSD-2-Clause                  libopenjpeg.txt
+    libpng                    PNG Reference Library v2      libpng.txt
+    libtiff                   libtiff licence (BSD-like)    libtiff.txt
+    simdutf                   MIT                           simdutf.txt
+    zlib                      zlib licence                  zlib.txt

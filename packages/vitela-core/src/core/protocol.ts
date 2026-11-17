@@ -1,6 +1,7 @@
-// The message protocol between the UI thread (core/client.ts) and the engine
-// worker (worker/). Both sides import only these types, so neither depends on
-// how the other is implemented.
+// The message protocol between the UI thread and the engine worker (worker/).
+// createEngine.ts sends the one init message; core/client.ts sends requests
+// and receives replies. Both sides import only these types, so neither
+// depends on how the other is implemented.
 
 import type { DocumentHandle, OpenedDocument, PagePoint, RenderedPage, SearchHit, TextSelection } from './types.js';
 
@@ -48,11 +49,17 @@ export interface RequestEnvelope {
 /**
  * UI -> worker, once, before the engine loads: where to fetch the WASM from.
  * Without `assetBaseUrl` the worker uses the copies bundled next to it.
+ * Requests sent before it wait until the engine has loaded.
  */
 export interface InitMessage {
   readonly type: 'init';
-  /** An absolute directory URL serving pdf_wasm_bg.wasm, pdfium.js and pdfium.wasm. */
+  /**
+   * An absolute directory URL serving pdf_wasm_bg.wasm, pdfium.js and
+   * pdfium.wasm. Those files must be byte-identical to this package's.
+   */
   readonly assetBaseUrl?: string;
+  /** Per-file fetch timeout in milliseconds (default 60000). */
+  readonly loadTimeoutMs?: number;
 }
 
 /** Everything the UI sends: the init message, then requests. */

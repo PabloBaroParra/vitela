@@ -1,4 +1,7 @@
 node_modules/
 dist/
+# Pre-@vitela/core checkouts built WASM here; the engine now lives in
+# packages/vitela-core/src/generated/. Kept ignored so stale copies stay out.
+generated/
 test-results/
 playwright-report/
