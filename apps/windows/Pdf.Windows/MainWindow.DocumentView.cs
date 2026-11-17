@@ -26,12 +26,18 @@ public sealed partial class MainWindow
         }
 
         var previous = _session;
-        await OpenDocumentAsync(file.Name, bytes);
+        await OpenDocumentAsync(file.Name, bytes, file.Path);
         if (_session is not null && !ReferenceEquals(previous, _session)) WindowsRecentDocuments.Remember(file.Path, _hiddenRecents);
     }
 
-    private void ShowOpenedDocument(DocumentSession session)
+    /// <param name="origin">The file the document came from, which Save suggests; <c>null</c> when it has none.</param>
+    private void ShowOpenedDocument(DocumentSession session, string? origin = null)
     {
+        // Whatever replaced the previous document — a save-and-reopen, or an
+        // open after its changes were saved or discarded — left its recovery
+        // entry with nothing to protect.
+        ForgetRecoveryEntry();
+        _documentOrigin = origin;
         _stampPreviews.BeginSession(session.SessionId);
         // The cards describe the document being replaced.
         CloseOrganizeView();

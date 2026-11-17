@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Recovery;
 
 namespace Pdf.Windows;
 
@@ -20,7 +21,10 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _window = new MainWindow();
-        _window.Activate();
+        var window = new MainWindow();
+        _window = window;
+        window.Activate();
+        // Only the real startup autosaves; the smoke harnesses replace this App.
+        window.EnableCrashRecovery(new RecoveryDirectory(RecoveryDirectory.DefaultRoot));
     }
 }

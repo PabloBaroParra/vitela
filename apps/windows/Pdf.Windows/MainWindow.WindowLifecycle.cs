@@ -42,5 +42,6 @@ public sealed partial class MainWindow
         _xamlRoot = xamlRoot;
         _rasterizationScale = xamlRoot.RasterizationScale;
         xamlRoot.Changed += XamlRoot_Changed;
+        OfferRecoveryOnce();
     }
 }

@@ -132,6 +132,24 @@ hour are swept on the next share, because a target may still be reading the
 file after the sheet closes. The window has no CoreWindow, so the sheet is
 reached through `DataTransferManagerInterop` by window handle.
 
+## Autosave and crash recovery
+
+While a document has unsaved changes, the window writes the bytes a Save would
+write (pending edits and annotations included) to a private entry under
+`%LOCALAPPDATA%\Vitela\recovery` every 60 seconds, only when the session or
+edit revision moved. The facade serializes off the UI thread and the disk write
+runs on the thread pool. The directory's access list is narrowed to the current
+user. Each entry's `.lock` is held with `FileShare.None` for the window's
+lifetime, so the next launch offers (Restore / Discard / Not now) only entries
+whose lock can be opened, never another running instance's. Encrypted or
+restricted documents are never autosaved. A Save, Sign, Protect, any open that
+replaces the document, a clean close, or a tick that finds nothing unsaved
+deletes the entry. A restored document reopens unsaved, under its original name,
+with a fresh undo history; Save pre-selects the file it came from.
+Logic and tests live in `Recovery/` and `Pdf.Windows.Facade.Tests`. The opt-in
+`Tests/RecoverySmoke.targets` runs edit → forced snapshot → simulated crash →
+relaunch offer → Restore on the real core, entirely under `VITELA_SMOKE_OUTPUT`.
+
 ## Native printing flow
 
 Print and Ctrl+P open the Windows print UI for documents with pages. Pending
