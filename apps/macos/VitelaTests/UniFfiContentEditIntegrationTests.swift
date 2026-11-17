@@ -194,10 +194,13 @@ extension UniFfiContentEditIntegrationTests {
             XCTAssertEqual(added.bbox.width / added.bbox.height, 2, accuracy: 0.01, "the PNG's own proportions")
 
             XCTAssertTrue(store.canUndo)
-            // A just-inserted image has a pending edit, so the core refuses
-            // it; the original is replaceable whatever its encoding.
+            // A just-inserted image has a pending edit, but the core no longer
+            // refuses it where the session may checkpoint (#599): it writes
+            // the queue into an in-memory base first. The original is
+            // replaceable whatever its encoding.
             let document = try XCTUnwrap(store.document)
-            XCTAssertEqual(store.client.imageReplacementRefusal(document: document, image: added), ContentEditing.replaceRefused)
+            XCTAssertTrue(store.client.contentEditsCanCheckpoint(document: document))
+            XCTAssertNil(store.client.imageReplacementRefusal(document: document, image: added))
             let raw = try XCTUnwrap(images.first { $0.resourceXObjectName == "Im1" })
             XCTAssertNil(store.client.imageReplacementRefusal(document: document, image: raw))
         }
