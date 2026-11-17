@@ -951,3 +951,60 @@ share-unavailable = Sharing is unavailable on this Windows installation.
 # $error (String) - technical detail from Windows, kept verbatim.
 share-failed = Could not share: { $error }
 share-no-document = There is no document to share.
+
+## Write chains: signature warning before a save rewrites a signed document
+
+write-signature-title = Saving will break this document's signature
+write-signature-detail =
+    This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
+
+    It is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather than missing.
+
+    To keep a copy that still verifies, cancel and save to a different file.
+write-signature-cancel = Cancel
+write-signature-proceed = Save anyway
+
+## Save: refusals and progress
+
+save-cancelled = Save cancelled.
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Unsaved changes
+open-unsaved-detail-opening = The open document has changes that are not saved. Opening another document will discard them.
+open-unsaved-detail-closing = The open document has changes that are not saved. Closing Vitela will discard them.
+open-unsaved-cancel = Cancel
+open-unsaved-discard = Discard
+open-unsaved-save = Save
+open-unsaved-kept = Kept the unsaved changes.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Password required
+open-password-cancel = Cancel
+open-password-open = Open
+open-password-busy = Opening password-protected PDF...
+open-password-waiting = Waiting for the document password.
+open-password-wrong = The password is incorrect. Try again.
+open-password-cancelled = Password entry cancelled.
+
+## Lifecycle, save, share and text copy: Windows only
+
+open-resolve-inline-edit = Resolve or cancel the inline text edit before continuing.
+open-password-placeholder = Password
+# Accessible name of the password entry.
+open-password-name = Document password
+save-done-editable = PDF saved. Changes remain editable in this session.
+share-cancelled = Share cancelled.
+write-signature-share-title = Sharing will break this document's signature
+write-signature-share-detail =
+    This document is signed. Sharing sends a rewritten copy, so its signature will no longer match what it covers.
+
+    It is not removed: the copy still carries the signature, and PDF readers will report it as invalid rather than missing.
+
+    To send a copy that still verifies, cancel and share the original file instead.
+write-signature-share-proceed = Share anyway
+selection-copy-select-first = Select text on a page before copying.
+selection-text-copied = Text copied.
+selection-copy-failed = Could not copy the selected text.

@@ -860,3 +860,61 @@ share-open-first = Abre un PDF antes de compartirlo.
 share-unavailable = Compartir no está disponible en esta instalación de Windows.
 share-failed = No se pudo compartir: { $error }
 share-no-document = No hay ningún documento que compartir.
+
+## Write chains: signature warning before a save rewrites a signed document
+
+write-signature-title = Al guardar se romperá la firma de este documento
+write-signature-detail =
+    Este documento está firmado. Al guardar se reescribe el archivo, así que la firma dejará de coincidir con lo que cubre.
+
+    No se elimina: el archivo guardado sigue llevando la firma, y los lectores de PDF la mostrarán como no válida, no como ausente.
+
+    Para conservar una copia que siga siendo válida, cancela y guarda en otro archivo.
+
+write-signature-cancel = Cancelar
+write-signature-proceed = Guardar de todos modos
+
+## Save: refusals and progress
+
+save-cancelled = Guardado cancelado.
+
+## Opening documents: unsaved-changes prompt (before opening another document
+## or closing the window)
+
+open-unsaved-title = Cambios sin guardar
+open-unsaved-detail-opening = El documento abierto tiene cambios que no se han guardado. Si abres otro documento, se descartarán.
+open-unsaved-detail-closing = El documento abierto tiene cambios que no se han guardado. Si cierras Vitela, se descartarán.
+open-unsaved-cancel = Cancelar
+open-unsaved-discard = Descartar
+open-unsaved-save = Guardar
+open-unsaved-kept = Se han conservado los cambios sin guardar.
+
+## Opening documents: password prompt for an encrypted PDF
+
+open-password-title = Se necesita una contraseña
+open-password-cancel = Cancelar
+open-password-open = Abrir
+open-password-busy = Abriendo el PDF protegido con contraseña...
+open-password-waiting = Esperando la contraseña del documento.
+open-password-wrong = La contraseña no es correcta. Inténtalo de nuevo.
+open-password-cancelled = Se canceló la contraseña.
+
+## Lifecycle, save, share and text copy: Windows only
+
+open-resolve-inline-edit = Termina o cancela la edición de texto en línea antes de continuar.
+open-password-placeholder = Contraseña
+open-password-name = Contraseña del documento
+save-done-editable = PDF guardado. Los cambios siguen siendo editables en esta sesión.
+share-cancelled = Compartir cancelado.
+write-signature-share-title = Al compartir se romperá la firma de este documento
+write-signature-share-detail =
+    Este documento está firmado. Al compartir se envía una copia reescrita, así que su firma dejará de coincidir con lo que cubre.
+
+    No se elimina: la copia sigue llevando la firma, y los lectores de PDF la mostrarán como no válida, no como ausente.
+
+    Para enviar una copia que siga siendo válida, cancela y comparte el archivo original.
+
+write-signature-share-proceed = Compartir de todos modos
+selection-copy-select-first = Selecciona texto en una página antes de copiar.
+selection-text-copied = Texto copiado.
+selection-copy-failed = No se pudo copiar el texto seleccionado.

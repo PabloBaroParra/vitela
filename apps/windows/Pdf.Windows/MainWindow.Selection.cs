@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 using Pdf.Windows.Facade;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 using Windows.ApplicationModel.DataTransfer;
 
@@ -102,7 +103,7 @@ public sealed partial class MainWindow
         var text = SelectedText();
         if (text is not { Length: > 0 })
         {
-            AnnotationStatus.Text = "Select text on a page before copying.";
+            AnnotationStatus.Text = I18n.T("selection-copy-select-first");
             return;
         }
 
@@ -111,11 +112,11 @@ public sealed partial class MainWindow
             var package = new DataPackage();
             package.SetText(text);
             Clipboard.SetContent(package);
-            AnnotationStatus.Text = "Text copied.";
+            AnnotationStatus.Text = I18n.T("selection-text-copied");
         }
         catch (Exception)
         {
-            AnnotationStatus.Text = "Could not copy the selected text.";
+            AnnotationStatus.Text = I18n.T("selection-copy-failed");
         }
     }
 

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Localization;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
@@ -24,7 +25,7 @@ public sealed partial class MainWindow
             {
                 SuggestedFileName = "document",
                 DefaultFileExtension = ".pdf",
-                CommitButtonText = "Save",
+                CommitButtonText = I18n.T("write-accept"),
             };
             picker.FileTypeChoices.Add("PDF", [".pdf"]);
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
@@ -32,7 +33,7 @@ public sealed partial class MainWindow
             var file = await picker.PickSaveFileAsync();
             if (file is null)
             {
-                AnnotationStatus.Text = "Save cancelled.";
+                AnnotationStatus.Text = I18n.T("save-cancelled");
                 return false;
             }
             if (_session?.SessionId != session.SessionId) return false;
@@ -76,7 +77,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = result.Error!.Message;
                 return false;
             }
-            AnnotationStatus.Text = "PDF saved. Changes remain editable in this session.";
+            AnnotationStatus.Text = I18n.T("save-done-editable");
             _documentOrigin = file.Path;
             ForgetRecoveryEntry();
             return true;
@@ -136,25 +137,22 @@ public sealed partial class MainWindow
         if (!query.Value) return false;
         var dialog = new ContentDialog
         {
-            Title = sharing ? "Sharing will break this document's signature" : "Saving will break this document's signature",
+            Title = sharing ? I18n.T("write-signature-share-title") : I18n.T("write-signature-title"),
             Content = new TextBlock
             {
-                Text = sharing
-                    ? "This document is signed. Sharing sends a rewritten copy, so its signature will no longer match what it covers."
-                        + "\n\nIt is not removed: the copy still carries the signature, and PDF readers will report it as invalid rather than missing."
-                        + "\n\nTo send a copy that still verifies, cancel and share the original file instead."
-                    : "This document is signed. Saving rewrites the file, so the signature will no longer match what it covers."
-                        + "\n\nIt is not removed: the saved file still carries the signature, and PDF readers will report it as invalid rather than missing."
-                        + "\n\nTo keep a copy that still verifies, cancel and save to a different file.",
+                Text = sharing ? I18n.T("write-signature-share-detail") : I18n.T("write-signature-detail"),
                 TextWrapping = TextWrapping.Wrap,
             },
-            PrimaryButtonText = sharing ? "Share anyway" : "Save anyway",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = sharing ? I18n.T("write-signature-share-proceed") : I18n.T("write-signature-proceed"),
+            CloseButtonText = I18n.T("write-signature-cancel"),
             DefaultButton = ContentDialogButton.Close,
             XamlRoot = Content.XamlRoot,
         };
         if (await ShowModalAsync(dialog) == ContentDialogResult.Primary) return true;
-        AnnotationStatus.Text = compressing ? "Compression cancelled." : protecting ? "Protection cancelled." : sharing ? "Share cancelled." : "Save cancelled.";
+        AnnotationStatus.Text = compressing ? I18n.T("compress-cancelled")
+            : protecting ? I18n.T("protect-cancelled")
+            : sharing ? I18n.T("share-cancelled")
+            : I18n.T("save-cancelled");
         return null;
     }
 }
