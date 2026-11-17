@@ -190,6 +190,19 @@ editor-find-submit = Find
 editor-no-document = No document open
 editor-empty-state = Drop a PDF here to open it, or try the built-in sample.
 
+## Pages sidebar and side-column dividers: Windows only
+
+# $page (Number) - one-based page number.
+editor-page-item = Page { $page }
+editor-resize-pages = Resize page list
+editor-resize-pages-tooltip = Drag to resize or fold the page list, or use Left and Right arrows when focused
+editor-resize-tools = Resize tools panel
+editor-resize-tools-tooltip = Drag to resize or fold the tools panel, or use Left and Right arrows when focused
+# $total (Number) - pages in the document.
+editor-go-to-page-number = Page number (1–{ $total })
+editor-go-to-page-go = Go
+editor-go-to-page-cancel = Cancel
+
 ## Protect: Windows only
 
 # Status line when the rail's Protect is chosen on a document that forbids it.

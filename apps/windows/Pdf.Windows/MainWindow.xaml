@@ -218,16 +218,16 @@
 
         <Grid x:Name="DocumentArea" Grid.Row="2" Padding="16" ColumnDefinitions="Auto,Auto,*,Auto,Auto" SizeChanged="DocumentArea_SizeChanged">
             <Grid x:Name="PagesSidebar" Grid.Column="0" RowDefinitions="Auto,*" RowSpacing="8" Width="160" Padding="8" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
-                  AutomationProperties.Name="Pages">
-                <TextBlock Text="Pages" FontWeight="SemiBold" />
+                  AutomationProperties.Name="{i18n:T Key=editor-pages}">
+                <TextBlock Text="{i18n:T Key=editor-pages}" FontWeight="SemiBold" />
                 <ListView x:Name="PageNavigationList" Grid.Row="1"
                           SelectionMode="Single" IsEnabled="False"
-                          AutomationProperties.Name="Go to page"
+                          AutomationProperties.Name="{i18n:T Key=editor-go-to-page}"
                           SelectionChanged="PageNavigationList_SelectionChanged" />
             </Grid>
             <Thumb x:Name="PagesDivider" Grid.Column="1" Style="{StaticResource SideColumnDividerStyle}"
-                   AutomationProperties.Name="Resize page list"
-                   ToolTipService.ToolTip="Drag to resize or fold the page list, or use Left and Right arrows when focused"
+                   AutomationProperties.Name="{i18n:T Key=editor-resize-pages}"
+                   ToolTipService.ToolTip="{i18n:T Key=editor-resize-pages-tooltip}"
                    DragStarted="PagesDivider_DragStarted" DragDelta="PagesDivider_DragDelta" KeyDown="PagesDivider_KeyDown" />
             <ProgressRing x:Name="BusyIndicator" Grid.Column="2" IsActive="False" Visibility="Collapsed" />
             <StackPanel x:Name="EmptyState" Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
@@ -265,8 +265,8 @@
                 and a selection would only be a second, unused state.
             -->
             <Thumb x:Name="ToolsDivider" Grid.Column="3" Style="{StaticResource SideColumnDividerStyle}"
-                   AutomationProperties.Name="Resize tools panel"
-                   ToolTipService.ToolTip="Drag to resize or fold the tools panel, or use Left and Right arrows when focused"
+                   AutomationProperties.Name="{i18n:T Key=editor-resize-tools}"
+                   ToolTipService.ToolTip="{i18n:T Key=editor-resize-tools-tooltip}"
                    DragStarted="ToolsDivider_DragStarted" DragDelta="ToolsDivider_DragDelta" KeyDown="ToolsDivider_KeyDown" />
             <ScrollViewer x:Name="DocumentSidebar" Grid.Column="4" Width="300" Padding="12" Background="{ThemeResource VitelaSurfaceBrush}" CornerRadius="8"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"

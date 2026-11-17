@@ -177,6 +177,17 @@ editor-find-submit = Buscar
 editor-no-document = No hay ningún documento abierto
 editor-empty-state = Suelta aquí un PDF para abrirlo o prueba el ejemplo integrado.
 
+## Pages sidebar and side-column dividers: Windows only
+
+editor-page-item = Página { $page }
+editor-resize-pages = Cambiar el tamaño de la lista de páginas
+editor-resize-pages-tooltip = Arrastra para cambiar el tamaño de la lista de páginas o plegarla, o usa las flechas izquierda y derecha cuando tenga el foco
+editor-resize-tools = Cambiar el tamaño del panel de herramientas
+editor-resize-tools-tooltip = Arrastra para cambiar el tamaño del panel de herramientas o plegarlo, o usa las flechas izquierda y derecha cuando tenga el foco
+editor-go-to-page-number = Número de página (1–{ $total })
+editor-go-to-page-go = Ir
+editor-go-to-page-cancel = Cancelar
+
 ## Protect: Windows only
 
 # Status line when the rail's Protect is chosen on a document that forbids it.

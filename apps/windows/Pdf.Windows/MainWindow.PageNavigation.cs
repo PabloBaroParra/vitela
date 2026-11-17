@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Pdf.Windows.Localization;
 using Pdf.Windows.Viewer;
 
 namespace Pdf.Windows;
@@ -16,7 +17,7 @@ public sealed partial class MainWindow
         try
         {
             PageNavigationList.ItemsSource = Enumerable.Range(1, _slots.Count)
-                .Select(number => $"Page {number}").ToArray();
+                .Select(number => I18n.T("editor-page-item", ("page", number))).ToArray();
         }
         finally { _syncingPageNavigation = false; }
         UpdatePageNavigationControls();
@@ -91,14 +92,14 @@ public sealed partial class MainWindow
         if (_session is not { PageCount: > 0 } session || _isBusy || _organizing || _dialogOpen
             || PageScroller.Visibility != Visibility.Visible) return;
         var pages = session.Pages;
-        var number = new NumberBox { Header = $"Page number (1–{session.PageCount})", Value = _firstVisiblePage + 1 };
+        var number = new NumberBox { Header = I18n.T("editor-go-to-page-number", ("total", session.PageCount)), Value = _firstVisiblePage + 1 };
         var dialog = new ContentDialog
         {
             XamlRoot = PageScroller.XamlRoot,
-            Title = "Go to page",
+            Title = I18n.T("editor-go-to-page"),
             Content = number,
-            PrimaryButtonText = "Go",
-            CloseButtonText = "Cancel",
+            PrimaryButtonText = I18n.T("editor-go-to-page-go"),
+            CloseButtonText = I18n.T("editor-go-to-page-cancel"),
             DefaultButton = ContentDialogButton.Primary,
         };
         bool valid() => double.IsFinite(number.Value) && number.Value == Math.Truncate(number.Value)
