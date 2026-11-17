@@ -25,6 +25,8 @@ internal static class RecoveryStoreTests
             AClearedSlotLeavesNothingBehind(Fresh(root));
             ARewriteReplacesTheEntryWhole(Fresh(root));
             IncompleteEntriesAreDiscardedWithALogLine(Fresh(root));
+            AnEntryThatCannotBeReadRightNowIsKept(Fresh(root));
+            AnEmptyOrRelativeOriginIsNoOrigin();
             LeftoverTemporariesAreSweptAndTheEntryStillOffered(Fresh(root));
             OrphansAreOfferedNewestFirst(Fresh(root));
             ADiscardedOrphanIsGoneAndAReleasedOneComesBack(Fresh(root));
@@ -178,6 +180,35 @@ internal static class RecoveryStoreTests
         Check(dir.Orphans(log).Count == 0, "nothing incomplete is offered");
         Check(lines.Count == 3, "each discard says so in the log");
         Check(Directory.GetFiles(dir.Root).Length == 0, "and nothing incomplete piles up");
+    }
+
+    private static void AnEntryThatCannotBeReadRightNowIsKept(RecoveryDirectory dir)
+    {
+        var slot = dir.OpenSlot(EntryKey.Fresh());
+        slot.Paths.Write(PdfBytes, AMeta());
+        slot.ReleaseLikeACrash();
+        var lines = Logged(out var log);
+
+        // An antivirus or indexer holding the sidecar at launch.
+        using (new FileStream(slot.Paths.MetaPath, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Check(dir.Orphans(log).Count == 0, "an entry that cannot be read is not offered");
+        }
+
+        Check(File.Exists(slot.Paths.PdfPath) && File.Exists(slot.Paths.MetaPath), "a passing fault never deletes the user's only copy");
+        Check(lines.Count == 1 && lines[0].Contains("skipping"), "it is skipped with a log line, not discarded");
+        var orphan = dir.Orphans(_ => { }).Single();
+        Check(orphan.Meta == AMeta(), "and offered once it can be read");
+        orphan.Discard();
+    }
+
+    private static void AnEmptyOrRelativeOriginIsNoOrigin()
+    {
+        foreach (var origin in new[] { "", "quote.pdf" })
+        {
+            var meta = RecoveryMeta.Parse(new RecoveryMeta(1, "quote.pdf", origin, BreaksSignatures: false).Encode());
+            Check(meta is { Origin: null, Name: "quote.pdf" }, $"origin '{origin}' never costs the write");
+        }
     }
 
     private static void LeftoverTemporariesAreSweptAndTheEntryStillOffered(RecoveryDirectory dir)

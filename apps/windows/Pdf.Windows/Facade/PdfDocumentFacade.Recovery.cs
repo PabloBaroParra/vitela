@@ -85,8 +85,16 @@ public sealed partial class PdfDocumentFacade
                 baseBreaksSignatures = session.BaseBreaksSignatures;
             }
 
-            var (bytes, breaks) = await Task.Run(() =>
+            var (bytes, breaks) = await Task.Run<(byte[]?, bool)>(() =>
             {
+                // Asked again under the gate the serialization holds: an import
+                // since the timer's observation may have brought protected pages,
+                // and a recovery copy of those would be a decrypted one.
+                bool encrypted;
+                try { encrypted = _core.HoldsEncryptedContent(session.Document); }
+                catch (PdfCoreException) { encrypted = true; }
+                if (encrypted) return (null, false);
+
                 bool breaksSignatures;
                 try
                 {
@@ -98,6 +106,10 @@ public sealed partial class PdfDocumentFacade
                 }
                 return (_core.SaveToBytes(session.Document, signaturesAcknowledged: true), breaksSignatures);
             }).ConfigureAwait(false);
+            if (bytes is null)
+            {
+                return OperationResult<RecoverySnapshot>.Failure(CreateError("Protected documents are never autosaved.", PdfCoreError.UnsupportedOperation, "recovery_snapshot", sessionId, null));
+            }
             return OperationResult<RecoverySnapshot>.Success(new RecoverySnapshot(session.Id, revision, bytes, breaks));
         }
         catch (PdfCoreException error)
@@ -170,12 +182,12 @@ public sealed partial class PdfDocumentFacade
 
     /// <summary>
     /// Whether an open failure says the bytes can never be opened. A password
-    /// failure qualifies because autosave never writes an encrypted copy, and
-    /// <see cref="PdfCoreError.Internal"/> because on the open path it is the
-    /// parser refusing the bytes. A render failure does not: the core reports a
-    /// renderer that cannot load and pdfium refusing a format the same way, and
-    /// only the second is about the bytes.
+    /// failure qualifies because autosave never writes an encrypted copy. Nothing
+    /// else does: <see cref="PdfCoreError.Internal"/> is the core's catch-all, so
+    /// a parser refusal there cannot be told from a passing fault, and a render
+    /// failure may be a renderer that cannot load. Those entries stay, and the
+    /// reader can still discard them from the prompt.
     /// </summary>
     private static bool IsAboutTheBytes(PdfCoreError category) => category is
-        PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword or PdfCoreError.UnsupportedSecurityHandler or PdfCoreError.Internal;
+        PdfCoreError.PasswordRequired or PdfCoreError.WrongPassword or PdfCoreError.UnsupportedSecurityHandler;
 }

@@ -28,7 +28,7 @@ namespace Pdf.Windows.Recovery;
 /// The directory is under <c>%LOCALAPPDATA%</c> — per user, never roaming — and
 /// its access list is narrowed to the current user alone, inherited by every
 /// file in it. Both data files are written to a sibling and moved into place,
-/// the sidecar last, so an entry is only ever complete or absent.
+/// so each is only ever complete or absent.
 /// </para>
 /// </remarks>
 public sealed class RecoveryDirectory(string root)
@@ -64,7 +64,8 @@ public sealed class RecoveryDirectory(string root)
     /// <remarks>
     /// Entries that cannot be recovered — a sidecar that does not parse, bytes
     /// that are missing, a write a crash cut short — are deleted here with a log
-    /// line rather than offered or left to pile up.
+    /// line rather than offered or left to pile up. One that merely cannot be
+    /// read right now is skipped and kept.
     /// </remarks>
     public IReadOnlyList<RecoveryOrphan> Orphans(Action<string> log)
     {
@@ -108,13 +109,24 @@ public sealed class RecoveryDirectory(string root)
         }
 
         RemoveTemporaries(paths);
-        RecoveryMeta? meta = null;
         try
         {
-            if (File.Exists(paths.MetaPath)) meta = RecoveryMeta.Parse(File.ReadAllText(paths.MetaPath));
+            // Only a definite verdict discards: a file that is truly absent, or a
+            // sidecar read in full that does not parse.
+            if (!IsAbsent(paths.MetaPath) && !IsAbsent(paths.PdfPath)
+                && RecoveryMeta.Parse(File.ReadAllText(paths.MetaPath)) is { } meta)
+            {
+                return new RecoveryOrphan(paths, meta, lockFile);
+            }
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-        if (meta is not null && File.Exists(paths.PdfPath)) return new RecoveryOrphan(paths, meta, lockFile);
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // An antivirus or indexer holding a file at launch is a passing
+            // fault: the entry is skipped this launch, never deleted over it.
+            log($"recovery: skipping entry {Path.Combine(root, key)} this launch: {error.Message}");
+            lockFile.Dispose();
+            return null;
+        }
 
         log($"recovery: discarding incomplete or unreadable entry {Path.Combine(root, key)}");
         paths.RemoveAll(lockFile);
@@ -125,6 +137,20 @@ public sealed class RecoveryDirectory(string root)
     {
         string File(string extension) => Path.Combine(root, $"{key}.{extension}");
         return new EntryPaths(File(PdfExtension), File(MetaExtension), File(LockExtension));
+    }
+
+    /// <summary>Whether <paramref name="path"/> is definitely missing; any other failure to tell throws.</summary>
+    private static bool IsAbsent(string path)
+    {
+        try
+        {
+            File.GetAttributes(path);
+            return false;
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return true;
+        }
     }
 
     private static void RemoveTemporaries(EntryPaths paths)
@@ -216,11 +242,19 @@ public sealed record EntryKey(string Value)
 /// <summary>The paths of one entry. Plain strings, so a worker thread can write them.</summary>
 public sealed record EntryPaths(string PdfPath, string MetaPath, string LockPath)
 {
-    /// <summary>Replaces the entry's bytes and sidecar, each atomically, sidecar last.</summary>
+    /// <summary>Replaces the entry's bytes and sidecar, each atomically.</summary>
+    /// <remarks>
+    /// The order keeps the signature flag failing closed if a crash lands between
+    /// the two moves: a sidecar newly saying a signature broke goes in before the
+    /// bytes, otherwise the bytes go first and the older sidecar still says what
+    /// it said.
+    /// </remarks>
     public void Write(byte[] bytes, RecoveryMeta meta)
     {
+        var sidecar = System.Text.Encoding.UTF8.GetBytes(meta.Encode());
+        if (meta.BreaksSignatures) WriteAtomically(MetaPath, sidecar);
         WriteAtomically(PdfPath, bytes);
-        WriteAtomically(MetaPath, System.Text.Encoding.UTF8.GetBytes(meta.Encode()));
+        if (!meta.BreaksSignatures) WriteAtomically(MetaPath, sidecar);
     }
 
     /// <summary>Deletes the bytes and the sidecar, keeping the lock — for a write that finished after its entry was forgotten.</summary>

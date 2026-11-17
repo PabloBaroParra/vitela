@@ -139,8 +139,8 @@ write (pending edits and annotations included) to a private entry under
 `%LOCALAPPDATA%\Vitela\recovery` every 60 seconds, only when the session or
 edit revision moved. The facade serializes off the UI thread and the disk write
 runs on the thread pool. The directory's access list is narrowed to the current
-user. Each entry's `.lock` is held with `FileShare.None` for the window's
-lifetime, so the next launch offers (Restore / Discard / Not now) only entries
+user. Each entry's `.lock` is held with `FileShare.None` from its first
+autosave write until the entry is deleted, so the next launch offers (Restore / Discard / Not now) only entries
 whose lock can be opened, never another running instance's. Encrypted or
 restricted documents are never autosaved. A Save, Sign, Protect, any open that
 replaces the document, a clean close, or a tick that finds nothing unsaved

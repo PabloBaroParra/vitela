@@ -39,7 +39,8 @@ public sealed record RecoveryMeta(long SavedAt, string Name, string? Origin, boo
             .Append(Header).Append('\n')
             .Append("saved\t").Append(SavedAt.ToString(CultureInfo.InvariantCulture)).Append('\n')
             .Append("name\t").Append(Uri.EscapeDataString(Name)).Append('\n');
-        if (Origin is { } origin) text.Append("origin\t").Append(new Uri(origin).AbsoluteUri).Append('\n');
+        // An empty or relative origin is no origin: it must never cost the write.
+        if (Uri.TryCreate(Origin, UriKind.Absolute, out var origin) && origin.IsFile) text.Append("origin\t").Append(origin.AbsoluteUri).Append('\n');
         if (BreaksSignatures) text.Append(BreaksSignaturesField).Append("\t1\n");
         return text.ToString();
     }

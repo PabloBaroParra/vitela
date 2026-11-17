@@ -101,8 +101,12 @@ public sealed partial class MainWindow
     /// </summary>
     private async Task SuggestOriginAsync(FileSavePicker picker)
     {
-        if (_documentOrigin is not { } origin) return;
-        picker.SuggestedFileName = Path.GetFileNameWithoutExtension(origin);
+        // A storage item without a file-system path reports an empty one.
+        if (string.IsNullOrWhiteSpace(_documentOrigin) || !Path.IsPathFullyQualified(_documentOrigin)) return;
+        var origin = _documentOrigin;
+        var name = Path.GetFileNameWithoutExtension(origin);
+        if (name.Length == 0) return;
+        picker.SuggestedFileName = name;
         try
         {
             picker.SuggestedSaveFile = await StorageFile.GetFileFromPathAsync(origin);

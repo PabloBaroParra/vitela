@@ -17,6 +17,7 @@ internal static class RecoveryFacadeTests
         await SnapshotsRecordWhetherTheyBreakASignatureAsync();
         await AnUnansweredSignatureQuestionCountsAsBreakingOneAsync();
         await RefusesToSnapshotAStaleSessionAsync();
+        await RefusesToSnapshotContentThatBecameEncryptedAsync();
         await ARecoveredDocumentOpensUnsavedAsync();
         await ARecoveredDocumentThatBrokeASignatureKeepsSayingSoAsync();
         await ARecoveredOpenKeepsTheUnsavedGuardAsync();
@@ -99,6 +100,19 @@ internal static class RecoveryFacadeTests
             "failing closed: reading an unknown answer as 'nothing broke' would let a later Save overwrite a signed original without asking");
     }
 
+    private static async Task RefusesToSnapshotContentThatBecameEncryptedAsync()
+    {
+        var core = new FakeCore();
+        using var facade = new PdfDocumentFacade(core, new RecordingLogger(), conservativeLifecycle: true);
+        var session = (await facade.OpenAsync(new DocumentSource("quote.pdf", [1]))).Value!;
+        Check(!(await facade.ObserveForRecoveryAsync())!.Encrypted, "plain when the timer looked");
+
+        // A protected import between the observation and the snapshot.
+        core.EncryptedContent = true;
+
+        Check(!(await facade.RecoverySnapshotAsync(session.SessionId)).IsSuccess, "a decrypted copy is never serialized");
+    }
+
     private static async Task RefusesToSnapshotAStaleSessionAsync()
     {
         using var facade = new PdfDocumentFacade(new FakeCore(), new RecordingLogger(), conservativeLifecycle: true);
@@ -157,8 +171,8 @@ internal static class RecoveryFacadeTests
             (PdfCoreError.PasswordRequired, true),
             (PdfCoreError.WrongPassword, true),
             (PdfCoreError.UnsupportedSecurityHandler, true),
-            // The parser refused the bytes themselves.
-            (PdfCoreError.Internal, true),
+            // The core's catch-all: a parser refusal cannot be told from a passing fault.
+            (PdfCoreError.Internal, false),
             // The renderer or the disk: worth asking about again next launch.
             (PdfCoreError.RenderFailed, false),
             (PdfCoreError.Io, false),
