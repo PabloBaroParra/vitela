@@ -4,7 +4,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '@vitela/core';
-import type { DocumentHandle, DocumentInfo, Engine } from '@vitela/core';
+import type { DocumentHandle, DocumentInfo, EditedDocument, Engine } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { recordFileStamp } from '../../platform/fileStamp';
 
@@ -20,6 +20,12 @@ export interface OpenDocument {
    * (Chromium's picker or drop). Without it, saving downloads.
    */
   readonly fileHandle?: WritableFileHandle;
+  /**
+   * Where the edit history stands, as the last edit, undo or redo reported it
+   * (unset until the first one: a freshly opened document has no history).
+   */
+  readonly canUndo?: boolean;
+  readonly canRedo?: boolean;
 }
 
 /** What is happening besides showing the open document, if any. */
@@ -126,5 +132,20 @@ export function useDocument(engine: Engine) {
     setState((s) => ({ ...s, activity: IDLE }));
   }, []);
 
-  return { state, open, submitPassword, cancelPassword };
+  /**
+   * The document after an edit, undo or redo (`info` changes with it: page
+   * count, sizes, ids). An answer for a document no longer on screen is
+   * dropped; the result says whether it was taken.
+   */
+  const revise = useCallback((handle: DocumentHandle, edited: EditedDocument): boolean => {
+    if (shown.current !== handle) return false;
+    setState((s) =>
+      s.document?.handle === handle
+        ? { ...s, document: { ...s.document, info: edited.info, canUndo: edited.canUndo, canRedo: edited.canRedo } }
+        : s,
+    );
+    return true;
+  }, []);
+
+  return { state, open, submitPassword, cancelPassword, revise };
 }

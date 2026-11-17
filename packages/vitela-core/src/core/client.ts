@@ -11,8 +11,10 @@ import type {
 import { EngineError } from './errors.js';
 import type {
   DocumentHandle,
+  EditedDocument,
   Engine,
   OpenedDocument,
+  PageEdit,
   PagePoint,
   RenderedPage,
   SearchHit,
@@ -57,6 +59,18 @@ export class EngineClient implements Engine {
 
   saveToBytes(document: DocumentHandle, invalidateSignatures: boolean): Promise<Uint8Array> {
     return this.send({ kind: 'save', document, invalidateSignatures });
+  }
+
+  applyEdit(document: DocumentHandle, edit: PageEdit): Promise<EditedDocument> {
+    return this.send({ kind: 'applyEdit', document, edit });
+  }
+
+  undo(document: DocumentHandle): Promise<EditedDocument> {
+    return this.send({ kind: 'undo', document });
+  }
+
+  redo(document: DocumentHandle): Promise<EditedDocument> {
+    return this.send({ kind: 'redo', document });
   }
 
   search(document: DocumentHandle, query: string): Promise<SearchHit[]> {

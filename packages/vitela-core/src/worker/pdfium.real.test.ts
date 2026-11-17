@@ -10,6 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { documentEngine } from './documentEngine.js';
+import { coreEdits } from './engine.js';
 import { instantiatePdfium, type PdfiumModule } from './pdfium.js';
 import * as core from '../generated/engine/pdf_wasm.js';
 
@@ -65,7 +66,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it('renders by handle and refuses a closed document, as documentEngine relies on', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
     const a = await engine.open(readFileSync(fixture));
     const b = await engine.open(readFileSync(fixture));
     expect(a.handle).not.toBe(b.handle);
@@ -76,7 +77,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it("searches and selects through the core's placement, on the page as drawn", async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf });
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
     const { handle, info } = await engine.open(readFileSync(fixture));
     expect(info.textExtractionAllowed).toBe(true);
 
@@ -98,6 +99,30 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect((await engine.selectWord(handle, 0, middle)).text).toBe('AcroForm');
     const across = await engine.selectText(handle, 0, { x: left! - 1, y: middle.y }, { x: left! + width!, y: middle.y });
     expect(across.text).toBe('AcroForm');
+    await engine.close(handle);
+  });
+
+  it('edits pages through the real EditCommand and renders the edit at once', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+    expect(info.documentAssemblyAllowed).toBe(true);
+    expect(info.pageIds).toHaveLength(1);
+
+    const turned = await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    expect(turned).toMatchObject({ canUndo: true, canRedo: false });
+    expect(turned.info.pages[0]).toMatchObject({ widthPt: 792, heightPt: 612, rotationDegrees: 90 });
+    expect(turned.info.pageIds).toEqual(info.pageIds);
+    // No separate refresh: the next render already shows the turn.
+    const page = await engine.renderPage(handle, 0, 72);
+    expect([page.width, page.height]).toEqual([792, 612]);
+
+    const undone = await engine.undo(handle);
+    expect(undone).toMatchObject({ canUndo: false, canRedo: true });
+    expect((await engine.renderPage(handle, 0, 72)).width).toBe(612);
+    await expect(engine.applyEdit(handle, { kind: 'remove', from: 3, count: 1 })).rejects.toMatchObject({
+      name: 'PageIndexOutOfBounds',
+    });
     await engine.close(handle);
   });
 });

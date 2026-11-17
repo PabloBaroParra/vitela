@@ -18,12 +18,42 @@ export interface DocumentInfo {
   /** One entry per page, in page order. */
   readonly pages: readonly PageSize[];
   /**
+   * Each page's identity (the core's `PageId`), in page order. It follows
+   * the page through moves and removals, so per-page state such as a
+   * thumbnail is kept by id, never by position.
+   */
+  readonly pageIds: readonly number[];
+  /**
    * Whether the document lets its text be read (PDF permission bit 5, or
    * opened with the owner password). When `false` the engine refuses every
    * text read with `TextExtractionDenied`, and the UI offers neither search
    * nor selection.
    */
   readonly textExtractionAllowed: boolean;
+  /**
+   * Whether the document lets its pages be moved, rotated or removed (the
+   * PDF document-assembly permission, or the owner password). When `false`
+   * the engine refuses every page edit with `EditNotPermitted`.
+   */
+  readonly documentAssemblyAllowed: boolean;
+}
+
+/**
+ * One page edit, recorded as one undo step. Positions are 0-based and name
+ * pages as they are now; `count` pages starting at `from` take part.
+ */
+export type PageEdit =
+  /** Moves the run so its first page ends up at `to`. */
+  | { readonly kind: 'move'; readonly from: number; readonly count: number; readonly to: number }
+  /** Turns each page of the run clockwise by `degrees` (a multiple of 90). */
+  | { readonly kind: 'rotate'; readonly from: number; readonly count: number; readonly degrees: number }
+  | { readonly kind: 'remove'; readonly from: number; readonly count: number };
+
+/** The document after an edit, undo or redo, and where its history stands. */
+export interface EditedDocument {
+  readonly info: DocumentInfo;
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
 }
 
 /** A point on a page as it is drawn, in PDF points from its top-left corner. */
@@ -92,6 +122,17 @@ export interface Engine {
    * when the bytes cannot be written.
    */
   saveToBytes(document: DocumentHandle, invalidateSignatures: boolean): Promise<Uint8Array>;
+  /**
+   * Records one page edit as one undo step and answers with the document as
+   * it is now. Renders and text reads after it already show the edit. Rejects
+   * with `EditNotPermitted` (no assembly permission), `PageIndexOutOfBounds`
+   * or `UnsupportedOperation`, recording nothing.
+   */
+  applyEdit(document: DocumentHandle, edit: PageEdit): Promise<EditedDocument>;
+  /** Takes back the last edit (nothing, when there is none). Same answer as `applyEdit`. */
+  undo(document: DocumentHandle): Promise<EditedDocument>;
+  /** Re-applies the last undone edit (nothing, when there is none). */
+  redo(document: DocumentHandle): Promise<EditedDocument>;
   /**
    * Every exact, case-sensitive match of `query` (the core's search), in page
    * order. An empty query matches nothing. Rejects with `TextExtractionDenied`

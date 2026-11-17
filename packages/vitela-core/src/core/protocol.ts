@@ -3,7 +3,16 @@
 // and receives replies. Both sides import only these types, so neither
 // depends on how the other is implemented.
 
-import type { DocumentHandle, OpenedDocument, PagePoint, RenderedPage, SearchHit, TextSelection } from './types.js';
+import type {
+  DocumentHandle,
+  EditedDocument,
+  OpenedDocument,
+  PageEdit,
+  PagePoint,
+  RenderedPage,
+  SearchHit,
+  TextSelection,
+} from './types.js';
 
 export type EngineRequest =
   | { readonly kind: 'open'; readonly bytes: Uint8Array; readonly password?: string }
@@ -15,6 +24,9 @@ export type EngineRequest =
     }
   | { readonly kind: 'close'; readonly document: DocumentHandle }
   | { readonly kind: 'save'; readonly document: DocumentHandle; readonly invalidateSignatures: boolean }
+  | { readonly kind: 'applyEdit'; readonly document: DocumentHandle; readonly edit: PageEdit }
+  | { readonly kind: 'undo'; readonly document: DocumentHandle }
+  | { readonly kind: 'redo'; readonly document: DocumentHandle }
   | { readonly kind: 'search'; readonly document: DocumentHandle; readonly query: string }
   | {
       readonly kind: 'selectText';
@@ -35,6 +47,9 @@ export interface EngineResults {
   renderPage: RenderedPage;
   close: void;
   save: Uint8Array;
+  applyEdit: EditedDocument;
+  undo: EditedDocument;
+  redo: EditedDocument;
   search: SearchHit[];
   selectText: TextSelection;
   selectWord: TextSelection;

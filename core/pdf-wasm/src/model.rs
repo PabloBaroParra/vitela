@@ -76,6 +76,21 @@ impl DocumentModel {
             .collect()
     }
 
+    /// Every page's `PageId`, in the order the document has them now. The
+    /// id is the page's identity for the session — it survives moves and
+    /// removals — so a shell keys per-page state (thumbnails) on it, not on
+    /// a position.
+    pub fn page_ids(&self) -> Vec<u32> {
+        self.document.pages.iter().map(|page| page.id.0).collect()
+    }
+
+    /// Whether the document lets its pages be moved, rotated, removed or
+    /// imported — the permission `pdf_save::check_edit` asks before every
+    /// page edit, so a shell can say so before the user tries one.
+    pub fn document_assembly_allowed(&self) -> bool {
+        pdf_manip::document_assembly_is_allowed(self.document.security.as_ref())
+    }
+
     /// Whether the document lets its text be copied or extracted.
     pub fn text_extraction_allowed(&self) -> bool {
         pdf_manip::text_extraction_is_allowed(self.document.security.as_ref())
@@ -246,6 +261,59 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(err.kind, ErrorKind::WrongPassword);
+    }
+
+    #[test]
+    fn page_ids_follow_the_pages_through_a_move_and_a_removal() {
+        let mut model = open(
+            &pdfs::text_document(&["one", "two", "three"]),
+            OpenCredentials::NoPassword,
+        )
+        .unwrap();
+        let ids = model.page_ids();
+        assert_eq!(ids.len(), 3);
+        let mut unique = ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), 3, "every page has its own id: {ids:?}");
+
+        model
+            .apply_edit(PageEdit::Move {
+                from: 0,
+                count: 1,
+                to: 2,
+            })
+            .unwrap();
+        assert_eq!(model.page_ids(), [ids[1], ids[2], ids[0]]);
+        model
+            .apply_edit(PageEdit::Remove { index: 1, count: 1 })
+            .unwrap();
+        assert_eq!(model.page_ids(), [ids[1], ids[0]]);
+        assert!(model.undo());
+        assert_eq!(model.page_ids(), [ids[1], ids[2], ids[0]]);
+    }
+
+    #[test]
+    fn the_assembly_permission_is_the_cores() {
+        let plain = open(&pdfs::text_document(&["one"]), OpenCredentials::NoPassword).unwrap();
+        assert!(plain.document_assembly_allowed());
+
+        let user = open(
+            &pdfs::restricted_document(),
+            OpenCredentials::Password(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+        assert!(!user.document_assembly_allowed());
+
+        let owner = open(
+            &pdfs::restricted_document(),
+            OpenCredentials::UserAndOwner {
+                user: pdfs::USER_PASSWORD.into(),
+                owner: pdfs::OWNER_PASSWORD.into(),
+            },
+        )
+        .unwrap();
+        assert!(owner.document_assembly_allowed());
     }
 
     #[test]

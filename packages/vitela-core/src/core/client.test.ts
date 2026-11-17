@@ -45,7 +45,10 @@ describe('EngineClient', () => {
     expect(transfer).toEqual([bytes.buffer]);
 
     const pages = [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }];
-    const value = { handle: 3, info: { pageCount: 1, pages, textExtractionAllowed: true } };
+    const value = {
+      handle: 3,
+      info: { pageCount: 1, pages, pageIds: [0], textExtractionAllowed: true, documentAssemblyAllowed: true },
+    };
     reply({ type: 'result', id: message.id, value });
     await expect(opened).resolves.toEqual(value);
   });
@@ -155,5 +158,22 @@ describe('EngineClient', () => {
     const saved = client.saveToBytes(4, false);
     reply({ type: 'error', id: sent[0]!.message.id, name: 'SignaturesWouldBeInvalidated', message: 'signed' });
     await expect(saved).rejects.toMatchObject({ name: 'SignaturesWouldBeInvalidated' });
+  });
+
+  it('names the document in every edit request and resolves with the edited document', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const edited = client.applyEdit(4, { kind: 'rotate', from: 1, count: 2, degrees: 90 });
+    void client.undo(4);
+    void client.redo(4);
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'applyEdit', document: 4, edit: { kind: 'rotate', from: 1, count: 2, degrees: 90 } },
+      { kind: 'undo', document: 4 },
+      { kind: 'redo', document: 4 },
+    ]);
+    const info = { pageCount: 0, pages: [], pageIds: [], textExtractionAllowed: true, documentAssemblyAllowed: true };
+    const value = { info, canUndo: true, canRedo: false };
+    reply({ type: 'result', id: sent[0]!.message.id, value });
+    await expect(edited).resolves.toBe(value);
   });
 });

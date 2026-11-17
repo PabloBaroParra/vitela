@@ -459,3 +459,33 @@ async fn page_edits_are_refused_by_kind() {
         .unwrap_err();
     assert_eq!(error_name(unknown), "DocumentNotFound");
 }
+
+#[wasm_bindgen_test]
+async fn page_ids_follow_their_pages_and_the_assembly_permission_is_reported() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(pdfs::text_document(&["one", "two", "three"]), None)
+        .unwrap();
+    assert!(engine.document_assembly_allowed(doc).unwrap());
+    let ids = engine.page_ids(doc).unwrap();
+    assert_eq!(ids.len(), 3);
+
+    engine
+        .apply_edit(doc, &EditCommand::move_pages(2, 1, 0))
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::remove_pages(1, 1))
+        .unwrap();
+    assert_eq!(engine.page_ids(doc).unwrap(), [ids[2], ids[1]]);
+
+    let restricted = engine
+        .open(
+            pdfs::restricted_document(),
+            Some(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+    assert!(!engine.document_assembly_allowed(restricted).unwrap());
+
+    let unknown = engine.page_ids(99).unwrap_err();
+    assert_eq!(error_name(unknown), "DocumentNotFound");
+}

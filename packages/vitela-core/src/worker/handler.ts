@@ -30,6 +30,13 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         // A whole PDF: handed over, not copied.
         return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
       }
+      // An edit's answer is the document's page list: small, copied.
+      case 'applyEdit':
+        return result(id, await engine.applyEdit(request.document, request.edit));
+      case 'undo':
+        return result(id, await engine.undo(request.document));
+      case 'redo':
+        return result(id, await engine.redo(request.document));
       // Text replies are small (a few rects per line or match): copied, not
       // transferred.
       case 'search':

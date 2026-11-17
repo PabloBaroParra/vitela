@@ -3,7 +3,14 @@ import { handleRequest } from './handler.js';
 import type { Engine } from '../core/types.js';
 
 const page = { width: 2, height: 1, rgba: new Uint8ClampedArray(8) };
-const info = { pageCount: 1, pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }], textExtractionAllowed: true };
+const info = {
+  pageCount: 1,
+  pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }],
+  pageIds: [0],
+  textExtractionAllowed: true,
+  documentAssemblyAllowed: true,
+};
+const edited = { info, canUndo: true, canRedo: false };
 const opened = { handle: 5, info };
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
@@ -15,6 +22,9 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     selectText: async () => ({ text: '', rects: new Float32Array(0) }),
     selectWord: async () => ({ text: '', rects: new Float32Array(0) }),
     saveToBytes: async () => new Uint8Array(0),
+    applyEdit: async () => edited,
+    undo: async () => edited,
+    redo: async () => edited,
     ...overrides,
   };
 }
@@ -184,5 +194,39 @@ describe('handleRequest', () => {
       request: { kind: 'save', document: 5, invalidateSignatures: false },
     });
     expect(reply.message).toMatchObject({ type: 'error', id: 9, name: 'SignaturesWouldBeInvalidated' });
+  });
+
+  it('answers the edit requests with the edited document, for the document they name', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      applyEdit: async (...args) => (calls.push(['applyEdit', ...args]), edited),
+      undo: async (...args) => (calls.push(['undo', ...args]), edited),
+      redo: async (...args) => (calls.push(['redo', ...args]), edited),
+    });
+    const edit = { kind: 'move', from: 0, count: 2, to: 3 } as const;
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'applyEdit', document: 5, edit } })).toEqual({
+      message: { type: 'result', id: 1, value: edited },
+      transfer: [],
+    });
+    await handleRequest(engine, { id: 2, request: { kind: 'undo', document: 5 } });
+    await handleRequest(engine, { id: 3, request: { kind: 'redo', document: 5 } });
+    expect(calls).toEqual([
+      ['applyEdit', 5, edit],
+      ['undo', 5],
+      ['redo', 5],
+    ]);
+  });
+
+  it('forwards EditNotPermitted by name', async () => {
+    const failure = new Error('the document does not permit page assembly');
+    failure.name = 'EditNotPermitted';
+    const engine = fakeEngine({
+      applyEdit: async () => {
+        throw failure;
+      },
+    });
+    const edit = { kind: 'remove', from: 0, count: 1 } as const;
+    const reply = await handleRequest(engine, { id: 4, request: { kind: 'applyEdit', document: 5, edit } });
+    expect(reply.message).toMatchObject({ type: 'error', id: 4, name: 'EditNotPermitted' });
   });
 });

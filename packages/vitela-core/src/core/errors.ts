@@ -7,6 +7,7 @@ export const PASSWORD_REQUIRED = 'PasswordRequired';
 export const WRONG_PASSWORD = 'WrongPassword';
 export const TEXT_EXTRACTION_DENIED = 'TextExtractionDenied';
 export const SIGNATURES_WOULD_BE_INVALIDATED = 'SignaturesWouldBeInvalidated';
+export const EDIT_NOT_PERMITTED = 'EditNotPermitted';
 
 /** A failure reported by the engine, carrying the core's kind as `name`. */
 export class EngineError extends Error {

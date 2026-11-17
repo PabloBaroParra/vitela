@@ -15,7 +15,9 @@ function info(pageCount: number): DocumentInfo {
   return {
     pageCount,
     pages: Array(pageCount).fill({ widthPt: 612, heightPt: 792, rotationDegrees: 0 }),
+    pageIds: Array.from({ length: pageCount }, (_, index) => index),
     textExtractionAllowed: true,
+    documentAssemblyAllowed: true,
   };
 }
 
@@ -281,4 +283,37 @@ describe('useDocument', () => {
     disk.lastModified = 2000;
     expect(await checkFileStamp(fileHandle)).toBe('changed');
   });
+
+  it('takes the edited page list and history of the document on screen', async () => {
+    const engine = engineWith(async () => info(3));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document).not.toBeNull());
+
+    let revised = false;
+    act(() => {
+      revised = result.current.revise(1, { info: info(2), canUndo: true, canRedo: false });
+    });
+    expect(revised).toBe(true);
+    expect(result.current.state.document).toMatchObject({ info: info(2), generation: 1, canUndo: true, canRedo: false });
+  });
+
+  it('ignores an edit of a document that is no longer on screen', async () => {
+    const engine = engineWith(async () => info(3));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(1));
+    act(() => result.current.open(file('b.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(2));
+
+    let revised = true;
+    act(() => {
+      revised = result.current.revise(1, { info: info(1), canUndo: true, canRedo: false });
+    });
+    // The caller learns it, so it does not mark the new document dirty either.
+    expect(revised).toBe(false);
+    expect(result.current.state.document?.info).toEqual(info(3));
+    expect(result.current.state.document?.canUndo).toBeUndefined();
+  });
 });
+

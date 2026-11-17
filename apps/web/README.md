@@ -15,6 +15,7 @@ src/
     render/         render a page and paint it into a canvas
     search/         find in the document: match navigation (pure) + hook
     text/           text layer, selection, copy, the text toolbar
+    organize/       thumbnail grid: reorder, rotate, delete, undo/redo
   ui/               presentational pieces, no logic
   test/             shared test fakes (Vitest only)
 e2e/                Playwright flows (production build); pdf.ts builds test PDFs
@@ -201,9 +202,39 @@ origin-private file system (`navigator.storage.getDirectory()`) fed in through
 `showOpenFilePicker` and `getAsFileSystemHandle`, because Playwright cannot drive
 the native picker (a refused permission, a mismatched drop handle and a failing
 picker are covered the same way). **Not covered:** the browser's own permission
-prompt, a handle onto the real disk, and the signature question and Save a copy
-end to end (an unedited save
-rewrites nothing, so it never fires; Vitest covers it, E2E waits for T-226's edits).
+prompt and a handle onto the real disk. The signature question and Save a copy
+are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
+
+## Organize
+
+`features/organize/`, reached with the **View / Organize** switch in the bar
+(every document opens in View; each screen mounts afresh on a switch).
+
+- **Engine:** `applyEdit(handle, edit)` (`move` / `rotate` / `remove` of a run
+  of pages), `undo`, `redo`. Each answers with the edited `DocumentInfo` plus
+  `canUndo`/`canRedo`, and the worker has already run the core's
+  `refreshPreview` inside the same request, so no render can land between an
+  edit and its refresh. If the refresh fails the step is taken back.
+  `useDocument.revise` takes the answer (only for the document still on
+  screen, which also gates `markDirty`).
+- **Selection** is one contiguous run (`selection.ts`), so every operation is
+  one core command and one undo step. Click selects, Shift+click extends.
+- **Keyboard:** the grid is a listbox with `aria-activedescendant`. Arrows /
+  Home / End move the focus (Shift extends), **Ctrl+Shift+arrow** (Cmd+Shift on
+  a Mac) moves the selected pages, Delete/Backspace removes them, Ctrl+Z /
+  Ctrl+Shift+Z / Ctrl+Y undo and redo. The toolbar has the same actions.
+- **Drag:** pointer events, not HTML5 drag-and-drop; the drop slot comes from
+  the grid layout (`dropSlotAt`, in front of the first card whose middle is
+  right of the pointer).
+- **Virtualized:** only the rows within a viewport of the visible area are
+  mounted, so only they render.
+- **Thumbnails** (`thumbnailCache.ts`) are kept by the core's `PageId` + turn
+  + DPI, never by position: a move or a deletion renders nothing again, a
+  rotation changes the key, an undo finds the old bitmap. No new render starts
+  while an edit is in flight (the UI's page order is stale until it answers).
+- **Permission:** `documentAssemblyAllowed` (the core's rule) is known at open;
+  without it the screen shows why and every edit is off. The core refuses
+  anyway (`EditNotPermitted`), and that refusal blocks the screen too.
 
 ## Zero-network
 
