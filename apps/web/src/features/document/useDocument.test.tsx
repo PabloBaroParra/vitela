@@ -18,6 +18,8 @@ function info(pageCount: number): DocumentInfo {
     pageIds: Array.from({ length: pageCount }, (_, index) => index),
     textExtractionAllowed: true,
     documentAssemblyAllowed: true,
+    blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
+    importRefusal: null,
   };
 }
 
@@ -314,6 +316,24 @@ describe('useDocument', () => {
     expect(revised).toBe(false);
     expect(result.current.state.document?.info).toEqual(info(3));
     expect(result.current.state.document?.canUndo).toBeUndefined();
+  });
+  it('remembers which file each imported PDF came from, for the document on screen only', async () => {
+    const engine = engineWith(async () => info(3));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(1));
+
+    act(() => result.current.nameSources(1, [[1, 'b.pdf']]));
+    act(() => result.current.nameSources(1, [[2, 'c.pdf']]));
+    act(() => result.current.nameSources(9, [[3, 'x.pdf']]));
+    expect([...(result.current.state.document?.sourceNames ?? [])]).toEqual([
+      [1, 'b.pdf'],
+      [2, 'c.pdf'],
+    ]);
+
+    act(() => result.current.open(file('d.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(2));
+    expect(result.current.state.document?.sourceNames).toBeUndefined();
   });
 });
 

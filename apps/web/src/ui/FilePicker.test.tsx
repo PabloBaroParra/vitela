@@ -15,6 +15,23 @@ describe('FilePicker', () => {
     expect(onPick).toHaveBeenCalledWith(file);
   });
 
+  it('takes several files at once and reports them all when asked to', () => {
+    const onPickFiles = vi.fn();
+    const second = new File([new Uint8Array([37])], 'b.pdf', { type: 'application/pdf' });
+    render(<FilePicker label="Add PDFs" accept=".pdf" onPickFiles={onPickFiles} />);
+    const input = screen.getByLabelText('Add PDFs') as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    // A click goes to the native dialog: there is no handle to keep.
+    expect(fireEvent.click(input)).toBe(true);
+    fireEvent.change(input, { target: { files: [file, second] } });
+    expect(onPickFiles).toHaveBeenCalledWith([file, second]);
+  });
+
+  it('says why it is disabled', () => {
+    render(<FilePicker label="Add PDFs" accept=".pdf" onPickFiles={() => {}} disabled disabledReason="Not allowed." />);
+    expect(screen.getByText('Add PDFs').getAttribute('title')).toBe('Not allowed.');
+  });
+
   it('uses the browser file picker instead of the input when one is given, and passes the handle on', async () => {
     const handle = { name: 'a.pdf' } as WritableFileHandle;
     const pick = vi.fn(async (): Promise<PickedFile | null> => ({ file, handle }));

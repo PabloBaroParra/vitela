@@ -26,6 +26,12 @@ export interface OpenDocument {
    */
   readonly canUndo?: boolean;
   readonly canRedo?: boolean;
+  /**
+   * The file each PDF added to this document came from, by the block source
+   * id the import reported (the engine never sees a file name). Unset until
+   * the first import.
+   */
+  readonly sourceNames?: ReadonlyMap<number, string>;
 }
 
 /** What is happening besides showing the open document, if any. */
@@ -147,5 +153,14 @@ export function useDocument(engine: Engine) {
     return true;
   }, []);
 
-  return { state, open, submitPassword, cancelPassword, revise };
+  /** Records which file each imported PDF came from, for the document still on screen. */
+  const nameSources = useCallback((handle: DocumentHandle, names: readonly (readonly [number, string])[]) => {
+    setState((s) =>
+      s.document?.handle === handle
+        ? { ...s, document: { ...s.document, sourceNames: new Map([...(s.document.sourceNames ?? []), ...names]) } }
+        : s,
+    );
+  }, []);
+
+  return { state, open, submitPassword, cancelPassword, revise, nameSources };
 }

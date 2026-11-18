@@ -1,45 +1,24 @@
-// One page in the Organize grid: its thumbnail and its position. The card is
-// an option of the grid's listbox; the grid owns focus and selection.
+// One page in the Organize grid's Pages view: its thumbnail and its position.
+// The card is an option of the grid's listbox; the grid owns focus and
+// selection.
 
-import { memo, type MouseEvent, type PointerEvent } from 'react';
-import type { DocumentHandle, Engine, PageSize } from '@vitela/core';
-import { PageCanvas } from '../render/PageCanvas';
-import type { Rect } from '../viewer/layout';
-import { thumbnailKey, type ThumbnailCache } from './thumbnailCache';
-import { thumbnailSize } from './thumbnailSize';
-import { useThumbnail } from './useThumbnail';
+import { memo } from 'react';
+import { ThumbnailBox, ThumbnailError, useCardThumbnail, type CardPage } from './CardThumbnail';
+import type { GridItem } from './ThumbnailGrid';
 
-interface PageCardProps {
-  readonly engine: Engine;
-  readonly document: DocumentHandle;
-  readonly cache: ThumbnailCache;
-  readonly index: number;
-  readonly pageId: number;
-  readonly page: PageSize;
-  readonly rect: Rect;
-  readonly devicePixelRatio: number;
-  readonly selected: boolean;
-  readonly active: boolean;
-  /** No new renders while an edit is in flight (see `useThumbnail`). */
-  readonly paused: boolean;
-  readonly onPointerDown: (index: number, event: PointerEvent) => void;
-  readonly onClick: (index: number, event: MouseEvent) => void;
+interface PageCardProps extends GridItem {
+  readonly thumbnail: CardPage;
 }
 
-/** The DOM id of a card, for the grid's `aria-activedescendant`. */
+/** The DOM id of a page card, for the grid's `aria-activedescendant`. */
 export function cardId(pageId: number): string {
   return `organize-page-${pageId}`;
 }
 
 export const PageCard = memo(function PageCard(props: PageCardProps) {
-  const { engine, document, cache, index, pageId, page, rect, devicePixelRatio, selected, active, paused } = props;
-  const size = thumbnailSize(page, devicePixelRatio);
-  const thumbnail = useThumbnail(
-    cache,
-    thumbnailKey(pageId, page, size.dpi),
-    () => engine.renderPage(document, index, size.dpi),
-    paused,
-  );
+  const { index, rect, selected, active } = props;
+  const { pageId, page } = props.thumbnail;
+  const { size, thumbnail } = useCardThumbnail(props.thumbnail);
   const number = index + 1;
   return (
     <div
@@ -58,15 +37,11 @@ export const PageCard = memo(function PageCard(props: PageCardProps) {
       onPointerDown={(event) => props.onPointerDown(index, event)}
       onClick={(event) => props.onClick(index, event)}
     >
-      <div className="page-card__box">
-        <div className="page-card__page" style={{ width: size.width, height: size.height }}>
-          {thumbnail.status === 'rendered' && <PageCanvas page={thumbnail.page} label={`Thumbnail of page ${number}`} />}
-        </div>
-      </div>
+      <ThumbnailBox size={size} thumbnail={thumbnail} label={`Thumbnail of page ${number}`} />
       <span className="page-card__number" aria-hidden="true">
         {number}
       </span>
-      {thumbnail.status === 'failed' && <span className="page-card__error">{`Could not render: ${thumbnail.message}`}</span>}
+      <ThumbnailError thumbnail={thumbnail} />
     </div>
   );
 });

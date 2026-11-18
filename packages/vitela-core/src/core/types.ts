@@ -36,6 +36,54 @@ export interface DocumentInfo {
    * the engine refuses every page edit with `EditNotPermitted`.
    */
   readonly documentAssemblyAllowed: boolean;
+  /**
+   * The document's pages grouped into blocks — one per contiguous run of
+   * pages from the same PDF (the core's `derive_blocks`), in page order. What
+   * Organize's Documents view shows.
+   */
+  readonly blocks: readonly DocumentBlock[];
+  /**
+   * Why the document would refuse any import right now, in the reader's
+   * words, or `null` when it would not (the core's `import_refusal`: the
+   * modify-contents and assembly permissions, and whether its encryption
+   * survives the rewrite an import forces). Asked before the file picker.
+   */
+  readonly importRefusal: string | null;
+}
+
+/** Which PDF a block's pages come from. */
+export type BlockSource =
+  /** The PDF the document was opened from. */
+  | { readonly kind: 'base' }
+  /** Inserted blank pages. */
+  | { readonly kind: 'blank' }
+  /** A PDF added by `importPrepared`; `id` is one of its `sourceIds`. */
+  | { readonly kind: 'imported'; readonly id: number };
+
+/** One contiguous run of pages from one PDF. Positions are current until the next edit. */
+export interface DocumentBlock {
+  readonly source: BlockSource;
+  /** 1-based, only when the PDF is split across more than one block; else `null`. */
+  readonly part: number | null;
+  /** Position of the block's first page. */
+  readonly start: number;
+  /** How many pages it holds (never zero). */
+  readonly count: number;
+}
+
+/** One PDF opened as an import source, waiting for `importPrepared`. */
+export interface PreparedImport {
+  /** What `importPrepared` and `discardImport` name it by. */
+  readonly id: number;
+  /** How many pages importing it adds: every page it has. */
+  readonly pageCount: number;
+  /** What its pages will not bring across exactly as they are, one line each. */
+  readonly warnings: readonly string[];
+}
+
+/** The document after an import, plus the block source id of each imported PDF, in pick order. */
+export interface ImportedDocument extends EditedDocument {
+  readonly sourceIds: readonly number[];
 }
 
 /**
@@ -133,6 +181,24 @@ export interface Engine {
   undo(document: DocumentHandle): Promise<EditedDocument>;
   /** Re-applies the last undone edit (nothing, when there is none). */
   redo(document: DocumentHandle): Promise<EditedDocument>;
+  /**
+   * Opens `bytes` as an import source (with `password` for an encrypted one)
+   * and keeps it until `importPrepared` takes it or `discardImport` drops it.
+   * Changes no document. Rejects with `PasswordRequired` or `WrongPassword`
+   * when the source needs a password `password` is not (ask, then call
+   * again), and `UnsupportedOperation` when it forbids copying its pages, has
+   * none, or carries something an import cannot graft.
+   */
+  prepareImport(bytes: Uint8Array, password?: string): Promise<PreparedImport>;
+  /** Drops a prepared source (an abandoned pick); dropping an unknown one does nothing. */
+  discardImport(id: number): Promise<void>;
+  /**
+   * Adds every page of the prepared sources `ids`, in that order, at `index`
+   * (the page count appends), as ONE undo step, and answers like `applyEdit`.
+   * All or nothing: rejects with `EditNotPermitted`, `UnsupportedOperation`
+   * or `PageIndexOutOfBounds` leaving every source prepared.
+   */
+  importPrepared(document: DocumentHandle, ids: readonly number[], index: number): Promise<ImportedDocument>;
   /**
    * Every exact, case-sensitive match of `query` (the core's search), in page
    * order. An empty query matches nothing. Rejects with `TextExtractionDenied`

@@ -1,4 +1,4 @@
-/* The View / Organize switch and the Organize screen: toolbar, thumbnail grid, page cards. */
+/* The View / Organize switch and the Organize screen: toolbar, thumbnail grid, page and block cards. */
 
 /* Screen switch (View / Organize): toggle buttons, the current one pressed. */
 .view-switch {
@@ -113,4 +113,30 @@
   border-radius: 2px;
   background: var(--accent);
   pointer-events: none;
+}
+
+/* Documents view: one card per block of pages from one PDF, its first page
+   plus the PDF's name and page count, inside the same cell as a page card. */
+.block-card {
+  gap: 2px;
+  padding-top: 6px;
+}
+
+.block-card__label {
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.25;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.block-card__pages {
+  flex-shrink: 0;
+  line-height: 1.25;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }

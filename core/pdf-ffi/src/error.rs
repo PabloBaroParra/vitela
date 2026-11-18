@@ -194,6 +194,17 @@ impl From<pdf_save::ImportError> for FfiError {
     }
 }
 
+impl From<pdf_save::PrepareError> for FfiError {
+    fn from(err: pdf_save::PrepareError) -> Self {
+        match err {
+            pdf_save::PrepareError::Open(err) => err.into(),
+            refused => FfiError::UnsupportedOperation {
+                detail: refused.to_string(),
+            },
+        }
+    }
+}
+
 impl From<pdf_save::RecordError> for FfiError {
     fn from(err: pdf_save::RecordError) -> Self {
         match err {

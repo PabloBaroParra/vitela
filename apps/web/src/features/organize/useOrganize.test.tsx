@@ -13,6 +13,8 @@ function info(pageCount: number, documentAssemblyAllowed = true): DocumentInfo {
     pageIds: Array.from({ length: pageCount }, (_, index) => index),
     textExtractionAllowed: true,
     documentAssemblyAllowed,
+    blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
+    importRefusal: null,
   };
 }
 
@@ -97,6 +99,33 @@ describe('useOrganize', () => {
       await edited2.result.current.redo();
     });
     expect(steps).toEqual(['undo', 'redo']);
+  });
+
+  it('imports prepared sources after the last page and reports the edited document', async () => {
+    const calls: [number, readonly number[], number][] = [];
+    const imported = { info: info(5), canUndo: true, canRedo: false, sourceIds: [1] };
+    const engine = fakeEngine({ importPrepared: async (...args) => (calls.push(args), imported) });
+    const reported: EditedDocument[] = [];
+    const { result } = renderHook(() => useOrganize(engine, doc(), (e) => reported.push(e)));
+    await act(async () => {
+      expect(await result.current.importPrepared([7, 8])).toBe(imported);
+    });
+    expect(calls).toEqual([[4, [7, 8], 3]]);
+    expect(reported).toEqual([imported]);
+  });
+
+  it('turns an import the core refuses into a failure and answers null', async () => {
+    const engine = fakeEngine({
+      importPrepared: async () => {
+        throw new EngineError('EditNotPermitted', 'this document does not permit changing its content');
+      },
+    });
+    const { result } = renderHook(() => useOrganize(engine, doc(), () => {}));
+    await act(async () => {
+      expect(await result.current.importPrepared([1])).toBeNull();
+    });
+    expect(result.current.failure).toBe('this document does not permit changing its content');
+    expect(result.current.allowed).toBe(false);
   });
 
   it('is blocked when the document withholds the assembly permission', () => {

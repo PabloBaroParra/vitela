@@ -7,72 +7,31 @@
 // checks the order, the turn and the count the core actually wrote.
 
 import { readFileSync } from 'node:fs';
-import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import {
+  cards,
+  drag,
+  expectThumbnailsRendered,
+  grid,
+  openOrganize,
+  saveAsDownload,
+  saveButton,
+  shapes,
+  SHAPE_HEIGHT,
+  tool,
+  toolbar,
+} from './organize';
 import { buildPdf } from './pdf';
 import { fixtureBytes, loadApp, openBytes, openFixture } from './support';
 
-/** Four portrait pages told apart by their width, all 700 pt tall. */
+/** Four portrait pages told apart by their width, all SHAPE_HEIGHT pt tall. */
 const WIDTHS = [300, 400, 500, 600] as const;
-const HEIGHT = 700;
+const HEIGHT = SHAPE_HEIGHT;
 const SHAPES = buildPdf(WIDTHS.map((widthPt) => ({ widthPt, heightPt: HEIGHT })));
 
 /** `/P` without bit 4 (modify) and bit 11 (assembly): the pages may not be reorganized. */
 const ASSEMBLY_PROHIBITED = -4 & ~(1 << 3) & ~(1 << 10);
 const SIGNED = 'signed/rsa2048_sha256.pdf';
-
-const cards = (page: Page) => page.locator('.page-card');
-const grid = (page: Page) => page.getByRole('listbox', { name: /^Pages of / });
-const toolbar = (page: Page) => page.getByRole('toolbar', { name: 'Organize' });
-const tool = (page: Page, name: string) => toolbar(page).getByRole('button', { name, exact: true });
-
-async function openOrganize(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Organize' }).click();
-  await expect(grid(page)).toBeVisible();
-  await expectThumbnailsRendered(page);
-}
-
-async function expectThumbnailsRendered(page: Page): Promise<void> {
-  await expect(cards(page).first()).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('.page-card:not([data-state="rendered"])')).toHaveCount(0, { timeout: 30_000 });
-}
-
-/**
- * Each card's page as `width` pt, or `width r` when it is turned a quarter:
- * the width read back from the thumbnail's drawn aspect ratio (pages are
- * all 700 pt tall before turning).
- */
-async function shapes(page: Page): Promise<string[]> {
-  const boxes = await page.locator('.page-card').evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const box = node.querySelector<HTMLElement>('.page-card__page')!.getBoundingClientRect();
-      return { ratio: box.width / box.height, rotation: Number((node as HTMLElement).dataset.rotation) };
-    }),
-  );
-  return boxes.map(({ ratio, rotation }) => {
-    const turned = rotation % 180 !== 0;
-    // A turned page is drawn HEIGHT wide: its own width is now its height.
-    const width = Math.round((turned ? HEIGHT / ratio : HEIGHT * ratio) / 100) * 100;
-    return turned ? `${width} r` : `${width}`;
-  });
-}
-
-const saveButton = (page: Page) => page.getByRole('button', { name: 'Save', exact: true });
-
-async function saveAsDownload(page: Page): Promise<{ download: Download; bytes: Buffer }> {
-  const [download] = await Promise.all([page.waitForEvent('download'), saveButton(page).click()]);
-  return { download, bytes: readFileSync(await download.path()) };
-}
-
-/** Drags `from` so it drops `dx` px right of the middle of `onto`. */
-async function drag(page: Page, from: Locator, onto: Locator, dx: number): Promise<void> {
-  const start = (await from.boundingBox())!;
-  const end = (await onto.boundingBox())!;
-  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(start.x + start.width / 2 + 20, start.y + start.height / 2, { steps: 4 });
-  await page.mouse.move(end.x + end.width / 2 + dx, end.y + end.height / 2, { steps: 8 });
-  await page.mouse.up();
-}
 
 test('drag, rotate and delete pages, then save: the PDF holds the new order, turn and count', async ({ page }) => {
   await loadApp(page);
@@ -158,6 +117,9 @@ test('a PDF that withholds the assembly permission is blocked', async ({ page })
   for (const name of ['Rotate left', 'Rotate right', 'Delete', 'Move earlier', 'Move later']) {
     await expect(tool(page, name)).toHaveAttribute('aria-disabled', 'true');
   }
+  // Adding pages is an assembly edit too: the core's import refusal turns Add PDFs off.
+  await expect(toolbar(page).getByText('Add PDFs')).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByLabel('Add PDFs')).toBeDisabled();
 
   // Neither a click, nor a key, nor a drag changes anything. (`force`: the
   // button is aria-disabled, which Playwright would otherwise wait out.)

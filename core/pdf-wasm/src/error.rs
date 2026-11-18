@@ -111,8 +111,17 @@ impl From<pdf_manip::ManipError> for EngineError {
             E::WrongPassword => ErrorKind::WrongPassword,
             E::UnsupportedSecurityHandler => ErrorKind::UnsupportedSecurityHandler,
             E::InvalidPageNumber(_) | E::InvalidPageIndex(_) => ErrorKind::PageIndexOutOfBounds,
-            // Opening is the only manip call this boundary makes, so any
-            // other failure means the bytes could not be read as a PDF.
+            // What an import source refuses (its copy permission, what a
+            // graft cannot carry) is a fact about the PDF the user picked,
+            // shown as is — `pdf-ffi`'s `UnsupportedOperation` too.
+            E::SourceForbidsCopying
+            | E::SourceHasFormFields(_)
+            | E::SourceHasXfaForm(_)
+            | E::SourceHasOptionalContent(_)
+            | E::SourceHasSignature(_) => ErrorKind::UnsupportedOperation,
+            // Opening (a document or an import source) is the only other
+            // manip call this boundary makes, so any other failure means the
+            // bytes could not be read as a PDF.
             _ => ErrorKind::InvalidDocument,
         };
         Self::new(kind, err.to_string())
@@ -153,6 +162,36 @@ impl From<pdf_document::PagePositionOutOfRange> for EngineError {
         // A position came from a `u32` on the way in, so it fits on the way
         // out; saturate rather than wrap if that ever stops being true.
         Self::page_out_of_bounds(u32::try_from(err.position).unwrap_or(u32::MAX))
+    }
+}
+
+impl From<pdf_save::PrepareError> for EngineError {
+    /// An import source that could not be prepared: a password it needs
+    /// keeps its own kind, so the UI asks for it.
+    fn from(err: pdf_save::PrepareError) -> Self {
+        match err {
+            pdf_save::PrepareError::Open(err) => err.into(),
+            refused => Self::new(ErrorKind::UnsupportedOperation, refused.to_string()),
+        }
+    }
+}
+
+impl From<pdf_save::ImportError> for EngineError {
+    /// An import the destination refused, by the same kinds as a page edit:
+    /// a withheld permission is `EditNotPermitted`, a rewrite the encryption
+    /// cannot survive `UnsupportedOperation`, a position past the end
+    /// `PageIndexOutOfBounds`.
+    fn from(err: pdf_save::ImportError) -> Self {
+        use pdf_save::{ImportError as E, ImportRefusal as R};
+        let kind = match &err {
+            E::Refused(R::ContentEditing | R::DocumentAssembly) => ErrorKind::EditNotPermitted,
+            E::IndexOutOfRange { index } => {
+                return Self::page_out_of_bounds(u32::try_from(*index).unwrap_or(u32::MAX))
+            }
+            E::Source(_) => ErrorKind::SaveFailed,
+            _ => ErrorKind::UnsupportedOperation,
+        };
+        Self::new(kind, err.to_string())
     }
 }
 
@@ -263,6 +302,54 @@ mod tests {
             EngineError::from(pdf_save::SaveError::InvalidSaveRequest("x")).kind,
             ErrorKind::SaveFailed
         );
+    }
+
+    #[test]
+    fn what_an_import_source_refuses_is_unsupported_not_invalid() {
+        use pdf_manip::ManipError as E;
+        for err in [
+            E::SourceForbidsCopying,
+            E::SourceHasSignature(0),
+            E::SourceHasXfaForm(0),
+        ] {
+            let message = err.to_string();
+            let mapped = EngineError::from(pdf_save::PrepareError::Open(err));
+            assert_eq!(mapped.kind, ErrorKind::UnsupportedOperation);
+            assert_eq!(mapped.message, message);
+        }
+        assert_eq!(
+            EngineError::from(pdf_save::PrepareError::Open(E::PasswordRequired)).kind,
+            ErrorKind::PasswordRequired
+        );
+        let none = EngineError::from(pdf_save::PrepareError::NoPages);
+        assert_eq!(none.kind, ErrorKind::UnsupportedOperation);
+        assert_eq!(none.message, "the PDF has no pages");
+    }
+
+    #[test]
+    fn an_import_refusal_maps_like_a_page_edit_refusal() {
+        use pdf_save::{ImportError as E, ImportRefusal as R};
+        let kind = |err| EngineError::from(err).kind;
+        assert_eq!(
+            kind(E::Refused(R::DocumentAssembly)),
+            ErrorKind::EditNotPermitted
+        );
+        assert_eq!(
+            kind(E::Refused(R::ContentEditing)),
+            ErrorKind::EditNotPermitted
+        );
+        assert_eq!(
+            kind(E::Refused(R::FullRewrite(
+                pdf_save::RewriteBlocker::IncompleteCredentials
+            ))),
+            ErrorKind::UnsupportedOperation
+        );
+        assert_eq!(
+            kind(E::IndexOutOfRange { index: 9 }),
+            ErrorKind::PageIndexOutOfBounds
+        );
+        assert_eq!(kind(E::AlreadyImported), ErrorKind::UnsupportedOperation);
+        assert_eq!(kind(E::NothingToImport), ErrorKind::UnsupportedOperation);
     }
 
     #[test]

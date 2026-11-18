@@ -235,6 +235,26 @@ are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
 - **Permission:** `documentAssemblyAllowed` (the core's rule) is known at open;
   without it the screen shows why and every edit is off. The core refuses
   anyway (`EditNotPermitted`), and that refusal blocks the screen too.
+- **Pages / Documents** (switch in the toolbar): the Documents view shows one
+  card per block — a contiguous run of pages from one PDF, as the core derives
+  it (`DocumentInfo.blocks`, `derive_blocks`) — named after its file ("Part n"
+  when a PDF is split). The grid, drag, keyboard and selection are the same
+  code over *units* (`units.ts`): a run of blocks is a run of pages, so moving,
+  rotating or deleting a block is the same single page command and undo step.
+  Switching views keeps the same pages selected.
+- **Add PDFs** (picker, several files, or files dropped on the screen):
+  `useImport` prepares each file in turn (`prepareImport`), asks a locked one
+  for its own password with the same dialog as opening ("…to add its pages"),
+  then adds the whole pick after the last page with one `importPrepared` —
+  one undo step. A cancelled password, a refused file or leaving the screen
+  abandons the pick and discards what was prepared. A drop on Organize is
+  claimed (`preventDefault`), so the workspace's window-wide drop opens
+  nothing. The file names live on the open document (`sourceNames`, by the
+  block source id the import reported); the engine never sees them.
+- **Import permission:** `DocumentInfo.importRefusal` (the core's
+  `import_refusal`: modify-contents and assembly permissions, and whether the
+  encryption survives the rewrite) turns Add PDFs off with the reason as its
+  tooltip; the core asks again on `importPrepared`.
 
 ## Zero-network
 

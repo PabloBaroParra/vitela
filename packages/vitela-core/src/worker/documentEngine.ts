@@ -7,17 +7,22 @@
 // Page edits refresh the preview inside the same request: the core edits its
 // model at once but renders and reads text from a pdfium snapshot that only
 // `refreshPreview` brings up to date, and the worker answers one request at a
-// time, so no render can ever land between an edit and its refresh.
+// time, so no render can ever land between an edit and its refresh. An
+// import is an edit like any other here: one step, refreshed the same way.
 
 import type {
+  BlockSource,
+  DocumentBlock,
   DocumentHandle,
   DocumentInfo,
   EditedDocument,
   Engine,
+  ImportedDocument,
   OpenedDocument,
   PageEdit,
   PagePoint,
   PageSize,
+  PreparedImport,
   RenderedPage,
 } from '../core/types.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
@@ -45,6 +50,25 @@ export interface CoreEngine extends CoreText {
   canUndo(doc: number): boolean;
   canRedo(doc: number): boolean;
   refreshPreview(doc: number): void;
+  prepareImport(bytes: Uint8Array, password?: string): Owned & {
+    readonly id: number;
+    readonly pageCount: number;
+    readonly warnings: string[];
+  };
+  discardPrepared(id: number): boolean;
+  importPrepared(doc: number, ids: Uint32Array, index: number): Owned & {
+    readonly pageCount: number;
+    readonly sourceIds: Uint32Array;
+  };
+  /** `undefined` (wasm-bindgen's `None`) when the document refuses no import. */
+  importRefusal(doc: number): string | null | undefined;
+  documentBlocks(doc: number): (Owned & {
+    readonly source: string;
+    readonly sourceId: number | undefined;
+    readonly part: number | undefined;
+    readonly start: number;
+    readonly count: number;
+  })[];
   renderPage(doc: number, page: number, dpi: number, invert: boolean): Owned & {
     readonly width: number;
     readonly height: number;
@@ -149,6 +173,34 @@ export function documentEngine(core: CoreEngine, geometry: CoreGeometry, edits: 
     async redo(document: DocumentHandle) {
       return step(document, () => core.redo(document), () => void core.undo(document));
     },
+    async prepareImport(bytes: Uint8Array, password?: string): Promise<PreparedImport> {
+      const prepared = core.prepareImport(bytes, password);
+      try {
+        return { id: prepared.id, pageCount: prepared.pageCount, warnings: [...prepared.warnings] };
+      } finally {
+        prepared.free();
+      }
+    },
+    async discardImport(id: number) {
+      core.discardPrepared(id);
+    },
+    async importPrepared(document: DocumentHandle, ids: readonly number[], index: number): Promise<ImportedDocument> {
+      let sourceIds: number[] = [];
+      const edited = step(
+        document,
+        () => {
+          const report = core.importPrepared(document, Uint32Array.from(ids), index);
+          try {
+            sourceIds = Array.from(report.sourceIds);
+          } finally {
+            report.free();
+          }
+          return true;
+        },
+        () => void core.undo(document),
+      );
+      return { ...edited, sourceIds };
+    },
     async search(document: DocumentHandle, query: string) {
       return text.search(document, pagesOf(document), query);
     },
@@ -186,7 +238,25 @@ function documentInfo(core: CoreEngine, doc: number): DocumentInfo {
     pageIds: Array.from(core.pageIds(doc)),
     textExtractionAllowed: core.textExtractionAllowed(doc),
     documentAssemblyAllowed: core.documentAssemblyAllowed(doc),
+    blocks: documentBlocks(core, doc),
+    importRefusal: core.importRefusal(doc) ?? null,
   };
+}
+
+/** Copies the core's blocks into plain objects and frees the wasm ones. */
+function documentBlocks(core: CoreEngine, doc: number): DocumentBlock[] {
+  return core.documentBlocks(doc).map((block) => {
+    try {
+      return { source: blockSource(block.source, block.sourceId), part: block.part ?? null, start: block.start, count: block.count };
+    } finally {
+      block.free();
+    }
+  });
+}
+
+function blockSource(kind: string, id: number | undefined): BlockSource {
+  if (kind === 'imported' && id !== undefined) return { kind: 'imported', id };
+  return kind === 'blank' ? { kind: 'blank' } : { kind: 'base' };
 }
 
 /** Copies the core's page sizes into plain objects and frees the wasm ones. */

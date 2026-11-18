@@ -4,6 +4,7 @@
 
 import type { PageEdit } from '@vitela/core';
 import type { PageRun } from './selection';
+import type { Units } from './units';
 
 export type MoveEdit = Extract<PageEdit, { kind: 'move' }>;
 
@@ -28,4 +29,22 @@ export function moveBy(run: PageRun, delta: number, pageCount: number): MoveEdit
 /** Where the moved pages are once the move is applied. */
 export function runAfterMove(move: MoveEdit): PageRun {
   return { from: move.to, count: move.count };
+}
+
+/**
+ * The move that puts the units of `run` in front of unit `slot`
+ * (`0..units.count`), as the page move the core takes; `null` when that
+ * leaves them where they are.
+ */
+export function moveUnitsToSlot(units: Units, run: PageRun, slot: number): MoveEdit | null {
+  return moveToSlot(units.pageRun(run), units.pageSlot(slot));
+}
+
+/**
+ * The move of the units of `run` by `delta` units, stopping at either end:
+ * past `|delta|` units, whatever their page counts. `null` when it cannot move.
+ */
+export function moveUnitsBy(units: Units, run: PageRun, delta: number): MoveEdit | null {
+  const slot = delta < 0 ? run.from + delta : run.from + run.count + delta;
+  return moveUnitsToSlot(units, run, Math.max(0, Math.min(units.count, slot)));
 }

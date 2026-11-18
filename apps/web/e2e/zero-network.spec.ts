@@ -2,8 +2,9 @@
 // it must never touch the network again. The user's PDF never leaves the
 // machine, and nothing is fetched on its behalf.
 
+import { resolve } from 'node:path';
 import { expect, test, type Request } from '@playwright/test';
-import { loadApp, openFixture } from './support';
+import { FIXTURES, loadApp, openFixture } from './support';
 
 test('makes no network request after the initial load', async ({ page, context, baseURL }) => {
   const duringLoad: string[] = [];
@@ -26,6 +27,10 @@ test('makes no network request after the initial load', async ({ page, context, 
   // Exercise the app: open and render a document, then give stragglers time.
   await openFixture(page, 'forms/reportlab_acroform.pdf');
   await openFixture(page, 'content-edit/reportlab_embedded_subset.pdf');
+  // Adding a PDF's pages is local too: the bytes go from the file input to the worker.
+  await page.getByRole('button', { name: 'Organize' }).click();
+  await page.getByLabel('Add PDFs').setInputFiles(resolve(FIXTURES, 'forms/reportlab_acroform.pdf'));
+  await expect(page.getByText('Added 1 page from reportlab_acroform.pdf.')).toBeVisible({ timeout: 30_000 });
   // Saving is local too: the download is a Blob URL, not a request.
   await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Save', exact: true }).click()]);
   await page.waitForTimeout(1_000);

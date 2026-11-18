@@ -4,29 +4,49 @@
 // to save over the file), a click opens that instead of the native input
 // dialog. The input stays in the DOM either way: it is the keyboard/AT
 // target and the fallback.
+//
+// Given `onPickFiles` instead, it takes several files at once and reports
+// them all (no handles: nothing is saved back over a file it adds).
 
 import { useId, useRef, type ChangeEvent, type MouseEvent } from 'react';
 import type { PickedFile, WritableFileHandle } from '../platform/fileHandle';
 
-interface FilePickerProps {
+interface CommonProps {
   readonly label: string;
   readonly accept: string;
   readonly disabled?: boolean;
+  /** Why it is disabled, if it is: shown as the button's tooltip. */
+  readonly disabledReason?: string;
+}
+
+interface SingleProps extends CommonProps {
   readonly onPick: (file: File, handle?: WritableFileHandle) => void;
   /** The browser's picker; resolves `null` when the user dismisses it. */
   readonly pick?: () => Promise<PickedFile | null>;
+  readonly onPickFiles?: undefined;
 }
 
-export function FilePicker({ label, accept, disabled = false, onPick, pick }: FilePickerProps) {
+interface MultipleProps extends CommonProps {
+  /** Every file picked, in the order the browser lists them. */
+  readonly onPickFiles: (files: File[]) => void;
+  readonly onPick?: undefined;
+  readonly pick?: undefined;
+}
+
+type FilePickerProps = SingleProps | MultipleProps;
+
+export function FilePicker({ label, accept, disabled = false, disabledReason, onPick, onPickFiles, pick }: FilePickerProps) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   /** Lets the one click that falls back to the native dialog through. */
   const letThrough = useRef(false);
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    const files = [...(event.target.files ?? [])];
     // Reset so picking the same file again still fires a change.
     event.target.value = '';
-    if (file) onPick(file);
+    if (onPickFiles) {
+      if (files.length > 0) onPickFiles(files);
+    } else if (files[0]) onPick(files[0]);
   };
   const handleClick = (event: MouseEvent<HTMLInputElement>) => {
     if (!pick) return;
@@ -36,7 +56,7 @@ export function FilePicker({ label, accept, disabled = false, onPick, pick }: Fi
     }
     event.preventDefault();
     pick().then(
-      (picked) => picked && onPick(picked.file, picked.handle),
+      (picked) => picked && onPick?.(picked.file, picked.handle),
       (error: unknown) => {
         // The user dismissed the picker: nothing to do.
         if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -55,9 +75,18 @@ export function FilePicker({ label, accept, disabled = false, onPick, pick }: Fi
     );
   };
   return (
-    <label className="file-picker" htmlFor={id} aria-disabled={disabled}>
+    <label className="file-picker" htmlFor={id} aria-disabled={disabled} title={disabled ? disabledReason : undefined}>
       {label}
-      <input ref={input} id={id} type="file" accept={accept} disabled={disabled} onChange={handleChange} onClick={handleClick} />
+      <input
+        ref={input}
+        id={id}
+        type="file"
+        accept={accept}
+        multiple={!!onPickFiles}
+        disabled={disabled}
+        onChange={handleChange}
+        onClick={handleClick}
+      />
     </label>
   );
 }

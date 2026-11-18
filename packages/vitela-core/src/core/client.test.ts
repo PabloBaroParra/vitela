@@ -47,7 +47,15 @@ describe('EngineClient', () => {
     const pages = [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }];
     const value = {
       handle: 3,
-      info: { pageCount: 1, pages, pageIds: [0], textExtractionAllowed: true, documentAssemblyAllowed: true },
+      info: {
+        pageCount: 1,
+        pages,
+        pageIds: [0],
+        textExtractionAllowed: true,
+        documentAssemblyAllowed: true,
+        blocks: [],
+        importRefusal: null,
+      },
     };
     reply({ type: 'result', id: message.id, value });
     await expect(opened).resolves.toEqual(value);
@@ -171,9 +179,34 @@ describe('EngineClient', () => {
       { kind: 'undo', document: 4 },
       { kind: 'redo', document: 4 },
     ]);
-    const info = { pageCount: 0, pages: [], pageIds: [], textExtractionAllowed: true, documentAssemblyAllowed: true };
+    const info = {
+      pageCount: 0,
+      pages: [],
+      pageIds: [],
+      textExtractionAllowed: true,
+      documentAssemblyAllowed: true,
+      blocks: [],
+      importRefusal: null,
+    };
     const value = { info, canUndo: true, canRedo: false };
     reply({ type: 'result', id: sent[0]!.message.id, value });
     await expect(edited).resolves.toBe(value);
+  });
+
+  it('transfers an import source, and names the document and sources it imports', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const bytes = new Uint8Array([1, 2]);
+    const prepared = client.prepareImport(bytes, 'pw');
+    void client.discardImport(3);
+    void client.importPrepared(4, [1, 2], 0);
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'prepareImport', bytes, password: 'pw' },
+      { kind: 'discardImport', id: 3 },
+      { kind: 'importPrepared', document: 4, ids: [1, 2], index: 0 },
+    ]);
+    expect(sent[0]!.transfer).toEqual([bytes.buffer]);
+    reply({ type: 'error', id: sent[0]!.message.id, name: 'WrongPassword', message: 'wrong' });
+    await expect(prepared).rejects.toMatchObject({ name: 'WrongPassword' });
   });
 });

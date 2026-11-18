@@ -4,6 +4,10 @@
 // While disabled (a document is opening or the password prompt is up) a
 // dropped file is ignored, but the listeners stay: without them the browser
 // would open the file itself and unload the app.
+//
+// A drop that something on the page already claimed (it called
+// `preventDefault`, as Organize does to add the dropped PDFs instead) ends the
+// drag here but opens nothing.
 
 import { useEffect, useRef, useState } from 'react';
 import { handlesOfDrop, type WritableFileHandle } from '../../platform/fileHandle';
@@ -44,10 +48,11 @@ export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle
     };
     const onDrop = (event: DragEvent) => {
       if (!isFileDrag(event)) return;
+      const claimed = event.defaultPrevented;
       event.preventDefault();
       depth = 0;
       setDragging(false);
-      if (!accepting.current) return;
+      if (claimed || !accepting.current) return;
       const sequence = ++latestDrop.current;
       const files = [...(event.dataTransfer?.files ?? [])];
       const file = droppedFile(files);

@@ -61,9 +61,16 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
     take before the engine fails (default `60000`).
 - `EngineClient` — what `createEngine` returns; implements `Engine`: `ready`,
   `open`, `renderPage`, `close`, `saveToBytes`, `applyEdit`, `undo`, `redo`,
-  `search`, `selectText`, `selectWord`. An edit answers with the document as
-  it is now (`EditedDocument`: page sizes, page ids, undo/redo state), and
-  the engine has already refreshed its preview, so the next render shows it.
+  `prepareImport`, `discardImport`, `importPrepared`, `search`, `selectText`,
+  `selectWord`. An edit answers with the document as it is now
+  (`EditedDocument`: page sizes, page ids, blocks, undo/redo state), and the
+  engine has already refreshed its preview, so the next render shows it.
+  Adding other PDFs takes two steps: `prepareImport(bytes, password?)` opens
+  one source (a locked one rejects with `PasswordRequired`/`WrongPassword`
+  until given its password), and `importPrepared(handle, ids, index)` adds
+  every prepared source at once as one undo step (`ImportedDocument`: the
+  edited document plus each source's block id); `discardImport` drops a
+  source a pick abandoned.
   Its constructor is public, but wrapping a port yourself is
   not a supported setup: the worker answers nothing until it receives the
   init message that `createEngine` sends.
@@ -71,7 +78,8 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `PASSWORD_REQUIRED`, `WRONG_PASSWORD`, `TEXT_EXTRACTION_DENIED`,
   `SIGNATURES_WOULD_BE_INVALIDATED`, `EDIT_NOT_PERMITTED`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
-  `PageEdit`, `EditedDocument`,
+  `PageEdit`, `EditedDocument`, `DocumentBlock`, `BlockSource`,
+  `PreparedImport`, `ImportedDocument`,
   `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`, `SearchHit`,
   `TextSelection`, and the protocol types `MessagePortLike`,
   `RequestEnvelope`, `WorkerMessage`.

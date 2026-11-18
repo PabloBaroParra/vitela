@@ -41,6 +41,20 @@ describe('useFileDrop', () => {
     expect(opened).toEqual([]);
   });
 
+  it('ends the drag but opens nothing when the page already claimed the drop', () => {
+    const opened: File[] = [];
+    const { result } = renderHook(() => useFileDrop((file) => opened.push(file), true));
+    drag('dragenter');
+    const event = new Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files: [pdf], dropEffect: 'none' } });
+    event.preventDefault();
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(opened).toEqual([]);
+    expect(result.current).toBe(false);
+  });
+
   it('leaves drags that carry no files to the browser', () => {
     renderHook(() => useFileDrop(() => {}, false));
     const event = new Event('dragover', { cancelable: true });

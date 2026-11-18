@@ -1,9 +1,18 @@
-// The Organize screen's toolbar: what can be done to the selected pages, and
-// undo/redo. Presentational.
+// The Organize screen's toolbar: the Pages / Documents view, Add PDFs, what
+// can be done to the selection, and undo/redo. Presentational.
 //
 // The buttons are `aria-disabled`, not `disabled`: a button that turns
 // disabled under the keyboard focus (Undo after the last undo) would drop the
 // focus to the page.
+
+import { FilePicker } from '../../ui/FilePicker';
+import { ViewSwitch } from '../../ui/ViewSwitch';
+import type { OrganizeView } from './units';
+
+const VIEWS = [
+  { value: 'pages', label: 'Pages' },
+  { value: 'documents', label: 'Documents' },
+] as const;
 
 interface ToolButtonProps {
   readonly label: string;
@@ -26,6 +35,13 @@ function ToolButton({ label, shortcut, enabled, onPress }: ToolButtonProps) {
 }
 
 interface OrganizeToolbarProps {
+  readonly view: OrganizeView;
+  readonly onViewChange: (view: OrganizeView) => void;
+  /** Why Add PDFs is off (the core's import refusal), or `null` when it is on. */
+  readonly addRefusal: string | null;
+  /** Add PDFs is busy with a pick. */
+  readonly adding: boolean;
+  readonly onAddFiles: (files: File[]) => void;
   /** The selection as text, e.g. "Pages 2–3 of 5 selected". */
   readonly summary: string;
   readonly canEdit: boolean;
@@ -46,6 +62,14 @@ export function OrganizeToolbar(props: OrganizeToolbarProps) {
   const { summary, canEdit, canMoveEarlier, canMoveLater, canUndo, canRedo } = props;
   return (
     <div className="viewer-toolbar organize__toolbar" role="toolbar" aria-label="Organize">
+      <ViewSwitch label="Organize by" views={VIEWS} current={props.view} onChange={props.onViewChange} />
+      <FilePicker
+        label="Add PDFs"
+        accept="application/pdf,.pdf"
+        onPickFiles={props.onAddFiles}
+        disabled={props.addRefusal !== null || props.adding}
+        disabledReason={props.addRefusal ?? undefined}
+      />
       <ToolButton label="Rotate left" enabled={canEdit} onPress={props.onRotateLeft} />
       <ToolButton label="Rotate right" enabled={canEdit} onPress={props.onRotateRight} />
       <ToolButton label="Delete" shortcut="Delete" enabled={canEdit} onPress={props.onDelete} />

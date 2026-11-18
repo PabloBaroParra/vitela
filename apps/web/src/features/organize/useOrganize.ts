@@ -14,7 +14,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { EDIT_NOT_PERMITTED, errorKind, errorMessage } from '@vitela/core';
-import type { EditedDocument, Engine, PageEdit } from '@vitela/core';
+import type { EditedDocument, Engine, ImportedDocument, PageEdit } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 
 export type OrganizeSession = ReturnType<typeof useOrganize>;
@@ -28,8 +28,12 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
   const { handle } = document;
   const allowed = document.info.documentAssemblyAllowed && !denied;
 
+  /** The page count as of the last render: an import appends after the pages there are now. */
+  const pageCount = useRef(document.info.pageCount);
+  pageCount.current = document.info.pageCount;
+
   const run = useCallback(
-    async (step: () => Promise<EditedDocument>): Promise<EditedDocument | null> => {
+    async <Edited extends EditedDocument>(step: () => Promise<Edited>): Promise<Edited | null> => {
       if (busy.current) return null;
       busy.current = true;
       setPending(true);
@@ -51,6 +55,12 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
   );
 
   const apply = useCallback((edit: PageEdit) => run(() => engine.applyEdit(handle, edit)), [run, engine, handle]);
+  /** Adds the prepared import sources `ids` after the last page, as one step. */
+  const importPrepared = useCallback(
+    (ids: readonly number[]): Promise<ImportedDocument | null> =>
+      run(() => engine.importPrepared(handle, ids, pageCount.current)),
+    [run, engine, handle],
+  );
   const canUndo = !!document.canUndo;
   const canRedo = !!document.canRedo;
   const undo = useCallback(
@@ -62,5 +72,5 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
     [run, engine, handle, canRedo],
   );
 
-  return { allowed, pending, failure, canUndo, canRedo, apply, undo, redo };
+  return { allowed, pending, failure, canUndo, canRedo, apply, importPrepared, undo, redo };
 }
