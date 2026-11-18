@@ -39,6 +39,20 @@ export function pageKey(info: PageLayout, index: number): string {
 
 const PAGE_CHANGED = 'The page changed before it could be marked up. Select the text again.';
 
+/**
+ * How a markup ended: every line went in (`marked`), some did before one
+ * failed (`partial`), none did (`failed`), or nothing was asked of the core
+ * (`refused`: not allowed, a step still running, no lines). `partial` and
+ * `failed` leave a `failure` to show; `refused` does not.
+ */
+export type MarkupOutcome = 'marked' | 'partial' | 'failed' | 'refused';
+
+/** How a run of queued steps ended: how many went in, and whether all did. */
+interface QueueResult {
+  readonly applied: number;
+  readonly complete: boolean;
+}
+
 /** A step that must not run: the page it was meant for has moved. */
 class PageChanged extends Error {}
 
@@ -61,20 +75,22 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
   const { handle } = document;
   const allowed = document.info.annotationEditingAllowed && !denied;
 
-  /** Runs `steps` after every step already asked for; stops at the first refusal. `true` when all ran. */
+  /** Runs `steps` after every step already asked for; stops at the first refusal. */
   const enqueue = useCallback(
-    (steps: readonly (() => Promise<EditedDocument>)[]): Promise<boolean> => {
+    (steps: readonly (() => Promise<EditedDocument>)[]): Promise<QueueResult> => {
       runningNow.current += 1;
       setRunning((count) => count + 1);
-      const run = queue.current.then(async () => {
+      const run = queue.current.then(async (): Promise<QueueResult> => {
         setFailure(null);
+        let applied = 0;
         try {
           for (const step of steps) {
             const edited = await step();
+            applied += 1;
             latest.current = edited.info;
             onEdited(edited);
           }
-          return true;
+          return { applied, complete: true };
         } catch (error) {
           if (error instanceof PageChanged) {
             setFailure(PAGE_CHANGED);
@@ -82,7 +98,7 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
             if (errorKind(error) === EDIT_NOT_PERMITTED) setDenied(true);
             setFailure(errorMessage(error));
           }
-          return false;
+          return { applied, complete: false };
         } finally {
           runningNow.current -= 1;
           setRunning((count) => count - 1);
@@ -97,15 +113,14 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
   /**
    * One `addMarkup` per line of a selection on page `pageIndex`, which held
    * the page `expectedKey` (see `pageKey`) when it was selected: one undo
-   * step each. `true` once every line is marked; `false` when nothing was
-   * asked (not allowed, a step still running, no lines) or a line failed.
+   * step each. See `MarkupOutcome` for how it ends.
    */
   const markup = useCallback(
-    async (kind: MarkupKind, pageIndex: number, expectedKey: string, rects: PageRects): Promise<boolean> => {
-      if (!allowed || runningNow.current > 0) return false;
+    async (kind: MarkupKind, pageIndex: number, expectedKey: string, rects: PageRects): Promise<MarkupOutcome> => {
+      if (!allowed || runningNow.current > 0) return 'refused';
       const edits = markupEdits(pageIndex, rects, kind, MARKUP_COLOR);
-      if (edits.length === 0) return false;
-      return enqueue(
+      if (edits.length === 0) return 'refused';
+      const { applied, complete } = await enqueue(
         edits.map((edit, line) => () => {
           if (line === 0 && pageKey(latest.current, pageIndex) !== expectedKey) {
             return Promise.reject(new PageChanged());
@@ -113,6 +128,8 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
           return engine.applyEdit(handle, edit);
         }),
       );
+      if (complete) return 'marked';
+      return applied > 0 ? 'partial' : 'failed';
     },
     [allowed, enqueue, engine, handle],
   );

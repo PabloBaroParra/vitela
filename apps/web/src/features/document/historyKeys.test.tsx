@@ -42,6 +42,11 @@ describe('isApplePlatform', () => {
     expect(isApplePlatform({ platform: 'Win32', userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X)' })).toBe(false);
     expect(isApplePlatform({ platform: 'Linux x86_64', userAgent: '' })).toBe(false);
   });
+
+  it('falls back to the platform when the client hints leave theirs empty', () => {
+    expect(isApplePlatform({ platform: 'MacIntel', userAgentData: { platform: '' } })).toBe(true);
+    expect(isApplePlatform({ platform: 'Win32', userAgentData: { platform: 'macOS' } })).toBe(true);
+  });
 });
 
 describe('historyAction', () => {

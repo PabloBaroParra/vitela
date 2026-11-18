@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { useLayoutEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EngineError, EDIT_NOT_PERMITTED } from '@vitela/core';
 import type { DocumentHandle, Edit, EditedDocument, Engine, PageSize, RenderedPage } from '@vitela/core';
@@ -295,6 +296,60 @@ describe('DocumentViewer', () => {
 
     await act(async () => release());
     await waitFor(() => expect(highlight().getAttribute('aria-disabled')).toBe('false'));
+    expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('keeps the error, and drops the selection, when a later line of a markup fails', async () => {
+    const rects = new Float32Array([72, 100, 200, 18, 72, 130, 150, 18]);
+    const selectWord = vi.fn(async () => ({ text: 'two lines', rects }));
+    const applyEdit = vi
+      .fn()
+      .mockResolvedValueOnce(edited())
+      .mockRejectedValueOnce(new Error('worker gone'));
+    const { container, getByRole } = render(<Viewer engine={{ ...engine, selectWord, applyEdit }} document={doc} />);
+    fireEvent.doubleClick(container.querySelector('[data-page="1"] .text-layer')!, { clientX: 100, clientY: 140 });
+    await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(2));
+    fireEvent.click(getByRole('button', { name: 'Highlight' }));
+
+    await waitFor(() => expect(getByRole('alert').textContent).toBe('worker gone'));
+    expect(applyEdit).toHaveBeenCalledTimes(2);
+    // The first line went in: marking the selection again would add it twice.
+    await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(0));
+    expect(getByRole('alert').textContent).toBe('worker gone');
+  });
+
+  it('marks nothing when the page list changed after the text was selected', async () => {
+    const selectWord = vi.fn(async () => ({ text: 'word', rects: new Float32Array([72, 100, 40, 18]) }));
+    const applyEdit = vi.fn(async () => edited());
+    const viewerEngine = { ...engine, selectWord, applyEdit };
+    /**
+     * Clicks Highlight as soon as the new page list is on screen, before the
+     * viewer's effects drop the old selection: the window a real click can hit.
+     */
+    function ClickHighlightOnChange({ document: shown }: { readonly document: OpenDocument }) {
+      useLayoutEffect(() => {
+        if (shown === doc) return;
+        const buttons = window.document.querySelectorAll<HTMLButtonElement>('.markup-button');
+        [...buttons].find((button) => button.textContent === 'Highlight')?.click();
+      }, [shown]);
+      return null;
+    }
+    const view = (shown: OpenDocument) => (
+      <>
+        <Viewer engine={viewerEngine} document={shown} />
+        <ClickHighlightOnChange document={shown} />
+      </>
+    );
+    const { container, getByRole, rerender } = render(view(doc));
+    fireEvent.doubleClick(container.querySelector('[data-page="1"] .text-layer')!, { clientX: 100, clientY: 140 });
+    await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(1));
+    expect(getByRole('button', { name: 'Highlight' }).getAttribute('aria-disabled')).toBe('false');
+
+    // Pages 1 and 2 swapped places (an undo of a move made in Organize).
+    const swapped: OpenDocument = { ...doc, info: { ...doc.info, pageIds: [1, 0, ...doc.info.pageIds.slice(2)] } };
+    rerender(view(swapped));
+
+    await waitFor(() => expect(getByRole('alert').textContent).toMatch(/page changed/i));
     expect(applyEdit).not.toHaveBeenCalled();
   });
 

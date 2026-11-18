@@ -28,6 +28,23 @@ describe('useTextSelection', () => {
     expect(calls).toEqual([[4, 2, { x: 10, y: 20 }, { x: 90, y: 25 }]]);
   });
 
+  it('remembers the page that sat under the press, not the one there at the answer', async () => {
+    const engine = fakeEngine({ selectText: async () => selected('beta'), selectWord: async () => selected('word') });
+    let shown = 'page-a';
+    const { result } = renderHook(() => useTextSelection(engine, 4, () => {}, (index) => `${shown}@${index}`));
+
+    act(() => result.current.input.start(2, { x: 10, y: 20 }));
+    shown = 'page-b';
+    act(() => result.current.input.extend({ x: 90, y: 25 }));
+    await waitFor(() => expect(result.current.selection?.text).toBe('beta'));
+    expect(result.current.selection?.pageKey).toBe('page-a@2');
+
+    act(() => result.current.input.selectWord(1, { x: 5, y: 5 }));
+    shown = 'page-c';
+    await waitFor(() => expect(result.current.selection?.text).toBe('word'));
+    expect(result.current.selection?.pageKey).toBe('page-b@1');
+  });
+
   it('ignores moves when no press started a drag', () => {
     const selectText = vi.fn();
     const { result } = renderHook(() => useTextSelection(fakeEngine({ selectText }), 4, () => {}));

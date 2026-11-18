@@ -59,7 +59,17 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
   const [textAllowed, setTextAllowed] = useState(document.info.textExtractionAllowed);
   const denyText = useCallback(() => setTextAllowed(false), []);
   const search = useSearch(engine, document.handle, denyText);
-  const { selection, input, clear: clearSelection } = useTextSelection(engine, document.handle, denyText);
+  // What sits at each position: an undo or redo of a page edit (made in
+  // Organize) puts other pages there, so their bitmaps, search matches and
+  // the selection no longer fit.
+  const pageKeys = useMemo(() => pages.map((_, index) => pageKey({ pages, pageIds }, index)), [pages, pageIds]);
+  // Read through a ref: a selection records the page on screen at its press.
+  const shownKeys = useRef(pageKeys);
+  useLayoutEffect(() => {
+    shownKeys.current = pageKeys;
+  });
+  const keyOf = useCallback((index: number) => shownKeys.current[index] ?? String(index), []);
+  const { selection, input, clear: clearSelection } = useTextSelection(engine, document.handle, denyText, keyOf);
   const copy = useCopy(textAllowed ? (selection?.text ?? null) : null);
 
   const markDirty = useMarkDirty();
@@ -80,10 +90,8 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
   // Off while any step runs: an undo may be putting another page here.
   const canMark = !!selection && !editing.pending;
 
-  // What sits at each position: an undo or redo of a page edit (made in
-  // Organize) puts other pages there, so their bitmaps, search matches and
-  // the selection no longer fit.
-  const pageKeys = useMemo(() => pages.map((_, index) => pageKey({ pages, pageIds }, index)), [pages, pageIds]);
+  // A new page list drops the selection once committed; until then a markup
+  // checks the page the selection was made on (its `pageKey`).
   const structure = pageKeys.join(',');
   const shownStructure = useRef(structure);
   const clearSearch = search.clear;
@@ -97,10 +105,13 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
   const markSelection = (kind: MarkupKind) => {
     const marked = selection;
     if (!marked || !canMark) return;
-    // The marked lines take the selection's place once the core has every
-    // one — unless the markup failed, or another selection was made since.
-    void editing.markup(kind, marked.pageIndex, pageKeys[marked.pageIndex]!, marked.rects).then((done) => {
-      if (done && shownSelection.current === marked) clearSelection();
+    // Checked against the page the text was selected on, not the one there
+    // now. Once any line went in, the selection goes (marking it again would
+    // repeat those lines); it stays when nothing was marked, or when another
+    // selection was made since.
+    void editing.markup(kind, marked.pageIndex, marked.pageKey, marked.rects).then((outcome) => {
+      const applied = outcome === 'marked' || outcome === 'partial';
+      if (applied && shownSelection.current === marked) clearSelection();
     });
   };
 

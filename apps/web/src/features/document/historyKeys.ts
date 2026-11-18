@@ -38,7 +38,8 @@ interface PlatformSource {
  */
 export function isApplePlatform(source: PlatformSource | undefined = globalThis.navigator): boolean {
   if (!source) return false;
-  const platform = source.userAgentData?.platform ?? source.platform ?? '';
+  // `||`, not `??`: Client Hints may report an empty platform.
+  const platform = source.userAgentData?.platform || source.platform || '';
   return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
