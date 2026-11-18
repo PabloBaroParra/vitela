@@ -9,7 +9,7 @@ import { ToolPage } from '../features/tools/ToolPage';
 import { ToolUnavailable } from '../features/tools/ToolUnavailable';
 import { SiteHeader } from '../ui/SiteHeader';
 import { StatusLine } from '../ui/StatusLine';
-import { useEngineStatus } from './useEngineStatus';
+import { useEngineStatus, type EngineStatus } from './useEngineStatus';
 
 interface AppProps {
   readonly engine: EngineClient;
@@ -25,6 +25,18 @@ function introFor(route: Route): (action: ReactNode) => ReactNode {
   }
   // Unknown paths get the home page; the host only rewrites tool paths.
   return (action) => <HomePage action={action} />;
+}
+
+/** What takes the open action's place until the engine can open documents. */
+function standInFor(status: EngineStatus): ReactNode | undefined {
+  switch (status.kind) {
+    case 'loading':
+      return <StatusLine>Loading the PDF engine…</StatusLine>;
+    case 'failed':
+      return <StatusLine tone="error">{`The PDF engine failed to load: ${status.message}`}</StatusLine>;
+    case 'ready':
+      return undefined;
+  }
 }
 
 export function App({ engine, pathname = window.location.pathname }: AppProps) {
@@ -43,23 +55,12 @@ export function App({ engine, pathname = window.location.pathname }: AppProps) {
           <ToolUnavailable tool={appOnly} />
         </div>
       ) : (
-        <>
-          {status.kind === 'loading' && (
-            <div className="workspace">{intro(<StatusLine>Loading the PDF engine…</StatusLine>)}</div>
-          )}
-          {status.kind === 'failed' && (
-            <div className="workspace">
-              {intro(<StatusLine tone="error">{`The PDF engine failed to load: ${status.message}`}</StatusLine>)}
-            </div>
-          )}
-          {status.kind === 'ready' && (
-            <DocumentWorkspace
-              engine={engine}
-              intro={intro}
-              initialScreen={route.kind === 'tool' ? route.tool.screen : undefined}
-            />
-          )}
-        </>
+        <DocumentWorkspace
+          engine={engine}
+          intro={intro}
+          initialScreen={route.kind === 'tool' ? route.tool.screen : undefined}
+          standIn={standInFor(status)}
+        />
       )}
     </main>
   );

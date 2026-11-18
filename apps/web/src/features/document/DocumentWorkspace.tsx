@@ -31,9 +31,16 @@ interface DocumentWorkspaceProps {
   readonly intro: (action: ReactNode) => ReactNode;
   /** The screen every document opens in: the tool's own (`/organize`), else the viewer. */
   readonly initialScreen?: DocumentScreen;
+  /**
+   * Shown instead of the open action while documents cannot be opened yet
+   * (the engine is still loading, or failed to). The workspace stays mounted
+   * across that change, so the intro page does not remount and replay its
+   * entrance animation.
+   */
+  readonly standIn?: ReactNode;
 }
 
-export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ engine, intro, initialScreen = 'view', standIn }: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise, nameSources } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
@@ -44,7 +51,7 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: Doc
     setScreen(initialScreen);
   }
   const busy = activity.kind === 'opening' || activity.kind === 'password';
-  const dragging = useFileDrop(open, !busy);
+  const dragging = useFileDrop(open, !busy && standIn === undefined);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document);
 
@@ -72,10 +79,12 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: Doc
         </div>
       ) : (
         intro(
-          <>
-            {picker}
-            <ActivityLine activity={activity} />
-          </>,
+          standIn ?? (
+            <>
+              {picker}
+              <ActivityLine activity={activity} />
+            </>
+          ),
         )
       )}
       {document && (
