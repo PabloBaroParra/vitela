@@ -17,7 +17,8 @@ import { PasswordDialog } from './PasswordDialog';
 import { useDocument, type Activity } from './useDocument';
 import { useFileDrop } from './useFileDrop';
 
-type Screen = 'view' | 'organize';
+/** The screens of an open document. */
+export type DocumentScreen = 'view' | 'organize';
 
 const SCREENS = [
   { value: 'view', label: 'View' },
@@ -28,17 +29,19 @@ interface DocumentWorkspaceProps {
   readonly engine: Engine;
   /** The page shown while no document is open, built around the open action. */
   readonly intro: (action: ReactNode) => ReactNode;
+  /** The screen every document opens in: the tool's own (`/organize`), else the viewer. */
+  readonly initialScreen?: DocumentScreen;
 }
 
-export function DocumentWorkspace({ engine, intro }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise } = useDocument(engine);
   const { document, activity } = state;
-  const [screen, setScreen] = useState<Screen>('view');
+  const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
   const [screenFor, setScreenFor] = useState(document?.generation);
-  // Every document opens in the viewer (adjusting state while rendering).
+  // Every document opens in the initial screen (adjusting state while rendering).
   if (screenFor !== document?.generation) {
     setScreenFor(document?.generation);
-    setScreen('view');
+    setScreen(initialScreen);
   }
   const busy = activity.kind === 'opening' || activity.kind === 'password';
   const dragging = useFileDrop(open, !busy);
