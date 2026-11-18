@@ -84,6 +84,9 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  /* The picker's height, held while the engine-loading line stands in for
+     it, so the page does not jump when the button arrives. */
+  min-height: calc(32px + 1.05rem * 1.5);
   margin-top: 32px;
 }
 
