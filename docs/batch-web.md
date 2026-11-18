@@ -1126,7 +1126,9 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
 - **Nota y texto libre:** el gesto solo elige la caja; nada llega al core hasta "Add" en un
   `<dialog>` modal con el área de texto enfocada (Ctrl/⌘+Enter añade, Escape cancela; un texto
   en blanco no se puede añadir). Mientras el "Add" está en curso la edición ya está en la cola:
-  Cancel queda deshabilitado y Escape se ignora hasta que el core responde. El de texto libre pide `freeTextLayout` al core al pararse la
+  Cancel queda deshabilitado y Escape se ignora hasta que el core responde; si el navegador
+  cierra el diálogo por su cuenta (Chromium con un segundo Escape seguido), se vuelve a abrir
+  mientras el borrador siga en pantalla. El de texto libre pide `freeTextLayout` al core al pararse la
   escritura (120 ms; una respuesta para un texto ya cambiado se descarta) y lo dibuja en el
   marco propio de la caja (lados cambiados a 90°/270°): el mismo maquetado que el guardado, y un
   carácter fuera de WinAnsi se ve al teclearlo. Si el core rechaza el "Add" con `EncodingGap`,

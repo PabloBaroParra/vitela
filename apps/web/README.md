@@ -197,7 +197,8 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   the drawn box has them sideways (`drawnSize`). Note and Free text open a
   modal dialog (`TextDialog`, its text area focused; Ctrl/⌘+Enter adds;
   Cancel and Escape wait while Add is in flight, since the edit is already
-  queued); the text box's dialog previews the core's layout
+  queued, and a dialog the browser closes on its own — Chromium's second
+  Escape in a row — opens again while its draft is shown); the text box's dialog previews the core's layout
   (`freeTextLayout`, asked when typing pauses, in the box's own frame) and
   shows at once a character Helvetica cannot show. Every drawn annotation is
   one undo step through `useAnnotationEdits.add`: refused while a step runs

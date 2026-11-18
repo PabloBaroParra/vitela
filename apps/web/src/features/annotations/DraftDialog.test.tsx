@@ -113,6 +113,17 @@ describe('DraftDialog', () => {
     expect(onCancel).not.toHaveBeenCalled();
   });
 
+  it('opens again if the browser closes it anyway while it is still shown', () => {
+    // Chromium lets a second Escape in a row close a modal even though its
+    // `cancel` was prevented; the draft (and any refusal to come) is still here.
+    const { container, onCancel } = dialog(draft({ busy: true }));
+    const element = container.ownerDocument.querySelector('dialog')!;
+    element.close();
+    fireEvent(element, new Event('close'));
+    expect(element.open).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it('drops a layout that arrives for text since changed', async () => {
     vi.useFakeTimers();
     try {

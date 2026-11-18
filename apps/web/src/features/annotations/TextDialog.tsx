@@ -1,6 +1,7 @@
 // Asks for the text of a note or a text box placed on the page. A native
 // modal <dialog> (focus stays inside, the page behind is inert, Escape fires
-// `cancel`) whose text area takes the focus. Presentational: the caller
+// `cancel`) whose text area takes the focus. It stays open for as long as it
+// is mounted, even if the browser closes it on its own. Presentational: the caller
 // adds the annotation and keeps the dialog open with `error` when the core
 // refuses the text (a character Helvetica cannot show, for a text box).
 
@@ -54,6 +55,14 @@ export function TextDialog({ title, label, submit, busy, error, children, onChan
         // While adding, the edit is already queued: stay open until it settles.
         event.preventDefault();
         if (!busy) onCancel();
+      }}
+      onClose={() => {
+        // Chromium lets a second Escape in a row close a modal whose `cancel`
+        // was prevented. Shown means open: while mounted (the parent has not
+        // dropped the draft) it opens again, so a refusal still has somewhere
+        // to show. Unmounting closes it from a detached node, out of reach.
+        const element = dialog.current;
+        if (element?.isConnected && !element.open) element.showModal();
       }}
     >
       <form method="dialog" onSubmit={send}>
