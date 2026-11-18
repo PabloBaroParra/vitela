@@ -54,6 +54,17 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
       }
       case 'selectWord':
         return result(id, await engine.selectWord(request.document, request.pageIndex, request.point));
+      // Annotation replies are a few numbers per annotation: copied.
+      case 'annotations':
+        return result(id, await engine.annotations(request.document));
+      case 'comments':
+        return result(id, await engine.comments(request.document));
+      case 'freeTextLayout':
+        return result(id, await engine.freeTextLayout(request.contents, request.widthPt, request.heightPt));
+      case 'stampPlacement': {
+        const { document, pageIndex, image, anchor } = request;
+        return result(id, await engine.stampPlacement(document, pageIndex, image, anchor));
+      }
     }
   } catch (error) {
     // The core names every failure kind (`WrongPassword`, ...): the UI

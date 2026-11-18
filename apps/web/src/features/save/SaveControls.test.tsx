@@ -21,6 +21,7 @@ const document: OpenDocument = {
     documentAssemblyAllowed: true,
     blocks: [],
     importRefusal: null,
+    annotationEditingAllowed: true,
   },
 };
 

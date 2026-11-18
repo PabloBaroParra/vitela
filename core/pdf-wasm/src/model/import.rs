@@ -172,6 +172,8 @@ impl DocumentModel {
             }
         }
         let outcome = outcome?;
+        // An import adds pages: the preview has to be reopened to show them.
+        self.preview_stale = true;
 
         let source_ids = outcome
             .ids
@@ -286,9 +288,11 @@ mod tests {
             .expect("prepares");
         assert_eq!((a.page_count, b.page_count), (2, 1));
 
+        assert!(!model.preview_stale());
         let report = model
             .import_prepared(&mut prepared, &[a.id, b.id], 1)
             .expect("imports");
+        assert!(model.preview_stale(), "the preview must show the new pages");
         assert_eq!(report.page_count, 3);
         assert_eq!(report.source_ids.len(), 2);
         assert!(prepared.is_empty(), "the document took both sources");

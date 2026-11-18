@@ -10,13 +10,17 @@ import type {
 } from './protocol.js';
 import { EngineError } from './errors.js';
 import type {
+  Annotation,
+  Comment,
   DocumentHandle,
+  Edit,
   EditedDocument,
   Engine,
+  FreeTextLayout,
   ImportedDocument,
   OpenedDocument,
-  PageEdit,
   PagePoint,
+  PageRect,
   PreparedImport,
   RenderedPage,
   SearchHit,
@@ -63,7 +67,8 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'save', document, invalidateSignatures });
   }
 
-  applyEdit(document: DocumentHandle, edit: PageEdit): Promise<EditedDocument> {
+  applyEdit(document: DocumentHandle, edit: Edit): Promise<EditedDocument> {
+    // Copied, not transferred: a stamp's image stays the caller's to draw.
     return this.send({ kind: 'applyEdit', document, edit });
   }
 
@@ -98,6 +103,23 @@ export class EngineClient implements Engine {
 
   selectWord(document: DocumentHandle, pageIndex: number, point: PagePoint): Promise<TextSelection> {
     return this.send({ kind: 'selectWord', document, pageIndex, point });
+  }
+
+  annotations(document: DocumentHandle): Promise<Annotation[]> {
+    return this.send({ kind: 'annotations', document });
+  }
+
+  comments(document: DocumentHandle): Promise<Comment[]> {
+    return this.send({ kind: 'comments', document });
+  }
+
+  freeTextLayout(contents: string, widthPt: number, heightPt: number): Promise<FreeTextLayout> {
+    return this.send({ kind: 'freeTextLayout', contents, widthPt, heightPt });
+  }
+
+  stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect> {
+    // Copied, not transferred: the caller still has a stamp to add with it.
+    return this.send({ kind: 'stampPlacement', document, pageIndex, image, anchor });
   }
 
   /** Marks the engine dead (e.g. the worker script failed to load). */

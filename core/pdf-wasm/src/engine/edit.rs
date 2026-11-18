@@ -6,20 +6,31 @@
 //! reopening the preview snapshot as the document's render side.
 //!
 //! As in `pdf-ffi`, an edit changes the model at once (`pageCount`,
-//! `pageDimensions`) but not the pixels or the text: those come from the
-//! pdfium document, which still holds the last snapshot. Call
-//! `refreshPreview` after every edit, undo or redo before rendering or
-//! reading text again.
+//! `pageDimensions`, `annotations`) but not the pixels or the text: those
+//! come from the pdfium document, which still holds the last snapshot. After
+//! every edit, undo or redo, ask `previewStale` and call `refreshPreview`
+//! when it says so before rendering or reading text again. Annotation edits
+//! never make it stale: the preview leaves the session's annotations out and
+//! the shell draws them from `annotations` (the core's rule,
+//! `pdf_save::shows_in_session_preview`).
 
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
-use crate::model::PageEdit;
+use crate::model::{AnnotationEdit, PageEdit};
 
-/// One page edit for `Engine.applyEdit`. Positions are 0-based.
+/// What an `EditCommand` carries: a page edit or an annotation edit.
+#[derive(Debug, Clone)]
+pub(super) enum Edit {
+    Page(PageEdit),
+    Annotation(AnnotationEdit),
+}
+
+/// One edit for `Engine.applyEdit`: a page edit (here) or an annotation edit
+/// (`engine/annotation.rs`). Positions are 0-based.
 #[wasm_bindgen]
-#[derive(Debug, Clone, Copy)]
-pub struct EditCommand(PageEdit);
+#[derive(Debug, Clone)]
+pub struct EditCommand(pub(super) Edit);
 
 #[wasm_bindgen]
 impl EditCommand {
@@ -27,39 +38,53 @@ impl EditCommand {
     /// up at `to`.
     #[wasm_bindgen(js_name = movePages)]
     pub fn move_pages(from: u32, count: u32, to: u32) -> EditCommand {
-        EditCommand(PageEdit::Move { from, count, to })
+        EditCommand(Edit::Page(PageEdit::Move { from, count, to }))
     }
 
     /// Turns each of the `count` pages starting at `from` clockwise by
     /// `delta_degrees`, as one undo step.
     #[wasm_bindgen(js_name = rotatePages)]
     pub fn rotate_pages(from: u32, count: u32, delta_degrees: i32) -> EditCommand {
-        EditCommand(PageEdit::Rotate {
+        EditCommand(Edit::Page(PageEdit::Rotate {
             from,
             count,
             delta_degrees,
-        })
+        }))
     }
 
     /// Removes the `count` pages starting at `index`, as one undo step.
     #[wasm_bindgen(js_name = removePages)]
     pub fn remove_pages(index: u32, count: u32) -> EditCommand {
-        EditCommand(PageEdit::Remove { index, count })
+        EditCommand(Edit::Page(PageEdit::Remove { index, count }))
     }
 }
 
 #[wasm_bindgen]
 impl Engine {
-    /// Records one page edit as one undo step. Refused with
-    /// `EditNotPermitted` when the document withholds the assembly
-    /// permission (asked first), `PageIndexOutOfBounds` naming a position
-    /// that does not exist, or `UnsupportedOperation` when the edit cannot
-    /// be recorded (a move onto itself, an empty run, or a rewrite the
-    /// document's encryption does not allow).
+    /// Records one edit as one undo step and answers the id of the
+    /// annotation it added, if it added one.
+    ///
+    /// A page edit is refused with `EditNotPermitted` when the document
+    /// withholds the assembly permission (asked first),
+    /// `PageIndexOutOfBounds` naming a position that does not exist, or
+    /// `UnsupportedOperation` when the edit cannot be recorded (a move onto
+    /// itself, an empty run, or a rewrite the document's encryption does not
+    /// allow). An annotation edit is refused with `EditNotPermitted` when
+    /// the document withholds the annotate permission (asked first), then
+    /// `PageIndexOutOfBounds`, `AnnotationNotFound`, `EncodingGap`,
+    /// `InvalidImage` or `UnsupportedOperation`; a retext to the text a box
+    /// already has records nothing.
     #[wasm_bindgen(js_name = applyEdit)]
-    pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<(), JsValue> {
+    pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
-            .and_then(|open| open.model.apply_edit(edit.0))
+            .and_then(|open| match &edit.0 {
+                Edit::Page(page) => open.model.apply_edit(*page).map(|()| None),
+                // Cloned: the command stays the caller's (and a stamp's
+                // image is moved into the model).
+                Edit::Annotation(annotation) => {
+                    open.model.apply_annotation_edit(annotation.clone())
+                }
+            })
             .map_err(js_error)
     }
 
@@ -108,5 +133,16 @@ impl Engine {
     #[wasm_bindgen(js_name = refreshPreview)]
     pub fn refresh_preview(&mut self, doc: u32) -> Result<(), JsValue> {
         self.reopen_render(doc).map_err(js_error)
+    }
+
+    /// Whether an edit, undo or redo since the last `refreshPreview` (or the
+    /// open) changed what the pixels and the text should show — when the
+    /// shell has to call `refreshPreview` before rendering again. Annotation
+    /// edits never do.
+    #[wasm_bindgen(js_name = previewStale)]
+    pub fn preview_stale(&self, doc: u32) -> Result<bool, JsValue> {
+        self.document(doc)
+            .map(|open| open.model.preview_stale())
+            .map_err(js_error)
     }
 }

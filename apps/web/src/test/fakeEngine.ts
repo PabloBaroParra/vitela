@@ -20,6 +20,10 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     prepareImport: unused('prepareImport'),
     discardImport: unused('discardImport'),
     importPrepared: unused('importPrepared'),
+    annotations: unused('annotations'),
+    comments: unused('comments'),
+    freeTextLayout: unused('freeTextLayout'),
+    stampPlacement: unused('stampPlacement'),
     ...overrides,
   };
 }

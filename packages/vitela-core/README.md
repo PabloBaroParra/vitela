@@ -62,9 +62,27 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
 - `EngineClient` — what `createEngine` returns; implements `Engine`: `ready`,
   `open`, `renderPage`, `close`, `saveToBytes`, `applyEdit`, `undo`, `redo`,
   `prepareImport`, `discardImport`, `importPrepared`, `search`, `selectText`,
-  `selectWord`. An edit answers with the document as it is now
-  (`EditedDocument`: page sizes, page ids, blocks, undo/redo state), and the
-  engine has already refreshed its preview, so the next render shows it.
+  `selectWord`, `annotations`, `comments`, `freeTextLayout`, `stampPlacement`.
+  An edit answers with the document as it is now (`EditedDocument`: page
+  sizes, page ids, blocks, undo/redo state, the session's annotations and the
+  id of the one it added), and the engine has already refreshed its preview
+  when the step changed the pixels, so the next render shows it.
+  `applyEdit` takes a page edit (`move`/`rotate`/`remove`) or an annotation
+  edit (`AnnotationEdit`: add markup, a shape, ink, a note, free text or an
+  image stamp; move, resize, recolour, retext or remove one by id), each one
+  undo step. Annotation edits change no pixels — the preview leaves the
+  session's annotations out — so the UI draws them itself from
+  `EditedDocument.annotations` (the same list `annotations(handle)` answers),
+  and they cost no preview refresh. One markup box is one annotation: mark up
+  a selection over three lines with three edits. `DocumentInfo` says whether
+  annotating is allowed (`annotationEditingAllowed`); a refused edit rejects
+  with `EditNotPermitted`, free text Helvetica cannot show with
+  `EncodingGap`, an undecodable stamp with `InvalidImage`, an unknown id with
+  `AnnotationNotFound`. `comments(handle)` lists the file's own comments
+  (read-only) and the session's notes; `freeTextLayout` lays text out the way
+  a free-text box will draw it; `stampPlacement` sizes a dropped image. A
+  stamp's image is copied to the worker, not transferred, and the engine
+  never hands it back: keep it to draw the stamp.
   Adding other PDFs takes two steps: `prepareImport(bytes, password?)` opens
   one source (a locked one rejects with `PasswordRequired`/`WrongPassword`
   until given its password), and `importPrepared(handle, ids, index)` adds
@@ -76,16 +94,21 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   init message that `createEngine` sends.
 - `EngineError`, `errorKind`, `errorMessage`, and the kind constants
   `PASSWORD_REQUIRED`, `WRONG_PASSWORD`, `TEXT_EXTRACTION_DENIED`,
-  `SIGNATURES_WOULD_BE_INVALIDATED`, `EDIT_NOT_PERMITTED`.
+  `SIGNATURES_WOULD_BE_INVALIDATED`, `EDIT_NOT_PERMITTED`, `ENCODING_GAP`,
+  `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
-  `PageEdit`, `EditedDocument`, `DocumentBlock`, `BlockSource`,
-  `PreparedImport`, `ImportedDocument`,
-  `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`, `SearchHit`,
-  `TextSelection`, and the protocol types `MessagePortLike`,
+  `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `EditedDocument`,
+  `Annotation`, `Comment`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
+  `PageRect`, `DocumentBlock`, `BlockSource`, `PreparedImport`,
+  `ImportedDocument`, `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`,
+  `SearchHit`, `TextSelection`, and the protocol types `MessagePortLike`,
   `RequestEnvelope`, `WorkerMessage`.
 
 All geometry is in PDF points on the page as drawn (top-left origin,
-`/Rotate` applied); see the doc comments in `dist/core/types.d.ts`.
+`/Rotate` applied) — annotations and comments too, so a selection's rects
+can be marked up as they come; see the doc comments in
+`dist/core/types.d.ts`. The one exception is a free-text box's layout, which
+is in the box's own frame and turns with the page.
 
 ## Loading failures
 

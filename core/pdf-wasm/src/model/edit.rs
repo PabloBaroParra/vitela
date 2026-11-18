@@ -10,6 +10,10 @@
 //! the document was opened from and its imported-source registry, exactly as
 //! `pdf-ffi` builds its `SaveInput`.
 //!
+//! Whether a step changed what the preview shows is the core's too
+//! (`pdf_save::shows_in_session_preview`): every step records it, so the
+//! boundary reopens pdfium only when it has to (`preview_stale`).
+//!
 //! What stays here is only what has no core home: holding the session's
 //! state and the `EditLog` borrow dance (`EditLog::apply` needs `&mut` to
 //! both the log and the document that owns it).
@@ -95,6 +99,13 @@ impl DocumentModel {
     pub fn apply_edit(&mut self, edit: PageEdit) -> Result<(), EngineError> {
         pdf_save::check_edit(self.document.security.as_ref(), edit.class())?;
         let command = edit.command(&self.document)?;
+        self.record(command)
+    }
+
+    /// Records `command` as one undo step, or refuses it as the model's own
+    /// rejection, recording nothing. Shared by every kind of edit.
+    pub(super) fn record(&mut self, command: Command) -> Result<(), EngineError> {
+        let shows = pdf_save::shows_in_session_preview(&command);
         if !step_log(&mut self.document, |log, document| {
             log.apply(document, command)
         }) {
@@ -103,17 +114,45 @@ impl DocumentModel {
                 "this edit command was rejected against the open document",
             ));
         }
+        self.preview_stale |= shows;
         Ok(())
     }
 
     /// Undoes the last edit. `false` when there was nothing to undo.
     pub fn undo(&mut self) -> bool {
-        step_log(&mut self.document, EditLog::undo)
+        let shows = self
+            .document
+            .pending_edits
+            .peek_undo()
+            .is_some_and(pdf_save::shows_in_session_preview);
+        let stepped = step_log(&mut self.document, EditLog::undo);
+        self.preview_stale |= stepped && shows;
+        stepped
     }
 
     /// Redoes the last undone edit. `false` when there was nothing to redo.
     pub fn redo(&mut self) -> bool {
-        step_log(&mut self.document, EditLog::redo)
+        let shows = self
+            .document
+            .pending_edits
+            .peek_redo()
+            .is_some_and(pdf_save::shows_in_session_preview);
+        let stepped = step_log(&mut self.document, EditLog::redo);
+        self.preview_stale |= stepped && shows;
+        stepped
+    }
+
+    /// Whether the render side still shows the preview from before an edit,
+    /// undo or redo that changed it — what a boundary reopens it for.
+    /// Annotation edits never make it stale: the preview leaves them out.
+    pub fn preview_stale(&self) -> bool {
+        self.preview_stale
+    }
+
+    /// Records that the render side was just reopened from
+    /// [`Self::preview_bytes`].
+    pub fn mark_preview_fresh(&mut self) {
+        self.preview_stale = false;
     }
 
     pub fn can_undo(&self) -> bool {
@@ -465,5 +504,34 @@ mod tests {
         let model = three_pages();
         let saved = model.save_to_bytes(false).unwrap();
         assert_eq!(page_texts(&saved), ["one", "two", "three"]);
+    }
+
+    #[test]
+    fn a_page_edit_and_its_undo_and_redo_leave_the_preview_stale() {
+        let mut model = three_pages();
+        assert!(!model.preview_stale(), "the render side opened the file");
+        model
+            .apply_edit(PageEdit::Remove { index: 0, count: 1 })
+            .unwrap();
+        assert!(model.preview_stale());
+        model.mark_preview_fresh();
+
+        assert!(model.undo());
+        assert!(model.preview_stale());
+        model.mark_preview_fresh();
+        assert!(model.redo());
+        assert!(model.preview_stale());
+        model.mark_preview_fresh();
+
+        assert!(!model.redo() && !model.preview_stale(), "no step");
+    }
+
+    #[test]
+    fn a_refused_edit_leaves_the_preview_as_it_was() {
+        let mut model = three_pages();
+        model
+            .apply_edit(PageEdit::Remove { index: 7, count: 1 })
+            .unwrap_err();
+        assert!(!model.preview_stale());
     }
 }

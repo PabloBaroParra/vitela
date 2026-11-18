@@ -23,7 +23,7 @@
 //! `/Annots` the walk meets). Switching would be a behaviour change for every
 //! FFI shell, which this crate's callers have not asked for.
 
-use pdf_document::Document;
+use pdf_document::{Command, Document};
 use pdf_manip::LopdfDocument;
 
 use crate::bridge::ImportedSources;
@@ -63,6 +63,19 @@ pub fn session_preview(
         signatures: SignatureAcknowledgement::ProceedAndInvalidate,
         imported_sources,
     })
+}
+
+/// Whether applying, undoing or redoing `command` changes what
+/// [`session_preview`] shows — so a boundary knows whether the pdfium side it
+/// reopens from the preview has gone stale.
+///
+/// Everything but an edit of the session's annotations does: those are left
+/// out of the preview on purpose (every shell draws them on its own overlay),
+/// so adding, changing or removing one leaves the snapshot's bytes as they
+/// were. A form fill is *not* such an edit — pdfium paints the field itself
+/// — and neither is anything that touches pages or their content.
+pub fn shows_in_session_preview(command: &Command) -> bool {
+    !command.is_annotation_edit()
 }
 
 #[cfg(test)]
@@ -214,5 +227,52 @@ mod tests {
             refused,
             Err(SaveError::SignaturesWouldBeInvalidated)
         ));
+    }
+
+    #[test]
+    fn only_an_annotation_edit_leaves_the_preview_as_it_was() {
+        let Command::AddAnnotation(annotation) = highlight() else {
+            unreachable!()
+        };
+        let mut moved = annotation.clone();
+        moved.page = PageId(1);
+        for command in [
+            highlight(),
+            Command::RemoveAnnotation(annotation.clone()),
+            Command::ReplaceAnnotation {
+                before: annotation,
+                after: moved,
+            },
+        ] {
+            assert!(command.is_annotation_edit(), "{command:?}");
+            assert!(!shows_in_session_preview(&command), "{command:?}");
+        }
+        let turn = Command::RotatePage {
+            page: PageId(0),
+            delta_degrees: 90,
+        };
+        assert!(shows_in_session_preview(&turn));
+        let fill = Command::SetFieldValue {
+            id: pdf_document::FormFieldId(0),
+            from: pdf_document::FieldValue::Text(String::new()),
+            to: pdf_document::FieldValue::Text("x".to_string()),
+        };
+        assert!(shows_in_session_preview(&fill));
+    }
+
+    /// The premise of [`shows_in_session_preview`]: the bytes of a preview
+    /// with and without a session annotation are the same.
+    #[test]
+    fn an_annotation_edit_leaves_the_preview_bytes_unchanged() {
+        let (base, original) = opened_one_page();
+        let mut document = document_from_lopdf(&base, None).expect("model");
+        let before = session_preview(&document, &base, Some(&original), ImportedSources::none())
+            .expect("previews");
+        apply(&mut document, highlight());
+
+        let after = session_preview(&document, &base, Some(&original), ImportedSources::none())
+            .expect("previews");
+
+        assert_eq!(before, after);
     }
 }

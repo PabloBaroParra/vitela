@@ -19,6 +19,7 @@ const doc: OpenDocument = {
     documentAssemblyAllowed: true,
     blocks: [],
     importRefusal: null,
+    annotationEditingAllowed: true,
   },
   handle: 1,
   generation: 1,

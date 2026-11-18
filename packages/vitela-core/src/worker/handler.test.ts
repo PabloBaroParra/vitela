@@ -11,8 +11,9 @@ const info = {
   documentAssemblyAllowed: true,
   blocks: [{ source: { kind: 'base' as const }, part: null, start: 0, count: 1 }],
   importRefusal: null,
+  annotationEditingAllowed: true,
 };
-const edited = { info, canUndo: true, canRedo: false };
+const edited = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
 const opened = { handle: 5, info };
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
@@ -30,6 +31,10 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     prepareImport: async () => ({ id: 1, pageCount: 1, warnings: [] }),
     discardImport: async () => {},
     importPrepared: async () => ({ ...edited, sourceIds: [1] }),
+    annotations: async () => [],
+    comments: async () => [],
+    freeTextLayout: async () => ({ fontSizePt: 12, lines: [], overflow: false }),
+    stampPlacement: async () => ({ left: 0, top: 0, width: 144, height: 144 }),
     ...overrides,
   };
 }
@@ -260,6 +265,70 @@ describe('handleRequest', () => {
     });
     const reply = await handleRequest(engine, { id: 6, request: { kind: 'prepareImport', bytes: new Uint8Array([1]) } });
     expect(reply.message).toMatchObject({ type: 'error', id: 6, name: 'PasswordRequired' });
+  });
+
+  it('answers the annotation requests for the document they name', async () => {
+    const calls: unknown[][] = [];
+    const highlight = {
+      kind: 'highlight' as const,
+      id: 0,
+      pageIndex: 0,
+      rect: { left: 1, top: 2, width: 3, height: 4 },
+      color: { r: 255, g: 255, b: 0 },
+    };
+    const note = {
+      pageIndex: 0,
+      rect: { left: 1, top: 2, width: 3, height: 4 },
+      contents: 'Hi',
+      author: 'Ana',
+      date: null,
+      annotationId: null,
+    };
+    const layout = { fontSizePt: 12, lines: [{ text: 'Hi', xPt: 2, baselineFromTopPt: 11 }], overflow: false };
+    const box = { left: 5, top: 6, width: 144, height: 72 };
+    const engine = fakeEngine({
+      annotations: async (...args) => (calls.push(['annotations', ...args]), [highlight]),
+      comments: async (...args) => (calls.push(['comments', ...args]), [note]),
+      freeTextLayout: async (...args) => (calls.push(['freeTextLayout', ...args]), layout),
+      stampPlacement: async (...args) => (calls.push(['stampPlacement', ...args]), box),
+    });
+    const image = new Uint8Array([9]);
+    const replies = [
+      await handleRequest(engine, { id: 1, request: { kind: 'annotations', document: 5 } }),
+      await handleRequest(engine, { id: 2, request: { kind: 'comments', document: 5 } }),
+      await handleRequest(engine, { id: 3, request: { kind: 'freeTextLayout', contents: 'Hi', widthPt: 50, heightPt: 20 } }),
+      await handleRequest(engine, {
+        id: 4,
+        request: { kind: 'stampPlacement', document: 5, pageIndex: 1, image, anchor: { x: 5, y: 6 } },
+      }),
+    ];
+    expect(replies).toEqual([
+      { message: { type: 'result', id: 1, value: [highlight] }, transfer: [] },
+      { message: { type: 'result', id: 2, value: [note] }, transfer: [] },
+      { message: { type: 'result', id: 3, value: layout }, transfer: [] },
+      { message: { type: 'result', id: 4, value: box }, transfer: [] },
+    ]);
+    expect(calls).toEqual([
+      ['annotations', 5],
+      ['comments', 5],
+      ['freeTextLayout', 'Hi', 50, 20],
+      ['stampPlacement', 5, 1, image, { x: 5, y: 6 }],
+    ]);
+  });
+
+  it('forwards EncodingGap by name, so a dialog can stay open', async () => {
+    const failure = new Error("'日' cannot be shown in Helvetica (WinAnsi)");
+    failure.name = 'EncodingGap';
+    const engine = fakeEngine({
+      freeTextLayout: async () => {
+        throw failure;
+      },
+    });
+    const reply = await handleRequest(engine, {
+      id: 8,
+      request: { kind: 'freeTextLayout', contents: '日', widthPt: 50, heightPt: 20 },
+    });
+    expect(reply.message).toMatchObject({ type: 'error', id: 8, name: 'EncodingGap' });
   });
 
   it('forwards EditNotPermitted by name', async () => {

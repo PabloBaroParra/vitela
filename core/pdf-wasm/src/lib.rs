@@ -11,7 +11,8 @@
 //! - [`error`], [`model`], [`convert`] and [`placement`] are plain Rust and
 //!   build on every target, so the workspace's native `cargo test` covers
 //!   them. `model` holds the edit session too (page edits, undo/redo, save,
-//!   the preview snapshot, import and the Documents view's blocks).
+//!   the preview snapshot, import and the Documents view's blocks, and the
+//!   session's annotations and comments).
 //! - `engine`, `dto` and `geometry` are the `#[wasm_bindgen]` surface and
 //!   exist only on wasm32; they are tested by `wasm-bindgen-test` in a
 //!   headless browser (`tests/engine.rs`).
@@ -38,10 +39,10 @@ mod geometry;
 
 #[cfg(target_arch = "wasm32")]
 pub use dto::{
-    DocumentBlock, ImportedPages, PageCharacters, PageDimensions, PreparedImport, RenderedPage,
-    SearchMatch, TextRun,
+    AnnotationEntry, CommentEntry, DocumentBlock, FreeTextLines, ImportedPages, PageCharacters,
+    PageDimensions, PreparedImport, RenderedPage, SearchMatch, TextRun,
 };
 #[cfg(target_arch = "wasm32")]
-pub use engine::{EditCommand, Engine};
+pub use engine::{free_text_layout, stamp_placement, EditCommand, Engine};
 #[cfg(target_arch = "wasm32")]
 pub use geometry::{place_rects, point_to_pdf};

@@ -20,6 +20,7 @@ function info(pageCount: number): DocumentInfo {
     documentAssemblyAllowed: true,
     blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
     importRefusal: null,
+    annotationEditingAllowed: true,
   };
 }
 
@@ -294,7 +295,7 @@ describe('useDocument', () => {
 
     let revised = false;
     act(() => {
-      revised = result.current.revise(1, { info: info(2), canUndo: true, canRedo: false });
+      revised = result.current.revise(1, { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
     });
     expect(revised).toBe(true);
     expect(result.current.state.document).toMatchObject({ info: info(2), generation: 1, canUndo: true, canRedo: false });
@@ -310,7 +311,7 @@ describe('useDocument', () => {
 
     let revised = true;
     act(() => {
-      revised = result.current.revise(1, { info: info(1), canUndo: true, canRedo: false });
+      revised = result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
     });
     // The caller learns it, so it does not mark the new document dirty either.
     expect(revised).toBe(false);

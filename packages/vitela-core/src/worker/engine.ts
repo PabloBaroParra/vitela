@@ -5,7 +5,7 @@
 import initEngine, * as core from '../generated/engine/pdf_wasm.js';
 import type { Engine } from '../core/types.js';
 import { ASSET_FILE_NAMES, type AssetName, type AssetPlan } from './assets.js';
-import { documentEngine, type CoreEdits } from './documentEngine.js';
+import { documentEngine, type CoreEdits, type CoreFunctions } from './documentEngine.js';
 import { fetchAsset } from './fetchAsset.js';
 import { verifyAsset } from './integrity.js';
 import { instantiatePdfium } from './pdfium.js';
@@ -26,14 +26,35 @@ export async function loadEngine(plan: AssetPlan): Promise<Engine> {
   if (!core.initialize_pdfium_render(pdfium, engineExports, false)) {
     throw new Error('initialize_pdfium_render refused the pdfium module');
   }
-  return documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+  return documentEngine(new core.Engine(), coreFunctions, coreEdits);
 }
+
+/** The core's free functions, as `documentEngine` takes them. */
+export const coreFunctions: CoreFunctions = {
+  placeRects: core.placeRects,
+  pointToPdf: core.pointToPdf,
+  freeTextLayout: core.freeTextLayout,
+  stampPlacement: core.stampPlacement,
+};
 
 /** The core's `EditCommand` constructors, as `documentEngine` takes them. */
 export const coreEdits: CoreEdits = {
   movePages: (from, count, to) => core.EditCommand.movePages(from, count, to),
   rotatePages: (from, count, degrees) => core.EditCommand.rotatePages(from, count, degrees),
   removePages: (index, count) => core.EditCommand.removePages(index, count),
+  addHighlight: (page, x, y, w, h, rgb) => core.EditCommand.addHighlight(page, x, y, w, h, rgb),
+  addUnderline: (page, x, y, w, h, rgb) => core.EditCommand.addUnderline(page, x, y, w, h, rgb),
+  addStrikeout: (page, x, y, w, h, rgb) => core.EditCommand.addStrikeout(page, x, y, w, h, rgb),
+  addShape: (page, x, y, w, h, rgb) => core.EditCommand.addShape(page, x, y, w, h, rgb),
+  addInk: (page, points, rgb) => core.EditCommand.addInk(page, points, rgb),
+  addNote: (page, x, y, w, h, contents) => core.EditCommand.addNote(page, x, y, w, h, contents),
+  addFreeText: (page, x, y, w, h, contents) => core.EditCommand.addFreeText(page, x, y, w, h, contents),
+  addStamp: (page, image, x, y, w, h) => core.EditCommand.addStamp(page, image, x, y, w, h),
+  moveAnnotation: (id, dx, dy) => core.EditCommand.moveAnnotation(id, dx, dy),
+  resizeAnnotation: (id, x, y, w, h) => core.EditCommand.resizeAnnotation(id, x, y, w, h),
+  recolorAnnotation: (id, rgb) => core.EditCommand.recolorAnnotation(id, rgb),
+  retextAnnotation: (id, contents) => core.EditCommand.retextAnnotation(id, contents),
+  removeAnnotation: (id) => core.EditCommand.removeAnnotation(id),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

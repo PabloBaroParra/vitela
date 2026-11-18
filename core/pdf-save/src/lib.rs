@@ -114,7 +114,7 @@ pub use origin::{
     PageBacking,
 };
 pub use prepared_source::{prepare_source, PrepareError, PreparedSource};
-pub use preview::session_preview;
+pub use preview::{session_preview, shows_in_session_preview};
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use run_look::pending_text_run_look_of;

@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -805,7 +805,7 @@ que sigue:
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
 | **T-235** ✓ | Bajar al core lo que hoy vive solo en `pdf-ffi`: construir comandos de anotación (cursor de `AnnotationId`, `replace_annotation`, no-op de `SetAnnotationContents`), sello con `check_edit`, instantánea de anotaciones (posición + maquetado de texto libre), mezcla de `comments`, comando de relleno (`set_field_value`) y `form_fill_allowed`. `pdf-ffi` delega. | Nativo: **cero cambio de comportamiento** (tests de fachada sin tocar, `core.yml` en verde); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. Sin E2E (no hay UI). |
-| **T-236** | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
+| **T-236** ✓ | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
 | **T-237** | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
 | **T-238** | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
 | **T-239** | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
@@ -886,6 +886,110 @@ apuntando a `apps/web/generated/pdfium`); `cargo fmt --all -- --check`. **No cor
 local:** clippy/tests de `linux-gtk` (CI Linux; usa `pdf-annotate`/`pdf-form` y los dos
 errores son `#[non_exhaustive]`, así que una variante nueva no rompe sus `match`) y los
 `wasm-bindgen-test` (sin chromedriver; este cambio no toca `pdf-wasm`).
+
+### T-236 — resultado
+
+Detalle de la API en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md).
+Lo que condiciona lo que sigue:
+
+- **Una regla nueva baja al core:** `pdf_save::shows_in_session_preview(command)` (en
+  `preview.rs`, junto a `session_preview`): un paso cambia lo que muestra la vista previa
+  salvo que sea una edición de anotación (`!Command::is_annotation_edit`). Un test fija la
+  premisa: los bytes de la vista previa con y sin una anotación de la sesión son iguales.
+  `pdf-ffi` no tenía esta regla (allí decide cada shell, con `peek_undo`), así que no hay
+  nada que delegar.
+- **`pdf-wasm`** (`model/annotation.rs` + `model/annotation/tests.rs`,
+  `engine/annotation.rs`, `dto/annotation.rs`, `convert/annotation.rs`): depende de
+  `pdf-annotate` (no de `pdf-form`: eso es T-242). Un `AnnotationIdCursor` por documento.
+  `AnnotationEdit` = `Add { page, NewAnnotation }` / `Change { id, AnnotationChange }` /
+  `Remove { id }` en tipos del core. **Mismo orden que `pdf-ffi`:** `check_edit` con
+  `EditClass::ANNOTATION` antes de gastar el id, luego la posición, luego el core
+  (`add_annotation`/`change_annotation`/`remove_annotation`), luego el rechazo del modelo; el
+  `None` del retexto igual no registra nada. `EditCommand` gana `addHighlight`,
+  `addUnderline`, `addStrikeout`, `addShape`, `addInk`, `addNote`, `addFreeText`,
+  `addStamp`, `moveAnnotation`, `resizeAnnotation`, `recolorAnnotation`,
+  `retextAnnotation`, `removeAnnotation` (geometría en espacio PDF, color `0xRRGGBB`);
+  `applyEdit` devuelve el id de la anotación añadida (`number | undefined`). `Engine` gana
+  `annotations`, `comments`, `annotationEditingAllowed` (`check_edit(ANNOTATION).is_ok()`,
+  la misma respuesta que `pdf_manip::annotation_editing_is_allowed`) y `previewStale`;
+  funciones libres `freeTextLayout` y `stampPlacement`. Errores nuevos con su propio tipo,
+  como en `pdf-ffi`: `AnnotationNotFound`, `InvalidImage`, `EncodingGap`; `InvalidRect` y un
+  cambio que el tipo no admite son `UnsupportedOperation`.
+- **Política de refresco (decisión).** El modelo lleva `preview_stale`: aplicar, deshacer y
+  rehacer (mirando `peek_undo`/`peek_redo` antes de dar el paso) lo marcan solo si el paso
+  `shows_in_session_preview`; importar también; `refreshPreview` lo limpia. `documentEngine`
+  refresca dentro de la misma petición **solo si `previewStale`**: añadir o mover una
+  anotación no reabre pdfium, y deshacer/rehacer en una historia mixta (páginas +
+  anotaciones) refresca exactamente en los pasos de página (test nativo, `wasm-bindgen-test`
+  y Vitest). Si el refresco falla, la misma marcha atrás que T-226.
+- **Forma del DTO (decisión).** Plano: una clase `AnnotationEntry` para todos los tipos
+  (`kind` en texto, `rect`/`points` como `Float64Array` vacíos si el tipo no tiene, `color`
+  opcional, `contents`, `layout: FreeTextLines` opcional), `CommentEntry` y
+  `FreeTextLines`. `@vitela/core` lo decodifica (`worker/annotations.ts`) a uniones
+  etiquetadas (`Annotation` por `kind`, `Comment`, `FreeTextLayout`): un `kind` desconocido o
+  sin lo que su tipo necesita se omite; los ausentes pasan a `null` (la trampa de T-227: el
+  `.d.ts` tipa `Option<String>` como `string`).
+- **Geometría en la página dibujada (decisión).** Como `search`/`selectText`: `PageRect
+  {left, top, width, height}` y `PagePoint` con origen arriba a la izquierda y `/Rotate`
+  aplicado, así los rects de una selección se marcan tal cual. `PageFrame` usa la
+  transformación del core (`placeRects`/`pointToPdf`): un rect por sus dos esquinas, un
+  desplazamiento por la parte lineal. Probado contra pdfium real con la página girada 90°
+  (marcar y mover vuelven al rect dibujado). La colocación del core es `f32`: el viaje de
+  ida y vuelta redondea ~1e-4 pt. **Excepción:** las líneas del texto libre van en el marco
+  de la caja y giran con la página (como en cualquier visor). **Orden de rechazos:** una
+  página fuera de rango o un id desconocido cruzan sin transformar y el core decide (primero
+  el permiso).
+- **`@vitela/core`:** `Edit = PageEdit | AnnotationEdit` (`addMarkup` con `markup`
+  highlight/underline/strikeout, `addShape`, `addInk`, `addNote`, `addFreeText`,
+  `addStamp`, `moveAnnotation`, `resizeAnnotation`, `recolorAnnotation`,
+  `retextAnnotation`, `removeAnnotation`). `EditedDocument` gana `annotations` (la
+  instantánea, en cada respuesta: un movimiento de página mueve sus anotaciones) y
+  `addedAnnotationId`; `DocumentInfo` gana `annotationEditingAllowed`; `Engine` gana
+  `annotations`, `comments`, `freeTextLayout(contents, w, h)` y
+  `stampPlacement(handle, page, image, anchor)`. Constantes `ENCODING_GAP`,
+  `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`.
+- **Marcado de varias líneas: un paso por caja.** El constructor del core lleva un solo
+  `rect` (no hay `/QuadPoints` en el modelo) y `Command::Batch` excluye las anotaciones a
+  propósito (mutan el modelo). Así que una caja = una anotación = un paso de deshacer, y una
+  selección de tres líneas son tres `applyEdit` y tres pasos, igual que Linux. Un solo paso
+  pediría `/QuadPoints` en `AnnotationKind` o anotaciones dentro de `Batch`: regla del core,
+  no de la web.
+- **Para T-237…T-241:**
+  - T-237: `useDocument.revise` hoy guarda `info`/`canUndo`/`canRedo`; tiene que guardar
+    también `annotations` (al abrir, lista vacía: la sesión empieza sin anotaciones y las del
+    archivo las pinta pdfium). La capa dibuja `Annotation` × zoom; la selección
+    (`TextSelection.rects`, `left, top, w, h` por línea) se convierte en un `addMarkup` por
+    línea. Deshacer/rehacer del visor deben ir por el motor (ya refresca solo cuando toca).
+  - T-238: `freeTextLayout` para el diálogo y `EncodingGap` para dejarlo abierto; tinta como
+    lista de `PagePoint`.
+  - T-239: `stampPlacement` da la caja (lado mayor 144 pt, esquina superior izquierda en el
+    ancla, lados cambiados en una página girada 90/270) y `addStamp` la usa. El motor **no**
+    devuelve la imagen: guardarla por `addedAnnotationId` para repintar (redo vuelve con el
+    mismo id; los ids nunca se reutilizan).
+  - T-240: recolorear solo marcado/forma/tinta; retexto solo texto libre (una nota no se
+    puede retextear en el core); la tinta no se redimensiona. Lo demás → `UnsupportedOperation`.
+  - T-241: `comments` trae primero las del archivo (`annotationId: null`, solo lectura) y
+    luego las notas de la sesión; responde aunque anotar esté prohibido.
+- **Refactor de tests:** el arnés del navegador de `tests/engine.rs` pasó a
+  `tests/support/browser.rs` para compartirlo con `tests/annotations.rs` (sin cambio de
+  comportamiento). `tests/support/pdfs.rs` gana `commented_document` y un PNG de 1×1.
+- **Verificado en local (Windows):** `cargo test --locked --no-fail-fast -p pdf-wasm
+  -p pdf-annotate -p pdf-save -p pdf-ffi` con pdfium vendorizado (883 pasados, 0 fallos, 7
+  ignorados; `pdf-wasm` 72 nativos, 22 nuevos; 2 nuevos en `pdf-save`); `cargo clippy
+  --locked --all-targets -- -D warnings` nativo de esos cuatro; `cargo clippy --locked
+  --target wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings`; `cargo fmt --all
+  -- --check`. `@vitela/core`: `build:wasm`, `tsc -b`, Vitest 125/125 (incluidos dos nuevos
+  contra pdfium real: resaltar sin refresco, guardar, encontrar `/Highlight`, reabrir y ver
+  píxeles amarillos pintados por pdfium, deshacer y que el guardado ya no lo tenga; y marcar
+  + mover en una página girada 90° + nota en `comments` + `EncodingGap`). App: `tsc -b`,
+  Vitest 350/350 (solo fixtures de test retocados: los campos nuevos), build,
+  Playwright 94 pasados / 20 saltados (los de File System Access fuera de Chromium; Chromium 38/38, Firefox 28 + 10 saltados, WebKit 28 + 10 saltados), incluido zero-network.
+  **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; los seis nuevos de
+  `tests/annotations.rs` —el criterio de hecho: resaltar, guardar, reabrir con lopdf y
+  encontrar `/Highlight`, deshacer lo quita, sin permiso → `EditNotPermitted`— compilan con
+  clippy wasm32 y los verifica el job `wasm32` de `core.yml`), ni `linux-gtk` (no toca).
+- **No cubierto:** ninguna UI (T-237…T-241); la imagen de un sello no vuelve del motor; el
+  marcado de varias líneas es un paso por línea.
 
 ## Verificación
 

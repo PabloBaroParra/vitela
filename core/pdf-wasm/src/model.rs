@@ -36,6 +36,15 @@ pub struct DocumentModel {
     /// needs its sources under the same ids.
     imported: ImportedSourceRegistry,
     opened_rotations: OpenedRotations,
+    /// Hands out the id of each annotation this session adds
+    /// ([`annotation`]): one per document, never reused, as in `pdf-ffi`.
+    annotation_ids: pdf_annotate::AnnotationIdCursor,
+    /// Whether an edit, undo or redo since the render side was last
+    /// reopened changed what the preview snapshot shows
+    /// (`pdf_save::shows_in_session_preview`). An annotation edit does not:
+    /// the preview leaves the session's annotations out, and the shell draws
+    /// them from [`DocumentModel::annotations`].
+    preview_stale: bool,
 }
 
 impl DocumentModel {
@@ -58,6 +67,8 @@ impl DocumentModel {
             original_bytes: bytes.to_vec(),
             imported: ImportedSourceRegistry::new(),
             opened_rotations,
+            annotation_ids: pdf_annotate::AnnotationIdCursor::new(),
+            preview_stale: false,
         })
     }
 
@@ -123,9 +134,13 @@ fn degrees(rotation: Rotation) -> u32 {
     }
 }
 
+mod annotation;
 mod edit;
 mod import;
 
+pub use annotation::{
+    free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
+};
 pub use edit::PageEdit;
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 
