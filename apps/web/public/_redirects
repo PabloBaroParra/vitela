@@ -1,0 +1,19 @@
+# Cloudflare Pages rewrites (copied into dist/ by Vite).
+#
+# One line per tool route in src/features/tools/tools.ts, served by the app
+# shell. No catch-all on purpose: 404.html must keep answering unknown paths,
+# so a stale /assets/<hash>.js never gets HTML. The redirects test fails if a
+# tool is missing here.
+/view / 200
+/merge / 200
+/split / 200
+/organize / 200
+/rotate / 200
+/compress / 200
+/edit / 200
+/annotate / 200
+/forms / 200
+/watermark / 200
+/sign / 200
+/protect / 200
+/pdf-to-image / 200

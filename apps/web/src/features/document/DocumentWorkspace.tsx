@@ -1,7 +1,8 @@
 // Container: opening a PDF (picker, drop, password) plus the screen of the
-// open document: the viewer, or Organize.
+// open document: the viewer, or Organize. What shows before a document is
+// open is the caller's: it gets the open action (picker plus activity) to place.
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
@@ -25,9 +26,11 @@ const SCREENS = [
 
 interface DocumentWorkspaceProps {
   readonly engine: Engine;
+  /** The page shown while no document is open, built around the open action. */
+  readonly intro: (action: ReactNode) => ReactNode;
 }
 
-export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ engine, intro }: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<Screen>('view');
@@ -42,24 +45,36 @@ export function DocumentWorkspace({ engine }: DocumentWorkspaceProps) {
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document);
 
+  const picker = (
+    <FilePicker
+      label="Open PDF"
+      accept="application/pdf,.pdf"
+      onPick={open}
+      pick={canPickWithHandle() ? pickPdfWithHandle : undefined}
+      disabled={busy}
+    />
+  );
+
   return (
     <div className="workspace">
-      <div className="workspace__bar">
-        <FilePicker
-          label="Open PDF"
-          accept="application/pdf,.pdf"
-          onPick={open}
-          pick={canPickWithHandle() ? pickPdfWithHandle : undefined}
-          disabled={busy}
-        />
-        <ActivityLine activity={activity} />
-        {activity.kind === 'idle' && document && (
-          <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
-        )}
-        {document && <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />}
-        {document && <SaveControls session={save} documentName={document.name} />}
-        {activity.kind === 'idle' && !document && <StatusLine>Open a PDF or drop one anywhere on this window.</StatusLine>}
-      </div>
+      {document ? (
+        <div className="workspace__bar">
+          {picker}
+          <ActivityLine activity={activity} />
+          {activity.kind === 'idle' && (
+            <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
+          )}
+          <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
+          <SaveControls session={save} documentName={document.name} />
+        </div>
+      ) : (
+        intro(
+          <>
+            {picker}
+            <ActivityLine activity={activity} />
+          </>,
+        )
+      )}
       {document && (
         <MarkDirtyContext.Provider value={save.markDirty}>
           {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}

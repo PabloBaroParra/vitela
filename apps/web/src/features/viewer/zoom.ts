@@ -43,6 +43,15 @@ export function fitWidthZoom(pages: readonly PageSize[], viewportWidth: number):
   return clampZoom((viewportWidth - 2 * VIEWER_PADDING) / (widestPt * CSS_PX_PER_PT));
 }
 
+/**
+ * The zoom a document opens at: 100%, unless the widest page is wider than
+ * the viewport (a phone), where it opens at fit width instead.
+ */
+export function initialZoom(pages: readonly PageSize[], viewportWidth: number): number {
+  if (viewportWidth <= 0) return 1;
+  return Math.min(1, fitWidthZoom(pages, viewportWidth));
+}
+
 export interface ZoomView {
   readonly zoom: number;
   /** scrollLeft / scrollTop of the viewer. */

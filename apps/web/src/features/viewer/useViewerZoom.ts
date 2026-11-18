@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { PageSize } from '@vitela/core';
 import type { Point } from './layout';
-import { fitWidthZoom, wheelZoom, zoomAround } from './zoom';
+import { fitWidthZoom, initialZoom, wheelZoom, zoomAround } from './zoom';
 
 interface ZoomState {
   readonly zoom: number;
@@ -47,6 +47,22 @@ export function useViewerZoom(scroller: RefObject<HTMLElement | null>, pages: re
     },
     [scroller, pages],
   );
+
+  // Opening zoom, once per document (the viewer is keyed by document): a page
+  // wider than the viewport opens at fit width, before the first paint. A
+  // fresh scroller sits at 0,0 already, so there is no scroll to apply: a
+  // pending one here would be consumed by the effect below in this same
+  // commit and then never cleared, freezing the viewer at the top.
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const opening = initialZoom(pages, element.clientWidth);
+    if (opening === target.current) return;
+    target.current = opening;
+    setView({ zoom: opening, scroll: null });
+    // Mount only, and safe as such because the viewer is keyed by document:
+    // later resizes keep whatever zoom the user chose.
+  }, []);
 
   // The content has its new size once React commits: scroll then, before paint.
   useLayoutEffect(() => {

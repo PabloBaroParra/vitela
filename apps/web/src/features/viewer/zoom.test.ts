@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PageSize } from '@vitela/core';
 import { layoutPages, type Layout } from './layout';
-import { MAX_ZOOM, MIN_ZOOM, clampZoom, fitWidthZoom, wheelZoom, zoomAround, zoomIn, zoomOut } from './zoom';
+import { MAX_ZOOM, MIN_ZOOM, clampZoom, fitWidthZoom, initialZoom, wheelZoom, zoomAround, zoomIn, zoomOut } from './zoom';
 
 const letter: PageSize = { widthPt: 612, heightPt: 792, rotationDegrees: 0 };
 
@@ -108,5 +108,21 @@ describe('zoomAround', () => {
       zoom: 2,
       scroll: { x: 5, y: 7 },
     });
+  });
+});
+
+describe('initialZoom', () => {
+  it('opens at 100% when the widest page fits the viewport', () => {
+    expect(initialZoom([letter], 1280)).toBe(1);
+  });
+
+  it('shrinks to fit width when the page is wider than the viewport (a phone)', () => {
+    const zoom = initialZoom([letter], 390);
+    expect(zoom).toBeLessThan(1);
+    expect(zoom).toBe(fitWidthZoom([letter], 390));
+  });
+
+  it('opens at 100% before the viewport has a width', () => {
+    expect(initialZoom([letter], 0)).toBe(1);
   });
 });
