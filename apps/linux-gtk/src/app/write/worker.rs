@@ -41,16 +41,27 @@ pub(super) fn spawn_write<W>(
     viewer: &Viewer,
     operation: WriteOperation,
     token: SessionToken,
+    destination: &std::path::Path,
     after: Option<Rc<dyn Fn()>>,
     write: W,
 ) where
     W: FnOnce() -> Result<OpenedDocument, String> + Send + 'static,
 {
     viewer.status.set_text(&operation.busy());
+    // Holds the tabs still (`tabs::busy_refusal`) until the result is in:
+    // the reopen below must land on the document it was written from.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
+    // The file is half written until the worker is done: no tab may open it
+    // meanwhile.
+    let claim = crate::app::tabs::claim_destination(viewer, destination);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = save_worker_result(gio::spawn_blocking(write).await);
+            // Let go before anything below runs: the continuation may close
+            // this very tab, which the job would refuse.
+            drop(job);
+            drop(claim);
             match result {
                 Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
                     show_document(&viewer, generation, reopened);
@@ -63,11 +74,14 @@ pub(super) fn spawn_write<W>(
                         after();
                     }
                 }
-                Ok(reopened) => close_document_in_background(reopened.document),
-                Err(error) if session_matches(&viewer, token) => {
-                    viewer.status.set_text(&operation.failed(&error))
+                // The bytes are on disk, so the write succeeded; only the
+                // reopen is not installed, over a document that changed
+                // under it.
+                Ok(reopened) => {
+                    close_document_in_background(reopened.document);
+                    viewer.status.set_text(&operation.done());
                 }
-                Err(_) => {}
+                Err(error) => viewer.status.set_text(&operation.failed(&error)),
             }
         }
     });

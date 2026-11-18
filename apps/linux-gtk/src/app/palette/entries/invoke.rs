@@ -104,6 +104,7 @@ fn action_refusal(action: WindowAction, viewer: &Viewer, has_document: bool) -> 
         WindowAction::Open | WindowAction::New => None,
         WindowAction::Save => document_then(has_document, "save-no-document", || None),
         WindowAction::Print => document_then(has_document, "print-open-first", || None),
+        WindowAction::CloseTab => document_then(has_document, "tabs-no-document", || None),
         WindowAction::Find => document_then(has_document, "search-open-first", || {
             viewer.text_extraction_refusal()
         }),

@@ -21,7 +21,8 @@ use pdf_document::Document;
 use pdf_render::{PdfiumRenderer, Priority};
 
 use edits::{restore_edit_state, take_edit_state};
-use view::{restore_screen, restore_view_state, take_screen, take_view_state};
+use view::{restore_screen, take_screen};
+pub(crate) use view::{restore_view_state, take_view_state, ViewState};
 
 use super::super::document::{close_document_in_background, show_document};
 use super::super::state::{

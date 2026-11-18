@@ -163,10 +163,22 @@ pub(crate) struct Viewer {
     /// owned by `signature::update_draw_signature_control`.
     pub(crate) draw_signature: Button,
     pub(crate) state: Rc<RefCell<ViewerState>>,
-    /// This window's autosave: its recovery entry and the timer that writes
-    /// it. Beside `state` rather than in it, because it outlives every
-    /// document the window shows — one entry per window, not per document.
+    /// This window's autosave: one recovery entry per dirty tab, and the
+    /// timer that writes them. Beside `state` rather than in it, because it
+    /// outlives every document the window shows.
     pub(crate) recovery: crate::app::recovery::Recovery,
+    /// The open documents other than the active one, and the order of every
+    /// tab — see `tabs`. Beside `state` rather than in it so the dozens of
+    /// readers of `state.session` never see a parked document.
+    pub(crate) tabs: Rc<RefCell<crate::app::tabs::Tabs>>,
+    /// The tab strip above the editor and Organize screens.
+    pub(crate) tab_strip: crate::app::tabs::TabStrip,
+    /// How many dialogs that act on the active tab are open — see
+    /// `tabs::PromptGuard`.
+    pub(crate) blocking_prompts: Rc<std::cell::Cell<u32>>,
+    /// How many jobs started on the active document are still running — see
+    /// `tabs::JobGuard`.
+    pub(crate) jobs_in_flight: Rc<std::cell::Cell<u32>>,
 }
 
 impl Viewer {
@@ -230,10 +242,10 @@ impl Viewer {
     /// Whether the document open right now is the one generation
     /// `generation` named.
     ///
-    /// The staleness guard for background work that **installs nothing** —
-    /// an image export, a page extraction. Both write files outside the
-    /// session and then want to say so, and both must stay silent once the
-    /// document they were about has been replaced.
+    /// The staleness guard for a compression's result, which installs
+    /// nothing: compressed bytes are offered for saving only while the
+    /// document they were made from is still the one open. (Jobs that write
+    /// their files straight away report them whatever happened meanwhile.)
     ///
     /// Deliberately weaker than `write::worker::session_matches`, which also
     /// compares the edit revision. That one asks "may I install this result",
@@ -290,7 +302,8 @@ fn rewrite_refusal(blocker: pdf_save::RewriteBlocker) -> String {
 
 pub(crate) struct ViewerState {
     pub(crate) generation: u64,
-    /// Changes only when `show_document` replaces the visible document.
+    /// Changes whenever the active document changes: `show_document`
+    /// installs one, or a tab switch parks one and installs another.
     pub(crate) session_id: u64,
     pub(crate) session: Option<DocumentSession>,
     /// The creation tool armed on the toolbar, if any. A drag on a page while
@@ -352,11 +365,11 @@ pub(crate) struct ViewerState {
     /// ordinary click targets an existing field (select, move, resize)
     /// instead of creating one.
     pub(crate) form_field_kind: Option<FieldKind>,
-    /// The password prompt for the in-flight open attempt, if any. Tracked so
-    /// a new open request (which may supersede this one before the user has
-    /// answered) can tear down the stale prompt instead of leaving it
-    /// stacked underneath a second one — see `document::begin_loading` and
-    /// `document::dismiss_password_dialog`.
+    /// The password prompt for the running open, if any. Opens are queued
+    /// one at a time (`tabs::enqueue_open`), so there is at most one; tracked
+    /// so its close can tell whether it is still the current prompt — see
+    /// `document::dismiss_password_dialog`. (The tab rule does not read it:
+    /// `tabs::busy_refusal` sees the prompt as a modal window.)
     pub(crate) password_dialog: Option<Window>,
     /// The source-password prompt for the active batch import. It is separate
     /// from `password_dialog`: imported PDFs have independent credentials and

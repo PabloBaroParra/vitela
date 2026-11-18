@@ -21,6 +21,7 @@ use super::home::HOME_CSS;
 use super::mode_bar::MODE_BAR_CSS;
 use super::organize::ORGANIZE_CSS;
 use super::palette::PALETTE_CSS;
+use super::tabs::TABS_CSS;
 
 pub(crate) const SHELL_CSS: &str = r#"
 .vitela-shell {
@@ -227,7 +228,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 /// palette (see `theme`) and one provider.
 pub(crate) fn all_sheets() -> String {
     format!(
-        "{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}{PALETTE_CSS}"
+        "{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}{PALETTE_CSS}{TABS_CSS}"
     )
 }
 

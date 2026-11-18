@@ -63,10 +63,16 @@ pub(crate) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("organize-import-accept"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open_multiple(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(files) = result else {
                 viewer.status.set_text(&tr(IMPORT_CANCELLED));
                 return;
@@ -531,6 +537,21 @@ fn prompt_for_password(
         let viewer = viewer.clone();
         move |_| cancel(&viewer)
     });
+    // The title bar's close is a cancel as well: the import must not be left
+    // running — `import_cancellation` holds the tab while it is set
+    // (`tabs::busy_refusal`) — nor its slot left holding a closed window.
+    dialog.connect_close_request({
+        let viewer = viewer.clone();
+        move |dialog| {
+            let current = viewer.state.borrow().import_password_dialog.as_ref() == Some(dialog);
+            if current {
+                cancel(&viewer);
+            } else {
+                dialog.destroy();
+            }
+            glib::Propagation::Stop
+        }
+    });
     dialog.present();
 }
 
@@ -561,9 +582,13 @@ fn confirm(
         .default_button(0)
         .modal(true)
         .build();
+    // The pages go into the active tab's document: it stays the active one
+    // until the question is answered (`tabs::busy_refusal`).
+    let guard = crate::app::tabs::PromptGuard::hold(viewer);
     dialog.choose(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |response| {
+            drop(guard);
             if response == Ok(1) {
                 apply(&viewer, token, prepared.clone());
             } else {
@@ -656,6 +681,49 @@ mod tests {
             std::env::temp_dir().join(format!("pdf-import-{}-{name}.pdf", std::process::id()));
         std::fs::write(&path, bytes).unwrap();
         path
+    }
+
+    /// Closing the source-password prompt from its title bar cancels the
+    /// import, as its Cancel button does — the slot, the worker's
+    /// cancellation and the running import all let go.
+    #[gtk::test]
+    fn gtk_ui_closing_the_source_password_prompt_cancels_the_import() {
+        let built = crate::app::ui_tests::built_ui();
+        let cancellation = Arc::new(AtomicBool::new(false));
+        built.viewer.state.borrow_mut().import_cancellation = Some(cancellation.clone());
+        let request = ImportRequest {
+            paths: vec![PathBuf::from("locked.pdf")],
+            passwords: HashMap::new(),
+            token: SessionToken {
+                generation: 0,
+                edit_revision: 0,
+            },
+            first_source_id: 0,
+            first_page_id: PageId(0),
+            cancellation: cancellation.clone(),
+        };
+        prompt_for_password(
+            &built.window,
+            &built.viewer,
+            request,
+            PathBuf::from("locked.pdf"),
+            "locked.pdf".to_owned(),
+        );
+        let dialog = built
+            .viewer
+            .state
+            .borrow()
+            .import_password_dialog
+            .clone()
+            .expect("the prompt is tracked");
+
+        dialog.close();
+
+        assert!(built.viewer.state.borrow().import_password_dialog.is_none());
+        assert!(built.viewer.state.borrow().import_cancellation.is_none());
+        assert!(cancellation.load(Ordering::Acquire), "the worker is told");
+        assert_eq!(built.viewer.status.text(), tr(IMPORT_CANCELLED));
+        built.window.close();
     }
 
     #[test]

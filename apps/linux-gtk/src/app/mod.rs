@@ -36,6 +36,7 @@ mod side_panel;
 mod sign;
 mod signature;
 mod state;
+mod tabs;
 mod theme;
 mod tools_panel;
 mod wheel_zoom;
@@ -43,6 +44,8 @@ mod write;
 
 #[cfg(test)]
 mod test_fixtures;
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod ui_tests;
 
@@ -58,8 +61,7 @@ use gtk::{
 use annotations::add_annotation_toolbar;
 use brand::build_app_mark;
 use document::{
-    confirm_closing_edits, new_blank_document, open_file, open_sample, show_file_chooser,
-    SampleKind,
+    confirm_closing_edits, new_blank_document, open_sample, show_file_chooser, SampleKind,
 };
 use editor_toolbar::build_editor_toolbar;
 use home::{build_home, EDITOR_PAGE, HOME_PAGE};
@@ -115,7 +117,7 @@ pub fn run() -> glib::ExitCode {
             let ui = ensure_built(&built_ui, application);
             ui.window.present();
             if first {
-                recovery::install(&ui.window, &ui.viewer, None);
+                recovery::install(&ui.window, &ui.viewer);
             }
         }
     });
@@ -127,28 +129,22 @@ pub fn run() -> glib::ExitCode {
             let first = built_ui.borrow().is_none();
             let ui = ensure_built(&built_ui, application);
             ui.window.present();
-            // A file-manager "Open With" always means one document; extra
-            // entries in `files` (multi-select) are silently ignored rather
-            // than half-supporting multi-window.
-            let path = files.first().and_then(gio::File::path);
-            // Offered over the file being opened: a restore supersedes that
-            // open the way any later open would — and, should it fail, opens
-            // the file after all.
+            // A file-manager "Open With" of several files opens one tab each.
+            let paths: Vec<_> = files.iter().filter_map(gio::File::path).collect();
+            // Offered beside the file being opened: a restore is queued behind
+            // it and opens in a tab of its own.
             if first {
-                recovery::install(&ui.window, &ui.viewer, path.clone());
+                recovery::install(&ui.window, &ui.viewer);
             }
-            if let Some(path) = path {
-                open_file(&ui.viewer, path);
-            }
+            tabs::open_paths(&ui.window, &ui.viewer, paths);
         }
     });
     application.run()
 }
 
 /// Builds the window on the first `activate`/`open` and reuses it for every
-/// later one, so a second file-manager launch loads into the already-open
-/// window (through [`open_file`]'s usual replace-the-document flow) instead
-/// of spawning a second window.
+/// later one, so a second file-manager launch opens a tab in the already-open
+/// window instead of spawning a second window.
 fn ensure_built(built_ui: &Rc<RefCell<Option<BuiltUi>>>, application: &Application) -> BuiltUi {
     if let Some(built) = built_ui.borrow().as_ref() {
         return built.clone();
@@ -396,7 +392,16 @@ fn build_ui(application: &Application) -> BuiltUi {
     let main = GtkBox::new(Orientation::Horizontal, 0);
     main.add_css_class("editor-main");
     main.set_vexpand(true);
-    main.append(&view_stack);
+    // The tab strip rides above the stack rather than inside the editor
+    // page, so it stays put between the editor and Organize — the two
+    // screens that show the active document. `tabs` hides it everywhere else.
+    let tab_strip = tabs::build_strip();
+    let stage = GtkBox::new(Orientation::Vertical, 0);
+    stage.set_hexpand(true);
+    stage.set_vexpand(true);
+    stage.append(&tab_strip.root);
+    stage.append(&view_stack);
+    main.append(&stage);
 
     status.add_css_class("status-bar");
     let content = GtkBox::new(Orientation::Vertical, 0);
@@ -490,6 +495,10 @@ fn build_ui(application: &Application) -> BuiltUi {
         // Disabled until `recovery::install` — which only `run` calls — gives
         // it a directory, so a window built by a test never writes one.
         recovery: Default::default(),
+        tabs: Default::default(),
+        tab_strip,
+        blocking_prompts: Default::default(),
+        jobs_in_flight: Default::default(),
     };
 
     // Built last, and by its own module: every control on Home acts through
@@ -499,6 +508,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     viewer.view_stack.add_named(&home.root, Some(HOME_PAGE));
     viewer.view_stack.set_visible_child_name(HOME_PAGE);
     connect_viewport_updates(&viewer);
+    tabs::connect(&viewer);
     connect_search(&viewer);
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
@@ -703,6 +713,15 @@ fn connect_standard_shortcuts(
     });
     window.add_action(&new);
     shortcuts::NEW.install(application);
+
+    let close_tab = gio::SimpleAction::new(shortcuts::CLOSE_TAB.action, None);
+    close_tab.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| tabs::close::close_active(&window, &viewer)
+    });
+    window.add_action(&close_tab);
+    shortcuts::CLOSE_TAB.install(application);
 
     let command_palette = gio::SimpleAction::new(shortcuts::COMMAND_PALETTE.action, None);
     command_palette.connect_activate({

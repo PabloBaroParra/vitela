@@ -111,6 +111,7 @@ fn action_entries_show_the_accelerator_gtk_registers() {
         (Target::Action(WindowAction::Open), shortcuts::OPEN),
         (Target::Action(WindowAction::Undo), shortcuts::UNDO),
         (Target::Action(WindowAction::Find), shortcuts::FIND),
+        (Target::Action(WindowAction::CloseTab), shortcuts::CLOSE_TAB),
     ] {
         assert_eq!(entry(target).shortcut, Some(shortcut.accel));
     }
@@ -237,6 +238,7 @@ fn gtk_ui_without_a_document_only_modes_and_document_free_commands_run() {
     for (target, key) in [
         (Target::Action(WindowAction::Save), "save-no-document"),
         (Target::Action(WindowAction::Print), "print-open-first"),
+        (Target::Action(WindowAction::CloseTab), "tabs-no-document"),
         (Target::Action(WindowAction::Find), "search-open-first"),
         (Target::Annotation(Tool::Highlight), "annotate-no-document"),
         (Target::FormField(FieldKind::Text), "forms-no-document"),

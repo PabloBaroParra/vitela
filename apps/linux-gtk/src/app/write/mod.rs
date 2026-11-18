@@ -66,9 +66,28 @@ use gtk::FileFilter;
 use super::i18n::{tr, tr_args};
 use super::state::{ImportedSource, SaveBacking};
 
+/// The status for a job whose result was set aside because the document
+/// changed while it ran — the one case where nothing was written. A job that
+/// wrote its files reports them, and one that failed reports the failure,
+/// whatever the document did meanwhile.
+pub(crate) fn report_result_unused(viewer: &super::state::Viewer) {
+    viewer.status.set_text(&tr("job-document-changed"));
+}
+
+/// The overwrite guard on its own, for tests that drive its question.
+#[cfg(test)]
+pub(crate) fn confirm_destination_for_test(
+    window: &gtk::ApplicationWindow,
+    viewer: &super::state::Viewer,
+    destination: std::path::PathBuf,
+    proceed: chooser::Proceed,
+) {
+    chooser::confirm_destination(window, viewer, SAVE, destination, proceed);
+}
+
 pub(crate) use compress::begin_compress;
 pub(crate) use extract::begin_extract;
-pub(crate) use preview::refresh_preview;
+pub(crate) use preview::{refresh_preview, restore_view_state, take_view_state, ViewState};
 pub(crate) use protect::{begin_protect, ProtectRequest};
 pub(crate) use save::{show_save_chooser, show_save_chooser_then};
 pub(crate) use sign::{begin_sign, SignRequest};

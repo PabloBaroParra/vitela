@@ -154,10 +154,16 @@ pub(crate) fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 return;
             };
@@ -191,11 +197,18 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
     // Tracked so a later "Choose signing certificate" attempt (which may
     // supersede this one before the background load resolves) can tear this
     // dialog down instead of leaving it stacked underneath a second one —
-    // mirrors `document::begin_loading`/`dismiss_password_dialog`.
+    // see `dismiss_pfx_dialog`, which every way of closing it goes through.
     let stale_dialog = viewer.state.borrow_mut().pfx_dialog.replace(dialog.clone());
     if let Some(stale_dialog) = stale_dialog {
         stale_dialog.destroy();
     }
+    cancel_on_close(
+        viewer,
+        &dialog,
+        is_pfx_dialog_current,
+        dismiss_pfx_dialog,
+        "sign-certificate-cancelled",
+    );
 
     let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
     let error_label = Label::new(None);
@@ -238,7 +251,13 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                         return;
                     }
                     let password = password_entry.text().to_string();
-                    match load_pfx_in_background(path, password).await {
+                    let loaded = load_pfx_in_background(path, password).await;
+                    // And again once it is in: the prompt may have been closed —
+                    // cancelled — while it loaded, and its answer is no longer wanted.
+                    if !is_pfx_dialog_current(&viewer, &dialog) {
+                        return;
+                    }
+                    match loaded {
                         Ok(source) => {
                             let identities = source.list_identities();
                             viewer.status.set_text(&identities_status_message(
@@ -296,6 +315,29 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
         }
     });
     dialog.present();
+}
+
+/// Makes a signing prompt's title-bar close a cancel, like its Cancel button:
+/// the slot it is tracked in is freed — a later attempt and a load still in
+/// flight read it — and, while it is still the current prompt, `cancelled`
+/// is reported.
+fn cancel_on_close(
+    viewer: &Viewer,
+    dialog: &Window,
+    is_current: fn(&Viewer, &Window) -> bool,
+    dismiss: fn(&Viewer, &Window),
+    cancelled: &'static str,
+) {
+    dialog.connect_close_request({
+        let viewer = viewer.clone();
+        move |dialog| {
+            if is_current(&viewer, dialog) {
+                viewer.status.set_text(&tr(cancelled));
+            }
+            dismiss(&viewer, dialog);
+            glib::Propagation::Stop
+        }
+    });
 }
 
 /// Whether `dialog` is still the tracked in-flight PFX password prompt —
@@ -419,10 +461,16 @@ fn show_pkcs11_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 return;
             };
@@ -472,6 +520,13 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
     if let Some(stale_dialog) = stale_dialog {
         stale_dialog.destroy();
     }
+    cancel_on_close(
+        viewer,
+        &dialog,
+        is_pkcs11_dialog_current,
+        dismiss_pkcs11_dialog,
+        "sign-pkcs11-cancelled",
+    );
 
     let pin_entry = PasswordEntry::builder().show_peek_icon(true).build();
     let error_label = Label::new(None);
@@ -512,7 +567,13 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
                         return;
                     }
                     let pin = pin_entry.text().to_string();
-                    match load_pkcs11_in_background(module_path, pin).await {
+                    let loaded = load_pkcs11_in_background(module_path, pin).await;
+                    // And again once it is in: the prompt may have been closed —
+                    // cancelled — while it loaded, and its answer is no longer wanted.
+                    if !is_pkcs11_dialog_current(&viewer, &dialog) {
+                        return;
+                    }
+                    match loaded {
                         Ok(source) => {
                             let identities = source.list_identities();
                             if identities.is_empty() {
@@ -655,10 +716,16 @@ fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("sign-open"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 return;
             };
@@ -679,10 +746,16 @@ fn show_nss_profile_chooser(window: &ApplicationWindow, viewer: &Viewer, module_
         .title(tr("sign-nss-profile-chooser-title"))
         .accept_label(tr("sign-open"))
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(folder) = result else {
                 return;
             };
@@ -726,6 +799,13 @@ fn prompt_for_nss_password(
     if let Some(stale_dialog) = stale_dialog {
         stale_dialog.destroy();
     }
+    cancel_on_close(
+        viewer,
+        &dialog,
+        is_nss_dialog_current,
+        dismiss_nss_dialog,
+        "sign-certificate-cancelled",
+    );
 
     content.append(&Label::new(Some(&tr("sign-nss-password-hint"))));
     let password_entry = PasswordEntry::builder().show_peek_icon(true).build();
@@ -768,7 +848,13 @@ fn prompt_for_nss_password(
                         return;
                     }
                     let password = password_entry.text().to_string();
-                    match load_nss_in_background(module_path, profile_dir, password).await {
+                    let loaded = load_nss_in_background(module_path, profile_dir, password).await;
+                    // And again once it is in: the prompt may have been closed —
+                    // cancelled — while it loaded, and its answer is no longer wanted.
+                    if !is_nss_dialog_current(&viewer, &dialog) {
+                        return;
+                    }
+                    match loaded {
                         Ok(source) => {
                             let identities = source.list_identities();
                             if identities.is_empty() {
@@ -882,6 +968,13 @@ fn open_identity_picker(
     if let Some(stale_dialog) = stale_dialog {
         stale_dialog.destroy();
     }
+    cancel_on_close(
+        viewer,
+        &dialog,
+        is_sign_picker_current,
+        dismiss_sign_picker,
+        "sign-cancelled",
+    );
 
     content.append(&Label::new(Some(&tr("sign-picker-prompt"))));
 
@@ -956,16 +1049,8 @@ fn build_identity_rows(identities: &[SigningIdentity]) -> (GtkBox, Vec<CheckButt
 }
 
 /// Whether `dialog` is still the tracked identity picker — the signing twin
-/// of `is_pfx_dialog_current`.
-///
-/// `#[cfg(test)]`, unlike its PFX/PKCS#11 siblings: those guard a real race
-/// (a background load resolving after a newer prompt superseded it, checked
-/// from inside `glib::spawn_future_local`), but `open_identity_picker` opens
-/// synchronously and `sign.connect_clicked` dismisses this dialog right in
-/// its own handler, never from an async continuation — so there is no
-/// production call site to race against, only the supersede test below that
-/// asserts the tracking itself.
-#[cfg(test)]
+/// of `is_pfx_dialog_current`, read by its close handler so a title-bar close
+/// of a superseded picker says nothing.
 fn is_sign_picker_current(viewer: &Viewer, dialog: &Window) -> bool {
     viewer.state.borrow().sign_picker_dialog.as_ref() == Some(dialog)
 }
@@ -1383,6 +1468,107 @@ mod tests {
         assert!(is_nss_dialog_current(&built.viewer, &second_dialog));
         assert!(!is_nss_dialog_current(&built.viewer, &first_dialog));
 
+        built.window.close();
+    }
+
+    /// A PFX prompt closed while its certificate is still loading stays
+    /// closed: the load's answer must not report over the cancel, nor open
+    /// the identity picker.
+    #[gtk::test]
+    fn gtk_ui_a_pfx_prompt_closed_during_its_load_ignores_the_answer() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+        prompt_for_pfx_password(
+            &built.window,
+            &built.viewer,
+            PathBuf::from("/nonexistent/vitela-test.pfx"),
+        );
+        let dialog = built
+            .viewer
+            .state
+            .borrow()
+            .pfx_dialog
+            .clone()
+            .expect("tracked");
+        fn find(root: &gtk::Widget, label: &str) -> Option<Button> {
+            if let Some(button) = root.downcast_ref::<Button>() {
+                if button.label().as_deref() == Some(label) {
+                    return Some(button.clone());
+                }
+            }
+            let mut child = root.first_child();
+            while let Some(widget) = child {
+                if let Some(found) = find(&widget, label) {
+                    return Some(found);
+                }
+                child = widget.next_sibling();
+            }
+            None
+        }
+        let unlock = find(dialog.upcast_ref(), &tr("sign-unlock"));
+        unlock.expect("the Unlock button").emit_clicked();
+        // Past the start of the load, then closed while it runs.
+        let context = glib::MainContext::default();
+        context.iteration(false);
+        dialog.close();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+
+        assert_eq!(built.viewer.status.text(), tr("sign-certificate-cancelled"));
+        assert!(built.viewer.state.borrow().sign_picker_dialog.is_none());
+        built.window.close();
+    }
+
+    /// The title bar's close is a cancel: each signing prompt frees its
+    /// slot, or a later attempt would read a closed window as still open.
+    #[gtk::test]
+    fn gtk_ui_closing_a_signing_prompt_from_its_title_bar_frees_its_slot() {
+        let application = test_application();
+        let built = crate::app::build_ui(&application);
+
+        prompt_for_pfx_password(&built.window, &built.viewer, PathBuf::from("a.pfx"));
+        prompt_for_pkcs11_pin(&built.window, &built.viewer, PathBuf::from("a.so"));
+        prompt_for_nss_password(
+            &built.window,
+            &built.viewer,
+            PathBuf::from("a.so"),
+            PathBuf::from("/a/nssdb"),
+        );
+        let identities = vec![identity("Alice Doe")];
+        open_identity_picker(
+            &built.window,
+            &built.viewer,
+            Arc::new(StaticCertificateSource(identities.clone())),
+            identities,
+        );
+        let dialogs: Vec<Window> = {
+            let state = built.viewer.state.borrow();
+            [
+                &state.pfx_dialog,
+                &state.pkcs11_dialog,
+                &state.nss_dialog,
+                &state.sign_picker_dialog,
+            ]
+            .into_iter()
+            .map(|slot| slot.clone().expect("each prompt is tracked"))
+            .collect()
+        };
+
+        for dialog in &dialogs {
+            dialog.close();
+        }
+
+        let state = built.viewer.state.borrow();
+        assert!(state.pfx_dialog.is_none());
+        assert!(state.pkcs11_dialog.is_none());
+        assert!(state.nss_dialog.is_none());
+        assert!(state.sign_picker_dialog.is_none());
+        drop(state);
         built.window.close();
     }
 

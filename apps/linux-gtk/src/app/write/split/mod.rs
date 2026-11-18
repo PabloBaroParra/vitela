@@ -68,10 +68,6 @@ struct SplitRequest {
     /// What the written files are named after — the open document's own name
     /// with its extension dropped.
     stem: String,
-    /// Generation of the session this split started under.
-    /// [`worker::spawn_split`] compares it before touching the status line, so
-    /// one that finishes after the document was replaced says nothing.
-    generation: u64,
     /// Whether the document this was split from carries a signature — the one
     /// thing the completion message has to add. See [`options::split_summary`]
     /// for why it is a sentence afterwards rather than a modal before.
@@ -117,6 +113,9 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
 
+    // The cuts were counted against this document; a submit after the
+    // active tab changed is refused rather than splitting another one.
+    let bound = crate::app::tabs::bind_active(viewer);
     dialog::prompt_for_cuts(
         window,
         total_pages,
@@ -126,9 +125,14 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
         },
         {
             let viewer = viewer.clone();
-            move |window, cuts| match build_request(&viewer, &cuts, total_pages) {
-                Ok(request) => destination::choose_folder(window, &viewer, request),
-                Err(message) => viewer.status.set_text(&message),
+            move |window, cuts| {
+                if !bound.ensure_active_or_report(&viewer) {
+                    return;
+                }
+                match build_request(&viewer, &cuts, total_pages) {
+                    Ok(request) => destination::choose_folder(window, &viewer, request),
+                    Err(message) => viewer.status.set_text(&message),
+                }
             }
         },
     );
@@ -168,7 +172,6 @@ fn build_request(viewer: &Viewer, cuts: &[u32], asked_pages: u32) -> Result<Spli
         document,
         backing,
         sources: session.imported_sources.clone(),
-        generation: state.generation,
     })
 }
 

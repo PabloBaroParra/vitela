@@ -60,6 +60,9 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
             // print it was committed for, without a word.
             let base = Arc::clone(&backing.base);
             viewer.status.set_text(&tr("print-preparing"));
+            // Holds the active tab until the snapshot is in — see
+            // `tabs::JobGuard`.
+            let job = crate::app::tabs::JobGuard::hold(viewer);
             glib::spawn_future_local({
                 let window = window.clone();
                 let viewer = viewer.clone();
@@ -68,6 +71,7 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
                         snapshot_for_output(&document, &backing, &sources)
                     })
                     .await;
+                    drop(job);
                     match result {
                         Ok(Ok(snapshot)) => {
                             // A document opened (or closed) while the

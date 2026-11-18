@@ -648,11 +648,9 @@ open-name-fallback = Opened PDF
 open-name-sample = Sample document
 open-name-untitled = Untitled document
 
-## Opening documents: unsaved-changes prompt (before opening another document
-## or closing the window)
+## Unsaved-changes prompt (before closing a tab or the window)
 
 open-unsaved-title = Unsaved changes
-open-unsaved-detail-opening = The open document has changes that are not saved. Opening another document will discard them.
 open-unsaved-detail-closing = The open document has changes that are not saved. Closing Vitela will discard them.
 open-unsaved-cancel = Cancel
 open-unsaved-discard = Discard
@@ -1031,6 +1029,7 @@ palette-file-open-keywords = load browse document
 palette-file-new-keywords = create empty document
 palette-file-save-keywords = copy keep write download
 palette-file-print-keywords = printer paper
+palette-file-close-tab-keywords = tab file window
 palette-edit-undo-keywords = revert back cancel
 palette-edit-redo-keywords = repeat again
 palette-edit-find-keywords = search look locate text
@@ -1058,3 +1057,32 @@ palette-sign-certificate-file-keywords = signature digital pfx p12
 palette-sign-token-keywords = signature smart card digital
 palette-sign-system-certificate-keywords = signature digital installed
 palette-sign-draw-keywords = signature handwritten initials
+
+## Document tabs: the strip, closing a tab and the switching refusals
+
+tabs-strip = Open documents
+tabs-close = Close document
+tabs-close-tooltip = Close (Ctrl+W)
+# $name (String) - the document's file name.
+tabs-close-named = Close { $name }
+# $name (String) - the document's file name.
+tabs-tab-unsaved = { $name }, unsaved changes
+# $name (String) - the active document's file name.
+tabs-window-title = { $name } — Vitela
+# $name (String) - the document's file name.
+tabs-closed = Closed { $name }.
+tabs-busy = Wait for the current operation on this document to finish before switching or closing tabs.
+tabs-dialog-open = Close the open dialog before switching or closing tabs.
+tabs-finish-editing = Finish or cancel the text you are editing first.
+tabs-gone = That tab is no longer open.
+tabs-no-document = No document is open.
+tabs-unsaved-detail-closing = This document has changes that are not saved. Closing it will discard them.
+tabs-path-open-elsewhere = That file is open in another tab. Close that tab first, or choose another name.
+# $name (String) - the document's file name.
+tabs-opened-in-background = Opened { $name } in a new tab.
+tabs-document-changed = The document this was for is no longer the active tab. Nothing was changed.
+job-document-changed = The document changed while this was running, so its result was not used.
+tabs-close-held = Vitela stayed open: a document is still being worked on. Close the window again once it finishes.
+tabs-reload-skipped = The document was not reloaded because it changed while it was being read.
+tabs-unsaved-detail-reloading = This document has changes that are not saved. Reading it again from disk will discard them.
+tabs-path-being-written = That file is still being written. Open it again once the save has finished.

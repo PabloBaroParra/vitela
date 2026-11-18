@@ -21,11 +21,10 @@
 //! ([`validate_written_bytes`], [`atomic_write`], [`save_worker_result`]) and
 //! none of the machinery that is about *installing* them.
 //!
-//! That is also why the staleness guard here is the generation alone, the way
-//! `export::worker` guards, rather than `write::worker::session_matches`:
-//! nothing is being installed, so an edit recorded while the extraction ran
-//! does not make the file that was written any less true. Only a different
-//! document does.
+//! Nor is there a staleness guard: nothing is installed, and the files
+//! are written whatever the document did meanwhile, so the result — the
+//! files, or why they could not be written — is always reported. The tab
+//! itself is held while it runs (`tabs::JobGuard`).
 
 use std::path::{Path, PathBuf};
 
@@ -43,18 +42,19 @@ use crate::app::state::Viewer;
 pub(super) fn spawn_extract(viewer: &Viewer, request: ExtractRequest, destination: PathBuf) {
     viewer.status.set_text(&EXTRACT.busy());
 
-    let generation = request.generation;
     let count = request.pages.len();
     let signed = request.signed;
     let shown = destination.clone();
 
+    // Holds the active tab until the result is in — see `tabs::JobGuard`.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || extract_to(request, &destination)).await;
-            if !viewer.session_is_generation(generation) {
-                return;
-            }
+            drop(job);
+            // The file is the user's whatever happened to the document
+            // meanwhile: say where it went, or why it did not.
             match save_worker_result(result) {
                 Ok(()) => viewer
                     .status
@@ -117,6 +117,53 @@ mod tests {
     use crate::app::document::SAMPLE_PDF;
     use crate::app::state::SaveBacking;
 
+    /// An extraction that finished after the document changed still wrote
+    /// its file: it reports that, not that its result went unused.
+    #[gtk::test]
+    fn gtk_ui_an_extraction_written_after_the_document_changed_still_reports_it() {
+        let directory = std::env::temp_dir().join(format!(
+            "vitela-extract-stale-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is after the Unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir(&directory).expect("create isolated temporary directory");
+        let source = directory.join("sample.pdf");
+        fs::write(&source, SAMPLE_PDF).expect("seed the bundled sample");
+        let (base, _security) =
+            pdf_manip::open_document(&source, None).expect("the sample must open");
+        let document = pdf_save::document_from_lopdf(&base, None).expect("model the sample");
+        let request = ExtractRequest {
+            document,
+            backing: SaveBacking {
+                base: base.into(),
+                original_bytes: fs::read(&source).expect("read the sample back").into(),
+                password: None,
+            },
+            sources: Vec::new(),
+            pages: vec![0],
+            signed: false,
+        };
+        let built = crate::app::ui_tests::built_ui();
+        let destination = directory.join("out.pdf");
+
+        super::spawn_extract(&built.viewer, request, destination.clone());
+        // An edit reopened the document meanwhile.
+        built.viewer.state.borrow_mut().generation += 1;
+        let busy = super::super::super::EXTRACT.busy();
+        crate::app::test_support::wait_until(|| built.viewer.status.text() != busy);
+        let status = built.viewer.status.text().to_string();
+        gtk::prelude::GtkWindowExt::close(&built.window);
+        let _ = fs::remove_dir_all(&directory);
+
+        assert_eq!(
+            status,
+            super::super::options::extract_summary(1, &destination, false)
+        );
+    }
+
     /// The round trip, end to end: a real PDF in, a real PDF out, reopened
     /// and counted.
     ///
@@ -163,7 +210,6 @@ mod tests {
             },
             sources: Vec::new(),
             pages: vec![0, total as u32 - 1],
-            generation: 0,
             signed: false,
         };
 

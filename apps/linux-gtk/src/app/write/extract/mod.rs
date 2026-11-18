@@ -71,10 +71,6 @@ struct ExtractRequest {
     sources: Vec<ImportedSource>,
     /// Zero-based page indices, ascending and deduplicated.
     pages: Vec<u32>,
-    /// Generation of the session this extraction started under.
-    /// [`worker::spawn_extract`] compares it before touching the status line,
-    /// so one that finishes after the document was replaced says nothing.
-    generation: u64,
     /// Whether the document this was extracted from carries a signature — the
     /// one thing the completion message has to add. See
     /// [`options::extract_summary`] for why it is a sentence afterwards
@@ -112,6 +108,9 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
 
+    // The selection was made against this document; extracting it from
+    // whichever tab is active by the time the chooser answers is refused.
+    let bound = crate::app::tabs::bind_active(viewer);
     dialog::prompt_for_pages(
         window,
         total_pages,
@@ -128,7 +127,9 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
                     &viewer.clone(),
                     EXTRACT,
                     Rc::new(move |_window, viewer, destination| {
-                        extract_to(viewer, pages.clone(), destination);
+                        if bound.ensure_active_or_report(viewer) {
+                            extract_to(viewer, pages.clone(), destination);
+                        }
                     }),
                 );
             }
@@ -174,7 +175,6 @@ fn extract_to(viewer: &Viewer, pages: Vec<u32>, destination: PathBuf) {
             backing,
             sources: session.imported_sources.clone(),
             pages,
-            generation: state.generation,
         }
     };
 

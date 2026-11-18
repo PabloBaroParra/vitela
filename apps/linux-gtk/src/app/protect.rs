@@ -189,6 +189,9 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
     content.append(&buttons);
     open_entry.grab_focus();
 
+    // The passwords protect the document this dialog was opened over, and
+    // no other: a submit after the active tab changed is refused.
+    let bound = crate::app::tabs::bind_active(viewer);
     let submit = {
         let window = window.clone();
         let viewer = viewer.clone();
@@ -197,6 +200,10 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
         let permissions_entry = permissions_entry.clone();
         let error_label = error_label.clone();
         move || {
+            if !bound.ensure_active_or_report(&viewer) {
+                dialog.destroy();
+                return;
+            }
             let open_password = open_entry.text().to_string();
             let permissions_password = permissions_entry.text().to_string();
             if let Some(message) = validate(&open_password, &permissions_password) {

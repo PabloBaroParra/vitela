@@ -41,7 +41,7 @@ pub(crate) enum Availability {
 pub(crate) enum Category {
     /// The mode bar's sections.
     Mode,
-    /// Open, new, save, print.
+    /// Open, new, save, print, close.
     File,
     /// Undo, redo, find.
     Edit,
@@ -105,6 +105,7 @@ pub(crate) enum WindowAction {
     New,
     Save,
     Print,
+    CloseTab,
     Undo,
     Redo,
     Find,
@@ -118,6 +119,7 @@ impl WindowAction {
             WindowAction::New => shortcuts::NEW,
             WindowAction::Save => shortcuts::SAVE,
             WindowAction::Print => shortcuts::PRINT,
+            WindowAction::CloseTab => shortcuts::CLOSE_TAB,
             WindowAction::Undo => shortcuts::UNDO,
             WindowAction::Redo => shortcuts::REDO,
             WindowAction::Find => shortcuts::FIND,
@@ -227,6 +229,12 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
             "file.print",
             WindowAction::Print,
             "editor-print",
+            Category::File,
+        ),
+        (
+            "file.close-tab",
+            WindowAction::CloseTab,
+            "tabs-close",
             Category::File,
         ),
         (

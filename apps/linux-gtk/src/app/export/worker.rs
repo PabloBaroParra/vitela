@@ -33,12 +33,13 @@ pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: Path
 
     let ExportRequest {
         source,
-        generation,
         stem,
         total_pages,
         options,
     } = request;
 
+    // Holds the active tab until the result is in — see `tabs::JobGuard`.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -55,13 +56,9 @@ pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: Path
                 )
             })
             .await;
-            // A finished export says nothing at all once the document it
-            // was about has been replaced — see
-            // `Viewer::session_is_generation` for why that guard, and not
-            // `write::worker::session_matches`, is the right one here.
-            if !viewer.session_is_generation(generation) {
-                return;
-            }
+            drop(job);
+            // The images are the user's whatever happened to the document
+            // meanwhile: say where they went, or why they did not.
             match result {
                 Ok(Ok(count)) => viewer
                     .status

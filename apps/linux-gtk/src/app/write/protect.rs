@@ -155,9 +155,14 @@ fn spawn_protect(
     signatures: pdf_save::SignatureAcknowledgement,
 ) {
     let token = request.token;
-    spawn_write(viewer, PROTECT, token, None, move || {
-        protect_snapshot_and_reopen(request, &destination, signatures)
-    });
+    spawn_write(
+        viewer,
+        PROTECT,
+        token,
+        &destination.clone(),
+        None,
+        move || protect_snapshot_and_reopen(request, &destination, signatures),
+    );
 }
 
 /// `save::save_snapshot_and_reopen`'s protecting twin: the same serialize →
