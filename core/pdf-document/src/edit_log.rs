@@ -660,6 +660,66 @@ impl Command {
             )
     }
 
+    /// Whether this command adds, removes or replaces an annotation in the
+    /// session's [`crate::AnnotationSet`].
+    ///
+    /// The positive half of what the annotate permission (`/P` bit 6)
+    /// covers. The other half is [`Self::is_form_field_edit`]: bit 6 is the
+    /// floor for every form command, filling one in included — a union the
+    /// gate (`pdf_save::EditClass::of`) makes, so neither predicate has to
+    /// claim the other's variants.
+    ///
+    /// Written as an exhaustive `match` with no wildcard on purpose: the
+    /// gate grants the annotate bit from this positive list, so a new
+    /// variant must not compile until someone decides whether it is an
+    /// annotation edit.
+    pub fn is_annotation_edit(&self) -> bool {
+        match self {
+            Command::AddAnnotation(_)
+            | Command::RemoveAnnotation(_)
+            | Command::ReplaceAnnotation { .. } => true,
+            Command::RotatePage { .. }
+            | Command::RotatePages { .. }
+            | Command::InsertPage { .. }
+            | Command::ImportPages { .. }
+            | Command::RemovePage { .. }
+            | Command::RemoveImportedPages { .. }
+            | Command::RemovePages { .. }
+            | Command::InsertPages { .. }
+            | Command::MovePage { .. }
+            | Command::MovePages { .. }
+            | Command::ReplaceTextRunContent { .. }
+            | Command::ReplaceTextRunWithInsertedFont { .. }
+            | Command::InsertTextRun { .. }
+            | Command::InsertTextRunLike { .. }
+            | Command::RemoveTextRun { .. }
+            | Command::MoveTextRun { .. }
+            | Command::RestyleTextRun { .. }
+            | Command::InsertImage { .. }
+            | Command::RemoveImage { .. }
+            | Command::MoveImage { .. }
+            | Command::ResizeImage { .. }
+            | Command::ReplaceImageSource { .. }
+            | Command::MovePath { .. }
+            | Command::ResizePath { .. }
+            | Command::RemovePath { .. }
+            | Command::RestorePath { .. }
+            | Command::PasteContent { .. }
+            | Command::RemovePastedContent { .. }
+            | Command::AddWatermark { .. }
+            | Command::RemoveWatermark { .. }
+            | Command::Batch { .. }
+            | Command::AddFormField { .. }
+            | Command::RemoveFormField { .. }
+            | Command::MoveFormField { .. }
+            | Command::ResizeFormField { .. }
+            | Command::RestyleFormField { .. }
+            | Command::SetFieldValue { .. }
+            | Command::RenameFormField { .. }
+            | Command::SetDocumentInfo { .. } => false,
+        }
+    }
+
     /// Whether this command edits a form field — its existence, its geometry,
     /// its appearance, its name, or the value filled into it.
     ///
@@ -3246,6 +3306,59 @@ mod tests {
         }
         for command in all_form_field_commands() {
             assert!(!command.is_content_edit(), "{command:?}");
+        }
+    }
+
+    // --- Command::is_annotation_edit (T-235) --
+
+    fn all_annotation_commands() -> Vec<Command> {
+        let before = sample_annotation(1, PageId(0));
+        let mut after = before.clone();
+        after.page = PageId(1);
+        vec![
+            Command::AddAnnotation(before.clone()),
+            Command::RemoveAnnotation(before.clone()),
+            Command::ReplaceAnnotation { before, after },
+        ]
+    }
+
+    #[test]
+    fn every_annotation_command_reports_itself_as_an_annotation_edit() {
+        for command in all_annotation_commands() {
+            assert!(command.is_annotation_edit(), "{command:?}");
+        }
+    }
+
+    /// The annotate permission covers form fields too, but that is the
+    /// gate's union to make, not this predicate's: a field is not an
+    /// annotation the session's `AnnotationSet` holds.
+    #[test]
+    fn no_form_page_or_content_command_is_an_annotation_edit() {
+        let page = Page::blank(PageId(0), PageSize::A4, Orientation::Portrait);
+        let others = all_form_field_commands()
+            .into_iter()
+            .chain(all_content_commands())
+            .chain([
+                a_blank_insert(0, page),
+                Command::RotatePage {
+                    page: PageId(0),
+                    delta_degrees: 90,
+                },
+            ]);
+
+        for command in others {
+            assert!(!command.is_annotation_edit(), "{command:?}");
+        }
+    }
+
+    /// The four classifiers a gate is built from never claim the same
+    /// command twice.
+    #[test]
+    fn an_annotation_edit_is_never_an_assembly_content_or_form_edit() {
+        for command in all_annotation_commands() {
+            assert!(!command.is_document_assembly_edit(), "{command:?}");
+            assert!(!command.is_content_edit(), "{command:?}");
+            assert!(!command.is_form_field_edit(), "{command:?}");
         }
     }
 

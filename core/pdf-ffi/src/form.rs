@@ -21,9 +21,9 @@
 //!   editing the same document produce the same names. A caller that wants
 //!   its own name sends [`FfiEditCommand::RenameFormField`] after placing
 //!   the field — which is exactly what the GTK4 shell's own inspector does.
-//! - **Validation** is `pdf-form`'s: [`set_field_value`] and
-//!   [`rename_field`] run `pdf_form::ops` against a *copy* of the field and
-//!   only then build the command, so a value the field cannot hold is
+//! - **Validation** is `pdf-form`'s: [`set_field_value`] (through
+//!   `pdf_form::fill_field`) and [`rename_field`] run `pdf_form::ops`
+//!   against a *copy* of the field and only then build the command, so a value the field cannot hold is
 //!   refused before anything is recorded rather than at the save it would
 //!   have taken down.
 //!
@@ -383,25 +383,19 @@ pub(crate) fn restyle_field(
     })
 }
 
-/// Validates `value` against the field's kind before building the command.
-///
-/// The check runs against a throwaway copy: `pdf_form::ops::set_value` is
-/// written to mutate a field in place, and the field this boundary owns must
-/// only ever change through the edit log, so the copy is what absorbs the
-/// mutation and the command records the value that survived it.
+/// The fill command for `field_id`. The rule — validate a copy, record the
+/// value that survived — is the core's (`pdf_form::fill_field`); this only
+/// translates the boundary's shapes.
 pub(crate) fn set_field_value(
     document: &Document,
     field_id: u64,
     value: FfiFieldValue,
 ) -> Result<Command, FfiError> {
-    let existing = field(document, field_id)?;
-    let mut validated = existing.clone();
-    pdf_form::set_value(&mut validated, value.into())?;
-    Ok(Command::SetFieldValue {
-        id: existing.id,
-        from: existing.value,
-        to: validated.value,
-    })
+    Ok(pdf_form::fill_field(
+        &document.form_fields,
+        FormFieldId(field_id),
+        value.into(),
+    )?)
 }
 
 /// Validates `name` against the rest of the set before building the command
@@ -438,8 +432,8 @@ pub(crate) fn rename_field(
 ///
 /// `SetFieldValue` is the one field command this excludes, and there is no
 /// predicate for "is a form command at all" because nothing needs one: bit 6
-/// is the floor for every one of them, which is exactly what
-/// `document::is_annotation_command` already grants by not excluding them.
+/// is the floor for every one of them, which is why
+/// `document::is_annotation_command` names every form command as needing it.
 pub(crate) fn is_structural_form_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,

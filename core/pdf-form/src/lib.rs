@@ -12,12 +12,14 @@
 //! - [`da`] (T-135): `/DA` string ↔ `TextStyle` serialization.
 //! - [`appearance`] (T-136): `/AP` content stream construction per kind.
 //! - [`read`] (T-137): parses an existing `/AcroForm` into `FormField`s.
+//! - [`fill`] (T-235): the `SetFieldValue` command a boundary records.
 //! - [`error`]: `FormError`, the shared error type across this crate.
 
 pub mod appearance;
 pub mod builders;
 pub mod da;
 pub mod error;
+pub mod fill;
 pub mod frame;
 pub mod ops;
 pub mod read;
@@ -29,6 +31,7 @@ pub use appearance::{
 pub use builders::{checkbox, default_radio_options, dropdown, radio_group, text_field};
 pub use da::{base_font_name, format_button_da, format_da, parse_da, resource_name};
 pub use error::FormError;
+pub use fill::fill_field;
 pub use frame::{BorderStyle, FrameShape, WidgetFrame};
 pub use ops::{move_field, rename_field, resize_field, restyle_field, set_value};
 pub use read::read_form_fields;

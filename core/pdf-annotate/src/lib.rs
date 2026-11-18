@@ -11,6 +11,10 @@
 //! - [`appearance`] (T-029, T-030): builds the actual PDF-level objects —
 //!   the `/Popup` + `/Parent` dictionary pair for text notes, and the image
 //!   `/AP` appearance stream (with `/SMask` alpha) for stamps.
+//! - [`session`] (T-235): the annotation commands a boundary records — id
+//!   cursor, add/change/remove, and the retype that records nothing.
+//! - [`snapshot`] (T-235): the session's annotations as a boundary shows
+//!   them — page position now, plus the free-text layout.
 //! - [`error`]: `AnnotateError`, the shared error type across this crate.
 
 pub mod appearance;
@@ -19,6 +23,8 @@ pub mod error;
 pub mod freetext;
 pub mod ops;
 pub mod placement;
+pub mod session;
+pub mod snapshot;
 
 pub use appearance::{
     build_free_text_appearance, build_stamp_appearance, build_text_note_dicts, FreeTextAppearance,
@@ -37,3 +43,8 @@ pub use ops::{
     set_annotation_contents,
 };
 pub use placement::{stamp_placement, DEFAULT_STAMP_MAX_SIDE_PT};
+pub use session::{
+    add_annotation, change_annotation, remove_annotation, AnnotationChange, AnnotationIdCursor,
+    NewAnnotation,
+};
+pub use snapshot::{annotation_snapshot, AnnotationSnapshot};

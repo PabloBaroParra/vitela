@@ -256,6 +256,9 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
             E::InvalidRect => FfiError::UnsupportedOperation {
                 detail: err.to_string(),
             },
+            E::AnnotationNotFound(id) => FfiError::AnnotationNotFound {
+                annotation_id: id.0,
+            },
             other => FfiError::Internal {
                 detail: other.to_string(),
             },
@@ -263,15 +266,22 @@ impl From<pdf_annotate::AnnotateError> for FfiError {
     }
 }
 
-/// Both variants are refusals, not malfunctions: the document is intact and
+/// Its refusals are refusals, not malfunctions: the document is intact and
 /// the request was understood — the value simply is not one the field can
 /// hold, or the name is already another field's. `UnsupportedOperation` is
 /// the variant that means exactly that, and `FormError`'s own wording is
 /// what a shell shows, the same posture `EditError`'s refusals take below.
+/// A field the edit names but the document lacks keeps its own variant, as
+/// it had before the fill rule moved to `pdf_form::fill_field`.
 impl From<pdf_form::FormError> for FfiError {
     fn from(err: pdf_form::FormError) -> Self {
-        FfiError::UnsupportedOperation {
-            detail: err.to_string(),
+        match err {
+            pdf_form::FormError::FieldNotFound(id) => {
+                FfiError::FormFieldNotFound { field_id: id.0 }
+            }
+            other => FfiError::UnsupportedOperation {
+                detail: other.to_string(),
+            },
         }
     }
 }

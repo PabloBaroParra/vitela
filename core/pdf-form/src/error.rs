@@ -3,6 +3,8 @@
 
 use std::fmt;
 
+use pdf_document::FormFieldId;
+
 /// Errors surfaced by this crate.
 ///
 /// `#[non_exhaustive]`: mirrors `pdf-annotate`'s `AnnotateError` — new
@@ -22,6 +24,8 @@ pub enum FormError {
     /// `RadioGroup`, one it does not offer), or `Text` longer than the
     /// field's `max_len`.
     InvalidValue(String),
+    /// No field in the document's set answers to this id.
+    FieldNotFound(FormFieldId),
 }
 
 impl fmt::Display for FormError {
@@ -31,6 +35,7 @@ impl fmt::Display for FormError {
                 write!(f, "unsupported operation for this field kind: {op}")
             }
             FormError::InvalidValue(msg) => write!(f, "invalid field value: {msg}"),
+            FormError::FieldNotFound(id) => write!(f, "no form field with id {}", id.0),
         }
     }
 }
