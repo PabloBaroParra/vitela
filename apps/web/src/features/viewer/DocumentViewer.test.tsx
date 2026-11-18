@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EngineError, EDIT_NOT_PERMITTED } from '@vitela/core';
 import type { DocumentHandle, Edit, EditedDocument, Engine, PageSize, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
@@ -399,5 +399,80 @@ describe('DocumentViewer', () => {
 
     await waitFor(() => expect(firstPageRenders()).toBe(before + 1));
     await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(0));
+  });
+});
+
+describe('DocumentViewer drawing tools', () => {
+  beforeAll(() => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+  });
+
+  /** CSS px per point at 100%: pointer offsets in the (unlaid-out) slot are these × points. */
+  const PX = 96 / 72;
+  const at = (x: number, y: number) => ({ pointerId: 1, button: 0, isPrimary: true, clientX: x * PX, clientY: y * PX });
+
+  it('draws an ink stroke as one edit, with text selection off while the tool is armed', async () => {
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited());
+    const markDirty = vi.fn();
+    const { container, getByRole } = render(<Viewer engine={{ ...engine, applyEdit }} document={doc} markDirty={markDirty} />);
+    const page = () => container.querySelector('[data-page="1"]')!;
+    expect(page().querySelector('.drawing-layer')).toBeNull();
+
+    fireEvent.click(getByRole('button', { name: 'Ink' }));
+    expect(getByRole('button', { name: 'Ink' }).getAttribute('aria-pressed')).toBe('true');
+    expect(page().querySelector('.text-layer')?.getAttribute('data-selectable')).toBe('false');
+    const surface = page().querySelector('.drawing-layer')!;
+    fireEvent.pointerDown(surface, at(30, 60));
+    fireEvent.pointerMove(surface, at(90, 60));
+    fireEvent.pointerUp(surface, at(90, 120));
+
+    await waitFor(() => expect(markDirty).toHaveBeenCalledTimes(1));
+    const edit = applyEdit.mock.calls[0]![1];
+    expect(edit).toMatchObject({ kind: 'addInk', page: 0, color: { r: 255, g: 220, b: 0 } });
+    const points = (edit as Extract<Edit, { kind: 'addInk' }>).points.map(({ x, y }) => [Math.round(x), Math.round(y)]);
+    expect(points).toEqual([
+      [30, 60],
+      [90, 60],
+      [90, 120],
+    ]);
+
+    // Escape goes back to selecting text.
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(page().querySelector('.drawing-layer')).toBeNull();
+    expect(page().querySelector('.text-layer')?.getAttribute('data-selectable')).toBe('true');
+  });
+
+  it('asks for a note\u2019s text and adds it where it was clicked', async () => {
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited());
+    const { container, getByRole, queryByRole } = render(<Viewer engine={{ ...engine, applyEdit }} document={doc} />);
+    fireEvent.click(getByRole('button', { name: 'Note' }));
+    const surface = container.querySelector('[data-page="2"] .drawing-layer')!;
+    fireEvent.pointerDown(surface, at(300, 300));
+    fireEvent.pointerUp(surface, at(300, 300));
+
+    const field = getByRole('dialog', { name: 'Add a note' }).querySelector('textarea')!;
+    fireEvent.change(field, { target: { value: 'Check this' } });
+    fireEvent.click(getByRole('button', { name: 'Add note' }));
+
+    await waitFor(() => expect(queryByRole('dialog')).toBeNull());
+    const edit = applyEdit.mock.calls[0]![1];
+    expect(edit).toMatchObject({ kind: 'addNote', page: 1, contents: 'Check this' });
+  });
+
+  it('keeps the tools off, and says why, for a document that forbids annotations', () => {
+    const locked = { ...doc, info: { ...doc.info, annotationEditingAllowed: false } };
+    const { container, getByRole } = render(<Viewer engine={engine} document={locked} />);
+    const ink = getByRole('button', { name: 'Ink' });
+    expect(ink.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(ink.getAttribute('aria-describedby')!)?.textContent).toMatch(/does not allow annotations/);
+    fireEvent.click(ink);
+    expect(container.querySelector('.drawing-layer')).toBeNull();
   });
 });

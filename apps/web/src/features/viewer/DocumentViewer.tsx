@@ -1,12 +1,15 @@
 // Container: the open document as one vertically scrolling, virtualized
 // column of pages, with zoom, search, text selection, the session's
-// annotations, markup over the selection and undo/redo. Only pages within a
+// annotations, markup over the selection, the drawing tools and undo/redo. Only pages within a
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
+import { DraftDialog } from '../annotations/DraftDialog';
+import { DrawToolbar } from '../annotations/DrawToolbar';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
+import { useDrawing } from '../annotations/useDrawing';
 import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
@@ -17,7 +20,7 @@ import { useCopy } from '../text/useCopy';
 import { useTextSelection } from '../text/useTextSelection';
 import { HistoryControls } from './HistoryControls';
 import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
-import { PageSlot } from './PageSlot';
+import { PageSlot, type DrawingInput } from './PageSlot';
 import { renderDpi } from './renderDpi';
 import { revealScroll } from './reveal';
 import { useScrollMetrics } from './useScrollMetrics';
@@ -89,6 +92,22 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
   });
   // Off while any step runs: an undo may be putting another page here.
   const canMark = !!selection && !editing.pending;
+
+  // An armed tool takes the pointer from text selection, and drops the selection.
+  const shownPages = useRef(pages);
+  useLayoutEffect(() => {
+    shownPages.current = pages;
+  });
+  const rotationOf = useCallback((index: number) => shownPages.current[index]?.rotationDegrees ?? 0, []);
+  const drawing = useDrawing(editing, rotationOf);
+  const armed = drawing.tool === 'select' ? null : drawing.tool;
+  useEffect(() => {
+    if (armed) clearSelection();
+  }, [armed, clearSelection]);
+  const drawingInput = useMemo<DrawingInput | null>(
+    () => armed && { tool: armed, color: drawing.color, busy: editing.pending, onGesture: drawing.onGesture },
+    [armed, drawing.color, editing.pending, drawing.onGesture],
+  );
 
   // A new page list drops the selection once committed; until then a markup
   // checks the page the selection was made on (its `pageKey`).
@@ -186,6 +205,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           currentHit={textAllowed && shownHit?.pageIndex === index ? shownHit.rects : undefined}
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
           textInput={textAllowed ? input : null}
+          drawing={drawingInput}
         />,
       );
     }
@@ -216,6 +236,14 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           copyStatus={copy.status}
           markup={{ allowed: editing.allowed, canMark, onMark: markSelection }}
         />
+        <DrawToolbar
+          tool={drawing.tool}
+          onTool={drawing.choose}
+          color={drawing.color}
+          onColor={drawing.setColor}
+          allowed={editing.allowed}
+          ready={!editing.pending}
+        />
         <HistoryControls
           canUndo={editing.canUndo}
           canRedo={editing.canRedo}
@@ -235,6 +263,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
         tabIndex={0}
         aria-label="Pages"
         data-zoom={zoom}
+        data-tool={drawing.tool}
         onKeyDown={(event) => {
           if (event.key === 'Escape') clearSelection();
         }}
@@ -243,6 +272,15 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           {slots}
         </div>
       </div>
+      {drawing.draft && (
+        <DraftDialog
+          engine={engine}
+          draft={drawing.draft}
+          onChange={drawing.retyped}
+          onSubmit={(text) => void drawing.submit(text)}
+          onCancel={drawing.cancel}
+        />
+      )}
     </section>
   );
 }

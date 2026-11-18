@@ -124,3 +124,55 @@
   gap: 8px;
   margin-top: 16px;
 }
+
+/* The text of a note or text box placed on the page. */
+.text-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.text-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.text-dialog__field textarea {
+  font: inherit;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.text-dialog__error {
+  color: var(--error);
+  margin: 8px 0 0;
+}
+
+/* The text box as the core lays it out: black Helvetica on white, like the page. */
+.free-text-preview {
+  margin: 12px 0 0;
+}
+
+.free-text-preview__box {
+  display: block;
+  width: 100%;
+  max-height: 200px;
+  background: #fff;
+}
+
+.free-text-preview__frame {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.free-text-preview__caption {
+  margin-top: 4px;
+  font-size: 0.85rem;
+  opacity: 0.7;
+}

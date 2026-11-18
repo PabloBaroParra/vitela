@@ -163,7 +163,17 @@ test('a PDF that forbids annotations keeps markup off and says why', async ({ pa
       'This PDF does not allow annotations, so Highlight, Underline and Strikeout are turned off.',
     );
   }
+  // The drawing tools too (T-238).
+  for (const name of ['Ink', 'Shape', 'Note', 'Free text']) {
+    await expect(button(page, name)).toHaveAttribute('aria-disabled', 'true');
+    await expect(button(page, name)).toHaveAccessibleDescription(
+      'This PDF does not allow annotations, so Ink, Shape, Note and Free text are turned off.',
+    );
+  }
   // `force`: Playwright would otherwise wait for an aria-disabled button to turn on.
+  await button(page, 'Ink').click({ force: true });
+  await expect(button(page, 'Select')).toHaveAttribute('aria-pressed', 'true');
+  await expect(pageSlot(page, 1).locator('.drawing-layer')).toHaveCount(0);
   await button(page, 'Highlight').click({ force: true });
   await expect(page.locator('.annotation-layer [data-annotation-id]')).toHaveCount(0);
   await expect(page.getByText('Unsaved changes.')).toHaveCount(0);

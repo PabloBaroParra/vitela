@@ -43,13 +43,14 @@ export function isApplePlatform(source: PlatformSource | undefined = globalThis.
   return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
-function isTextField(target: EventTarget | null): boolean {
+/** Whether a key went to a text field, which keeps its own keys. */
+export function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
   return !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
 }
 
 /** The app opens dialogs only as modals (`showModal`), so an open one is modal. */
-function modalOpen(target: EventTarget | null): boolean {
+export function modalOpen(target: EventTarget | null): boolean {
   const owner = target instanceof Node ? (target.ownerDocument ?? (target as Document)) : globalThis.document;
   return !!owner?.querySelector('dialog[open], [aria-modal="true"]');
 }
