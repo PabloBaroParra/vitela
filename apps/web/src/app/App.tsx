@@ -52,7 +52,13 @@ export function App({ engine, pathname = window.location.pathname }: AppProps) {
               {intro(<StatusLine tone="error">{`The PDF engine failed to load: ${status.message}`}</StatusLine>)}
             </div>
           )}
-          {status.kind === 'ready' && <DocumentWorkspace engine={engine} intro={intro} />}
+          {status.kind === 'ready' && (
+            <DocumentWorkspace
+              engine={engine}
+              intro={intro}
+              initialScreen={route.kind === 'tool' ? route.tool.screen : undefined}
+            />
+          )}
         </>
       )}
     </main>

@@ -8,6 +8,8 @@
 // Icons are stroke paths on a 24×24 grid with round caps and joins, most of
 // them taken from the shared shell icons in assets/icons.
 
+import type { DocumentScreen } from '../document/DocumentWorkspace';
+
 export type ToolId =
   | 'view'
   | 'merge'
@@ -41,6 +43,8 @@ export interface Tool {
   readonly icon: readonly string[];
   /** True when this web build can do it; false while it is app-only. */
   readonly web: boolean;
+  /** The screen an opened document starts on; the viewer when absent. */
+  readonly screen?: DocumentScreen;
 }
 
 /** Filter order on the home page. */
@@ -94,7 +98,7 @@ export const TOOLS: readonly Tool[] = [
     id: 'organize',
     path: '/organize',
     name: 'Organize pages',
-    description: 'Reorder, rotate and delete pages, and add pages from other PDFs.',
+    description: 'Reorder, rotate and delete pages, with undo.',
     category: 'organize',
     tone: 'green',
     icon: [
@@ -103,7 +107,8 @@ export const TOOLS: readonly Tool[] = [
       'M5 13.5h4a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 9 20.5H5A1.5 1.5 0 0 1 3.5 19v-4A1.5 1.5 0 0 1 5 13.5Z',
       'M15 13.5h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4a1.5 1.5 0 0 1 1.5-1.5Z',
     ],
-    web: false,
+    web: true,
+    screen: 'organize',
   },
   {
     id: 'rotate',
