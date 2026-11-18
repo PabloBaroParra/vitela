@@ -6,6 +6,7 @@
 // focus to the page.
 
 import { FilePicker } from '../../ui/FilePicker';
+import { historyShortcuts, isApplePlatform } from '../document/historyKeys';
 import { ViewSwitch } from '../../ui/ViewSwitch';
 import type { OrganizeView } from './units';
 
@@ -60,6 +61,7 @@ interface OrganizeToolbarProps {
 
 export function OrganizeToolbar(props: OrganizeToolbarProps) {
   const { summary, canEdit, canMoveEarlier, canMoveLater, canUndo, canRedo } = props;
+  const shortcuts = historyShortcuts(isApplePlatform());
   return (
     <div className="viewer-toolbar organize__toolbar" role="toolbar" aria-label="Organize">
       <ViewSwitch label="Organize by" views={VIEWS} current={props.view} onChange={props.onViewChange} />
@@ -85,8 +87,8 @@ export function OrganizeToolbar(props: OrganizeToolbarProps) {
         enabled={canEdit && canMoveLater}
         onPress={props.onMoveLater}
       />
-      <ToolButton label="Undo" shortcut="Control+Z" enabled={canUndo} onPress={props.onUndo} />
-      <ToolButton label="Redo" shortcut="Control+Shift+Z" enabled={canRedo} onPress={props.onRedo} />
+      <ToolButton label="Undo" shortcut={shortcuts.undo} enabled={canUndo} onPress={props.onUndo} />
+      <ToolButton label="Redo" shortcut={shortcuts.redo} enabled={canRedo} onPress={props.onRedo} />
       <span className="viewer-toolbar__page" aria-live="polite">
         {summary}
       </span>

@@ -154,10 +154,15 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
 - **Markup:** Highlight, Underline and Strikeout in the text toolbar act on
   the selection. The core's markup has one box (no `/QuadPoints`), so each
   line of the selection is its own `addMarkup` and its own undo step
-  (`markupEdits`), sent in order; the selection is dropped once they land.
+  (`markupEdits`), sent in order. The buttons are off while any edit, undo
+  or redo runs, and a markup whose page was moved under it (another `PageId`
+  or turn at its position) marks nothing. The selection is dropped only once
+  every line landed, and only if it is still the one that was marked.
   Colour: the native shells' default (255, 220, 0).
-- **Undo / Redo** in the viewer's toolbar, and Ctrl/⌘+Z, Ctrl/⌘+Shift+Z,
-  Ctrl/⌘+Y anywhere on the page except in a text field (`useUndoKeys`). They
+- **Undo / Redo** in the viewer's toolbar, and Ctrl/⌘+Z, Ctrl/⌘+Shift+Z and
+  (not on a Mac, where ⌘+Y is History) Ctrl+Y anywhere on the page except in
+  a text field or behind a modal dialog (`useUndoKeys`; Organize reads the
+  same keys through the shared `document/historyKeys.ts`). They
   go through the engine (`undo`/`redo`), which refreshes the preview only for
   a page step, and take back any step — also a page edit made in Organize.
   Steps run in the order asked for: an undo waits for a markup still landing.

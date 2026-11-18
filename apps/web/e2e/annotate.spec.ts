@@ -90,7 +90,9 @@ test('highlights a two-line selection, undoes and redoes it, and saves /Highligh
   await expect(marks(page, 'highlight')).toHaveCount(2);
   await page.keyboard.press('ControlOrMeta+Z');
   await expect(marks(page, 'highlight')).toHaveCount(1);
-  await page.keyboard.press('ControlOrMeta+Y');
+  // Ctrl+Y redoes too — not on a Mac, where ⌘+Y is the browser's History.
+  const apple = await page.evaluate(() => /mac|iphone|ipad|ipod/i.test(navigator.platform));
+  await page.keyboard.press(apple ? 'Meta+Shift+Z' : 'Control+Y');
   await expect(marks(page, 'highlight')).toHaveCount(2);
   await expect(button(page, 'Redo')).toHaveAttribute('aria-disabled', 'true');
 

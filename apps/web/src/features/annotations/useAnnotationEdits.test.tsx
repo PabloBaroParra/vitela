@@ -33,6 +33,9 @@ const edited = (canUndo: boolean, canRedo = false): EditedDocument => ({
   addedAnnotationId: null,
 });
 
+/** What sits at position 0 of `info()`: page id 0, unrotated. */
+const PAGE_0 = '0/0';
+
 /** Two selected lines on page 0. */
 const LINES = new Float32Array([72, 100, 200, 18, 72, 130, 150, 18]);
 
@@ -49,8 +52,12 @@ describe('useAnnotationEdits', () => {
     const onEdited = vi.fn();
     const { result } = renderHook(() => useAnnotationEdits(engine, doc(), onEdited));
 
-    await act(() => result.current.markup('highlight', 0, LINES));
+    let marked = false;
+    await act(async () => {
+      marked = await result.current.markup('highlight', 0, PAGE_0, LINES);
+    });
 
+    expect(marked).toBe(true);
     expect(applied).toEqual([
       { kind: 'addMarkup', page: 0, markup: 'highlight', rect: { left: 72, top: 100, width: 200, height: 18 }, color: MARKUP_COLOR },
       { kind: 'addMarkup', page: 0, markup: 'highlight', rect: { left: 72, top: 130, width: 150, height: 18 }, color: MARKUP_COLOR },
@@ -71,8 +78,12 @@ describe('useAnnotationEdits', () => {
     const onEdited = vi.fn();
     const { result } = renderHook(() => useAnnotationEdits(engine, doc(), onEdited));
 
-    await act(() => result.current.markup('underline', 0, new Float32Array([...LINES, 72, 160, 100, 18])));
+    let marked = true;
+    await act(async () => {
+      marked = await result.current.markup('underline', 0, PAGE_0, new Float32Array([...LINES, 72, 160, 100, 18]));
+    });
 
+    expect(marked).toBe(false);
     expect(calls).toBe(2);
     expect(onEdited).toHaveBeenCalledTimes(1);
     expect(result.current.allowed).toBe(false);
@@ -85,7 +96,7 @@ describe('useAnnotationEdits', () => {
     const { result } = renderHook(() => useAnnotationEdits(engine, doc({ info: info(false) }), vi.fn()));
 
     expect(result.current.allowed).toBe(false);
-    await act(() => result.current.markup('highlight', 0, LINES));
+    await act(() => result.current.markup('highlight', 0, PAGE_0, LINES));
     expect(applyEdit).not.toHaveBeenCalled();
   });
 
@@ -100,12 +111,12 @@ describe('useAnnotationEdits', () => {
     const engine = fakeEngine({ applyEdit });
     const { result } = renderHook(() => useAnnotationEdits(engine, doc(), vi.fn()));
 
-    let first: Promise<void> = Promise.resolve();
+    let first: Promise<boolean> = Promise.resolve(false);
     act(() => {
-      first = result.current.markup('highlight', 0, LINES.subarray(0, 4));
+      first = result.current.markup('highlight', 0, PAGE_0, LINES.subarray(0, 4));
     });
     await waitFor(() => expect(result.current.pending).toBe(true));
-    await act(() => result.current.markup('strikeout', 0, LINES.subarray(0, 4)));
+    await act(() => result.current.markup('strikeout', 0, PAGE_0, LINES.subarray(0, 4)));
     expect(applyEdit).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -113,6 +124,59 @@ describe('useAnnotationEdits', () => {
       await first;
     });
     expect(result.current.pending).toBe(false);
+  });
+
+  it('refuses a markup while an undo is still running', async () => {
+    let release: () => void = () => {};
+    const undo = vi.fn(
+      () =>
+        new Promise<EditedDocument>((resolve) => {
+          release = () => resolve(edited(false, true));
+        }),
+    );
+    const applyEdit = vi.fn(async () => edited(true));
+    const engine = fakeEngine({ undo, applyEdit });
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc({ canUndo: true }), vi.fn()));
+
+    let undoing: Promise<void> = Promise.resolve();
+    act(() => {
+      undoing = result.current.undo();
+    });
+    await waitFor(() => expect(result.current.pending).toBe(true));
+    let marked = true;
+    await act(async () => {
+      marked = await result.current.markup('highlight', 0, PAGE_0, LINES);
+    });
+    expect(marked).toBe(false);
+
+    await act(async () => {
+      release();
+      await undoing;
+    });
+    expect(applyEdit).not.toHaveBeenCalled();
+    expect(result.current.pending).toBe(false);
+  });
+
+  it('does not mark up a page that an edit put another page in place of', async () => {
+    // The undo moved page id 1 to position 0; the viewer has not re-rendered yet.
+    const moved = { ...info(), pageCount: 2, pages: [...info().pages, ...info().pages], pageIds: [1, 0] };
+    const engine = fakeEngine({
+      undo: async () => ({ ...edited(false, true), info: moved }),
+      applyEdit: vi.fn(async () => edited(true)),
+    });
+    // One open document: its info stays what it was at open.
+    const open = doc({ canUndo: true });
+    const { result } = renderHook(() => useAnnotationEdits(engine, open, vi.fn()));
+
+    await act(() => result.current.undo());
+    let marked = true;
+    await act(async () => {
+      marked = await result.current.markup('highlight', 0, PAGE_0, LINES);
+    });
+
+    expect(marked).toBe(false);
+    expect(engine.applyEdit).not.toHaveBeenCalled();
+    expect(result.current.failure).toMatch(/page changed/i);
   });
 
   it('undoes and redoes through the engine, after the step in flight', async () => {
@@ -138,9 +202,9 @@ describe('useAnnotationEdits', () => {
     const onEdited = vi.fn();
     const { result } = renderHook(() => useAnnotationEdits(engine, doc({ canUndo: true, canRedo: true }), onEdited));
 
-    let marking: Promise<void> = Promise.resolve();
+    let marking: Promise<boolean> = Promise.resolve(false);
     act(() => {
-      marking = result.current.markup('highlight', 0, LINES.subarray(0, 4));
+      marking = result.current.markup('highlight', 0, PAGE_0, LINES.subarray(0, 4));
     });
     let undoing: Promise<void> = Promise.resolve();
     act(() => {

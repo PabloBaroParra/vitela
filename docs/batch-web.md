@@ -1058,6 +1058,21 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   Chromium): Chromium 41/41, Firefox 31 + 10 saltados, WebKit 31 + 10 saltados, incluido
   zero-network; `annotate.spec.ts` además 27/27 con `--repeat-each=3`. `@vitela/core` (sin
   cambios): `build:wasm`, `tsc -b`, Vitest 132/132. Sin Rust tocado.
+- **Correcciones de revisión:** (1) los botones de marcado se apagan (`aria-disabled`)
+  mientras corre cualquier edición, deshacer o rehacer (`pending`), `markup` se rechaza en
+  ese caso y, justo antes de su primera línea, comprueba que en esa posición sigue la misma
+  página (`pageKey` = `PageId/giro`, leído del último resultado del core, por delante del
+  re-render); si cambió no marca nada y lo explica. (2) `markup` devuelve si entraron todas
+  las líneas; la selección solo se quita si entraron y si sigue siendo la que se marcó (una
+  rechazada o fallida la conserva, una nueva hecha mientras tanto también). (3) Las teclas
+  de historial se leen en un único módulo, `features/document/historyKeys.ts`
+  (`historyAction`, `historyShortcuts`, `isApplePlatform`), usado por el visor
+  (`viewer/useUndoKeys.ts`, renombrado) y por Organize, con las mismas
+  `aria-keyshortcuts` en ambas barras: no se toman con un diálogo modal abierto, y en Mac
+  (según `navigator.platform`, no el user agent) ⌘+Y deja de ser rehacer (es el Historial
+  del navegador); Ctrl+Y sigue fuera de Mac. El E2E pulsa Ctrl+Y solo fuera de Mac. (4)
+  Fuera `AnnotationEditing` y `marking`. Verificado: `tsc -b`, Vitest 401/401 (51 archivos),
+  build; Playwright `annotate` + `organize` + `viewer` 33/33 en los tres navegadores.
 - **No cubierto:** el E2E solo dibuja marcado (el resto de tipos de la capa —tinta, forma,
   nota, texto libre, sello— tiene Vitest de componente y llegará a E2E con sus herramientas en
   T-238/T-239); la capa en una página girada solo tiene tests unitarios; no hay selección ni

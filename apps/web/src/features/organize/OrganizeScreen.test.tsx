@@ -265,6 +265,31 @@ describe('OrganizeScreen', () => {
     expect(order()).toEqual([0, 1, 2]);
   });
 
+  it('reads and labels the history keys as the viewer does', async () => {
+    const { order, grid } = setup(3);
+    expect(button('Undo').getAttribute('aria-keyshortcuts')).toBe('Control+Z');
+    expect(button('Redo').getAttribute('aria-keyshortcuts')).toBe('Control+Shift+Z Control+Y');
+    await act(async () => fireEvent.click(button('Delete')));
+    await act(async () => fireEvent.keyDown(grid(), { key: 'z', ctrlKey: true }));
+    expect(order()).toEqual([0, 1, 2]);
+    await act(async () => fireEvent.keyDown(grid(), { key: 'y', ctrlKey: true }));
+    expect(order()).toEqual([1, 2]);
+  });
+
+  it('takes no history key while a modal dialog is open', async () => {
+    const { order, grid } = setup(3);
+    await act(async () => fireEvent.click(button('Delete')));
+    const modal = document.body.appendChild(document.createElement('dialog'));
+    modal.setAttribute('open', '');
+    modal.setAttribute('aria-modal', 'true');
+    try {
+      await act(async () => fireEvent.keyDown(grid(), { key: 'z', ctrlKey: true }));
+      expect(order()).toEqual([1, 2]);
+    } finally {
+      modal.remove();
+    }
+  });
+
   it('drags the selection to a new place', async () => {
     const { edits, order, cards, grid } = setup(4);
     const step = CARD.width + GRID_GAP;

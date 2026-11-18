@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
-import { useAnnotationEdits } from '../annotations/useAnnotationEdits';
+import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
@@ -20,9 +20,9 @@ import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
 import { PageSlot } from './PageSlot';
 import { renderDpi } from './renderDpi';
 import { revealScroll } from './reveal';
-import { useUndoKeys } from './undoKeys';
 import { useScrollMetrics } from './useScrollMetrics';
 import { useSettled } from './useSettled';
+import { useUndoKeys } from './useUndoKeys';
 import { useViewerZoom } from './useViewerZoom';
 import { MAX_ZOOM, MIN_ZOOM, zoomIn, zoomOut } from './zoom';
 import { ZoomControls } from './ZoomControls';
@@ -72,19 +72,18 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
   );
   const editing = useAnnotationEdits(engine, document, report);
   useUndoKeys(editing.undo, editing.redo);
-  const markSelection = (kind: MarkupKind) => {
-    if (!selection) return;
-    // The marked lines take the selection's place once the core has them.
-    void editing.markup(kind, selection.pageIndex, selection.rects).then(clearSelection);
-  };
+  // Read through a ref: a markup's end must see the selection shown then.
+  const shownSelection = useRef(selection);
+  useLayoutEffect(() => {
+    shownSelection.current = selection;
+  });
+  // Off while any step runs: an undo may be putting another page here.
+  const canMark = !!selection && !editing.pending;
 
   // What sits at each position: an undo or redo of a page edit (made in
   // Organize) puts other pages there, so their bitmaps, search matches and
   // the selection no longer fit.
-  const pageKeys = useMemo(
-    () => pages.map((size, index) => `${pageIds[index] ?? index}/${size.rotationDegrees}`),
-    [pages, pageIds],
-  );
+  const pageKeys = useMemo(() => pages.map((_, index) => pageKey({ pages, pageIds }, index)), [pages, pageIds]);
   const structure = pageKeys.join(',');
   const shownStructure = useRef(structure);
   const clearSearch = search.clear;
@@ -94,6 +93,16 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
     clearSelection();
     clearSearch();
   }, [structure, clearSelection, clearSearch]);
+
+  const markSelection = (kind: MarkupKind) => {
+    const marked = selection;
+    if (!marked || !canMark) return;
+    // The marked lines take the selection's place once the core has every
+    // one — unless the markup failed, or another selection was made since.
+    void editing.markup(kind, marked.pageIndex, pageKeys[marked.pageIndex]!, marked.rects).then((done) => {
+      if (done && shownSelection.current === marked) clearSelection();
+    });
+  };
 
   const annotations = document.annotations ?? NO_ANNOTATIONS;
   const annotationsByPage = useMemo(() => {
@@ -194,7 +203,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           canCopy={!!selection}
           onCopy={copy.copy}
           copyStatus={copy.status}
-          markup={{ allowed: editing.allowed, canMark: !!selection && !editing.marking, onMark: markSelection }}
+          markup={{ allowed: editing.allowed, canMark, onMark: markSelection }}
         />
         <HistoryControls
           canUndo={editing.canUndo}

@@ -12,6 +12,7 @@ import type { DocumentHandle, EditedDocument, Engine, ImportedDocument, PageEdit
 import { StatusLine } from '../../ui/StatusLine';
 import type { OpenDocument } from '../document/useDocument';
 import { carriesFiles } from '../document/droppedFile';
+import { historyAction, isApplePlatform } from '../document/historyKeys';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { BlockCard, blockCardId } from './BlockCard';
 import type { CardPage } from './CardThumbnail';
@@ -155,14 +156,12 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
     else moveSelectionBy(action.delta);
   };
 
+  // The same keys, read the same way, as the viewer's (`historyAction`).
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-    const key = event.key.toLowerCase();
-    const isRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey);
-    const isUndo = key === 'z' && !event.shiftKey;
-    if (!isUndo && !isRedo) return;
+    const action = historyAction(event.nativeEvent, isApplePlatform());
+    if (!action) return;
     event.preventDefault();
-    if (isUndo) undo();
+    if (action === 'undo') undo();
     else redo();
   };
 

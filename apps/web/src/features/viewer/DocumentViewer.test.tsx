@@ -267,6 +267,65 @@ describe('DocumentViewer', () => {
 
     await waitFor(() => expect(getByRole('alert').textContent).toBe('annotating is not permitted'));
     expect(getByRole('button', { name: 'Underline' }).getAttribute('aria-describedby')).not.toBeNull();
+    // Nothing was marked: the selection stays.
+    expect(container.querySelectorAll('.text-selection')).toHaveLength(1);
+  });
+
+  it('turns markup off while an undo is still running', async () => {
+    const selectWord = vi.fn(async () => ({ text: 'word', rects: new Float32Array([72, 100, 40, 18]) }));
+    let release: () => void = () => {};
+    const undo = vi.fn(
+      () =>
+        new Promise<EditedDocument>((resolve) => {
+          release = () => resolve(edited({ canUndo: false, canRedo: true }));
+        }),
+    );
+    const applyEdit = vi.fn(async () => edited());
+    const history: OpenDocument = { ...doc, canUndo: true };
+    const { container, getByRole } = render(<Viewer engine={{ ...engine, selectWord, undo, applyEdit }} document={history} />);
+    fireEvent.doubleClick(container.querySelector('[data-page="1"] .text-layer')!, { clientX: 100, clientY: 140 });
+    await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(1));
+    const highlight = () => getByRole('button', { name: 'Highlight' });
+    expect(highlight().getAttribute('aria-disabled')).toBe('false');
+
+    fireEvent.click(getByRole('button', { name: 'Undo' }));
+    await waitFor(() => expect(undo).toHaveBeenCalledTimes(1));
+    expect(highlight().getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(highlight());
+
+    await act(async () => release());
+    await waitFor(() => expect(highlight().getAttribute('aria-disabled')).toBe('false'));
+    expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('keeps a selection made while the markup ran', async () => {
+    const first = new Float32Array([72, 100, 40, 18]);
+    const second = new Float32Array([72, 300, 60, 18]);
+    const selectWord = vi.fn().mockResolvedValueOnce({ text: 'word', rects: first }).mockResolvedValueOnce({ text: 'other', rects: second });
+    let release: () => void = () => {};
+    const applyEdit = vi.fn(
+      () =>
+        new Promise<EditedDocument>((resolve) => {
+          release = () => resolve(edited());
+        }),
+    );
+    const { container, getByRole } = render(<Viewer engine={{ ...engine, selectWord, applyEdit }} document={doc} />);
+    const layer = () => container.querySelector('[data-page="1"] .text-layer')!;
+    fireEvent.doubleClick(layer(), { clientX: 100, clientY: 140 });
+    await waitFor(() => expect(container.querySelectorAll('.text-selection')).toHaveLength(1));
+    fireEvent.click(getByRole('button', { name: 'Highlight' }));
+    await waitFor(() => expect(applyEdit).toHaveBeenCalledTimes(1));
+
+    // A new word selected while the core marks the first one.
+    fireEvent.doubleClick(layer(), { clientX: 100, clientY: 420 });
+    await waitFor(() => expect(selectWord).toHaveBeenCalledTimes(2));
+    const shownTop = () => (container.querySelector<HTMLElement>('.text-selection')?.style.top ?? '');
+    await waitFor(() => expect(shownTop()).toBe(`${300 * (96 / 72)}px`));
+
+    await act(async () => release());
+    await waitFor(() => expect(container.querySelector('.viewer__failure')).toBeNull());
+    expect(container.querySelectorAll('.text-selection')).toHaveLength(1);
+    expect(shownTop()).toBe(`${300 * (96 / 72)}px`);
   });
 
   it('repaints a position, and drops the selection, when an undo puts another page there', async () => {

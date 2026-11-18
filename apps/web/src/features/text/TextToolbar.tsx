@@ -32,7 +32,7 @@ interface TextToolbarProps {
 export interface MarkupControls {
   /** `false` when the document forbids annotations: the buttons say why. */
   readonly allowed: boolean;
-  /** There is a selection to mark and nothing is being marked right now. */
+  /** There is a selection to mark and no edit, undo or redo is still running. */
   readonly canMark: boolean;
   readonly onMark: (kind: MarkupKind) => void;
 }
