@@ -151,7 +151,8 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
    * The rule: a request reverts only the step it recorded itself, and only
    * because that step left the preview behind.
    * - Before the step, a preview still behind is brought up to date; if it
-   *   cannot be, the request is refused before it records anything. (With
+   *   cannot be, an edit is refused before it records anything, while an
+   *   undo or redo still runs (it may be the way back). (With
    *   the core's exact `previewStale` this does not happen: taking back an
    *   unshown step leaves the preview fresh again.)
    * - So a stale preview after the step is this step's doing. Only then is
@@ -166,9 +167,19 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     document: DocumentHandle,
     run: () => { recorded: boolean; added?: number },
     revert: () => void,
+    { throughStalePreview = false } = {},
   ): EditedDocument => {
     assertOpen(document);
-    if (core.previewStale(document)) refresh(document);
+    if (core.previewStale(document)) {
+      try {
+        refresh(document);
+      } catch (error) {
+        // Undo and redo still run: stepping through the history may be the
+        // very thing that brings the preview back, and refusing them would
+        // leave no way out of a preview that cannot catch up.
+        if (!throughStalePreview) throw error;
+      }
+    }
     const { recorded, added } = run();
     if (recorded && core.previewStale(document)) {
       try {
@@ -189,7 +200,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
   const history = (document: DocumentHandle, run: () => boolean, revert: () => void) =>
-    step(document, () => ({ recorded: run() }), revert);
+    step(document, () => ({ recorded: run() }), revert, { throughStalePreview: true });
 
   return {
     async open(bytes: Uint8Array, password?: string): Promise<OpenedDocument> {

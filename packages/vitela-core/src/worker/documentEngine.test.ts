@@ -705,14 +705,21 @@ describe('documentEngine', () => {
     await expect(engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 })).rejects.toThrow('preview failed');
     expect(core.previewStale(handle)).toBe(true);
 
-    // Nothing to undo: refused while the preview is behind, and the page
-    // step taken back above is not redone as a "revert".
-    await expect(engine.undo(handle)).rejects.toThrow('preview failed');
+    // Undo still runs while the preview is behind (it may be the way out),
+    // but with nothing to undo it takes nothing back: the page step reverted
+    // above is not redone as a "revert".
+    const undone = await engine.undo(handle);
+    expect(undone).toMatchObject({ canUndo: false });
     expect(core.pageIds(handle)).toEqual(new Uint32Array([100, 101]));
+
+    // Any other edit is refused before it records anything.
+    const box = { left: 72, top: 72, width: 120, height: 30 };
+    await expect(
+      engine.applyEdit(handle, { kind: 'addShape', page: 0, rect: box, color: { r: 0, g: 0, b: 0 } }),
+    ).rejects.toThrow('preview failed');
     expect(core.canUndo(handle)).toBe(false);
 
     options.failRefresh = false;
-    const box = { left: 72, top: 72, width: 120, height: 30 };
     const added = await engine.applyEdit(handle, { kind: 'addShape', page: 0, rect: box, color: { r: 0, g: 0, b: 0 } });
     expect(added).toMatchObject({ canUndo: true, addedAnnotationId: 0 });
     expect(added.info.pageIds).toEqual([100, 101]);
