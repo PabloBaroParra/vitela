@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (cierre pendiente del CI).**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -799,6 +799,93 @@ que sigue:
   injerto antes de importar (se muestran después, en la línea de estado, no se pregunta como
   en Linux); renombrar bloques; un drop sobre Organize con la importación rechazada no hace
   nada más que no abrir el archivo (el botón explica el motivo); arrastrar con el dedo.
+
+### Fase 3 — tareas
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-235** ✓ | Bajar al core lo que hoy vive solo en `pdf-ffi`: construir comandos de anotación (cursor de `AnnotationId`, `replace_annotation`, no-op de `SetAnnotationContents`), sello con `check_edit`, instantánea de anotaciones (posición + maquetado de texto libre), mezcla de `comments`, comando de relleno (`set_field_value`) y `form_fill_allowed`. `pdf-ffi` delega. | Nativo: **cero cambio de comportamiento** (tests de fachada sin tocar, `core.yml` en verde); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. Sin E2E (no hay UI). |
+| **T-236** | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
+| **T-237** | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
+| **T-238** | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
+| **T-239** | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
+| **T-240** | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
+| **T-241** | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
+| **T-242** | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
+| **T-243** | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
+
+T-235 bloquea T-236 y T-242. T-236 bloquea T-237…T-241; T-237 (la capa) bloquea T-238…T-240. T-242 bloquea T-243. Tras T-235 las dos pistas (anotar y formularios) pueden ir en paralelo. Fuera de la fase 3: crear/mover/borrar campos de formulario (autoría).
+
+### T-235 — resultado
+
+Mismo patrón que T-223: las reglas bajan al crate dueño del concepto y `pdf-ffi` se queda
+con su vocabulario (posición de página → `PageId`, DTO ↔ tipos del core). Los tests de
+fachada de `pdf-ffi` (`tests/*.rs`: `comments`, `freetext`, `forms`, `smoke`…) siguen sin
+tocar.
+
+- **Comandos de anotación → `pdf_annotate::session`.** `AnnotationIdCursor` (contador
+  desde 0 que nunca reutiliza un id, ni tras deshacer), `add_annotation(ids, page,
+  NewAnnotation)` (marcado, forma, tinta, nota, texto libre y sello desde bytes; el id se
+  gasta antes de construir, como antes), `change_annotation(set, id, AnnotationChange)`
+  (retexto/mover/redimensionar/recolorear → `ReplaceAnnotation`) y
+  `remove_annotation(set, id)`. **El no-op va aquí:** `change_annotation` devuelve `None`
+  solo para un retexto que deja el texto igual; mover cero sigue registrando un paso, como
+  hacía `pdf-ffi`. `AnnotateError` gana `AnnotationNotFound(id)`, que `pdf-ffi` traduce al
+  `AnnotationNotFound { annotation_id }` de siempre.
+- **Clasificación positiva → `Command::is_annotation_edit`** (`pdf-document`):
+  `Add`/`Remove`/`ReplaceAnnotation`. `EditClass::of` pasa de lista de exclusión a
+  `is_annotation_edit || is_form_field_edit` (mismo resultado sobre todas las variantes).
+  El `is_annotation_command` de `pdf-ffi` se queda (el gate pregunta antes de construir,
+  razón de T-223) pero pasa a ser un `match` exhaustivo: un `FfiEditCommand` nuevo no
+  compila hasta clasificarse.
+- **Sello con `check_edit`.** `insert_image_stamp` pregunta
+  `check_edit(security, EditClass::ANNOTATION)` en vez de su copia a mano (mismas palabras,
+  "annotation editing is not permitted", y antes de gastar el id) y construye con
+  `add_annotation(.., NewAnnotation::Stamp)`.
+- **Instantánea → `pdf_annotate::annotation_snapshot(&Document)`**: cada anotación con la
+  posición actual de su página y, si es texto libre, el `FreeTextLayout` con el que se
+  pintará su `/AP`. Omite (como antes) la de una página que ya no está y el texto libre que
+  no se puede maquetar. `pdf-ffi` solo convierte a `FfiAnnotation` y omite las clases sin
+  forma en la API.
+- **Comentarios → `pdf_save::comments(&Document, &base, &ImportedSourceRegistry)`**: página
+  a página, primero los del archivo (base o fuente importada, solo lectura, sin id) y luego
+  las notas de la sesión con su `AnnotationId`. `pdf-save` porque es quien tiene el
+  registro de importados.
+- **Relleno → `pdf_form::fill_field(&FormFieldSet, id, FieldValue)`** (valida una copia y
+  registra el valor que sobrevive). `FormError` gana `FieldNotFound(id)`, que `pdf-ffi`
+  traduce al `FormFieldNotFound` de siempre; el resto sigue siendo `UnsupportedOperation`.
+- **Permisos de formulario → `pdf_save::form_fill_allowed` y
+  `form_field_editing_allowed`**, los dos como `check_edit(..).is_ok()` sobre las
+  constantes nuevas `EditClass::ANNOTATION` (anotar o rellenar: bit 6) y
+  `EditClass::STRUCTURAL_FORM` (bits 6 y 4, sin pregunta de reescritura). Una sola fuente
+  para el gate y para la pregunta previa de la UI. `form_field_editing_allowed` de
+  `pdf-ffi` delega; la fachada no tiene `form_fill_allowed` (sigue siendo
+  `annotation_editing_allowed`, la misma respuesta).
+- **Lo que no se movió:** la resolución posición → `PageId` y los DTO (son de la
+  fachada); `stamp_placement` ya estaba en el core (`pdf_annotate::stamp_placement`), igual
+  que el maquetado (`layout_free_text`); colocar/mover/borrar/renombrar campos (autoría,
+  fuera de la fase 3). Único test unitario retocado: el que compara clases FFI/core
+  desenvuelve el `Option` nuevo de `build_core_command` (`None` = no-op).
+
+Lo que condiciona T-236/T-242: `pdf-wasm` tiene que depender de `pdf-annotate` y `pdf-form`
+(hoy solo de `pdf-save`, `pdf-document`, `pdf-manip`, `pdf-render`), guardar un
+`AnnotationIdCursor` por documento junto al `ImportedSourceRegistry`, llamar a
+`check_edit` con `EditClass::of` o con `EditClass::ANNOTATION` **antes** de construir (si
+construye primero, el orden de errores frente a "página fuera de rango" difiere, como en
+T-224), tratar el `None` de `change_annotation` como "nada que registrar" (respuesta sin
+paso de deshacer) y exponer `annotation_snapshot`/`comments`/`fill_field`/
+`form_fill_allowed` tal cual.
+
+**Verificado en local (Windows):** `cargo test --locked -p pdf-document -p pdf-annotate
+-p pdf-form -p pdf-save -p pdf-ffi -p pdf-wasm` con pdfium vendorizado (1150 pasados, 0
+fallos, 7 ignorados); `cargo clippy --locked --all-targets -- -D warnings` nativo de esos
+seis crates; `cargo check --locked --workspace --all-targets`; `cargo check --locked
+--target wasm32-unknown-unknown -p pdf-wasm`; `cargo clippy --locked --target
+wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`
+apuntando a `apps/web/generated/pdfium`); `cargo fmt --all -- --check`. **No corrido en
+local:** clippy/tests de `linux-gtk` (CI Linux; usa `pdf-annotate`/`pdf-form` y los dos
+errores son `#[non_exhaustive]`, así que una variante nueva no rompe sus `match`) y los
+`wasm-bindgen-test` (sin chromedriver; este cambio no toca `pdf-wasm`).
 
 ## Verificación
 

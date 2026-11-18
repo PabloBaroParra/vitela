@@ -3,6 +3,8 @@
 
 use std::fmt;
 
+use pdf_document::AnnotationId;
+
 /// Errors surfaced by this crate.
 ///
 /// `#[non_exhaustive]`: mirrors the extensibility posture already used for
@@ -27,6 +29,9 @@ pub enum AnnotateError {
     /// The rect is not a usable box (zero, negative or non-finite size, or
     /// smaller than the minimum a text box may shrink to).
     InvalidRect,
+    /// No annotation in the session's set answers to this id — an edit
+    /// naming one that was removed, or never existed.
+    AnnotationNotFound(AnnotationId),
 }
 
 impl fmt::Display for AnnotateError {
@@ -37,6 +42,7 @@ impl fmt::Display for AnnotateError {
             }
             AnnotateError::InvalidImage(msg) => write!(f, "invalid image bytes: {msg}"),
             AnnotateError::InvalidRect => write!(f, "the rectangle is not a usable size"),
+            AnnotateError::AnnotationNotFound(id) => write!(f, "no annotation with id {}", id.0),
             AnnotateError::EncodingGap { character } => {
                 write!(f, "'{character}' cannot be shown in Helvetica (WinAnsi)")
             }

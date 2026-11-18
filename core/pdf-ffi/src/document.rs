@@ -38,8 +38,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use pdf_document::{
-    Annotation, AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials,
-    ImageItem, PageId, PageOrigin, Permissions, SecurityContext, SecurityHandler, TextRun,
+    AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials, ImageItem,
+    PageId, Permissions, SecurityContext, SecurityHandler, TextRun,
 };
 use pdf_manip::LopdfDocument;
 
@@ -76,7 +76,9 @@ pub(crate) struct DocumentState {
     /// render side may need to be rebuilt; it never leaves this crate, is
     /// never logged, and dies with the handle.
     render_password: Option<String>,
-    next_annotation_id: u64,
+    /// Hands out the id of each annotation this session adds; the rule is
+    /// the core's (`pdf_annotate::session`).
+    annotation_ids: pdf_annotate::AnnotationIdCursor,
     /// Each base page's rotation as the file was opened, which
     /// [`DocumentState::page_dimensions`] hands to
     /// `pdf_manip::current_page_dimensions` to tell whether a pending
@@ -112,7 +114,7 @@ impl DocumentState {
             original_bytes,
             render_doc,
             render_password,
-            next_annotation_id: 0,
+            annotation_ids: pdf_annotate::AnnotationIdCursor::new(),
             opened_rotations,
             imported: pdf_save::ImportedSourceRegistry::new(),
             checkpoints: Default::default(),
@@ -187,20 +189,46 @@ impl DocumentState {
             .collect()
     }
 
-    fn allocate_annotation_id(&mut self) -> AnnotationId {
-        let id = AnnotationId(self.next_annotation_id);
-        self.next_annotation_id += 1;
-        id
+    /// The `AddAnnotation` command for `new` on the page at `position` — the
+    /// id and the build are the core's (`pdf_annotate::add_annotation`).
+    fn add_annotation(
+        &mut self,
+        position: u32,
+        new: pdf_annotate::NewAnnotation,
+    ) -> Result<Command, FfiError> {
+        let page = self.page_id(position)?;
+        Ok(pdf_annotate::add_annotation(
+            &mut self.annotation_ids,
+            page,
+            new,
+        )?)
+    }
+
+    /// `change` applied to annotation `annotation_id`, or `None` for a retype
+    /// that changes nothing (`pdf_annotate::change_annotation`).
+    fn change_annotation(
+        &self,
+        annotation_id: u64,
+        change: pdf_annotate::AnnotationChange,
+    ) -> Result<Option<Command>, FfiError> {
+        Ok(pdf_annotate::change_annotation(
+            &self.document.annotations,
+            AnnotationId(annotation_id),
+            change,
+        )?)
     }
 
     /// Translates an FFI-facing edit command into the real
     /// `pdf_document::Command`, allocating fresh page/annotation ids and
-    /// resolving `RemoveAnnotation`'s referenced annotation from the current
-    /// `AnnotationSet` (the real `Command::RemoveAnnotation` variant carries
-    /// the removed value itself — see `edit_log.rs` module docs — so it must
-    /// be looked up before the command is built, not after).
-    fn build_core_command(&mut self, command: FfiEditCommand) -> Result<Command, FfiError> {
-        Ok(match command {
+    /// resolving what an edit of an existing annotation or field has to
+    /// carry from the current model.
+    ///
+    /// `None` when the edit changes nothing and must record no step — today
+    /// only a retype to the text a box already has (the core's rule,
+    /// `pdf_annotate::change_annotation`).
+    fn build_core_command(&mut self, command: FfiEditCommand) -> Result<Option<Command>, FfiError> {
+        use pdf_annotate::{AnnotationChange, NewAnnotation};
+        Ok(Some(match command {
             FfiEditCommand::RotatePage {
                 page,
                 delta_degrees,
@@ -264,89 +292,96 @@ impl DocumentState {
             } => {
                 Command::rotate_pages(&self.document, from as usize, count as usize, delta_degrees)?
             }
-            FfiEditCommand::AddHighlight { page, rect, color } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::highlight(id, page, rect.into(), color.into()))
-            }
-            FfiEditCommand::AddUnderline { page, rect, color } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::underline(id, page, rect.into(), color.into()))
-            }
-            FfiEditCommand::AddStrikeout { page, rect, color } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::strikeout(id, page, rect.into(), color.into()))
-            }
-            FfiEditCommand::AddShape { page, rect, color } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::shape(id, page, rect.into(), color.into()))
-            }
+            FfiEditCommand::AddHighlight { page, rect, color } => self.add_annotation(
+                page,
+                NewAnnotation::Highlight {
+                    rect: rect.into(),
+                    color: color.into(),
+                },
+            )?,
+            FfiEditCommand::AddUnderline { page, rect, color } => self.add_annotation(
+                page,
+                NewAnnotation::Underline {
+                    rect: rect.into(),
+                    color: color.into(),
+                },
+            )?,
+            FfiEditCommand::AddStrikeout { page, rect, color } => self.add_annotation(
+                page,
+                NewAnnotation::Strikeout {
+                    rect: rect.into(),
+                    color: color.into(),
+                },
+            )?,
+            FfiEditCommand::AddShape { page, rect, color } => self.add_annotation(
+                page,
+                NewAnnotation::Shape {
+                    rect: rect.into(),
+                    color: color.into(),
+                },
+            )?,
             FfiEditCommand::AddInk {
                 page,
                 points,
                 color,
-            } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                let points = points.into_iter().map(|p| (p.x, p.y)).collect();
-                Command::AddAnnotation(pdf_annotate::ink(id, page, points, color.into()))
-            }
+            } => self.add_annotation(
+                page,
+                NewAnnotation::Ink {
+                    points: points.into_iter().map(|p| (p.x, p.y)).collect(),
+                    color: color.into(),
+                },
+            )?,
             FfiEditCommand::AddTextNote {
                 page,
                 rect,
                 contents,
-            } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::text_note(id, page, rect.into(), contents))
-            }
+            } => self.add_annotation(
+                page,
+                NewAnnotation::TextNote {
+                    rect: rect.into(),
+                    contents,
+                },
+            )?,
             FfiEditCommand::AddFreeText {
                 page,
                 rect,
                 contents,
-            } => {
-                let page = self.page_id(page)?;
-                let id = self.allocate_annotation_id();
-                Command::AddAnnotation(pdf_annotate::free_text(id, page, rect.into(), &contents)?)
-            }
+            } => self.add_annotation(
+                page,
+                NewAnnotation::FreeText {
+                    rect: rect.into(),
+                    contents,
+                },
+            )?,
             FfiEditCommand::SetAnnotationContents {
                 annotation_id,
                 contents,
-            } => self.replace_annotation(annotation_id, |annotation| {
-                pdf_annotate::set_annotation_contents(annotation, &contents)
-            })?,
-            FfiEditCommand::RemoveAnnotation { annotation_id } => {
-                let id = AnnotationId(annotation_id);
-                let annotation = self
-                    .document
-                    .annotations
-                    .get(id)
-                    .cloned()
-                    .ok_or(FfiError::AnnotationNotFound { annotation_id })?;
-                Command::RemoveAnnotation(annotation)
+            } => {
+                return self
+                    .change_annotation(annotation_id, AnnotationChange::SetContents(contents));
             }
+            FfiEditCommand::RemoveAnnotation { annotation_id } => pdf_annotate::remove_annotation(
+                &self.document.annotations,
+                AnnotationId(annotation_id),
+            )?,
             FfiEditCommand::MoveAnnotation {
                 annotation_id,
                 dx,
                 dy,
-            } => self.replace_annotation(annotation_id, |annotation| {
-                pdf_annotate::move_annotation(annotation, dx, dy)
-            })?,
+            } => return self.change_annotation(annotation_id, AnnotationChange::Move { dx, dy }),
             FfiEditCommand::ResizeAnnotation {
                 annotation_id,
                 rect,
-            } => self.replace_annotation(annotation_id, |annotation| {
-                pdf_annotate::resize_annotation(annotation, rect.into())
-            })?,
+            } => {
+                return self.change_annotation(annotation_id, AnnotationChange::Resize(rect.into()))
+            }
             FfiEditCommand::RestyleAnnotation {
                 annotation_id,
                 color,
-            } => self.replace_annotation(annotation_id, |annotation| {
-                pdf_annotate::restyle_annotation(annotation, color.into())
-            })?,
+            } => {
+                return self
+                    .change_annotation(annotation_id, AnnotationChange::Restyle(color.into()))
+            }
             FfiEditCommand::ReplaceTextRunContent { item, after } => {
                 Command::ReplaceTextRunContent {
                     item: self.text_run(item)?,
@@ -512,23 +547,7 @@ impl DocumentState {
                     after: after.into(),
                 }
             }
-        })
-    }
-
-    fn replace_annotation(
-        &self,
-        annotation_id: u64,
-        operation: impl FnOnce(&mut Annotation) -> Result<(), pdf_annotate::AnnotateError>,
-    ) -> Result<Command, FfiError> {
-        let before = self
-            .document
-            .annotations
-            .get(AnnotationId(annotation_id))
-            .cloned()
-            .ok_or(FfiError::AnnotationNotFound { annotation_id })?;
-        let mut after = before.clone();
-        operation(&mut after).map_err(FfiError::from)?;
-        Ok(Command::ReplaceAnnotation { before, after })
+        }))
     }
 }
 
@@ -839,11 +858,6 @@ fn is_content_command(command: &FfiEditCommand) -> bool {
     )
 }
 
-/// Whether `command` edits an annotation rather than page structure — the
-/// annotate permission bit (`/P` bit 6) has no say over `RotatePage`,
-/// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
-/// editing a page's text/images is a content-modify operation, not an
-/// annotation, the same distinction the PDF permission bits themselves draw.
 /// Whether `command` changes which pages the document has, in what order, or
 /// how they are turned — the PDF document-assembly permission (`/P` bit 11),
 /// which no command crossing this boundary used to be checked against at all.
@@ -879,43 +893,77 @@ fn is_page_structure_command(command: &FfiEditCommand) -> bool {
     )
 }
 
+/// Whether `command` edits an annotation rather than page structure — the
+/// annotate permission bit (`/P` bit 6) has no say over `RotatePage`,
+/// `InsertBlankPage`, `RemovePage`, or any page-content command (Batch 21):
+/// editing a page's text/images is a content-modify operation, not an
+/// annotation, the same distinction the PDF permission bits themselves draw.
+/// Form commands are in: bit 6 is the floor for every one of them.
 fn is_annotation_command(command: &FfiEditCommand) -> bool {
-    !matches!(
-        command,
+    // Exhaustive on purpose: a new command has to be classified here, not
+    // fall into either answer by default. The core twin is
+    // `Command::is_annotation_edit || Command::is_form_field_edit`.
+    match command {
+        FfiEditCommand::AddHighlight { .. }
+        | FfiEditCommand::AddUnderline { .. }
+        | FfiEditCommand::AddStrikeout { .. }
+        | FfiEditCommand::AddShape { .. }
+        | FfiEditCommand::AddInk { .. }
+        | FfiEditCommand::AddTextNote { .. }
+        | FfiEditCommand::AddFreeText { .. }
+        | FfiEditCommand::SetAnnotationContents { .. }
+        | FfiEditCommand::RemoveAnnotation { .. }
+        | FfiEditCommand::MoveAnnotation { .. }
+        | FfiEditCommand::ResizeAnnotation { .. }
+        | FfiEditCommand::RestyleAnnotation { .. }
+        // Bit 6 is the floor for every form command, filling one in included.
+        | FfiEditCommand::AddTextField { .. }
+        | FfiEditCommand::AddCheckbox { .. }
+        | FfiEditCommand::AddRadioGroup { .. }
+        | FfiEditCommand::AddDefaultRadioGroup { .. }
+        | FfiEditCommand::AddDropdown { .. }
+        | FfiEditCommand::RemoveFormField { .. }
+        | FfiEditCommand::MoveFormField { .. }
+        | FfiEditCommand::ResizeFormField { .. }
+        | FfiEditCommand::RestyleFormField { .. }
+        | FfiEditCommand::SetFieldValue { .. }
+        | FfiEditCommand::RenameFormField { .. } => true,
         FfiEditCommand::RotatePage { .. }
-            | FfiEditCommand::RotatePages { .. }
-            | FfiEditCommand::InsertBlankPage { .. }
-            | FfiEditCommand::RemovePage { .. }
-            | FfiEditCommand::RemovePages { .. }
-            | FfiEditCommand::MovePages { .. }
-            | FfiEditCommand::ReplaceTextRunContent { .. }
-            | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
-            | FfiEditCommand::InsertTextRun { .. }
-            | FfiEditCommand::RemoveTextRun { .. }
-            | FfiEditCommand::MoveTextRun { .. }
-            | FfiEditCommand::RestyleTextRun { .. }
-            | FfiEditCommand::InsertImage { .. }
-            | FfiEditCommand::RemoveImage { .. }
-            | FfiEditCommand::MoveImage { .. }
-            | FfiEditCommand::ResizeImage { .. }
-            | FfiEditCommand::ReplaceImageSource { .. }
-            | FfiEditCommand::MovePath { .. }
-            | FfiEditCommand::ResizePath { .. }
-            | FfiEditCommand::RemovePath { .. }
-            | FfiEditCommand::AddWatermark { .. }
-            | FfiEditCommand::AddImageWatermark { .. }
-            | FfiEditCommand::SetDocumentInfo { .. }
-    )
+        | FfiEditCommand::RotatePages { .. }
+        | FfiEditCommand::InsertBlankPage { .. }
+        | FfiEditCommand::RemovePage { .. }
+        | FfiEditCommand::RemovePages { .. }
+        | FfiEditCommand::MovePages { .. }
+        | FfiEditCommand::ReplaceTextRunContent { .. }
+        | FfiEditCommand::ReplaceTextRunWithInsertedFont { .. }
+        | FfiEditCommand::InsertTextRun { .. }
+        | FfiEditCommand::RemoveTextRun { .. }
+        | FfiEditCommand::MoveTextRun { .. }
+        | FfiEditCommand::RestyleTextRun { .. }
+        | FfiEditCommand::InsertImage { .. }
+        | FfiEditCommand::RemoveImage { .. }
+        | FfiEditCommand::MoveImage { .. }
+        | FfiEditCommand::ResizeImage { .. }
+        | FfiEditCommand::ReplaceImageSource { .. }
+        | FfiEditCommand::MovePath { .. }
+        | FfiEditCommand::ResizePath { .. }
+        | FfiEditCommand::RemovePath { .. }
+        | FfiEditCommand::AddWatermark { .. }
+        | FfiEditCommand::AddImageWatermark { .. }
+        | FfiEditCommand::SetDocumentInfo { .. } => false,
+    }
 }
 
-/// The shell-facing snapshot of `annotation`, or `None` for a kind this API
-/// has no shape for.
+/// The shell-facing shape of one entry of the core's snapshot
+/// (`pdf_annotate::annotation_snapshot`, which owns the page position and
+/// the free-text layout), or `None` for a kind this API has no shape for.
 ///
 /// `None` rather than a stand-in: an unknown kind used to come out as an
 /// empty `TextNote` at (0, 0), which a shell would happily list, select and
 /// draw. Skipping it is the honest answer — it stays in the document and in
 /// the saved file, it is just not offered for editing.
-fn ffi_annotation(annotation: &Annotation) -> Option<FfiAnnotation> {
+fn ffi_annotation(snapshot: pdf_annotate::AnnotationSnapshot<'_>) -> Option<FfiAnnotation> {
+    let annotation = snapshot.annotation;
     let kind = match &annotation.kind {
         AnnotationKind::Highlight { rect, color } => FfiAnnotationKind::Highlight {
             rect: (*rect).into(),
@@ -944,13 +992,8 @@ fn ffi_annotation(annotation: &Annotation) -> Option<FfiAnnotation> {
         AnnotationKind::Stamp { rect, .. } => FfiAnnotationKind::Stamp {
             rect: (*rect).into(),
         },
-        AnnotationKind::FreeText {
-            rect,
-            contents,
-            style,
-        } => {
-            let layout =
-                pdf_annotate::layout_free_text(contents, style, rect.width, rect.height).ok()?;
+        AnnotationKind::FreeText { rect, contents, .. } => {
+            let layout = snapshot.free_text?;
             FfiAnnotationKind::FreeText {
                 rect: (*rect).into(),
                 contents: contents.clone(),
@@ -962,7 +1005,7 @@ fn ffi_annotation(annotation: &Annotation) -> Option<FfiAnnotation> {
     };
     Some(FfiAnnotation {
         id: annotation.id.0,
-        page: annotation.page.0,
+        page: snapshot.page as u32,
         kind,
     })
 }
@@ -1040,16 +1083,9 @@ impl DocumentHandle {
     /// available when editing permission is withheld.
     pub fn annotations(&self) -> Vec<FfiAnnotation> {
         let state = self.lock();
-        state
-            .document
-            .annotations
-            .iter()
-            .filter_map(|annotation| {
-                Some(FfiAnnotation {
-                    page: state.page_position(annotation.page)?,
-                    ..ffi_annotation(annotation)?
-                })
-            })
+        pdf_annotate::annotation_snapshot(&state.document)
+            .into_iter()
+            .filter_map(ffi_annotation)
             .collect()
     }
 
@@ -1057,50 +1093,17 @@ impl DocumentHandle {
     /// annotations to AnnotationSet, and remains available without edit permission.
     pub fn comments(&self) -> Vec<crate::FfiComment> {
         let state = self.lock();
-        let base = state.base.comments();
-        let imported: HashMap<_, _> = state
-            .imported
-            .pairs()
+        pdf_save::comments(&state.document, &state.base, &state.imported)
             .into_iter()
-            .map(|(id, source)| (id, source.comments()))
-            .collect();
-        let mut result = Vec::new();
-        for (position, page) in state.document.pages.iter().enumerate() {
-            let source = match page.origin {
-                PageOrigin::Base { page_index } => base.get(page_index as usize),
-                PageOrigin::Imported { source, page_index } => imported
-                    .get(&source)
-                    .and_then(|pages| pages.get(page_index as usize)),
-                _ => None,
-            };
-            if let Some(comments) = source {
-                result.extend(comments.iter().map(|comment| crate::FfiComment {
-                    page: position as u32,
-                    rect: comment.rect.into(),
-                    contents: comment.contents.clone(),
-                    author: comment.author.clone(),
-                    date: comment.date.clone(),
-                    annotation_id: None,
-                }));
-            }
-            result.extend(state.document.annotations.iter().filter_map(|annotation| {
-                if annotation.page != page.id {
-                    return None;
-                }
-                let AnnotationKind::TextNote { rect, contents, .. } = &annotation.kind else {
-                    return None;
-                };
-                Some(crate::FfiComment {
-                    page: position as u32,
-                    rect: (*rect).into(),
-                    contents: contents.clone(),
-                    author: None,
-                    date: None,
-                    annotation_id: Some(annotation.id.0),
-                })
-            }));
-        }
-        result
+            .map(|comment| crate::FfiComment {
+                page: comment.page as u32,
+                rect: comment.rect.into(),
+                contents: comment.contents,
+                author: comment.author,
+                date: comment.date,
+                annotation_id: comment.annotation.map(|id| id.0),
+            })
+            .collect()
     }
 
     /// Reports whether a new annotation edit would be allowed by the PDF's
@@ -1161,9 +1164,7 @@ impl DocumentHandle {
     /// the latter also refuses a document whose encryption cannot survive a
     /// full rewrite, which a form edit never asks for.
     pub fn form_field_editing_allowed(&self) -> bool {
-        let state = self.lock();
-        annotation_editing_is_allowed(&state.document)
-            && pdf_manip::content_editing_is_allowed(state.document.security.as_ref())
+        pdf_save::form_field_editing_allowed(self.lock().document.security.as_ref())
     }
 
     /// Reports whether rewriting this page's own content — retyping a text
@@ -1682,7 +1683,8 @@ mod tests {
             let core = handle
                 .lock()
                 .build_core_command(command.clone())
-                .expect("builds");
+                .expect("builds")
+                .expect("records a step");
             assert_eq!(ffi, pdf_save::EditClass::of(&core), "{command:?}");
         }
     }
@@ -1929,17 +1931,11 @@ pub fn apply_edit(handle: &DocumentHandle, command: FfiEditCommand) -> Result<()
     pdf_save::check_edit(state.document.security.as_ref(), class)?;
     let is_content = class.content;
 
-    let is_set_contents = matches!(command, FfiEditCommand::SetAnnotationContents { .. });
-    let core_command = state.build_core_command(command)?;
-    if is_set_contents {
-        // Retyping a box to the text it already has edited nothing, so it
-        // must not become an undo step the user has to step over.
-        if let Command::ReplaceAnnotation { before, after } = &core_command {
-            if before == after {
-                return Ok(());
-            }
-        }
-    }
+    // `None`: the edit changed nothing (a retype to the same text), so it
+    // must not become an undo step the user has to step over.
+    let Some(core_command) = state.build_core_command(command)? else {
+        return Ok(());
+    };
     if is_content {
         // Tried as it stands first: a checkpoint costs a rewrite, and most
         // edits never need one.
@@ -2042,15 +2038,19 @@ pub fn insert_image_stamp(
     rect: FfiRect,
 ) -> Result<(), FfiError> {
     let mut state = handle.lock();
-    if !annotation_editing_is_allowed(&state.document) {
-        return Err(FfiError::UnsupportedOperation {
-            detail: "annotation editing is not permitted".to_string(),
-        });
-    }
-    let page = state.page_id(page_index)?;
-    let id = state.allocate_annotation_id();
-    let annotation = pdf_annotate::stamp_from_image_bytes(id, page, &image_bytes, rect.into())?;
-    if !apply_command(&mut state.document, Command::AddAnnotation(annotation)) {
+    // The same gate `apply_edit` asks, before the id is spent.
+    pdf_save::check_edit(
+        state.document.security.as_ref(),
+        pdf_save::EditClass::ANNOTATION,
+    )?;
+    let command = state.add_annotation(
+        page_index,
+        pdf_annotate::NewAnnotation::Stamp {
+            image: image_bytes,
+            rect: rect.into(),
+        },
+    )?;
+    if !apply_command(&mut state.document, command) {
         return Err(FfiError::UnsupportedOperation {
             detail: "this edit command was rejected against the open document".to_string(),
         });

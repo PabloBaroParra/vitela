@@ -52,6 +52,7 @@ pub mod bridge;
 pub mod checkpoint;
 pub mod clipboard;
 pub mod clock;
+pub mod comments;
 pub mod compress;
 pub mod content;
 pub mod edit_gate;
@@ -84,6 +85,7 @@ pub use clipboard::{
 pub use clock::{
     Clock, FixedClock, IdGenerator, RandomIdGenerator, SequentialIdGenerator, SystemClock,
 };
+pub use comments::{comments, Comment};
 pub use compress::{
     compressed_save_will_invalidate_signatures, compression_blocker, save_document_compressed,
     CompressedSave,
@@ -92,7 +94,9 @@ pub use content::{
     has_content_edits, replay_content_edits, validate_content_command,
     validate_content_command_after_pending,
 };
-pub use edit_gate::{check_edit, EditClass, EditRefusal};
+pub use edit_gate::{
+    check_edit, form_field_editing_allowed, form_fill_allowed, EditClass, EditRefusal,
+};
 pub use error::SaveError;
 #[cfg(not(target_arch = "wasm32"))]
 pub use export::export_page_as_image;

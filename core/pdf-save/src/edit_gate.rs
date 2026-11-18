@@ -44,17 +44,37 @@ pub struct EditClass {
 }
 
 impl EditClass {
+    /// Adding, removing or changing an annotation — or filling a form field
+    /// in, which asks exactly the same question (`/P` bit 6 alone). What a
+    /// boundary asks with before it builds a stamp, and what
+    /// [`form_fill_allowed`] answers.
+    pub const ANNOTATION: EditClass = EditClass {
+        annotation: true,
+        document_assembly: false,
+        structural_form: false,
+        content: false,
+        page_structure: false,
+    };
+
+    /// Creating, removing, moving, resizing, restyling or renaming a form
+    /// field — bit 6 and bit 4. What [`form_field_editing_allowed`] answers.
+    pub const STRUCTURAL_FORM: EditClass = EditClass {
+        annotation: true,
+        document_assembly: false,
+        structural_form: true,
+        content: false,
+        page_structure: false,
+    };
+
     /// The class of a built `command`, read with `pdf_document`'s own
     /// predicates.
     pub fn of(command: &Command) -> Self {
         let document_assembly = command.is_document_assembly_edit();
         let content = command.is_content_edit();
         EditClass {
-            // Everything that is not page structure, page content or the
-            // document's metadata is an annotation or a form field.
-            annotation: !(document_assembly
-                || content
-                || matches!(command, Command::SetDocumentInfo { .. })),
+            // Bit 6 is the floor for every form command, filling one in
+            // included.
+            annotation: command.is_annotation_edit() || command.is_form_field_edit(),
             document_assembly,
             structural_form: command.is_form_field_edit()
                 && !matches!(command, Command::SetFieldValue { .. }),
@@ -141,6 +161,26 @@ pub fn check_edit(security: Option<&SecurityContext>, class: EditClass) -> Resul
         }
     }
     Ok(())
+}
+
+/// Whether a document opened with `security` lets an existing form field
+/// be filled in — the annotate bit alone (ISO 32000-1 table 22, bit 6).
+///
+/// Asked up front so a boundary can offer the fill panel read-only instead
+/// of letting every fill fail; [`check_edit`] gives the same answer for the
+/// fill itself.
+pub fn form_fill_allowed(security: Option<&SecurityContext>) -> bool {
+    check_edit(security, EditClass::ANNOTATION).is_ok()
+}
+
+/// Whether a document opened with `security` lets a form field be created or
+/// modified — placed, removed, moved, resized, restyled or renamed.
+///
+/// Not `annotation && content_editing_is_allowed && rewritable`: a field
+/// edit never forces the full-rewrite writer, so an encryption that could
+/// not survive one does not refuse it.
+pub fn form_field_editing_allowed(security: Option<&SecurityContext>) -> bool {
+    check_edit(security, EditClass::STRUCTURAL_FORM).is_ok()
 }
 
 #[cfg(test)]
@@ -388,5 +428,81 @@ mod tests {
         };
 
         assert_eq!(EditClass::of(&info), EditClass::default());
+    }
+
+    // --- EditClass::ANNOTATION / STRUCTURAL_FORM and their questions (T-235) --
+
+    fn a_highlight() -> pdf_document::Annotation {
+        pdf_annotate::highlight(
+            pdf_document::AnnotationId(0),
+            PageId(0),
+            pdf_document::Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            pdf_document::Color { r: 0, g: 0, b: 0 },
+        )
+    }
+
+    /// The constant a boundary asks with before it builds anything (a stamp,
+    /// a fill) is the class of what it then builds.
+    #[test]
+    fn the_annotation_class_is_the_class_of_an_annotation_and_of_a_fill() {
+        let before = a_highlight();
+        let mut after = before.clone();
+        after.page = PageId(1);
+        let fill = Command::SetFieldValue {
+            id: FormFieldId(0),
+            from: FieldValue::Text(String::new()),
+            to: FieldValue::Text("x".to_string()),
+        };
+
+        for command in [
+            Command::AddAnnotation(before.clone()),
+            Command::RemoveAnnotation(before.clone()),
+            Command::ReplaceAnnotation { before, after },
+            fill,
+        ] {
+            assert_eq!(
+                EditClass::of(&command),
+                EditClass::ANNOTATION,
+                "{command:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_structural_form_class_is_the_class_of_a_field_edit() {
+        let rename = Command::RenameFormField {
+            id: FormFieldId(0),
+            from: "a".to_string(),
+            to: "b".to_string(),
+        };
+
+        assert_eq!(EditClass::of(&rename), EditClass::STRUCTURAL_FORM);
+    }
+
+    /// Filling a field in is the annotate bit alone (ISO 32000-1 table 22).
+    #[test]
+    fn a_fill_is_allowed_by_the_annotate_bit_alone() {
+        assert!(form_fill_allowed(None));
+        assert!(form_fill_allowed(Some(&user_open(ANNOTATE))));
+        assert!(!form_fill_allowed(Some(&user_open(MODIFY_CONTENTS))));
+    }
+
+    /// Creating or modifying a field needs bit 4 on top of bit 6, and never
+    /// the rewrite: a one-password RC4 document may still edit its fields.
+    #[test]
+    fn a_field_edit_needs_both_bits_but_no_possible_rewrite() {
+        assert!(form_field_editing_allowed(None));
+        assert!(!form_field_editing_allowed(Some(&user_open(ANNOTATE))));
+        assert!(!form_field_editing_allowed(Some(&user_open(
+            MODIFY_CONTENTS
+        ))));
+        assert!(form_field_editing_allowed(Some(&user_open(
+            ANNOTATE | MODIFY_CONTENTS
+        ))));
     }
 }
