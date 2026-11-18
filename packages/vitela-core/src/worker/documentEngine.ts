@@ -139,20 +139,40 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
   };
   /** The session's annotations on the pages as drawn; call after `describe`. */
   const snapshot = (document: DocumentHandle): Annotation[] => annotations(core.annotations(document), frameOf(document));
+  /** Rebuilds the preview from the edits; cached characters belong to pages that may have moved or gone. */
+  const refresh = (document: DocumentHandle): void => {
+    text.forget(document);
+    core.refreshPreview(document);
+  };
   /**
-   * Runs one step of the edit history, then shows it: refreshes the preview
-   * when the core says the step changed the pixels. If the preview cannot be
-   * rebuilt, `revert` takes the step back, so the page list the UI is given
-   * never disagrees with the pixels it renders.
+   * Runs one step of the edit history, then shows it, so the page list the
+   * UI is given never disagrees with the pixels it renders.
+   *
+   * The rule: a request reverts only the step it recorded itself, and only
+   * because that step left the preview behind.
+   * - Before the step, a preview still behind is brought up to date; if it
+   *   cannot be, the request is refused before it records anything. (With
+   *   the core's exact `previewStale` this does not happen: taking back an
+   *   unshown step leaves the preview fresh again.)
+   * - So a stale preview after the step is this step's doing. Only then is
+   *   it refreshed, and if the refresh fails `revert` takes back that one
+   *   step — which returns the history to what the pixels show.
+   * - A step that recorded nothing (an undo with nothing to undo) never
+   *   reverts, and one the preview does not show (an annotation edit, which
+   *   the UI draws from the snapshot) never refreshes, so neither can be
+   *   blamed for a refresh failure it did not cause.
    */
-  const step = (document: DocumentHandle, run: () => number | undefined, revert: () => void): EditedDocument => {
+  const step = (
+    document: DocumentHandle,
+    run: () => { recorded: boolean; added?: number },
+    revert: () => void,
+  ): EditedDocument => {
     assertOpen(document);
-    const added = run();
-    if (core.previewStale(document)) {
-      // Cached characters belong to pages that may have moved or gone.
-      text.forget(document);
+    if (core.previewStale(document)) refresh(document);
+    const { recorded, added } = run();
+    if (recorded && core.previewStale(document)) {
       try {
-        core.refreshPreview(document);
+        refresh(document);
       } catch (error) {
         revert();
         throw error;
@@ -169,14 +189,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
   const history = (document: DocumentHandle, run: () => boolean, revert: () => void) =>
-    step(
-      document,
-      () => {
-        run();
-        return undefined;
-      },
-      revert,
-    );
+    step(document, () => ({ recorded: run() }), revert);
 
   return {
     async open(bytes: Uint8Array, password?: string): Promise<OpenedDocument> {
@@ -217,9 +230,17 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
           assertOpen(document);
           const command = isPageEdit(edit)
             ? pageCommand(edits, edit)
-            : annotationCommand(edits, edit, frameOf(document), (id) => annotationPage(document, id));
+            : annotationCommand(
+                edits,
+                edit,
+                frameOf(document),
+                (id) => annotationPage(document, id),
+                () => core.annotationEditingAllowed(document),
+              );
           try {
-            return core.applyEdit(document, command);
+            // A refusal throws, so this recorded the step (or the core's
+            // no-op, which cannot leave the preview behind the catch-up).
+            return { recorded: true, added: core.applyEdit(document, command) };
           } finally {
             command.free();
           }
@@ -255,7 +276,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
           } finally {
             report.free();
           }
-          return undefined;
+          return { recorded: true };
         },
         () => void core.undo(document),
       );
@@ -287,13 +308,13 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       }
     },
     async stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint) {
-      const page = pageOf(document, pageIndex);
-      // Only the size is the core's: it is asked at the PDF origin, and the
-      // box is put with its drawn top-left corner at the anchor. A page drawn
-      // a quarter-turn round shows the image turned, so its sides swap.
-      const [, , width, height] = functions.stampPlacement(image, 0, 0);
-      const turned = page.rotationDegrees % 180 !== 0;
-      return { left: anchor.x, top: anchor.y, width: turned ? height! : width!, height: turned ? width! : height! };
+      // The whole placement is the core's (pdf-ffi's `stamp_placement`): the
+      // anchor crosses into PDF space and the box the core puts there comes
+      // back drawn, so a turned page shows it exactly where the native
+      // shells do (the drop point at the image's own top-left, turned).
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      const [x, y] = frame.pointToPdf(anchor);
+      return frame.rectFromPdf(functions.stampPlacement(image, x, y));
     },
   };
 

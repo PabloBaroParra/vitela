@@ -23,6 +23,7 @@ import type {
   PageSize,
   Rgb,
 } from '../core/types.js';
+import { ANNOTATION_NOT_FOUND, EngineError } from '../core/errors.js';
 import type { CoreGeometry, Owned } from './pageText.js';
 
 /** core/pdf-wasm's annotation `EditCommand` constructors. Geometry in PDF space; colour `0xRRGGBB`. */
@@ -139,24 +140,36 @@ export function unpackRgb(rgb: number): Rgb {
 
 /**
  * The core command for `edit`. `frameOf` gives the frame of a page by
- * position and `pageOf` the position of an annotation's page.
+ * position, `pageOf` the position of an annotation's page in the snapshot,
+ * and `editable` whether the document lets annotations be edited at all.
  *
- * Neither refuses anything: a page past the end, or an id the session does
- * not hold, crosses untransformed and the core refuses it, so the order of
- * refusals stays the core's (the annotate permission first, then the page or
- * the id).
+ * A page past the end, or an id given without geometry, crosses
+ * untransformed and the core refuses it, so the order of refusals stays the
+ * core's (the annotate permission first, then the page or the id).
+ *
+ * A move or resize is the exception: its geometry is on a drawn page, and an
+ * annotation the snapshot does not hold (an unknown id, or one whose page was
+ * removed — the core keeps that one for an undo and would accept the change)
+ * has no page to convert it on. Sent as is, the core would record a step with
+ * drawn coordinates taken for PDF ones, so it is refused here with the core's
+ * `AnnotationNotFound` — after the permission, which a document that refuses
+ * annotation edits is still left to the core to name.
  */
 export function annotationCommand(
   edits: CoreAnnotationEdits,
   edit: AnnotationEdit,
   frameOf: (page: number) => PageFrame | undefined,
   pageOf: (id: number) => number | undefined,
+  editable: () => boolean,
 ): Owned {
   const box = (page: number, rect: PageRect) =>
     frameOf(page)?.rectToPdf(rect) ?? ([rect.left, rect.top, rect.width, rect.height] as const);
+  /** The frame to convert annotation `id`'s geometry on, `undefined` for the core to refuse first. */
   const frameOfAnnotation = (id: number) => {
     const page = pageOf(id);
-    return page === undefined ? undefined : frameOf(page);
+    const frame = page === undefined ? undefined : frameOf(page);
+    if (!frame && editable()) throw new EngineError(ANNOTATION_NOT_FOUND, `no annotation with id ${id}`);
+    return frame;
   };
   switch (edit.kind) {
     case 'addMarkup': {

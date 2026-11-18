@@ -172,8 +172,8 @@ impl DocumentModel {
             }
         }
         let outcome = outcome?;
-        // An import adds pages: the preview has to be reopened to show them.
-        self.preview_stale = true;
+        // An import adds pages, as one undo step the preview shows.
+        self.preview.recorded(true);
 
         let source_ids = outcome
             .ids
@@ -316,6 +316,10 @@ mod tests {
         assert!(model.undo(), "one step takes the whole pick back");
         assert_eq!(model.page_count(), 2);
         assert!(!model.can_undo());
+        assert!(
+            !model.preview_stale(),
+            "the import was never shown, and taking it back returns to what is"
+        );
         assert!(model.redo());
         assert_eq!(
             page_texts(&model.preview_bytes().unwrap()),

@@ -135,10 +135,11 @@ impl Engine {
         self.reopen_render(doc).map_err(js_error)
     }
 
-    /// Whether an edit, undo or redo since the last `refreshPreview` (or the
-    /// open) changed what the pixels and the text should show — when the
-    /// shell has to call `refreshPreview` before rendering again. Annotation
-    /// edits never do.
+    /// Whether the edit history stands at a state the pixels and the text,
+    /// as of the last `refreshPreview` (or the open), do not show — when the
+    /// shell has to call `refreshPreview` before rendering again. Exact:
+    /// undoing a page step that was never shown leaves it `false` again.
+    /// Annotation edits never make it `true`.
     #[wasm_bindgen(js_name = previewStale)]
     pub fn preview_stale(&self, doc: u32) -> Result<bool, JsValue> {
         self.document(doc)

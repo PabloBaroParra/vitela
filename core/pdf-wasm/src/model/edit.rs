@@ -114,45 +114,40 @@ impl DocumentModel {
                 "this edit command was rejected against the open document",
             ));
         }
-        self.preview_stale |= shows;
+        self.preview.recorded(shows);
         Ok(())
     }
 
     /// Undoes the last edit. `false` when there was nothing to undo.
     pub fn undo(&mut self) -> bool {
-        let shows = self
-            .document
-            .pending_edits
-            .peek_undo()
-            .is_some_and(pdf_save::shows_in_session_preview);
         let stepped = step_log(&mut self.document, EditLog::undo);
-        self.preview_stale |= stepped && shows;
+        if stepped {
+            self.preview.undone();
+        }
         stepped
     }
 
     /// Redoes the last undone edit. `false` when there was nothing to redo.
     pub fn redo(&mut self) -> bool {
-        let shows = self
-            .document
-            .pending_edits
-            .peek_redo()
-            .is_some_and(pdf_save::shows_in_session_preview);
         let stepped = step_log(&mut self.document, EditLog::redo);
-        self.preview_stale |= stepped && shows;
+        if stepped {
+            self.preview.redone();
+        }
         stepped
     }
 
-    /// Whether the render side still shows the preview from before an edit,
-    /// undo or redo that changed it — what a boundary reopens it for.
+    /// Whether the history stands at a state the render side does not show —
+    /// what a boundary reopens it for. Exact, not sticky: undoing a step that
+    /// was never shown makes it fresh again (see [`super::preview`]).
     /// Annotation edits never make it stale: the preview leaves them out.
     pub fn preview_stale(&self) -> bool {
-        self.preview_stale
+        self.preview.stale()
     }
 
     /// Records that the render side was just reopened from
     /// [`Self::preview_bytes`].
     pub fn mark_preview_fresh(&mut self) {
-        self.preview_stale = false;
+        self.preview.fresh();
     }
 
     pub fn can_undo(&self) -> bool {
@@ -524,6 +519,41 @@ mod tests {
         model.mark_preview_fresh();
 
         assert!(!model.redo() && !model.preview_stale(), "no step");
+    }
+
+    #[test]
+    fn undoing_a_step_the_preview_never_showed_leaves_it_fresh() {
+        // What a shell's revert after a failed refresh relies on: taking the
+        // step back returns to the state the render side still shows, so no
+        // later request inherits a stale flag it did not cause.
+        let mut model = three_pages();
+        model
+            .apply_edit(PageEdit::Remove { index: 0, count: 1 })
+            .unwrap();
+        assert!(model.preview_stale());
+        assert!(model.undo());
+        assert!(!model.preview_stale(), "back at what the preview shows");
+
+        assert!(model.redo());
+        assert!(model.preview_stale(), "the redone step is not shown");
+        model.mark_preview_fresh();
+        assert!(model.undo());
+        assert!(model.redo());
+        assert!(!model.preview_stale(), "back at the refreshed step");
+    }
+
+    #[test]
+    fn a_new_step_after_an_undo_is_stale_even_with_as_many_steps() {
+        let mut model = three_pages();
+        model
+            .apply_edit(PageEdit::Remove { index: 0, count: 1 })
+            .unwrap();
+        model.mark_preview_fresh();
+        assert!(model.undo());
+        model
+            .apply_edit(PageEdit::Remove { index: 2, count: 1 })
+            .unwrap();
+        assert!(model.preview_stale(), "a different page was removed");
     }
 
     #[test]

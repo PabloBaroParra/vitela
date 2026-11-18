@@ -359,8 +359,10 @@ export interface Engine {
   freeTextLayout(contents: string, widthPt: number, heightPt: number): Promise<FreeTextLayout>;
   /**
    * The box the core gives an image stamp dropped or pasted at `anchor` on a
-   * page: the image's own proportions, its longest side two inches, its
-   * top-left corner at the anchor. Pass it to an `addStamp` edit. The image
+   * page: the image's own proportions, its longest side two inches, the
+   * image's own top-left corner at the anchor (on a page drawn turned, the
+   * box's drawn corner turned with it, as in the native shells). Pass it to
+   * an `addStamp` edit. The image
    * is copied, not transferred. Rejects with `InvalidImage`.
    */
   stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect>;

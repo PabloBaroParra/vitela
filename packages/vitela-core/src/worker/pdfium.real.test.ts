@@ -216,7 +216,38 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await expect(engine.freeTextLayout('日', 100, 40)).rejects.toMatchObject({ name: 'EncodingGap' });
     await engine.close(handle);
   });
+
+  it('places a dropped stamp on a page drawn a quarter-turn round as pdf-ffi does', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const turned = await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    const page = turned.info.pages[0]!;
+    const drop = { x: 300, y: 200 };
+    const placed = await engine.stampPlacement(handle, 0, WIDE_PNG, drop);
+
+    // pdf-ffi's path: the drop point in PDF space, `stamp_placement` there,
+    // the box it returns drawn on the page.
+    const [ax, ay] = core.pointToPdf(drop.x, drop.y, page.widthPt, page.heightPt, page.rotationDegrees);
+    const native = core.stampPlacement(WIDE_PNG, ax!, ay!);
+    const [left, top, width, height] = core.placeRects(Float32Array.from(native), page.widthPt, page.heightPt, page.rotationDegrees);
+    expectBox(placed, { left: left!, top: top!, width: width!, height: height! });
+    // The 2:1 image shows turned, and the drop point is its drawn top-right
+    // corner: the image's own top-left, turned with the page.
+    expectBox(placed, { left: drop.x - 72, top: drop.y, width: 72, height: 144 });
+
+    // Inserted at that box, the stamp is where the core placed it.
+    const added = await engine.applyEdit(handle, { kind: 'addStamp', page: 0, image: WIDE_PNG, rect: placed });
+    expectBox(added.annotations[0]!.kind === 'stamp' ? added.annotations[0]!.rect : null, placed);
+    await engine.close(handle);
+  });
 });
+
+/** A 2 x 1 pixel PNG: a stamp twice as wide as it is tall. */
+const WIDE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4z8AARAAI/gH/xp559wAAAABJRU5ErkJggg==',
+  'base64',
+);
 
 /** How many `/Highlight` annotations the bytes spell out (the core writes them uncompressed). */
 function highlights(bytes: Uint8Array): number {

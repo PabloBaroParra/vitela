@@ -461,6 +461,18 @@ fn annotation_edits_leave_the_preview_fresh_and_a_mixed_history_stales_it_only_w
 }
 
 #[test]
+fn an_annotation_step_over_an_unshown_page_step_taken_back_is_fresh() {
+    let mut model = three_pages();
+    model
+        .apply_edit(PageEdit::Remove { index: 0, count: 1 })
+        .unwrap();
+    // The refresh failed and the shell took the page step back.
+    assert!(model.undo());
+    model.apply_annotation_edit(highlight_on(0)).unwrap();
+    assert!(!model.preview_stale(), "only the annotation is new");
+}
+
+#[test]
 fn the_snapshot_follows_the_page_an_annotation_is_on() {
     let mut model = three_pages();
     model.apply_annotation_edit(highlight_on(0)).unwrap();

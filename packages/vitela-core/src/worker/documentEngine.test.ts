@@ -89,7 +89,8 @@ interface FakeState {
 }
 interface FakeStep {
   before: FakeState;
-  pixels: boolean;
+  /** Set when the preview shows the step: which state of the history it is. */
+  mark: number | undefined;
 }
 
 function named(name: string, message: string): Error {
@@ -107,13 +108,18 @@ function fakeCore(
     assembly?: boolean;
     annotate?: boolean;
     failRefresh?: boolean;
+    /** Emulates a core whose stale flag only ever clears on a refresh. */
+    stickyStale?: boolean;
   } = {},
 ) {
   interface Doc extends FakeState {
     marker: number;
     undo: FakeStep[];
     redo: FakeStep[];
-    stale: boolean;
+    /** The mark of the state the preview shows (0: as opened). */
+    shown: number;
+    nextMark: number;
+    sticky: boolean;
     nextAnnotation: number;
   }
   const open = new Map<number, Doc>();
@@ -138,21 +144,24 @@ function fakeCore(
     known(doc);
     if (options.restricted) throw named('TextExtractionDenied', 'text extraction is not permitted');
   };
+  /** The mark of the newest shown step still applied, as the core's `PreviewMarks`. */
+  const current = (entry: Doc) => [...entry.undo].reverse().find((step) => step.mark !== undefined)?.mark ?? 0;
   /** Records a step the way the core's log does. */
   const record = (entry: Doc, next: FakeState, pixels: boolean) => {
-    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations }, pixels });
+    const mark = pixels ? ++entry.nextMark : undefined;
+    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations }, mark });
     entry.redo = [];
     entry.pages = next.pages;
     entry.annotations = next.annotations;
-    entry.stale ||= pixels;
+    entry.sticky ||= pixels;
   };
   const step = (entry: Doc, from: FakeStep[], to: FakeStep[]) => {
     const taken = from.pop();
     if (!taken) return false;
-    to.push({ before: { pages: entry.pages, annotations: entry.annotations }, pixels: taken.pixels });
+    to.push({ before: { pages: entry.pages, annotations: entry.annotations }, mark: taken.mark });
     entry.pages = taken.before.pages;
     entry.annotations = taken.before.annotations;
-    entry.stale ||= taken.pixels;
+    entry.sticky ||= taken.mark !== undefined;
     return true;
   };
   const command = (edit: DistributiveOmit<FakeEdit, 'free'>): FakeEdit =>
@@ -238,7 +247,17 @@ function fakeCore(
         widthPt: 612,
         rotationDegrees: 0,
       }));
-      open.set(id, { marker: bytes[0]!, pages, annotations: [], undo: [], redo: [], stale: false, nextAnnotation: 0 });
+      open.set(id, {
+        marker: bytes[0]!,
+        pages,
+        annotations: [],
+        undo: [],
+        redo: [],
+        shown: 0,
+        nextMark: 0,
+        sticky: false,
+        nextAnnotation: 0,
+      });
       return id;
     },
     close: (doc) => {
@@ -360,9 +379,13 @@ function fakeCore(
       const entry = known(doc);
       if (options.failRefresh) throw new Error('preview failed');
       refreshed.push(doc);
-      entry.stale = false;
+      entry.shown = current(entry);
+      entry.sticky = false;
     },
-    previewStale: (doc) => known(doc).stale,
+    previewStale: (doc) => {
+      const entry = known(doc);
+      return options.stickyStale ? entry.sticky : current(entry) !== entry.shown;
+    },
     annotations: (doc) => {
       const entry = known(doc);
       return entry.annotations.map(
@@ -619,6 +642,84 @@ describe('documentEngine', () => {
     expect(core.canUndo(handle)).toBe(false);
   });
 
+  it('survives two refresh failures in a row, each taking back only its own step', async () => {
+    const options = { pages: 3, failRefresh: true };
+    const { core, edits, refreshed } = fakeCore(options);
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 })).rejects.toThrow('preview failed');
+    await expect(engine.applyEdit(handle, { kind: 'move', from: 0, count: 1, to: 2 })).rejects.toThrow('preview failed');
+    expect(core.pageIds(handle)).toEqual(new Uint32Array([100, 101, 102]));
+    expect(core.canUndo(handle)).toBe(false);
+    // Once the preview works again, nothing is left over for it to show.
+    options.failRefresh = false;
+    expect(core.previewStale(handle)).toBe(false);
+    const turned = await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    expect(turned).toMatchObject({ canUndo: true, canRedo: false });
+    expect(refreshed).toEqual([handle]);
+  });
+
+  it('undoes nothing, and refreshes nothing, when there is nothing to undo after a failed refresh', async () => {
+    const options = { pages: 2, failRefresh: false };
+    const { core, edits, refreshed } = fakeCore(options);
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    options.failRefresh = true;
+    await expect(engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 })).rejects.toThrow('preview failed');
+
+    const undone = await engine.undo(handle);
+    expect(undone).toMatchObject({ canUndo: false });
+    expect(undone.info.pageIds).toEqual([100, 101]);
+    expect(refreshed).toEqual([]);
+  });
+
+  it('keeps an annotation edit made after a failed refresh: it owes the preview nothing', async () => {
+    const options = { pages: 2, failRefresh: false };
+    const { core, edits, refreshed } = fakeCore(options);
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const box = { left: 72, top: 72, width: 120, height: 30 };
+    await engine.applyEdit(handle, { kind: 'addShape', page: 1, rect: box, color: { r: 0, g: 0, b: 0 } });
+    options.failRefresh = true;
+    await expect(engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 })).rejects.toThrow('preview failed');
+
+    const added = await engine.applyEdit(handle, { kind: 'addShape', page: 0, rect: box, color: { r: 0, g: 0, b: 0 } });
+    expect(added.addedAnnotationId).toBe(1);
+    expect(added.annotations.map((a) => a.id)).toEqual([0, 1]);
+    expect(added.info.pageIds).toEqual([100, 101]);
+    // Undo takes back the user's own steps, newest first, never the reverted page step.
+    expect((await engine.undo(handle)).annotations.map((a) => a.id)).toEqual([0]);
+    const first = await engine.undo(handle);
+    expect(first).toMatchObject({ canUndo: false, annotations: [] });
+    expect(first.info.pageIds).toEqual([100, 101]);
+    expect(refreshed).toEqual([]);
+  });
+
+  it('brings a preview left behind up to date before the step, and never reverts a step it did not take', async () => {
+    // A core that over-reports staleness: the worker must not blame the
+    // next request for it.
+    const options = { pages: 2, failRefresh: true, stickyStale: true };
+    const { core, edits, refreshed } = fakeCore(options);
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 })).rejects.toThrow('preview failed');
+    expect(core.previewStale(handle)).toBe(true);
+
+    // Nothing to undo: refused while the preview is behind, and the page
+    // step taken back above is not redone as a "revert".
+    await expect(engine.undo(handle)).rejects.toThrow('preview failed');
+    expect(core.pageIds(handle)).toEqual(new Uint32Array([100, 101]));
+    expect(core.canUndo(handle)).toBe(false);
+
+    options.failRefresh = false;
+    const box = { left: 72, top: 72, width: 120, height: 30 };
+    const added = await engine.applyEdit(handle, { kind: 'addShape', page: 0, rect: box, color: { r: 0, g: 0, b: 0 } });
+    expect(added).toMatchObject({ canUndo: true, addedAnnotationId: 0 });
+    expect(added.info.pageIds).toEqual([100, 101]);
+    // The catch-up, before the step; the shape itself needs none.
+    expect(refreshed).toEqual([handle]);
+  });
+
   it('prepares an import source, copying what the core reports and freeing it', async () => {
     const { core, edits, freed, prepared } = fakeCore();
     const engine = documentEngine(core, geometry, edits);
@@ -851,10 +952,49 @@ describe('documentEngine annotations', () => {
       engine.applyEdit(handle, { kind: 'addMarkup', page: 3, markup: 'highlight', rect: box, color: yellow }),
     ).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
     expect(applied.at(-1)).toMatchObject({ args: [3, 72, 72, 120, 30, 0xffff00] });
-    await expect(engine.applyEdit(handle, { kind: 'moveAnnotation', id: 9, dx: 3, dy: 4 })).rejects.toMatchObject({
+    await expect(engine.applyEdit(handle, { kind: 'removeAnnotation', id: 9 })).rejects.toMatchObject({
       name: 'AnnotationNotFound',
     });
-    expect(applied.at(-1)).toMatchObject({ args: [9, 3, 4] });
+    expect(applied.at(-1)).toMatchObject({ args: [9] });
+  });
+
+  it('refuses to move or resize an annotation the snapshot does not hold: its drawn geometry has no page', async () => {
+    const { core, edits, applied } = fakeCore({ pages: 2 });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.applyEdit(handle, { kind: 'addShape', page: 1, rect: box, color: yellow });
+    // Its page goes; the core still holds the annotation for an undo.
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 1, count: 1 });
+    expect(removed.annotations).toEqual([]);
+    const sent = applied.length;
+
+    await expect(engine.applyEdit(handle, { kind: 'moveAnnotation', id: 0, dx: 5, dy: 10 })).rejects.toMatchObject({
+      name: 'AnnotationNotFound',
+    });
+    await expect(engine.applyEdit(handle, { kind: 'resizeAnnotation', id: 0, rect: box })).rejects.toMatchObject({
+      name: 'AnnotationNotFound',
+    });
+    await expect(engine.applyEdit(handle, { kind: 'moveAnnotation', id: 9, dx: 5, dy: 10 })).rejects.toMatchObject({
+      name: 'AnnotationNotFound',
+    });
+    // Nothing reached the core, so nothing was recorded.
+    expect(applied).toHaveLength(sent);
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageIds).toEqual([100, 101]);
+    expect(undone.annotations[0]).toMatchObject({ id: 0, rect: box });
+  });
+
+  it('leaves a move of an annotation it cannot place to the core on a document that refuses annotation edits', async () => {
+    const { core, edits, applied } = fakeCore({ annotate: false });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'moveAnnotation', id: 9, dx: 3, dy: 4 })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
+    await expect(engine.applyEdit(handle, { kind: 'resizeAnnotation', id: 9, rect: box })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
+    expect(applied).toHaveLength(2);
   });
 
   it('lists the comments on the page as drawn, an absent author or id as null', async () => {
@@ -903,24 +1043,24 @@ describe('documentEngine annotations', () => {
     await expect(engine.freeTextLayout('日', 100, 40)).rejects.toMatchObject({ name: 'EncodingGap' });
   });
 
-  it("places a stamp with its drawn top-left at the anchor, its sides swapped on a page drawn turned", async () => {
+  it("asks the core to place a stamp at the anchor in PDF space, and draws the core's box", async () => {
     const { core, edits } = fakeCore({ pages: 2 });
-    const engine = documentEngine(core, upright, edits);
+    const anchors: [number, number][] = [];
+    const functions: CoreFunctions = {
+      ...upright,
+      stampPlacement: (image, x, y) => (anchors.push([x, y]), annotationFunctions.stampPlacement(image, x, y)),
+    };
+    const engine = documentEngine(core, functions, edits);
     const { handle } = await engine.open(new Uint8Array([10]));
     const image = new Uint8Array([1]);
+    // The core's box hangs below the anchor in PDF space: drawn, below and right of it.
     expect(await engine.stampPlacement(handle, 0, image, { x: 50, y: 60 })).toEqual({
       left: 50,
       top: 60,
       width: 144,
       height: 72,
     });
-    await engine.applyEdit(handle, { kind: 'rotate', from: 1, count: 1, degrees: 90 });
-    expect(await engine.stampPlacement(handle, 1, image, { x: 50, y: 60 })).toEqual({
-      left: 50,
-      top: 60,
-      width: 72,
-      height: 144,
-    });
+    expect(anchors).toEqual([[50, 732]]);
     await expect(engine.stampPlacement(handle, 2, image, { x: 0, y: 0 })).rejects.toMatchObject({
       name: 'PageIndexOutOfBounds',
     });

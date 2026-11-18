@@ -954,6 +954,16 @@ Lo que condiciona lo que sigue:
   selección de tres líneas son tres `applyEdit` y tres pasos, igual que Linux. Un solo paso
   pediría `/QuadPoints` en `AnnotationKind` o anotaciones dentro de `Batch`: regla del core,
   no de la web.
+- **Correcciones de revisión.** (1) `previewStale` es exacto, no pegajoso
+  (`pdf-wasm/src/model/preview.rs`: una marca por paso que se ve, en pila paralela al
+  `EditLog`): deshacer un paso nunca mostrado vuelve a "fresco". `documentEngine` pone al día
+  una vista previa atrasada antes del paso y solo revierte el paso que registró esa misma
+  petición; un deshacer sin nada o una anotación nunca revierten nada. (2) `stampPlacement`
+  delega toda la colocación en el core (ancla a espacio PDF → `stampPlacement` → caja
+  dibujada): en una página girada 90° el ancla queda en la esquina superior derecha
+  dibujada, como `pdf-ffi` (test con pdfium real). (3) Mover/redimensionar una anotación que
+  la instantánea no tiene (id desconocido o página eliminada) se rechaza con
+  `AnnotationNotFound` sin llegar al core; con el permiso denegado sigue decidiendo el core.
 - **Para T-237…T-241:**
   - T-237: `useDocument.revise` hoy guarda `info`/`canUndo`/`canRedo`; tiene que guardar
     también `annotations` (al abrir, lista vacía: la sesión empieza sin anotaciones y las del
@@ -962,8 +972,8 @@ Lo que condiciona lo que sigue:
     línea. Deshacer/rehacer del visor deben ir por el motor (ya refresca solo cuando toca).
   - T-238: `freeTextLayout` para el diálogo y `EncodingGap` para dejarlo abierto; tinta como
     lista de `PagePoint`.
-  - T-239: `stampPlacement` da la caja (lado mayor 144 pt, esquina superior izquierda en el
-    ancla, lados cambiados en una página girada 90/270) y `addStamp` la usa. El motor **no**
+  - T-239: `stampPlacement` da la caja (lado mayor 144 pt, la esquina superior izquierda de
+    la imagen en el ancla, girada con la página como en `pdf-ffi`) y `addStamp` la usa. El motor **no**
     devuelve la imagen: guardarla por `addedAnnotationId` para repintar (redo vuelve con el
     mismo id; los ids nunca se reutilizan).
   - T-240: recolorear solo marcado/forma/tinta; retexto solo texto libre (una nota no se

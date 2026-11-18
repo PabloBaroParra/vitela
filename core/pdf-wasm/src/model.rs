@@ -39,12 +39,12 @@ pub struct DocumentModel {
     /// Hands out the id of each annotation this session adds
     /// ([`annotation`]): one per document, never reused, as in `pdf-ffi`.
     annotation_ids: pdf_annotate::AnnotationIdCursor,
-    /// Whether an edit, undo or redo since the render side was last
-    /// reopened changed what the preview snapshot shows
-    /// (`pdf_save::shows_in_session_preview`). An annotation edit does not:
-    /// the preview leaves the session's annotations out, and the shell draws
-    /// them from [`DocumentModel::annotations`].
-    preview_stale: bool,
+    /// Which point of the history the render side shows ([`preview`]), so
+    /// the model knows whether the preview snapshot shows the current state
+    /// (`pdf_save::shows_in_session_preview`). An annotation edit never
+    /// changes it: the preview leaves the session's annotations out, and the
+    /// shell draws them from [`DocumentModel::annotations`].
+    preview: preview::PreviewMarks,
 }
 
 impl DocumentModel {
@@ -68,7 +68,7 @@ impl DocumentModel {
             imported: ImportedSourceRegistry::new(),
             opened_rotations,
             annotation_ids: pdf_annotate::AnnotationIdCursor::new(),
-            preview_stale: false,
+            preview: preview::PreviewMarks::default(),
         })
     }
 
@@ -137,6 +137,7 @@ fn degrees(rotation: Rotation) -> u32 {
 mod annotation;
 mod edit;
 mod import;
+mod preview;
 
 pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
