@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -806,7 +806,7 @@ que sigue:
 |---|---|---|
 | **T-235** ✓ | Bajar al core lo que hoy vive solo en `pdf-ffi`: construir comandos de anotación (cursor de `AnnotationId`, `replace_annotation`, no-op de `SetAnnotationContents`), sello con `check_edit`, instantánea de anotaciones (posición + maquetado de texto libre), mezcla de `comments`, comando de relleno (`set_field_value`) y `form_fill_allowed`. `pdf-ffi` delega. | Nativo: **cero cambio de comportamiento** (tests de fachada sin tocar, `core.yml` en verde); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. Sin E2E (no hay UI). |
 | **T-236** ✓ | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
-| **T-237** | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
+| **T-237** ✓ | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
 | **T-238** | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
 | **T-239** | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
 | **T-240** | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
@@ -1000,6 +1000,85 @@ Lo que condiciona lo que sigue:
   clippy wasm32 y los verifica el job `wasm32` de `core.yml`), ni `linux-gtk` (no toca).
 - **No cubierto:** ninguna UI (T-237…T-241); la imagen de un sello no vuelve del motor; el
   marcado de varias líneas es un paso por línea.
+
+### T-237 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Annotations"). Sin cambios en el
+core ni en `@vitela/core`. Lo que condiciona lo que sigue:
+
+- **Módulo nuevo `features/annotations/`:** `geometry.ts` (puro, con tests: la regla del
+  subrayado/tachado según el giro, el marco del texto libre, la selección → ediciones),
+  `AnnotationLayer.tsx` (presentacional) y `useAnnotationEdits.ts` (contenedor: marcado,
+  deshacer, rehacer, permiso, fallo).
+- **La capa es un SVG en puntos de la página dibujada** (`viewBox` = ancho × alto de la
+  página ya girada), montado en cada `PageSlot` entre el bitmap y la capa de texto, inerte al
+  puntero. La instantánea entra tal cual; el zoom es solo el tamaño CSS del SVG. Dibuja todos
+  los tipos que decodifica T-236: marcado (resaltado al 45 % con `multiply`; subrayado y
+  tachado como regla de 1,5 pt), forma y tinta (1 pt, el borde por defecto del guardado),
+  icono de nota (su texto como `title`), texto libre con el maquetado del core (Helvetica,
+  negro, recortado a la caja) y un recuadro discontinuo para el sello. Opacidad 0,45 y color
+  por defecto (255, 220, 0) como Linux/Android.
+- **Página girada:** el subrayado sigue el borde inferior **PDF** del rect (un cuarto de
+  vuelta horario lo lleva a la izquierda dibujada), como lo dibuja el archivo guardado y
+  Android; Linux lo pinta abajo de la caja dibujada. El texto libre gira con la página en el
+  marco propio de la caja (lados intercambiados a 90°/270°).
+- **Marcado:** botones Resaltar/Subrayar/Tachar en `TextToolbar` (`aria-disabled`, no
+  `disabled`, para no tirar el foco). **Un `addMarkup` por línea y un paso de deshacer por
+  línea**, en orden: no hay forma limpia de un solo paso sin tocar el core (`/QuadPoints` o
+  anotaciones dentro de `Batch`, ver T-236). Si una línea falla se para; las anteriores
+  quedan. La selección se quita cuando las líneas han entrado.
+- **Deshacer/Rehacer en el visor:** barra "History" con Undo/Redo y Ctrl/⌘+Z,
+  Ctrl/⌘+Mayús+Z, Ctrl/⌘+Y en toda la página salvo en campos de texto (el buscador conserva
+  su propio deshacer) o si otro manejador ya tomó la tecla. Van por el motor, así que
+  deshacen cualquier paso, también una edición de página hecha en Organize. Los pasos se
+  encolan: un deshacer pulsado mientras entra un marcado de tres líneas espera a la última.
+- **`useDocument.revise` guarda `annotations`** (opcional en `OpenDocument`: sin definir
+  hasta la primera edición, como `canUndo`). Cada respuesta del visor (marcado, deshacer,
+  rehacer) pasa por `revise` y, si se aceptó, `markDirty` — igual que Organize.
+- **Las posiciones siguen a las páginas:** `usePageRender` gana un `pageKey` (`PageId/giro`).
+  Un deshacer que pone otra página en una posición la vuelve a pintar sin mostrar el bitmap
+  viejo, y quita la selección y los resultados de búsqueda. Un paso de anotación no cambia
+  la clave y no pinta nada.
+- **Permiso:** con `annotationEditingAllowed = false` los tres botones quedan apagados y
+  descritos (`aria-describedby`) por una nota que lo explica; un `EditNotPermitted` del core
+  los apaga igual y muestra el mensaje (`role="alert"`). Seleccionar y copiar siguen
+  funcionando (son permisos distintos).
+- **Playwright** (`e2e/annotate.spec.ts`, tres navegadores): seleccionar dos líneas
+  arrastrando, Resaltar → dos marcas sobre las líneas; Undo/Undo/Redo con botones y
+  Ctrl+Mayús+Z/Ctrl+Z/Ctrl+Y con el teclado; guardar, leer la descarga y encontrar dos
+  `/Highlight` con su `/Rect` en espacio PDF alrededor de la línea base de cada una; reabrir
+  la descarga: capa de sesión vacía y píxeles amarillos pintados por pdfium. Subrayar y
+  tachar una palabra (doble clic) y encontrar `/Underline` y `/StrikeOut`. PDF RC4 sin bit 6
+  (`/P` construido en `e2e/pdf.ts`): se selecciona y copia, pero los botones están apagados
+  con su descripción y un clic no añade nada ni ensucia el documento. `e2e/pdfObjects.ts`
+  lee los diccionarios de anotación del PDF guardado (objetos sueltos y flujos Flate) sin
+  librería.
+- **Verificado en local (Windows, Playwright 1.65.1):** app: `tsc -b`, Vitest 388/388 (50
+  archivos), build; Playwright 103 pasados / 20 saltados (los de File System Access fuera de
+  Chromium): Chromium 41/41, Firefox 31 + 10 saltados, WebKit 31 + 10 saltados, incluido
+  zero-network; `annotate.spec.ts` además 27/27 con `--repeat-each=3`. `@vitela/core` (sin
+  cambios): `build:wasm`, `tsc -b`, Vitest 132/132. Sin Rust tocado.
+- **No cubierto:** el E2E solo dibuja marcado (el resto de tipos de la capa —tinta, forma,
+  nota, texto libre, sello— tiene Vitest de componente y llegará a E2E con sus herramientas en
+  T-238/T-239); la capa en una página girada solo tiene tests unitarios; no hay selección ni
+  edición de una anotación (T-240); el marcado no tiene selector de color.
+- **Para T-238…T-241:**
+  - T-238: las herramientas de dibujo añaden por el mismo `useAnnotationEdits` (generalizar
+    `markup` a un `add(edit)` encolado; mantener la regla "un clic, un paso"). La capa ya
+    dibuja `/Ink`, `/Square`, `/Text` y `/FreeText`; un trazo en curso puede ser otro
+    `polyline` en el mismo SVG (está en puntos: `toPagePoint` de `text/pageRects.ts` da el
+    punto). La capa es `pointer-events: none` y la capa de texto recibe el puntero: un
+    modo "herramienta armada" debe decidir quién lo recibe. `EncodingGap` llega como
+    `failure` si no se trata antes en el diálogo.
+  - T-239: el sello se dibuja hoy como recuadro (`annotation-mark--stamp`); guardar la imagen
+    por `addedAnnotationId` (redo vuelve con el mismo id) y pintarla con `<image>` en el
+    marco girado, como el texto libre (`freeTextFrame`).
+  - T-240: cada marca lleva `data-annotation-id`/`data-kind`; para seleccionar hay que darle
+    `pointer-events` a las marcas (o hacer *hit-testing* con la instantánea en la capa de
+    texto). Las ediciones (`moveAnnotation`, …) van por la misma cola.
+  - T-241: el `title` de la nota es provisional; la lista de comentarios sale de `comments`.
+  - Deshacer/rehacer del visor y de Organize comparten la historia del core pero no la
+    cola: Organize no se monta a la vez que el visor, así que no compiten.
 
 ## Verificación
 

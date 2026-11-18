@@ -4,7 +4,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '@vitela/core';
-import type { DocumentHandle, DocumentInfo, EditedDocument, Engine } from '@vitela/core';
+import type { Annotation, DocumentHandle, DocumentInfo, EditedDocument, Engine } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { recordFileStamp } from '../../platform/fileStamp';
 
@@ -26,6 +26,12 @@ export interface OpenDocument {
    */
   readonly canUndo?: boolean;
   readonly canRedo?: boolean;
+  /**
+   * The session's annotations as the last edit, undo or redo reported them
+   * (the engine's snapshot, on the pages as drawn). Unset until then: a
+   * freshly opened document has none (the file's own are in pdfium's bitmap).
+   */
+  readonly annotations?: readonly Annotation[];
   /**
    * The file each PDF added to this document came from, by the block source
    * id the import reported (the engine never sees a file name). Unset until
@@ -140,14 +146,23 @@ export function useDocument(engine: Engine) {
 
   /**
    * The document after an edit, undo or redo (`info` changes with it: page
-   * count, sizes, ids). An answer for a document no longer on screen is
+   * count, sizes, ids; and the annotation snapshot). An answer for a document no longer on screen is
    * dropped; the result says whether it was taken.
    */
   const revise = useCallback((handle: DocumentHandle, edited: EditedDocument): boolean => {
     if (shown.current !== handle) return false;
     setState((s) =>
       s.document?.handle === handle
-        ? { ...s, document: { ...s.document, info: edited.info, canUndo: edited.canUndo, canRedo: edited.canRedo } }
+        ? {
+            ...s,
+            document: {
+              ...s.document,
+              info: edited.info,
+              canUndo: edited.canUndo,
+              canRedo: edited.canRedo,
+              annotations: edited.annotations,
+            },
+          }
         : s,
     );
     return true;

@@ -1,10 +1,12 @@
 // One page's place in the viewer: sized and positioned by the layout,
-// rendered at `dpi` while it is mounted, with its text layer (search
-// highlights, selection) on top. The viewer mounts only the slots near the
-// viewport, so far-away pages hold no canvas and no text layer at all.
+// rendered at `dpi` while it is mounted, with the session's annotations over
+// the bitmap and its text layer (search highlights, selection) on top. The
+// viewer mounts only the slots near the viewport, so far-away pages hold no
+// canvas, no annotation layer and no text layer at all.
 
 import { memo } from 'react';
-import type { DocumentHandle, Engine, PageRects } from '@vitela/core';
+import type { Annotation, DocumentHandle, Engine, PageRects, PageSize } from '@vitela/core';
+import { AnnotationLayer } from '../annotations/AnnotationLayer';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import { TextLayer } from '../text/TextLayer';
@@ -15,6 +17,12 @@ interface PageSlotProps {
   readonly engine: Engine;
   readonly document: DocumentHandle;
   readonly index: number;
+  /** The page as drawn: size in points and turn. */
+  readonly page: PageSize;
+  /** What is at this position (page id and turn): a change repaints it. */
+  readonly pageKey: string;
+  /** This page's session annotations, in paint order. */
+  readonly annotations: readonly Annotation[];
   readonly slot: Rect;
   readonly dpi: number;
   readonly label: string;
@@ -27,8 +35,9 @@ interface PageSlotProps {
 }
 
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
-  const { engine, document, index, slot, dpi, label, scale, hits, currentHit, selection, textInput } = props;
-  const render = usePageRender(engine, document, index, dpi);
+  const { engine, document, index, page, pageKey, annotations, slot, dpi, label, scale } = props;
+  const { hits, currentHit, selection, textInput } = props;
+  const render = usePageRender(engine, document, index, dpi, pageKey);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
   return (
     <div
@@ -40,6 +49,7 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
       data-dpi={dpi}
     >
       {shown && <PageCanvas page={shown} label={label} />}
+      <AnnotationLayer page={page} annotations={annotations} />
       <TextLayer
         pageIndex={index}
         scale={scale}

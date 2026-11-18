@@ -17,16 +17,20 @@ export type PageRenderState =
 /**
  * `document` is the engine handle of the document to render; `null` means
  * none is open. Handles are never reused, so it also tells documents apart.
+ * `pageKey` names what is at `pageIndex` (the page's id and turn): when an
+ * edit, undo or redo puts another page there, it changes and the page is
+ * painted again, without the old bitmap in the meantime.
  */
 export function usePageRender(
   engine: Engine,
   document: DocumentHandle | null,
   pageIndex: number,
   dpi: number,
+  pageKey = '',
 ): PageRenderState {
   const [state, setState] = useState<PageRenderState>({ status: 'idle' });
-  /** The document the bitmap in `state` belongs to. */
-  const shown = useRef<number | null>(null);
+  /** The document and page the bitmap in `state` belongs to. */
+  const shown = useRef<string | null>(null);
 
   useEffect(() => {
     if (document === null) {
@@ -35,11 +39,12 @@ export function usePageRender(
     }
     // A render that finishes after the inputs moved on is dropped.
     let stale = false;
-    // Another document's bitmap is never shown in place of this one.
-    const sameDocument = shown.current === document;
-    shown.current = document;
+    // Another document's (or page's) bitmap is never shown in place of this one.
+    const identity = `${document}|${pageKey}`;
+    const samePage = shown.current === identity;
+    shown.current = identity;
     setState((prior) => {
-      if (!sameDocument) return { status: 'rendering' };
+      if (!samePage) return { status: 'rendering' };
       const previous = prior.status === 'rendered' ? prior.page : prior.status === 'rendering' ? prior.previous : undefined;
       return previous ? { status: 'rendering', previous } : { status: 'rendering' };
     });
@@ -54,7 +59,7 @@ export function usePageRender(
     return () => {
       stale = true;
     };
-  }, [engine, document, pageIndex, dpi]);
+  }, [engine, document, pageIndex, dpi, pageKey]);
 
   return document === null ? { status: 'idle' } : state;
 }

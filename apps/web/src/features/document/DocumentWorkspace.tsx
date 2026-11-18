@@ -91,7 +91,7 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
         <MarkDirtyContext.Provider value={save.markDirty}>
           {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
           {screen === 'view' ? (
-            <DocumentViewer key={document.generation} engine={engine} document={document} />
+            <DocumentViewer key={document.generation} engine={engine} document={document} onEdited={revise} />
           ) : (
             <OrganizeScreen
               key={document.generation}

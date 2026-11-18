@@ -133,6 +133,45 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   (`textIn`) with `navigator.clipboard.writeText`. Ctrl/⌘+C in a field, or
   over text the browser itself selected, is left to the browser.
 
+## Annotations
+
+`features/annotations/`, in the viewer.
+
+- **Layer:** each `PageSlot` mounts an `AnnotationLayer` between the bitmap
+  and the text layer: one SVG whose `viewBox` is the page's drawn size in
+  points, so the engine's snapshot (`EditedDocument.annotations`, boxes and
+  points on the page as drawn) goes in as it is and the zoom is only the SVG's
+  CSS size. It draws every kind the snapshot carries: markup (highlight at
+  45 % with `multiply`, underline/strikeout as a 1.5 pt rule), shape and ink
+  (1 pt), a note icon (its text as the tooltip), free text from the core's
+  layout (Helvetica, the box's own frame turned with the page) and a dashed
+  placeholder box for a stamp (the engine hands no image back). The session's
+  annotations are not in pdfium's bitmap until a save writes them; the file's
+  own annotations are, so a freshly opened document has an empty layer.
+- **Turned pages:** an underline follows the PDF rect's bottom edge, which a
+  quarter turn clockwise takes to the drawn left (`markupRule`); the saved file
+  draws it there too. Pure geometry in `geometry.ts`, with tests.
+- **Markup:** Highlight, Underline and Strikeout in the text toolbar act on
+  the selection. The core's markup has one box (no `/QuadPoints`), so each
+  line of the selection is its own `addMarkup` and its own undo step
+  (`markupEdits`), sent in order; the selection is dropped once they land.
+  Colour: the native shells' default (255, 220, 0).
+- **Undo / Redo** in the viewer's toolbar, and Ctrl/⌘+Z, Ctrl/⌘+Shift+Z,
+  Ctrl/⌘+Y anywhere on the page except in a text field (`useUndoKeys`). They
+  go through the engine (`undo`/`redo`), which refreshes the preview only for
+  a page step, and take back any step — also a page edit made in Organize.
+  Steps run in the order asked for: an undo waits for a markup still landing.
+  Every answer goes to `useDocument.revise` (which keeps `annotations`) and
+  marks the document dirty.
+- **Positions follow pages:** each slot renders by its page's `PageId` + turn
+  (`usePageRender`'s `pageKey`), so an undo that puts another page at a
+  position repaints it (without the old bitmap) and drops the selection and
+  search matches.
+- **Permission:** `annotationEditingAllowed` (the core's rule: bit 6, or the
+  owner password) is known at open; without it the markup buttons are
+  `aria-disabled` and described by a note saying why. The core refuses anyway
+  (`EditNotPermitted`), and that refusal turns them off too.
+
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text
 at known positions, an RC4-encrypted PDF that forbids copying — are built in

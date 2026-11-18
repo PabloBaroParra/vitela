@@ -301,6 +301,32 @@ describe('useDocument', () => {
     expect(result.current.state.document).toMatchObject({ info: info(2), generation: 1, canUndo: true, canRedo: false });
   });
 
+  it('keeps the annotation snapshot every edit answers with', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document).not.toBeNull());
+    // A fresh session has none: the file's own annotations are in pdfium's bitmap.
+    expect(result.current.state.document?.annotations ?? []).toEqual([]);
+
+    const highlight = {
+      id: 1,
+      pageIndex: 0,
+      kind: 'highlight' as const,
+      rect: { left: 72, top: 100, width: 200, height: 18 },
+      color: { r: 255, g: 220, b: 0 },
+    };
+    act(() => {
+      result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [highlight], addedAnnotationId: 1 });
+    });
+    expect(result.current.state.document?.annotations).toEqual([highlight]);
+    // An undo takes it away again.
+    act(() => {
+      result.current.revise(1, { info: info(1), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null });
+    });
+    expect(result.current.state.document?.annotations).toEqual([]);
+  });
+
   it('ignores an edit of a document that is no longer on screen', async () => {
     const engine = engineWith(async () => info(3));
     const { result } = renderHook(() => useDocument(engine));
