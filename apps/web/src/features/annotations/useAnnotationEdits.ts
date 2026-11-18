@@ -1,4 +1,5 @@
-// The viewer's edits: markup over a text selection, and undo/redo of the
+// The viewer's edits: markup over a text selection, an annotation drawn with
+// a tool (ink, shape, note, free text), and undo/redo of the
 // document's history (any step: an annotation here, or a page edit made in
 // Organize). Sends them to the engine one at a time and reports every
 // edited document. Container logic only.
@@ -11,16 +12,16 @@
 //
 // Steps run in the order they were asked for: an undo pressed while a
 // three-line markup is still being added waits for its last line. A markup
-// is refused while any step is still running (an undo may be putting
-// another page where the selection was), and is checked once more right
-// before its first line goes in: if the page at its position is no longer
-// the one it was selected on (`pageKey`), nothing is marked. The report
+// or a drawn annotation is refused while any step is still running (an undo
+// may be putting another page where it was made), and is checked once more
+// right before it goes in: if the page at its position is no longer the one
+// it was made on (`pageKey`), nothing is added. The report
 // (`onEdited`) is made even if the viewer went away meanwhile: the core has
 // the edit either way.
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { EDIT_NOT_PERMITTED, errorKind, errorMessage } from '@vitela/core';
-import type { DocumentInfo, EditedDocument, Engine, MarkupKind, PageRects, Rgb } from '@vitela/core';
+import type { AnnotationEdit, DocumentInfo, EditedDocument, Engine, MarkupKind, PageRects, Rgb } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 import { markupEdits } from './geometry';
 
@@ -38,6 +39,7 @@ export function pageKey(info: PageLayout, index: number): string {
 }
 
 const PAGE_CHANGED = 'The page changed before it could be marked up. Select the text again.';
+const PAGE_CHANGED_UNDER_TOOL = 'The page changed before the annotation could be added. Nothing was added.';
 
 /**
  * How a markup ended: every line went in (`marked`), some did before one
@@ -47,10 +49,21 @@ const PAGE_CHANGED = 'The page changed before it could be marked up. Select the 
  */
 export type MarkupOutcome = 'marked' | 'partial' | 'failed' | 'refused';
 
-/** How a run of queued steps ended: how many went in, and whether all did. */
+/**
+ * How one drawn annotation ended: added, refused before reaching the core
+ * (see `MarkupOutcome`), or failed with the core's error. A `failed` whose
+ * kind the caller said it shows itself leaves no `failure`.
+ */
+export type AddOutcome =
+  | { readonly status: 'added' }
+  | { readonly status: 'refused' }
+  | { readonly status: 'failed'; readonly kind: string | null; readonly message: string };
+
+/** How a run of queued steps ended: how many went in, whether all did, and the error that stopped it. */
 interface QueueResult {
   readonly applied: number;
   readonly complete: boolean;
+  readonly error?: unknown;
 }
 
 /** A step that must not run: the page it was meant for has moved. */
@@ -77,7 +90,7 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
 
   /** Runs `steps` after every step already asked for; stops at the first refusal. */
   const enqueue = useCallback(
-    (steps: readonly (() => Promise<EditedDocument>)[]): Promise<QueueResult> => {
+    (steps: readonly (() => Promise<EditedDocument>)[], pageChanged = PAGE_CHANGED, shownByCaller: readonly string[] = []): Promise<QueueResult> => {
       runningNow.current += 1;
       setRunning((count) => count + 1);
       const run = queue.current.then(async (): Promise<QueueResult> => {
@@ -92,13 +105,14 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
           }
           return { applied, complete: true };
         } catch (error) {
+          const kind = errorKind(error);
           if (error instanceof PageChanged) {
-            setFailure(PAGE_CHANGED);
+            setFailure(pageChanged);
           } else {
-            if (errorKind(error) === EDIT_NOT_PERMITTED) setDenied(true);
-            setFailure(errorMessage(error));
+            if (kind === EDIT_NOT_PERMITTED) setDenied(true);
+            if (!kind || !shownByCaller.includes(kind)) setFailure(errorMessage(error));
           }
-          return { applied, complete: false };
+          return { applied, complete: false, error };
         } finally {
           runningNow.current -= 1;
           setRunning((count) => count - 1);
@@ -134,6 +148,32 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     [allowed, enqueue, engine, handle],
   );
 
+  /**
+   * One drawn annotation on page `pageIndex`, which held the page
+   * `expectedKey` when the gesture began: one undo step. Errors of a kind in
+   * `shownByCaller` (say `EncodingGap`, for a dialog that stays open with
+   * it) are returned without becoming the viewer's `failure`.
+   */
+  const add = useCallback(
+    async (edit: AnnotationEdit, pageIndex: number, expectedKey: string, shownByCaller: readonly string[] = []): Promise<AddOutcome> => {
+      if (!allowed || runningNow.current > 0) return { status: 'refused' };
+      const { complete, error } = await enqueue(
+        [
+          () =>
+            pageKey(latest.current, pageIndex) === expectedKey
+              ? engine.applyEdit(handle, edit)
+              : Promise.reject(new PageChanged()),
+        ],
+        PAGE_CHANGED_UNDER_TOOL,
+        shownByCaller,
+      );
+      if (complete) return { status: 'added' };
+      if (error instanceof PageChanged) return { status: 'failed', kind: null, message: PAGE_CHANGED_UNDER_TOOL };
+      return { status: 'failed', kind: errorKind(error) ?? null, message: errorMessage(error) };
+    },
+    [allowed, enqueue, engine, handle],
+  );
+
   const canUndo = !!document.canUndo;
   const canRedo = !!document.canRedo;
   const undo = useCallback(async () => {
@@ -143,5 +183,5 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     if (canRedo) await enqueue([() => engine.redo(handle)]);
   }, [canRedo, enqueue, engine, handle]);
 
-  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, undo, redo };
+  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, undo, redo };
 }

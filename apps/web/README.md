@@ -176,6 +176,32 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   owner password) is known at open; without it the markup buttons are
   `aria-disabled` and described by a note saying why. The core refuses anyway
   (`EditNotPermitted`), and that refusal turns them off too.
+- **Drawing tools** (`Draw` toolbar): Select (the default: the text layer has
+  the pointer) / Ink / Shape / Note / Free text, `aria-pressed`, plus a colour
+  for ink and shapes (a five-swatch palette starting at the core's default
+  yellow; notes and text boxes have no colour in the core). An armed tool
+  mounts a `DrawingLayer` on top of every page slot that takes the pointer
+  (pointer events, captured for the gesture; the text layer gets no input and
+  the selection is dropped) and previews the stroke or box in page points.
+  Escape anywhere — not in a text field or behind a dialog — goes back to
+  Select; a tool otherwise stays armed (several strokes make a drawing).
+  Geometry is pure (`drawing.ts`, with tests): the pointer divided by the zoom
+  is already a point on the page as drawn, and the core turns it into PDF
+  space whatever the `/Rotate`. Ink is one `addInk` per stroke (points closer
+  than 0.5 pt dropped, kept on the page); a shape is the traced box, or a
+  144 × 36 pt box for a click; a note is a 24 pt box at the click; a text box
+  is the traced box (at least the core's 16 × 17.8 pt minimum) or 200 × 50 pt
+  for a click — the native shells' sizes, with an 8 pt drag threshold. Note
+  and Free text open a modal dialog (`TextDialog`, its text area focused;
+  Ctrl/⌘+Enter adds); the text box's dialog previews the core's layout
+  (`freeTextLayout`, asked when typing pauses, in the box's own frame) and
+  shows at once a character Helvetica cannot show. Every drawn annotation is
+  one undo step through `useAnnotationEdits.add`: refused while a step runs,
+  and checked against the page the gesture began on (`pageKey`). An
+  `EncodingGap` from the core keeps the dialog open with its message; any
+  other failure closes it and shows in the viewer. The tools are
+  `aria-disabled` (Select excepted) while a step runs and, with a note saying
+  why, when the document forbids annotations.
 
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text

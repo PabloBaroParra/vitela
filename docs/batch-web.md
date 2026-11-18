@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓, T-238 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -807,7 +807,7 @@ que sigue:
 | **T-235** ✓ | Bajar al core lo que hoy vive solo en `pdf-ffi`: construir comandos de anotación (cursor de `AnnotationId`, `replace_annotation`, no-op de `SetAnnotationContents`), sello con `check_edit`, instantánea de anotaciones (posición + maquetado de texto libre), mezcla de `comments`, comando de relleno (`set_field_value`) y `form_fill_allowed`. `pdf-ffi` delega. | Nativo: **cero cambio de comportamiento** (tests de fachada sin tocar, `core.yml` en verde); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. Sin E2E (no hay UI). |
 | **T-236** ✓ | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
 | **T-237** ✓ | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
-| **T-238** | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
+| **T-238** ✓ | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
 | **T-239** | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
 | **T-240** | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
 | **T-241** | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
@@ -1094,6 +1094,78 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   - T-241: el `title` de la nota es provisional; la lista de comentarios sale de `comments`.
   - Deshacer/rehacer del visor y de Organize comparten la historia del core pero no la
     cola: Organize no se monta a la vez que el visor, así que no compiten.
+
+### T-238 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Drawing tools"). Sin cambios en el
+core ni en `@vitela/core`. Lo que condiciona lo que sigue:
+
+- **Archivos nuevos en `features/annotations/`:** `drawing.ts` (puro, con tests: herramientas,
+  paleta, umbral de arrastre, caja trazada/de clic dentro de la página, trazo, gesto → edición),
+  `DrawingLayer.tsx` (la superficie de la herramienta armada), `DrawToolbar.tsx` (barra "Draw"),
+  `useDrawing.ts` (contenedor: herramienta, color, borrador de nota/texto libre, Escape),
+  `TextDialog.tsx` + `DraftDialog.tsx` + `FreeTextPreview.tsx` + `useFreeTextPreview.ts` (los
+  diálogos y la vista previa del maquetado). `useAnnotationEdits` gana `add(edit, page,
+  pageKey, shownByCaller)`: un paso por la misma cola que el marcado.
+- **Modo herramienta (decisión).** Select (por defecto) / Ink / Shape / Note / Free text con
+  `aria-pressed`, y cinco colores para tinta y forma (el primero, el amarillo por defecto del
+  core; nota y texto libre no tienen color en el core). Armar una herramienta monta una
+  `DrawingLayer` encima de todas las capas de cada `PageSlot` (eventos de puntero con
+  *capture*, `touch-action: none`), la capa de texto deja de recibir el puntero y la selección
+  se quita. La herramienta **sigue armada** tras cada gesto (varios trazos forman un dibujo;
+  Android vuelve a Pointer tras colocar); Escape en cualquier sitio, salvo en un campo de texto
+  o con un diálogo abierto, vuelve a Select.
+- **Geometría:** el puntero dividido por el zoom (`toPagePoint`) ya es un punto de la página
+  dibujada; el core lo pasa a espacio PDF con cualquier `/Rotate`. Tamaños de los shells
+  nativos: umbral de arrastre 8 pt (distancia, no por eje); forma trazada (lado mínimo 4 pt) o
+  144 × 36 pt con un clic; nota 24 pt con la esquina en el clic; texto libre trazado (mínimo del
+  core 16 × 17,8 pt) o 200 × 50 pt con un clic; todo deslizado dentro de la página. La tinta es
+  un `addInk` por trazo, puntos a menos de 0,5 pt del anterior fuera, recortados a la página.
+- **Nota y texto libre:** el gesto solo elige la caja; nada llega al core hasta "Add" en un
+  `<dialog>` modal con el área de texto enfocada (Ctrl/⌘+Enter añade, Escape cancela; un texto
+  en blanco no se puede añadir). El de texto libre pide `freeTextLayout` al core al pararse la
+  escritura (120 ms; una respuesta para un texto ya cambiado se descarta) y lo dibuja en el
+  marco propio de la caja (lados cambiados a 90°/270°): el mismo maquetado que el guardado, y un
+  carácter fuera de WinAnsi se ve al teclearlo. Si el core rechaza el "Add" con `EncodingGap`,
+  el diálogo sigue abierto con su mensaje (no pasa a `failure` del visor); cualquier otro fallo
+  lo cierra y lo muestra el visor.
+- **Guardas:** la misma que el marcado: rechazado mientras corre un paso (los botones de
+  herramienta quedan `aria-disabled` y la capa no empieza gesto, `data-busy`), y comprobado
+  justo antes de aplicar contra la página en la que **empezó** el gesto (`pageKey` tomado al
+  pulsar); si cambió, nada y el aviso. Sin permiso de anotar, Ink/Shape/Note/Free text quedan
+  `aria-disabled` y descritos por una nota; un `EditNotPermitted` del core devuelve a Select y
+  cierra un diálogo abierto. Select siempre funciona.
+- **`historyKeys.ts`** exporta `isTextField` y `modalOpen` (el Escape de las herramientas lee
+  las mismas reglas que las teclas de historial).
+- **Playwright** (`e2e/draw.spec.ts`, tres navegadores): tinta en azul, rectángulo arrastrado,
+  nota con clic + diálogo, texto libre arrastrado + diálogo; `Total 日本` muestra el error al
+  teclearlo y "Add" deja el diálogo abierto con `'日' cannot be shown in Helvetica (WinAnsi)`;
+  con texto válido la vista previa muestra la línea y se añade. Escape → Select; deshacer y
+  rehacer el texto libre; guardar y encontrar `/Ink`, `/Square`, `/Text` y `/FreeText` con sus
+  `/Rect` en espacio PDF; reabrir la descarga: capa de sesión vacía y pdfium los pinta (más
+  píxeles con tinta que la página en blanco). Segundo test: un rectángulo en una página
+  `/Rotate 90` cae en el archivo donde se dibujó. `annotate.spec.ts` comprueba además que las
+  herramientas quedan apagadas y descritas en el PDF sin permiso.
+- **Verificado en local (Windows, Playwright 1.65.1):** app: `tsc -b`, Vitest 448/448 (56
+  archivos), build; Playwright 109 pasados / 20 saltados (los de File System Access fuera de
+  Chromium): Chromium 43/43, Firefox 33 + 10 saltados, WebKit 33 + 10 saltados, incluido
+  zero-network; `draw.spec.ts` además 18/18 con `--repeat-each=3`. Sin cambios en
+  `@vitela/core` ni en Rust.
+- **No cubierto:** sin selector de forma (solo rectángulo: el core tiene `/Square`); sin grosor
+  de tinta (1 pt, el borde por defecto del guardado); sin atajos de teclado para las
+  herramientas ni forma de dibujar sin puntero (nota y texto libre necesitan un clic en la
+  página); la nota no tiene vista previa (es un icono); la página girada solo tiene E2E para la
+  forma (el resto, Vitest de geometría); no se puede editar una anotación ya dibujada (T-240).
+- **Para T-239…T-241:**
+  - T-239: el sello puede ser otra herramienta armada (`ArmedTool` + `finishGesture`: un clic da
+    el ancla para `stampPlacement`) que añada por `add`; soltar un archivo sobre la página
+    necesita el `pageKey` del punto, como un gesto.
+  - T-240: Select es hoy "seleccionar texto"; seleccionar una anotación puede vivir en ese
+    mismo modo (*hit-testing* con la instantánea antes de empezar una selección de texto) o
+    ser otro modo de `DRAW_TOOLS`. `TextDialog` sirve para retextear el texto libre (con
+    `useFreeTextPreview`); la paleta de `drawing.ts` para recolorear.
+  - T-241: la nota de la sesión lleva su texto en `contents`; el diálogo de lectura puede
+    reutilizar `TextDialog` en solo lectura.
 
 ## Verificación
 

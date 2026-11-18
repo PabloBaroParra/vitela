@@ -1,11 +1,11 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { EngineError, EDIT_NOT_PERMITTED } from '@vitela/core';
+import { EngineError, EDIT_NOT_PERMITTED, ENCODING_GAP } from '@vitela/core';
 import type { Edit, EditedDocument, Engine } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { MARKUP_COLOR, useAnnotationEdits } from './useAnnotationEdits';
-import type { MarkupOutcome } from './useAnnotationEdits';
+import type { AddOutcome, MarkupOutcome } from './useAnnotationEdits';
 
 const info = (annotationEditingAllowed = true) => ({
   pageCount: 1,
@@ -255,5 +255,74 @@ describe('useAnnotationEdits', () => {
 
     await act(() => result.current.undo());
     expect(result.current.failure).toBe('worker gone');
+  });
+});
+
+describe('useAnnotationEdits.add', () => {
+  const ink: Edit = { kind: 'addInk', page: 0, points: [{ x: 1, y: 2 }, { x: 3, y: 4 }], color: MARKUP_COLOR };
+  const freeText: Edit = { kind: 'addFreeText', page: 0, rect: { left: 1, top: 2, width: 200, height: 50 }, contents: '日' };
+
+  it('adds one drawn annotation as one edit and reports it', async () => {
+    const applyEdit = vi.fn(async () => edited(true));
+    const onEdited = vi.fn();
+    const { result } = renderHook(() => useAnnotationEdits(fakeEngine({ applyEdit }), doc(), onEdited));
+
+    let outcome: AddOutcome = { status: 'refused' };
+    await act(async () => {
+      outcome = await result.current.add(ink, 0, PAGE_0);
+    });
+
+    expect(outcome).toEqual({ status: 'added' });
+    expect(applyEdit).toHaveBeenCalledWith(7, ink);
+    expect(onEdited).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns an error the caller shows itself without making it the viewer failure', async () => {
+    const engine = fakeEngine({
+      applyEdit: () => Promise.reject(new EngineError(ENCODING_GAP, "'日' cannot be shown in Helvetica (WinAnsi)")),
+    });
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc(), vi.fn()));
+
+    let outcome: AddOutcome = { status: 'added' };
+    await act(async () => {
+      outcome = await result.current.add(freeText, 0, PAGE_0, [ENCODING_GAP]);
+    });
+    expect(outcome).toEqual({ status: 'failed', kind: ENCODING_GAP, message: "'日' cannot be shown in Helvetica (WinAnsi)" });
+    expect(result.current.failure).toBeNull();
+
+    // Not one the caller shows: the viewer shows it.
+    await act(async () => {
+      outcome = await result.current.add(freeText, 0, PAGE_0);
+    });
+    expect(result.current.failure).toMatch(/WinAnsi/);
+  });
+
+  it('refuses while a step runs, without permission, and on a page that changed under the gesture', async () => {
+    const moved = { ...info(), pageCount: 2, pages: [...info().pages, ...info().pages], pageIds: [1, 0] };
+    const applyEdit = vi.fn(async () => edited(true));
+    const engine = fakeEngine({ applyEdit, undo: async () => ({ ...edited(false, true), info: moved }) });
+
+    const denied = renderHook(() => useAnnotationEdits(engine, doc({ info: info(false) }), vi.fn()));
+    await act(async () => {
+      expect(await denied.result.current.add(ink, 0, PAGE_0)).toEqual({ status: 'refused' });
+    });
+
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc({ canUndo: true }), vi.fn()));
+    let undoing: Promise<void> = Promise.resolve();
+    let during: AddOutcome = { status: 'added' };
+    await act(async () => {
+      undoing = result.current.undo();
+      during = await result.current.add(ink, 0, PAGE_0);
+      await undoing;
+    });
+    expect(during).toEqual({ status: 'refused' });
+
+    let after: AddOutcome = { status: 'added' };
+    await act(async () => {
+      after = await result.current.add(ink, 0, PAGE_0);
+    });
+    expect(after).toMatchObject({ status: 'failed', kind: null });
+    expect(result.current.failure).toMatch(/page changed/i);
+    expect(applyEdit).not.toHaveBeenCalled();
   });
 });
