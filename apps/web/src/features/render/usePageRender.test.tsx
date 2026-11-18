@@ -96,4 +96,24 @@ describe('usePageRender', () => {
     rerender({ document: 2 });
     expect(result.current).toEqual({ status: 'rendering' });
   });
+
+  it('re-renders, without the old bitmap, when another page comes to this position', async () => {
+    let calls = 0;
+    const engine = engineWith(async () => {
+      calls++;
+      return page;
+    });
+    const { result, rerender } = renderHook(({ pageKey }) => usePageRender(engine, 1, 0, 72, pageKey), {
+      initialProps: { pageKey: '4/0' },
+    });
+    await waitFor(() => expect(result.current.status).toBe('rendered'));
+    // The same page again (an annotation step): nothing to paint.
+    rerender({ pageKey: '4/0' });
+    expect(calls).toBe(1);
+    // Undoing a move or a turn: the position shows another page now.
+    rerender({ pageKey: '4/90' });
+    expect(result.current).toEqual({ status: 'rendering' });
+    await waitFor(() => expect(result.current.status).toBe('rendered'));
+    expect(calls).toBe(2);
+  });
 });

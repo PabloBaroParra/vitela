@@ -82,6 +82,45 @@
   box-shadow: var(--page-shadow);
 }
 
+/* The session's annotations, drawn in the page's own points (the SVG's
+   viewBox), under the text layer and inert to the pointer. */
+.annotation-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.annotation-mark--highlight {
+  mix-blend-mode: multiply;
+}
+
+.annotation-mark--note rect {
+  fill: #ffe680;
+  stroke: #8a6d00;
+  stroke-width: 1;
+}
+
+.annotation-mark--note line {
+  stroke: #8a6d00;
+  stroke-width: 1.5;
+}
+
+.annotation-mark--stamp {
+  fill: rgb(40 110 230 / 8%);
+  stroke: rgb(40 110 230 / 70%);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+
+.annotation-mark--free-text text {
+  font-family: Helvetica, Arial, sans-serif;
+  fill: #000;
+  white-space: pre;
+}
+
 /* The text layer covers the page: highlights, selection, pointer input. */
 .text-layer {
   position: absolute;
@@ -151,6 +190,17 @@
 .text-toolbar__copied {
   min-width: 7ch;
   font-variant-numeric: tabular-nums;
+}
+
+.text-toolbar__markup {
+  display: flex;
+  gap: 6px;
+}
+
+.viewer__failure {
+  flex-basis: 100%;
+  margin: 0 0 6px;
+  color: var(--error);
 }
 
 .text-toolbar__blocked {

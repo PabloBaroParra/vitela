@@ -1,8 +1,14 @@
-// The viewer's text toolbar: find in the document, step between matches, and
-// copy the selection — or, for a document that withholds its text, why none
-// of that is available. Presentational apart from the query being typed.
+// The viewer's text toolbar: find in the document, step between matches,
+// copy the selection and mark it up (Highlight, Underline, Strikeout) — or,
+// for a document that withholds its text or forbids annotations, why that is
+// not available. Presentational apart from the query being typed.
+//
+// The markup buttons are `aria-disabled`, not `disabled`: a button that turns
+// disabled under the keyboard focus (the selection is dropped once marked)
+// would drop the focus to the page.
 
 import { useId, useState } from 'react';
+import type { MarkupKind } from '@vitela/core';
 import type { SearchState } from '../search/searchState';
 import { summary } from '../search/searchState';
 import type { CopyStatus } from './useCopy';
@@ -19,7 +25,23 @@ interface TextToolbarProps {
   readonly canCopy: boolean;
   readonly onCopy: () => void;
   readonly copyStatus: CopyStatus;
+  readonly markup: MarkupControls;
 }
+
+/** The markup actions over the text selection. */
+export interface MarkupControls {
+  /** `false` when the document forbids annotations: the buttons say why. */
+  readonly allowed: boolean;
+  /** There is a selection to mark and no edit, undo or redo is still running. */
+  readonly canMark: boolean;
+  readonly onMark: (kind: MarkupKind) => void;
+}
+
+const MARKUP: readonly { readonly kind: MarkupKind; readonly label: string }[] = [
+  { kind: 'highlight', label: 'Highlight' },
+  { kind: 'underline', label: 'Underline' },
+  { kind: 'strikeout', label: 'Strikeout' },
+];
 
 const COPY_STATUS: Record<CopyStatus, string> = {
   idle: '',
@@ -28,9 +50,11 @@ const COPY_STATUS: Record<CopyStatus, string> = {
 };
 
 export function TextToolbar(props: TextToolbarProps) {
-  const { allowed, search, onSubmit, onNext, onPrevious, onClear, canCopy, onCopy, copyStatus } = props;
+  const { allowed, search, onSubmit, onNext, onPrevious, onClear, canCopy, onCopy, copyStatus, markup } = props;
   const [query, setQuery] = useState('');
   const blockedId = useId();
+  const markupBlockedId = useId();
+  const canMark = allowed && markup.allowed && markup.canMark;
   const canStep = search.kind === 'found' && search.hits.length > 0;
 
   return (
@@ -77,9 +101,28 @@ export function TextToolbar(props: TextToolbarProps) {
       <span className="text-toolbar__copied" aria-live="polite">
         {COPY_STATUS[copyStatus]}
       </span>
+      <span className="text-toolbar__markup" role="group" aria-label="Mark up the selection">
+        {MARKUP.map(({ kind, label }) => (
+          <button
+            key={kind}
+            type="button"
+            className={`markup-button markup-button--${kind}`}
+            aria-disabled={!canMark}
+            aria-describedby={markup.allowed ? undefined : markupBlockedId}
+            onClick={canMark ? () => markup.onMark(kind) : undefined}
+          >
+            {label}
+          </button>
+        ))}
+      </span>
       {!allowed && (
         <p id={blockedId} className="text-toolbar__blocked" role="note">
           This PDF does not allow copying its text, so search and text selection are turned off.
+        </p>
+      )}
+      {!markup.allowed && (
+        <p id={markupBlockedId} className="text-toolbar__blocked" role="note">
+          This PDF does not allow annotations, so Highlight, Underline and Strikeout are turned off.
         </p>
       )}
     </div>

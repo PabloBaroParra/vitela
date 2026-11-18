@@ -1,7 +1,9 @@
 // Selecting text on a page: a press sets the anchor, every move asks the
 // engine for the text and rects between the anchor and the pointer, and a
 // double click selects a word. The selection stays on the page the press
-// landed on. Container logic only, no markup.
+// landed on, and remembers which page sat there at the press (`keyOf`): the
+// page list can change under a selection (an undo of a page move) before the
+// selection is dropped. Container logic only, no markup.
 //
 // The engine answers in its own time while the pointer keeps moving, so at
 // most one request is in flight: moves that arrive meanwhile collapse into
@@ -13,6 +15,8 @@ import type { DocumentHandle, Engine, PagePoint, PageRects, TextSelection } from
 
 export interface PageSelection {
   readonly pageIndex: number;
+  /** What sat at `pageIndex` when the selection was started (the caller's `keyOf`). */
+  readonly pageKey: string;
   /** The selected text as the core reads it (`textIn`): what Copy copies. */
   readonly text: string;
   readonly rects: PageRects;
@@ -26,10 +30,18 @@ export interface TextInput {
   selectWord(pageIndex: number, point: PagePoint): void;
 }
 
-export function useTextSelection(engine: Engine, document: DocumentHandle, onDenied: () => void) {
+/** Without a `keyOf`, a position is its own key. */
+const indexKey = (pageIndex: number) => String(pageIndex);
+
+export function useTextSelection(
+  engine: Engine,
+  document: DocumentHandle,
+  onDenied: () => void,
+  keyOf: (pageIndex: number) => string = indexKey,
+) {
   const [selection, setSelection] = useState<PageSelection | null>(null);
-  /** Where the current drag started; `null` when no drag is under way. */
-  const anchor = useRef<{ pageIndex: number; point: PagePoint } | null>(null);
+  /** Where the current drag started, and the page there then; `null` when no drag is under way. */
+  const anchor = useRef<{ pageIndex: number; pageKey: string; point: PagePoint } | null>(null);
   /** Bumped per request and per reset: only the latest answer is shown. */
   const latest = useRef(0);
   const inFlight = useRef(false);
@@ -37,8 +49,10 @@ export function useTextSelection(engine: Engine, document: DocumentHandle, onDen
   const queued = useRef<(() => void) | null>(null);
   // Read through a ref, so a new callback never changes `input`.
   const denied = useRef(onDenied);
+  const keys = useRef(keyOf);
   useEffect(() => {
     denied.current = onDenied;
+    keys.current = keyOf;
   });
 
   useEffect(
@@ -50,14 +64,14 @@ export function useTextSelection(engine: Engine, document: DocumentHandle, onDen
   );
 
   const request = useCallback(
-    (pageIndex: number, ask: () => Promise<TextSelection>) => {
+    (pageIndex: number, pageKey: string, ask: () => Promise<TextSelection>) => {
       const id = ++latest.current;
       const send = () => {
         inFlight.current = true;
         ask()
           .then(
             ({ text, rects }) => {
-              if (id === latest.current) setSelection(text === '' ? null : { pageIndex, text, rects });
+              if (id === latest.current) setSelection(text === '' ? null : { pageIndex, pageKey, text, rects });
             },
             (error: unknown) => {
               if (id !== latest.current) return;
@@ -86,7 +100,7 @@ export function useTextSelection(engine: Engine, document: DocumentHandle, onDen
 
   const start = useCallback(
     (pageIndex: number, point: PagePoint) => {
-      anchor.current = { pageIndex, point };
+      anchor.current = { pageIndex, pageKey: keys.current(pageIndex), point };
       reset();
     },
     [reset],
@@ -94,7 +108,9 @@ export function useTextSelection(engine: Engine, document: DocumentHandle, onDen
   const extend = useCallback(
     (point: PagePoint) => {
       const from = anchor.current;
-      if (from) request(from.pageIndex, () => engine.selectText(document, from.pageIndex, from.point, point));
+      if (from) {
+        request(from.pageIndex, from.pageKey, () => engine.selectText(document, from.pageIndex, from.point, point));
+      }
     },
     [engine, document, request],
   );
@@ -104,7 +120,7 @@ export function useTextSelection(engine: Engine, document: DocumentHandle, onDen
   const selectWord = useCallback(
     (pageIndex: number, point: PagePoint) => {
       anchor.current = null;
-      request(pageIndex, () => engine.selectWord(document, pageIndex, point));
+      request(pageIndex, keys.current(pageIndex), () => engine.selectWord(document, pageIndex, point));
     },
     [engine, document, request],
   );

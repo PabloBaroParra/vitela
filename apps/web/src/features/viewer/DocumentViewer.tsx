@@ -1,23 +1,28 @@
 // Container: the open document as one vertically scrolling, virtualized
-// column of pages, with zoom, search and text selection. Only pages within a
+// column of pages, with zoom, search, text selection, the session's
+// annotations, markup over the selection and undo/redo. Only pages within a
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Engine } from '@vitela/core';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
+import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import type { OpenDocument } from '../document/useDocument';
+import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';
 import { boundingBox, toCssRects } from '../text/pageRects';
 import { TextToolbar } from '../text/TextToolbar';
 import { useCopy } from '../text/useCopy';
 import { useTextSelection } from '../text/useTextSelection';
+import { HistoryControls } from './HistoryControls';
 import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
 import { PageSlot } from './PageSlot';
 import { renderDpi } from './renderDpi';
 import { revealScroll } from './reveal';
 import { useScrollMetrics } from './useScrollMetrics';
 import { useSettled } from './useSettled';
+import { useUndoKeys } from './useUndoKeys';
 import { useViewerZoom } from './useViewerZoom';
 import { MAX_ZOOM, MIN_ZOOM, zoomIn, zoomOut } from './zoom';
 import { ZoomControls } from './ZoomControls';
@@ -27,14 +32,21 @@ const RENDER_SETTLE_MS = 150;
 /** Room kept around a search match scrolled into view, in CSS px. */
 const REVEAL_MARGIN = 48;
 
+const NO_ANNOTATIONS: readonly Annotation[] = [];
+
 interface DocumentViewerProps {
   readonly engine: Engine;
   readonly document: OpenDocument;
+  /**
+   * Hands the edited document to the workspace; `false` when that document
+   * is no longer the one on screen (then it is not marked dirty either).
+   */
+  readonly onEdited: (handle: DocumentHandle, edited: EditedDocument) => boolean;
 }
 
-export function DocumentViewer({ engine, document }: DocumentViewerProps) {
+export function DocumentViewer({ engine, document, onEdited }: DocumentViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
-  const { pages } = document.info;
+  const { pages, pageIds } = document.info;
   // Zoom first: its layout effect must scroll before the metrics re-read.
   const { zoom, pendingScroll, zoomTo, fitWidth } = useViewerZoom(scroller, pages);
   const metrics = useScrollMetrics(scroller);
@@ -47,8 +59,72 @@ export function DocumentViewer({ engine, document }: DocumentViewerProps) {
   const [textAllowed, setTextAllowed] = useState(document.info.textExtractionAllowed);
   const denyText = useCallback(() => setTextAllowed(false), []);
   const search = useSearch(engine, document.handle, denyText);
-  const { selection, input, clear: clearSelection } = useTextSelection(engine, document.handle, denyText);
+  // What sits at each position: an undo or redo of a page edit (made in
+  // Organize) puts other pages there, so their bitmaps, search matches and
+  // the selection no longer fit.
+  const pageKeys = useMemo(() => pages.map((_, index) => pageKey({ pages, pageIds }, index)), [pages, pageIds]);
+  // Read through a ref: a selection records the page on screen at its press.
+  const shownKeys = useRef(pageKeys);
+  useLayoutEffect(() => {
+    shownKeys.current = pageKeys;
+  });
+  const keyOf = useCallback((index: number) => shownKeys.current[index] ?? String(index), []);
+  const { selection, input, clear: clearSelection } = useTextSelection(engine, document.handle, denyText, keyOf);
   const copy = useCopy(textAllowed ? (selection?.text ?? null) : null);
+
+  const markDirty = useMarkDirty();
+  const { handle } = document;
+  const report = useCallback(
+    (edited: EditedDocument) => {
+      if (onEdited(handle, edited)) markDirty();
+    },
+    [onEdited, handle, markDirty],
+  );
+  const editing = useAnnotationEdits(engine, document, report);
+  useUndoKeys(editing.undo, editing.redo);
+  // Read through a ref: a markup's end must see the selection shown then.
+  const shownSelection = useRef(selection);
+  useLayoutEffect(() => {
+    shownSelection.current = selection;
+  });
+  // Off while any step runs: an undo may be putting another page here.
+  const canMark = !!selection && !editing.pending;
+
+  // A new page list drops the selection once committed; until then a markup
+  // checks the page the selection was made on (its `pageKey`).
+  const structure = pageKeys.join(',');
+  const shownStructure = useRef(structure);
+  const clearSearch = search.clear;
+  useEffect(() => {
+    if (shownStructure.current === structure) return;
+    shownStructure.current = structure;
+    clearSelection();
+    clearSearch();
+  }, [structure, clearSelection, clearSearch]);
+
+  const markSelection = (kind: MarkupKind) => {
+    const marked = selection;
+    if (!marked || !canMark) return;
+    // Checked against the page the text was selected on, not the one there
+    // now. Once any line went in, the selection goes (marking it again would
+    // repeat those lines); it stays when nothing was marked, or when another
+    // selection was made since.
+    void editing.markup(kind, marked.pageIndex, marked.pageKey, marked.rects).then((outcome) => {
+      const applied = outcome === 'marked' || outcome === 'partial';
+      if (applied && shownSelection.current === marked) clearSelection();
+    });
+  };
+
+  const annotations = document.annotations ?? NO_ANNOTATIONS;
+  const annotationsByPage = useMemo(() => {
+    const byPage = new Map<number, Annotation[]>();
+    for (const annotation of annotations) {
+      const list = byPage.get(annotation.pageIndex);
+      if (list) list.push(annotation);
+      else byPage.set(annotation.pageIndex, [annotation]);
+    }
+    return byPage;
+  }, [annotations]);
 
   const layout = useMemo(() => layoutPages(pages, zoom, metrics.width), [pages, zoom, metrics.width]);
   // On a zoom's commit the scroller still has the old scroll: lay out at the
@@ -99,6 +175,9 @@ export function DocumentViewer({ engine, document }: DocumentViewerProps) {
           engine={engine}
           document={document.handle}
           index={index}
+          page={pages[index]!}
+          pageKey={pageKeys[index]!}
+          annotations={annotationsByPage.get(index) ?? NO_ANNOTATIONS}
           slot={layout.slots[index]!}
           dpi={renderDpi(pages[index]!, renderZoom, pixelRatio)}
           label={`Page ${index + 1} of ${document.name}`}
@@ -135,7 +214,19 @@ export function DocumentViewer({ engine, document }: DocumentViewerProps) {
           canCopy={!!selection}
           onCopy={copy.copy}
           copyStatus={copy.status}
+          markup={{ allowed: editing.allowed, canMark, onMark: markSelection }}
         />
+        <HistoryControls
+          canUndo={editing.canUndo}
+          canRedo={editing.canRedo}
+          onUndo={editing.undo}
+          onRedo={editing.redo}
+        />
+        {editing.failure && (
+          <p className="viewer__failure" role="alert">
+            {editing.failure}
+          </p>
+        )}
       </div>
       {/* Focusable so the keyboard can scroll it (and Escape drops a selection). */}
       <div
