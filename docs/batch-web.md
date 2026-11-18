@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 en curso: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (cierre pendiente del CI).**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -379,7 +379,7 @@ Hechos que las fundamentan (mapeados 2026-11-12 sobre `origin/main`):
 | **T-224** ✓ | `pdf-wasm`: conservar bytes originales, `applyEdit` (mover/rotar/borrar páginas), deshacer/rehacer, `saveToBytes` y `refreshPreview` (reabrir pdfium desde lo guardado). | `wasm-bindgen-test`: editar, guardar, reabrir los bytes y comprobar orden/giro/nº de páginas; errores tipados para permiso denegado y página fuera de rango. |
 | **T-225** ✓ | Web: Guardar/Descargar. File System Access en Chromium (guardar sobre el mismo archivo), descarga en Firefox/WebKit. | Playwright en los tres navegadores: guardar y reabrir el archivo resultante. |
 | **T-226** ✓ | Web: pantalla Organize (cuadrícula de miniaturas virtualizada, reordenar arrastrando, rotar, borrar, deshacer/rehacer). | Playwright de punta a punta: reordenar/rotar/borrar, guardar y comprobar el PDF resultante; PDF sin permiso de ensamblado → bloqueado. |
-| **T-227** | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
+| **T-227** ✓ | `pdf-wasm` + web: importar PDFs (preparar + importar, un paso de deshacer por elección) y vista Documentos (bloques). | Playwright: importar un PDF, mover un bloque, guardar y comprobar; cifrado → contraseña. |
 
 T-223 bloquea T-224 y T-227. T-225 depende de `saveToBytes` (T-224). T-226 depende de
 T-224 y T-225.
@@ -689,6 +689,116 @@ que sigue:
   caché de miniaturas no necesita cambios; `applyEdit` puede crecer con un `import` que
   responda el mismo `EditedDocument`. La vista Documentos (bloques) puede reutilizar
   `gridLayout`, `useReorderDrag` y `moves.ts` (un bloque es un tramo).
+
+### T-227 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize"). Lo que condiciona lo
+que sigue:
+
+- **Preparar baja al core (regla de T-223).** El paso "abrir una fuente" vivía solo en
+  `pdf-ffi::prepare_import` (abrir con contraseña y permiso de copia, "sin páginas",
+  `graft_report` sobre todas las páginas, avisos). Ahora es
+  `pdf_save::prepare_source` (`prepared_source.rs`) con su `PrepareError` (las palabras
+  "the PDF has no pages" / "too many pages" viajan con él); `pdf-ffi` delega y traduce
+  igual que antes (`Open(e)` → la conversión de `ManipError` de siempre, el resto →
+  `UnsupportedOperation`). Cero cambio de comportamiento: los tests de fachada de `pdf-ffi`
+  (`import`, `import_batch`…) siguen sin tocar y en verde.
+- **`pdf-wasm`** (`model/import.rs`, `engine/import.rs`, `dto/import.rs`):
+  `prepareImport(bytes, password?)` → `PreparedImport {id, pageCount, warnings}`;
+  `discardPrepared(id)`; `importPrepared(doc, ids, index)` → `ImportedPages {pageCount,
+  sourceIds}` sobre `pdf_save::import_sources` (un `ImportPages`, un paso de deshacer, las
+  fuentes al `ImportedSourceRegistry` del documento); `importRefusal(doc)`
+  (`pdf_save::import_refusal`) y `documentBlocks(doc)` (`derive_blocks`, por posición:
+  `source` base/blank/imported + `sourceId`, `part`, `start`, `count`, como
+  `pdf-ffi::document_blocks`). Las fuentes preparadas viven en el `Engine` bajo un id
+  (JS no puede tener un `LopdfDocument`) y no pertenecen a ningún documento hasta
+  importarse. **Lo único que queda en la frontera:** esos ids y el "elegido dos veces" sobre
+  ellos (como en `pdf-ffi`, el core recibe cada fuente como un `&mut` propio). Una fuente
+  que no está (importada, descartada, nunca preparada) es un hueco vacío que el core
+  rechaza como "ya importada". Todo o nada: con cualquier error las fuentes vuelven a estar
+  preparadas. Mismo orden que `pdf-ffi`: el rechazo del destino antes que la posición.
+- **Errores:** `PasswordRequired`/`WrongPassword` de la fuente con su propio tipo (la UI
+  pregunta); lo que la fuente rechaza (copia prohibida, firma, XFA, contenido opcional,
+  campos en línea) pasa de `InvalidDocument` a `UnsupportedOperation` (como `pdf-ffi`);
+  un permiso del destino que falta es `EditNotPermitted` y una reescritura que el cifrado no
+  aguanta `UnsupportedOperation`, igual que en `applyEdit`.
+- **`@vitela/core`:** `Engine` gana `prepareImport` (los bytes viajan por transferencia,
+  como en `open`), `discardImport` e `importPrepared`, que responde un `ImportedDocument`
+  (`EditedDocument` + `sourceIds`) con el refresco de la vista previa **dentro de la misma
+  petición** y la misma marcha atrás que T-226 si el refresco falla. `DocumentInfo` gana
+  `blocks` e `importRefusal`. Un test nuevo contra pdfium real importa, comprueba los
+  bloques, pinta la página importada sin refresco aparte, deshace y comprueba que la fuente
+  quedó gastada. **Trampa:** wasm-bindgen 0.2.130 tipa `Result<Option<String>>` como
+  `string` en el `.d.ts`; en ejecución `None` llega como `undefined` (`importRefusal ?? null`).
+- **Web — Documentos:** conmutador **Pages / Documents** en la barra de Organize. La
+  cuadrícula, el arrastre, el teclado y la selección son el mismo código sobre *unidades*
+  (`units.ts`: una página o un bloque); un tramo de bloques es un tramo de páginas, así que
+  mover/rotar/borrar un bloque es el mismo comando de página y un paso de deshacer
+  (`moveUnitsToSlot`/`moveUnitsBy` sobre `moves.ts`). `ThumbnailGrid` pasó a ser genérico
+  (`renderItem`), con `PageCard` y `BlockCard` sobre `CardThumbnail`; la caché por `PageId`
+  no cambió (la miniatura de un bloque es su primera página). Tras mover se selecciona lo
+  que cubre las páginas movidas (los bloques pueden fusionarse) y al cambiar de vista se
+  conservan las mismas páginas seleccionadas. Nombre del bloque: el archivo abierto, el
+  archivo importado (`OpenDocument.sourceNames`, por el `sourceId` que dio la importación;
+  el motor nunca ve nombres), "Blank pages", más "(part n)".
+- **Web — Add PDFs:** botón en la barra (`FilePicker` con `onPickFiles`, varios archivos) y
+  soltar archivos sobre Organize. `useImport` prepara archivo a archivo, pide la contraseña
+  de uno cifrado con el mismo `PasswordDialog` (ahora con `action="add"`: "…to add its
+  pages", botón **Add**), y añade toda la selección **al final** con un solo
+  `importPrepared` (un paso de deshacer); después selecciona las páginas añadidas y marca
+  sucio vía `useMarkDirty`. Cancelar una contraseña, un archivo rechazado o salir de la
+  pantalla abandona la selección entera y descarta lo preparado. **Soltar:** Organize
+  reclama el drop (`preventDefault`) y el listener de ventana de `useFileDrop` ya no abre un
+  drop reclamado (lo comprueba `defaultPrevented`); el aviso dice "Drop PDFs to add their
+  pages" en Organize. **Gate:** `importRefusal` apaga Add PDFs con el motivo como tooltip (el
+  PDF sin permiso de ensamblado del E2E de T-226 ahora lo comprueba también).
+- **Playwright** (`e2e/import.spec.ts`, los tres navegadores; los helpers de Organize se
+  movieron a `e2e/organize.ts`): importar un PDF, deshacer/rehacer la importación (un
+  paso), vista Documentos con dos bloques, arrastrar el bloque importado delante, guardar,
+  reabrir la descarga y comprobar orden y nº de páginas por su forma (y que vuelve como un
+  solo bloque); un PDF cifrado pide su contraseña, dice cuándo es incorrecta y entra con la
+  buena (y se guarda); cancelar la contraseña no añade nada (tampoco el otro archivo de la
+  selección); soltar un PDF sobre Organize lo añade en vez de abrirlo. Zero-network ahora
+  también importa.
+- **Verificado en local (Windows, Playwright 1.65.1):** `cargo test --locked -p pdf-wasm
+  -p pdf-save -p pdf-ffi` con pdfium vendorizado (757 pasados, 0 fallos, 7 ignorados;
+  `pdf-wasm` 50 nativos, 10 nuevos; 3 nuevos en `pdf-save`); clippy nativo de los tres y wasm32 `--all-targets` de
+  `pdf-wasm` con `-D warnings`; `cargo fmt --check`. `tsc -b` de la app y del paquete;
+  Vitest de `@vitela/core` 100/100 (incluido el de pdfium real) y de la app 340/340; build;
+  Playwright 94 pasados / 20 saltados (los de File System Access fuera de Chromium), incluido
+  zero-network; `import.spec.ts` + `organize.spec.ts` además 72/72 con `--repeat-each=3`.
+  **No corrido en local:** los `wasm-bindgen-test` en Chrome headless (no hay chromedriver en
+  esta máquina; los dos nuevos —importar + mover bloque + guardar, y fuente cifrada— compilan
+  con clippy wasm32 y los verifica el job `wasm32` de `core.yml`), ni `linux-gtk` (no toca).
+- **Dos arreglos de la revisión:**
+  - *Cambiar de vista con una edición en vuelo.* El conmutador Pages/Documents no espera a
+    `pending` (no manda nada al motor), pero `edit` calculaba la selección nueva en las
+    unidades de la vista en la que *empezó* la edición: con un cambio de vista en medio, un
+    índice de bloque se leía como índice de página (o al revés) y el siguiente Delete/Rotate
+    podía tocar otras páginas. Ahora, si `viewNow.current` (la vista del último render, como
+    ya hacía la importación) no es la del inicio, la selección se traduce con
+    `reselect` (`units.ts`, puro: las mismas páginas como las tarjetas de la otra vista que
+    las contienen), la misma función que usa el conmutador. Se eligió esto y no apagar el
+    conmutador mientras hay edición: el resultado es correcto sea cual sea el momento.
+  - *Una importación terminada se perdía con otra edición en vuelo.* Rotar/borrar/mover/
+    deshacer siguen vivos mientras se prepara o se pide una contraseña; si uno seguía en
+    vuelo al llegar `importPrepared`, el candado de `useOrganize` (`busy`) devolvía `null`
+    sin mensaje, se descartaba lo preparado y el estado volvía a reposo aunque el usuario
+    hubiera tecleado contraseñas. Ahora la importación **espera su turno**
+    (`runInTurn`: aguarda a que termine el paso en vuelo y entonces corre); un clic doble
+    sobre una edición se sigue descartando como antes. La importación va detrás de las
+    páginas que dejó esa edición: `run` actualiza `pageCount` con la respuesta, porque el
+    siguiente paso puede empezar antes de que un render traiga la lista nueva. Si la edición
+    esperada falla, su error se queda a la vista (la importación no lo borra); si falla la
+    importación, se ve como cualquier fallo de Organize.
+  - Tests: Vitest de pantalla (mover en Pages y cambiar a Documents en vuelo, rotar un bloque
+    y cambiar a Pages en vuelo, selección que cruza bloques al cambiar de vista, importar con
+    un borrado en vuelo), de `useOrganize` (la importación espera y va tras las páginas que
+    quedan; conserva el fallo de la edición esperada) y de `reselect`.
+- **No cubierto:** elegir dónde insertar (siempre al final, como "append"); avisos del
+  injerto antes de importar (se muestran después, en la línea de estado, no se pregunta como
+  en Linux); renombrar bloques; un drop sobre Organize con la importación rechazada no hace
+  nada más que no abrir el archivo (el botón explica el motivo); arrastrar con el dedo.
 
 ## Verificación
 

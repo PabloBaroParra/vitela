@@ -125,4 +125,31 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     });
     await engine.close(handle);
   });
+
+  it('imports a PDF through the real core as one step, with its own block', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+    expect(info.importRefusal).toBeNull();
+    expect(info.blocks).toEqual([{ source: { kind: 'base' }, part: null, start: 0, count: 1 }]);
+
+    const source = await engine.prepareImport(readFileSync(fixture));
+    expect(source.pageCount).toBe(1);
+    const imported = await engine.importPrepared(handle, [source.id], 0);
+    expect(imported.sourceIds).toHaveLength(1);
+    expect(imported.info.pageCount).toBe(2);
+    expect(imported.info.blocks).toEqual([
+      { source: { kind: 'imported', id: imported.sourceIds[0] }, part: null, start: 0, count: 1 },
+      { source: { kind: 'base' }, part: null, start: 1, count: 1 },
+    ]);
+    // Refreshed inside the import: the imported page renders at once.
+    expect((await engine.renderPage(handle, 0, 72)).width).toBe(612);
+
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(1);
+    await expect(engine.importPrepared(handle, [source.id], 0)).rejects.toMatchObject({
+      name: 'UnsupportedOperation',
+    });
+    await engine.close(handle);
+  });
 });

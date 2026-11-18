@@ -131,20 +131,13 @@ pub fn prepare_import(
     bytes: Vec<u8>,
     password: Option<String>,
 ) -> Result<Arc<PreparedImport>, FfiError> {
-    let (source, _) = pdf_manip::open_import_source_from_bytes(&bytes, password.as_deref())?;
-    let every_page: Vec<usize> = (0..source.page_count()).collect();
-    if every_page.is_empty() {
-        return Err(unsupported("the PDF has no pages"));
-    }
-    let warnings = pdf_manip::graft_report(&source, &every_page)?
-        .warnings()
-        .iter()
-        .map(ToString::to_string)
-        .collect();
-    let page_count =
-        u32::try_from(every_page.len()).map_err(|_| unsupported("the PDF has too many pages"))?;
+    // The open, the copy permission, "no pages" and the graft check are the
+    // core's (`pdf_save::prepare_source`), and so are its words.
+    let prepared = pdf_save::prepare_source(&bytes, password.as_deref())?;
+    let page_count = prepared.page_count();
+    let warnings = prepared.warnings().to_vec();
     Ok(Arc::new(PreparedImport {
-        source: Mutex::new(Some(source)),
+        source: Mutex::new(Some(prepared.into_source())),
         page_count,
         warnings,
     }))

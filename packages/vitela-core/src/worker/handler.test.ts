@@ -9,6 +9,8 @@ const info = {
   pageIds: [0],
   textExtractionAllowed: true,
   documentAssemblyAllowed: true,
+  blocks: [{ source: { kind: 'base' as const }, part: null, start: 0, count: 1 }],
+  importRefusal: null,
 };
 const edited = { info, canUndo: true, canRedo: false };
 const opened = { handle: 5, info };
@@ -25,6 +27,9 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     applyEdit: async () => edited,
     undo: async () => edited,
     redo: async () => edited,
+    prepareImport: async () => ({ id: 1, pageCount: 1, warnings: [] }),
+    discardImport: async () => {},
+    importPrepared: async () => ({ ...edited, sourceIds: [1] }),
     ...overrides,
   };
 }
@@ -215,6 +220,46 @@ describe('handleRequest', () => {
       ['undo', 5],
       ['redo', 5],
     ]);
+  });
+
+  it('answers the import requests for the document and sources they name', async () => {
+    const calls: unknown[][] = [];
+    const prepared = { id: 3, pageCount: 2, warnings: ['w'] };
+    const imported = { ...edited, sourceIds: [7] };
+    const engine = fakeEngine({
+      prepareImport: async (...args) => (calls.push(['prepareImport', ...args]), prepared),
+      discardImport: async (...args) => void calls.push(['discardImport', ...args]),
+      importPrepared: async (...args) => (calls.push(['importPrepared', ...args]), imported),
+    });
+    const bytes = new Uint8Array([1]);
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'prepareImport', bytes, password: 'pw' } })).toEqual({
+      message: { type: 'result', id: 1, value: prepared },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'discardImport', id: 3 } })).toEqual({
+      message: { type: 'result', id: 2, value: undefined },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 3, request: { kind: 'importPrepared', document: 5, ids: [3, 4], index: 1 } }),
+    ).toEqual({ message: { type: 'result', id: 3, value: imported }, transfer: [] });
+    expect(calls).toEqual([
+      ['prepareImport', bytes, 'pw'],
+      ['discardImport', 3],
+      ['importPrepared', 5, [3, 4], 1],
+    ]);
+  });
+
+  it('forwards a password failure of an import source by name', async () => {
+    const failure = new Error('password needed');
+    failure.name = 'PasswordRequired';
+    const engine = fakeEngine({
+      prepareImport: async () => {
+        throw failure;
+      },
+    });
+    const reply = await handleRequest(engine, { id: 6, request: { kind: 'prepareImport', bytes: new Uint8Array([1]) } });
+    expect(reply.message).toMatchObject({ type: 'error', id: 6, name: 'PasswordRequired' });
   });
 
   it('forwards EditNotPermitted by name', async () => {

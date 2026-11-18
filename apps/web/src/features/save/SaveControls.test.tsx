@@ -19,6 +19,8 @@ const document: OpenDocument = {
     pageIds: [0],
     textExtractionAllowed: true,
     documentAssemblyAllowed: true,
+    blocks: [],
+    importRefusal: null,
   },
 };
 

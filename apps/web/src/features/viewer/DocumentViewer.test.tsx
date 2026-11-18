@@ -17,6 +17,8 @@ const doc: OpenDocument = {
     pageIds: pages.map((_, index) => index),
     textExtractionAllowed: true,
     documentAssemblyAllowed: true,
+    blocks: [],
+    importRefusal: null,
   },
   handle: 1,
   generation: 1,

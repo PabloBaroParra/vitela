@@ -11,6 +11,10 @@ use pdf_render::line_rects;
 use crate::convert::flatten_rects;
 use crate::model::PageSize;
 
+mod import;
+
+pub use import::{DocumentBlock, ImportedPages, PreparedImport};
+
 /// One page's layout size in PDF points and the clockwise turn (0, 90, 180
 /// or 270) it is drawn at.
 #[wasm_bindgen]

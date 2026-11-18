@@ -6,9 +6,11 @@
 import type {
   DocumentHandle,
   EditedDocument,
+  ImportedDocument,
   OpenedDocument,
   PageEdit,
   PagePoint,
+  PreparedImport,
   RenderedPage,
   SearchHit,
   TextSelection,
@@ -27,6 +29,14 @@ export type EngineRequest =
   | { readonly kind: 'applyEdit'; readonly document: DocumentHandle; readonly edit: PageEdit }
   | { readonly kind: 'undo'; readonly document: DocumentHandle }
   | { readonly kind: 'redo'; readonly document: DocumentHandle }
+  | { readonly kind: 'prepareImport'; readonly bytes: Uint8Array; readonly password?: string }
+  | { readonly kind: 'discardImport'; readonly id: number }
+  | {
+      readonly kind: 'importPrepared';
+      readonly document: DocumentHandle;
+      readonly ids: readonly number[];
+      readonly index: number;
+    }
   | { readonly kind: 'search'; readonly document: DocumentHandle; readonly query: string }
   | {
       readonly kind: 'selectText';
@@ -50,6 +60,9 @@ export interface EngineResults {
   applyEdit: EditedDocument;
   undo: EditedDocument;
   redo: EditedDocument;
+  prepareImport: PreparedImport;
+  discardImport: void;
+  importPrepared: ImportedDocument;
   search: SearchHit[];
   selectText: TextSelection;
   selectWord: TextSelection;

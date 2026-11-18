@@ -37,6 +37,13 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         return result(id, await engine.undo(request.document));
       case 'redo':
         return result(id, await engine.redo(request.document));
+      case 'prepareImport':
+        return result(id, await engine.prepareImport(request.bytes, request.password));
+      case 'discardImport':
+        await engine.discardImport(request.id);
+        return result(id, undefined);
+      case 'importPrepared':
+        return result(id, await engine.importPrepared(request.document, request.ids, request.index));
       // Text replies are small (a few rects per line or match): copied, not
       // transferred.
       case 'search':

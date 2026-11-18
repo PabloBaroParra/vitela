@@ -489,3 +489,99 @@ async fn page_ids_follow_their_pages_and_the_assembly_permission_is_reported() {
     let unknown = engine.page_ids(99).unwrap_err();
     assert_eq!(error_name(unknown), "DocumentNotFound");
 }
+
+#[wasm_bindgen_test]
+async fn an_import_is_one_undo_step_whose_block_moves_and_saves() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(pdfs::text_document(&["one", "two"]), None)
+        .unwrap();
+    assert_eq!(engine.import_refusal(doc).unwrap(), None);
+
+    let prepared = engine
+        .prepare_import(pdfs::text_document(&["added"]), None)
+        .unwrap();
+    assert_eq!(prepared.page_count(), 1);
+    let report = engine.import_prepared(doc, vec![prepared.id()], 2).unwrap();
+    assert_eq!(report.page_count(), 1);
+    let blocks = engine.document_blocks(doc).unwrap();
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[1].source(), "imported");
+    assert_eq!(blocks[1].source_id(), Some(report.source_ids()[0]));
+    assert_eq!((blocks[1].start(), blocks[1].count()), (2, 1));
+    assert_eq!(blocks[0].source_id(), None);
+
+    // The imported block moved to the front, as a run of pages.
+    engine
+        .apply_edit(doc, &EditCommand::move_pages(2, 1, 0))
+        .unwrap();
+    engine.refresh_preview(doc).unwrap();
+    let words = ["one", "two", "added"];
+    assert_eq!(
+        page_words(&mut engine, doc, &words),
+        ["added", "one", "two"]
+    );
+
+    let saved = engine.save_to_bytes(doc, false).unwrap();
+    let reopened = engine.open(saved, None).unwrap();
+    assert_eq!(
+        page_words(&mut engine, reopened, &words),
+        ["added", "one", "two"]
+    );
+
+    assert!(engine.undo(doc).unwrap());
+    assert!(engine.undo(doc).unwrap(), "the import is one step");
+    assert_eq!(engine.page_count(doc).unwrap(), 2);
+    assert!(!engine.can_undo(doc).unwrap());
+}
+
+#[wasm_bindgen_test]
+async fn an_encrypted_import_source_names_what_it_needs() {
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::text_document(&["one"]), None).unwrap();
+    let locked = pdfs::locked_document(&["secret"]);
+
+    let missing = engine.prepare_import(locked.clone(), None).unwrap_err();
+    assert!(
+        matches!(
+            error_name(missing).as_str(),
+            "PasswordRequired" | "WrongPassword"
+        ),
+        "a missing password asks for one"
+    );
+    let wrong = engine
+        .prepare_import(locked.clone(), Some("nope".into()))
+        .unwrap_err();
+    assert_eq!(error_name(wrong), "WrongPassword");
+
+    let prepared = engine
+        .prepare_import(locked, Some(pdfs::USER_PASSWORD.into()))
+        .unwrap();
+    engine.import_prepared(doc, vec![prepared.id()], 1).unwrap();
+    engine.refresh_preview(doc).unwrap();
+    assert_eq!(
+        page_words(&mut engine, doc, &["one", "secret"]),
+        ["one", "secret"]
+    );
+
+    let spent = engine
+        .import_prepared(doc, vec![prepared.id()], 0)
+        .unwrap_err();
+    assert_eq!(error_name(spent), "UnsupportedOperation");
+
+    let restricted = engine
+        .open(
+            pdfs::restricted_document(),
+            Some(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+    assert!(engine.import_refusal(restricted).unwrap().is_some());
+    let other = engine
+        .prepare_import(pdfs::text_document(&["x"]), None)
+        .unwrap();
+    let refused = engine
+        .import_prepared(restricted, vec![other.id()], 0)
+        .unwrap_err();
+    assert_eq!(error_name(refused), "EditNotPermitted");
+    assert!(engine.discard_prepared(other.id()));
+}

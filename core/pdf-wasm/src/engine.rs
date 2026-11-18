@@ -11,7 +11,8 @@
 //! by the core's own rule before pdfium is asked.
 //!
 //! The edit surface (`applyEdit`, undo/redo, `saveToBytes`,
-//! `refreshPreview`) is in [`edit`].
+//! `refreshPreview`) is in [`edit`]; import and the Documents view's blocks
+//! are in [`import`].
 
 use std::collections::HashMap;
 
@@ -22,9 +23,10 @@ use wasm_bindgen::prelude::*;
 use crate::convert::tight_rgba;
 use crate::dto::{PageCharacters, PageDimensions, RenderedPage, SearchMatch, TextRun};
 use crate::error::EngineError;
-use crate::model::DocumentModel;
+use crate::model::{DocumentModel, PreparedSources};
 
 mod edit;
+mod import;
 
 pub use edit::EditCommand;
 
@@ -44,6 +46,9 @@ pub struct Engine {
     renderer: SyncRenderer,
     documents: HashMap<u32, OpenDocument>,
     next_id: u32,
+    /// Import sources opened by `prepareImport` and not yet imported or
+    /// discarded. They belong to no document until one imports them.
+    prepared: PreparedSources,
 }
 
 #[wasm_bindgen]
@@ -59,6 +64,7 @@ impl Engine {
             renderer,
             documents: HashMap::new(),
             next_id: 0,
+            prepared: PreparedSources::new(),
         })
     }
 

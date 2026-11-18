@@ -13,9 +13,11 @@ import type {
   DocumentHandle,
   EditedDocument,
   Engine,
+  ImportedDocument,
   OpenedDocument,
   PageEdit,
   PagePoint,
+  PreparedImport,
   RenderedPage,
   SearchHit,
   TextSelection,
@@ -71,6 +73,19 @@ export class EngineClient implements Engine {
 
   redo(document: DocumentHandle): Promise<EditedDocument> {
     return this.send({ kind: 'redo', document });
+  }
+
+  prepareImport(bytes: Uint8Array, password?: string): Promise<PreparedImport> {
+    // Like open: the bytes are transferred, and the caller's buffer detached.
+    return this.send({ kind: 'prepareImport', bytes, password }, [bytes.buffer as ArrayBuffer]);
+  }
+
+  discardImport(id: number): Promise<void> {
+    return this.send({ kind: 'discardImport', id });
+  }
+
+  importPrepared(document: DocumentHandle, ids: readonly number[], index: number): Promise<ImportedDocument> {
+    return this.send({ kind: 'importPrepared', document, ids, index });
   }
 
   search(document: DocumentHandle, query: string): Promise<SearchHit[]> {

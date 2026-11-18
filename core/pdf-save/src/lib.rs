@@ -38,6 +38,8 @@
 //!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
 //! - [`import`] (B26 T-223): adding other PDFs' pages as one undo step —
 //!   the destination's gates, the id cursors, and registering the sources.
+//! - [`prepared_source`] (B26 T-227): opening one PDF as an import source,
+//!   the phase before [`import`].
 //! - [`origin`]: which document and object hold a model page's bytes — the
 //!   read path's answer to a `PageId` that is no longer a position (batch PDF
 //!   assembly §6).
@@ -60,6 +62,7 @@ pub mod import;
 pub mod imported_sources;
 pub mod metadata;
 pub mod origin;
+pub mod prepared_source;
 pub mod preview;
 pub mod record;
 pub mod rewrite;
@@ -106,6 +109,7 @@ pub use origin::{
     retype_text_block_of, text_run_font_program_of, text_run_look_of, text_run_style_of,
     PageBacking,
 };
+pub use prepared_source::{prepare_source, PrepareError, PreparedSource};
 pub use preview::session_preview;
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};

@@ -56,6 +56,28 @@ pub fn restricted_document() -> Vec<u8> {
     save(doc)
 }
 
+/// A document like [`text_document`], encrypted with AES-128 under
+/// [`USER_PASSWORD`] and [`OWNER_PASSWORD`] but granting everything: it needs
+/// a password, and once opened its pages may be copied out (an import
+/// source).
+pub fn locked_document(pages: &[&str]) -> Vec<u8> {
+    let mut doc = build(pages, 0);
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+    let version = EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: OWNER_PASSWORD,
+        user_password: USER_PASSWORD,
+        permissions: Permissions::all(),
+    };
+    let state = EncryptionState::try_from(version).expect("encryption state");
+    doc.encrypt(&state).expect("encrypt");
+    save(doc)
+}
+
 /// "Hello Vitela" encrypted with RC4 under an **empty** user password and
 /// [`OWNER_PASSWORD`], printable but **not** copyable: it opens with no
 /// prompt, and that open must still refuse every text read.

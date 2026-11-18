@@ -5,11 +5,13 @@ interface ViewSwitchProps<View extends string> {
   readonly views: readonly { readonly value: View; readonly label: string }[];
   readonly current: View;
   readonly onChange: (view: View) => void;
+  /** The group's accessible name. */
+  readonly label?: string;
 }
 
-export function ViewSwitch<View extends string>({ views, current, onChange }: ViewSwitchProps<View>) {
+export function ViewSwitch<View extends string>({ views, current, onChange, label = 'Screen' }: ViewSwitchProps<View>) {
   return (
-    <div className="view-switch" role="group" aria-label="Screen">
+    <div className="view-switch" role="group" aria-label={label}>
       {views.map(({ value, label }) => (
         <button key={value} type="button" aria-pressed={value === current} onClick={() => onChange(value)}>
           {label}

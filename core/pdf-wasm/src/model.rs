@@ -30,9 +30,10 @@ pub struct DocumentModel {
     /// The bytes `base` was parsed from: every save and preview is computed
     /// from them plus the queued edits, as in `pdf-ffi`.
     original_bytes: Vec<u8>,
-    /// The PDFs this session imported pages from, which a save resolves
-    /// imported pages through. Empty until import lands (T-227), but held
-    /// now so every save goes through the same registry `pdf-ffi` uses.
+    /// The PDFs this session imported pages from ([`import`]), which every
+    /// save and preview resolves imported pages through — the same registry
+    /// `pdf-ffi` uses. Kept for the whole session: a redo of an undone import
+    /// needs its sources under the same ids.
     imported: ImportedSourceRegistry,
     opened_rotations: OpenedRotations,
 }
@@ -123,8 +124,10 @@ fn degrees(rotation: Rotation) -> u32 {
 }
 
 mod edit;
+mod import;
 
 pub use edit::PageEdit;
+pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 
 // Declared at file level, not inside `mod tests`: there the path would be
 // resolved through `src/model/tests/`, a directory that does not exist, which

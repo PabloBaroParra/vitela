@@ -34,7 +34,7 @@ interface DocumentWorkspaceProps {
 }
 
 export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: DocumentWorkspaceProps) {
-  const { state, open, submitPassword, cancelPassword, revise } = useDocument(engine);
+  const { state, open, submitPassword, cancelPassword, revise, nameSources } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
   const [screenFor, setScreenFor] = useState(document?.generation);
@@ -84,7 +84,13 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: Doc
           {screen === 'view' ? (
             <DocumentViewer key={document.generation} engine={engine} document={document} />
           ) : (
-            <OrganizeScreen key={document.generation} engine={engine} document={document} onEdited={revise} />
+            <OrganizeScreen
+              key={document.generation}
+              engine={engine}
+              document={document}
+              onEdited={revise}
+              onSourcesNamed={nameSources}
+            />
           )}
         </MarkDirtyContext.Provider>
       )}
@@ -99,7 +105,8 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view' }: Doc
       )}
       {dragging && (
         <div className="drop-hint" aria-hidden="true">
-          Drop the PDF to open it
+          {/* Organize takes the dropped files in (see OrganizeScreen). */}
+          {document && screen === 'organize' ? 'Drop PDFs to add their pages' : 'Drop the PDF to open it'}
         </div>
       )}
     </div>

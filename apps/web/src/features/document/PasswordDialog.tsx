@@ -1,5 +1,6 @@
-// Asks for the password of an encrypted PDF. Presentational: it reports the
-// password or the cancel. A native modal <dialog> keeps focus inside it and
+// Asks for the password of an encrypted PDF — the one being opened, or one
+// being added to it (`action`). Presentational: it reports the password or
+// the cancel. A native modal <dialog> keeps focus inside it and
 // makes the rest of the page inert; Escape fires `cancel`.
 
 import { useEffect, useId, useRef, type FormEvent } from 'react';
@@ -11,9 +12,17 @@ interface PasswordDialogProps {
   readonly checking: boolean;
   readonly onSubmit: (password: string) => void;
   readonly onCancel: () => void;
+  /** What the password is for: opening the PDF (the default) or adding its pages. */
+  readonly action?: 'open' | 'add';
 }
 
-export function PasswordDialog({ name, wrong, checking, onSubmit, onCancel }: PasswordDialogProps) {
+const WORDING = {
+  open: { purpose: 'open it', submit: 'Open', checking: 'Opening…' },
+  add: { purpose: 'add its pages', submit: 'Add', checking: 'Adding…' },
+} as const;
+
+export function PasswordDialog({ name, wrong, checking, onSubmit, onCancel, action = 'open' }: PasswordDialogProps) {
+  const wording = WORDING[action];
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const titleId = useId();
@@ -51,7 +60,7 @@ export function PasswordDialog({ name, wrong, checking, onSubmit, onCancel }: Pa
         <h2 id={titleId} className="password-dialog__title">
           Password required
         </h2>
-        <p>{`${name} is protected. Enter its password to open it.`}</p>
+        <p>{`${name} is protected. Enter its password to ${wording.purpose}.`}</p>
         <label className="password-dialog__field">
           Password
           <input
@@ -74,7 +83,7 @@ export function PasswordDialog({ name, wrong, checking, onSubmit, onCancel }: Pa
             Cancel
           </button>
           <button type="submit" className="button--primary" disabled={checking}>
-            {checking ? 'Opening…' : 'Open'}
+            {checking ? wording.checking : wording.submit}
           </button>
         </div>
       </form>

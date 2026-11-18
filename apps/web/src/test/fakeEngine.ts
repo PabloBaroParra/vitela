@@ -17,6 +17,9 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     applyEdit: unused('applyEdit'),
     undo: unused('undo'),
     redo: unused('redo'),
+    prepareImport: unused('prepareImport'),
+    discardImport: unused('discardImport'),
+    importPrepared: unused('importPrepared'),
     ...overrides,
   };
 }
