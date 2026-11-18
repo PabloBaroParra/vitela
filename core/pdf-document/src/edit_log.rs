@@ -668,13 +668,56 @@ impl Command {
     /// floor for every form command, filling one in included — a union the
     /// gate (`pdf_save::EditClass::of`) makes, so neither predicate has to
     /// claim the other's variants.
+    ///
+    /// Written as an exhaustive `match` with no wildcard on purpose: the
+    /// gate grants the annotate bit from this positive list, so a new
+    /// variant must not compile until someone decides whether it is an
+    /// annotation edit.
     pub fn is_annotation_edit(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Command::AddAnnotation(_)
-                | Command::RemoveAnnotation(_)
-                | Command::ReplaceAnnotation { .. }
-        )
+            | Command::RemoveAnnotation(_)
+            | Command::ReplaceAnnotation { .. } => true,
+            Command::RotatePage { .. }
+            | Command::RotatePages { .. }
+            | Command::InsertPage { .. }
+            | Command::ImportPages { .. }
+            | Command::RemovePage { .. }
+            | Command::RemoveImportedPages { .. }
+            | Command::RemovePages { .. }
+            | Command::InsertPages { .. }
+            | Command::MovePage { .. }
+            | Command::MovePages { .. }
+            | Command::ReplaceTextRunContent { .. }
+            | Command::ReplaceTextRunWithInsertedFont { .. }
+            | Command::InsertTextRun { .. }
+            | Command::InsertTextRunLike { .. }
+            | Command::RemoveTextRun { .. }
+            | Command::MoveTextRun { .. }
+            | Command::RestyleTextRun { .. }
+            | Command::InsertImage { .. }
+            | Command::RemoveImage { .. }
+            | Command::MoveImage { .. }
+            | Command::ResizeImage { .. }
+            | Command::ReplaceImageSource { .. }
+            | Command::MovePath { .. }
+            | Command::ResizePath { .. }
+            | Command::RemovePath { .. }
+            | Command::RestorePath { .. }
+            | Command::PasteContent { .. }
+            | Command::RemovePastedContent { .. }
+            | Command::AddWatermark { .. }
+            | Command::RemoveWatermark { .. }
+            | Command::Batch { .. }
+            | Command::AddFormField { .. }
+            | Command::RemoveFormField { .. }
+            | Command::MoveFormField { .. }
+            | Command::ResizeFormField { .. }
+            | Command::RestyleFormField { .. }
+            | Command::SetFieldValue { .. }
+            | Command::RenameFormField { .. }
+            | Command::SetDocumentInfo { .. } => false,
+        }
     }
 
     /// Whether this command edits a form field — its existence, its geometry,

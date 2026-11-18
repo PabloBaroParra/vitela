@@ -432,8 +432,8 @@ pub(crate) fn rename_field(
 ///
 /// `SetFieldValue` is the one field command this excludes, and there is no
 /// predicate for "is a form command at all" because nothing needs one: bit 6
-/// is the floor for every one of them, which is exactly what
-/// `document::is_annotation_command` already grants by not excluding them.
+/// is the floor for every one of them, which is why
+/// `document::is_annotation_command` names every form command as needing it.
 pub(crate) fn is_structural_form_command(command: &FfiEditCommand) -> bool {
     matches!(
         command,
