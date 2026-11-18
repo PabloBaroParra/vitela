@@ -95,6 +95,35 @@ pub fn promptless_restricted_document() -> Vec<u8> {
     save(doc)
 }
 
+/// A 1x1 opaque PNG: the smallest real image a stamp decodes.
+pub const PNG_1X1: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
+    0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 8, 215, 99, 248, 207, 192, 0, 0, 3, 1, 1,
+    0, 24, 221, 141, 176, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+/// What the note [`commented_document`] carries says, and who wrote it.
+pub const FILE_NOTE: &str = "Check this figure";
+pub const FILE_NOTE_AUTHOR: &str = "Ana";
+
+/// Like [`text_document`], with a `/Text` note on the first page that the
+/// file itself carries (a comment the session can read but not edit).
+pub fn commented_document(pages: &[&str]) -> Vec<u8> {
+    let mut doc = build(pages, 0);
+    let first = *doc.get_pages().values().next().expect("a page");
+    let note = doc.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Rect" => vec![40.into(), 600.into(), 60.into(), 620.into()],
+        "Contents" => Object::string_literal(FILE_NOTE),
+        "T" => Object::string_literal(FILE_NOTE_AUTHOR),
+    });
+    doc.get_dictionary_mut(first)
+        .expect("page dictionary")
+        .set("Annots", vec![Object::Reference(note)]);
+    save(doc)
+}
+
 fn build(pages: &[&str], rotation: i64) -> Document {
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();

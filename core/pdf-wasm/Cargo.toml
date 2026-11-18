@@ -3,7 +3,7 @@ name = "pdf-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "wasm-bindgen boundary for the web shell (B26 T-219): open from bytes, page count and dimensions, render to RGBA, text runs, page characters, search, page edits, import."
+description = "wasm-bindgen boundary for the web shell (B26 T-219): open from bytes, page count and dimensions, render to RGBA, text runs, page characters, search, page edits, import, annotations."
 publish = false
 
 [lib]
@@ -14,6 +14,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+pdf-annotate = { path = "../pdf-annotate" }
 pdf-document = { path = "../pdf-document" }
 pdf-manip = { path = "../pdf-manip" }
 pdf-render = { path = "../pdf-render" }

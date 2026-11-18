@@ -49,6 +49,13 @@ export interface DocumentInfo {
    * survives the rewrite an import forces). Asked before the file picker.
    */
   readonly importRefusal: string | null;
+  /**
+   * Whether the document lets annotations be added, changed or removed (PDF
+   * permission bit 6, or the owner password). When `false` the engine
+   * refuses every annotation edit with `EditNotPermitted`; reading the
+   * annotations and comments still works.
+   */
+  readonly annotationEditingAllowed: boolean;
 }
 
 /** Which PDF a block's pages come from. */
@@ -102,6 +109,130 @@ export interface EditedDocument {
   readonly info: DocumentInfo;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
+  /**
+   * The session's annotations as they are now, in paint order (the core's
+   * snapshot). Sent with every answer because any step can change them: a
+   * page move moves the annotations on it, an undo takes one away.
+   */
+  readonly annotations: readonly Annotation[];
+  /** The id of the annotation this edit added; `null` for every other step. */
+  readonly addedAnnotationId: number | null;
+}
+
+/** A colour, each channel 0-255. */
+export interface Rgb {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
+/**
+ * A box on a page as it is drawn, in PDF points from its top-left corner
+ * with the page's `/Rotate` applied: the frame `search` and `selectText`
+ * answer in, so a selection's rects can be marked up as they are.
+ */
+export interface PageRect {
+  readonly left: number;
+  readonly top: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The text markup kinds: a band over, a line under, or a line through text. */
+export type MarkupKind = 'highlight' | 'underline' | 'strikeout';
+
+/**
+ * One annotation edit, recorded as one undo step. Geometry is on the page as
+ * drawn (see `PageRect`); `page` is a position as it is now and `id` an
+ * `Annotation.id`.
+ */
+export type AnnotationEdit =
+  /** One box of markup is one annotation: a selection over three lines is three edits. */
+  | { readonly kind: 'addMarkup'; readonly page: number; readonly markup: MarkupKind; readonly rect: PageRect; readonly color: Rgb }
+  /** A rectangle outline. */
+  | { readonly kind: 'addShape'; readonly page: number; readonly rect: PageRect; readonly color: Rgb }
+  /** One freehand stroke. */
+  | { readonly kind: 'addInk'; readonly page: number; readonly points: readonly PagePoint[]; readonly color: Rgb }
+  /** A sticky note. */
+  | { readonly kind: 'addNote'; readonly page: number; readonly rect: PageRect; readonly contents: string }
+  /** A visible text box; rejects with `EncodingGap` for text Helvetica cannot show. */
+  | { readonly kind: 'addFreeText'; readonly page: number; readonly rect: PageRect; readonly contents: string }
+  /**
+   * An image stamp from PNG/JPEG bytes, copied to the engine (not
+   * transferred: the caller keeps them to draw it). Rejects with
+   * `InvalidImage` when they do not decode. Size it with `stampPlacement`.
+   */
+  | { readonly kind: 'addStamp'; readonly page: number; readonly rect: PageRect; readonly image: Uint8Array }
+  /** Moves an annotation by (`dx`, `dy`) on the page as drawn. */
+  | { readonly kind: 'moveAnnotation'; readonly id: number; readonly dx: number; readonly dy: number }
+  /** Gives an annotation a new box (ink has none). */
+  | { readonly kind: 'resizeAnnotation'; readonly id: number; readonly rect: PageRect }
+  /** Recolours markup, a shape or ink. */
+  | { readonly kind: 'recolorAnnotation'; readonly id: number; readonly color: Rgb }
+  /** Retypes a free-text box; the same text records nothing. */
+  | { readonly kind: 'retextAnnotation'; readonly id: number; readonly contents: string }
+  | { readonly kind: 'removeAnnotation'; readonly id: number };
+
+/** Anything `applyEdit` records. */
+export type Edit = PageEdit | AnnotationEdit;
+
+/** One laid-out line of a free-text box. */
+export interface FreeTextLine {
+  readonly text: string;
+  /** Left edge, from the box's left edge. */
+  readonly xPt: number;
+  /** Baseline, down from the box's top edge. */
+  readonly baselineFromTopPt: number;
+}
+
+/**
+ * How a free-text box's text lays out: the layout its saved appearance has.
+ * Lines are placed in the box's own frame, before the page's turn: on a page
+ * drawn turned, the text turns with it (by the page's `rotationDegrees`), as
+ * it will in any PDF viewer.
+ */
+export interface FreeTextLayout {
+  readonly fontSizePt: number;
+  readonly lines: readonly FreeTextLine[];
+  /** The lines run past the box's height; they are all there, clip them. */
+  readonly overflow: boolean;
+}
+
+interface AnnotationBase {
+  /** What annotation edits name it by. */
+  readonly id: number;
+  /** Position of its page now. */
+  readonly pageIndex: number;
+}
+
+/** One annotation of this session, on the page as drawn. */
+export type Annotation =
+  | (AnnotationBase & { readonly kind: MarkupKind | 'shape'; readonly rect: PageRect; readonly color: Rgb })
+  | (AnnotationBase & { readonly kind: 'ink'; readonly points: readonly PagePoint[]; readonly color: Rgb })
+  | (AnnotationBase & { readonly kind: 'note'; readonly rect: PageRect; readonly contents: string })
+  /** The engine keeps no image to hand back: the UI draws the one it added. */
+  | (AnnotationBase & { readonly kind: 'stamp'; readonly rect: PageRect })
+  | (AnnotationBase & {
+      readonly kind: 'freeText';
+      readonly rect: PageRect;
+      readonly contents: string;
+      readonly layout: FreeTextLayout;
+    });
+
+/**
+ * One comment: a note the file carries (read-only, `annotationId` null) or
+ * one this session added.
+ */
+export interface Comment {
+  readonly pageIndex: number;
+  readonly rect: PageRect;
+  readonly contents: string;
+  /** The file's `/T`; null for a session note. */
+  readonly author: string | null;
+  /** The file's own date string, unparsed; null for a session note. */
+  readonly date: string | null;
+  /** The session note's annotation id; null for a comment the file carries. */
+  readonly annotationId: number | null;
 }
 
 /** A point on a page as it is drawn, in PDF points from its top-left corner. */
@@ -171,12 +302,15 @@ export interface Engine {
    */
   saveToBytes(document: DocumentHandle, invalidateSignatures: boolean): Promise<Uint8Array>;
   /**
-   * Records one page edit as one undo step and answers with the document as
-   * it is now. Renders and text reads after it already show the edit. Rejects
-   * with `EditNotPermitted` (no assembly permission), `PageIndexOutOfBounds`
-   * or `UnsupportedOperation`, recording nothing.
+   * Records one edit as one undo step and answers with the document as it is
+   * now. Renders and text reads after it already show a page edit; an
+   * annotation edit changes no pixels (the UI draws `annotations`). Rejects
+   * with `EditNotPermitted` (no assembly permission for a page edit, no
+   * annotate permission for an annotation edit), `PageIndexOutOfBounds`,
+   * `AnnotationNotFound`, `EncodingGap`, `InvalidImage` or
+   * `UnsupportedOperation`, recording nothing.
    */
-  applyEdit(document: DocumentHandle, edit: PageEdit): Promise<EditedDocument>;
+  applyEdit(document: DocumentHandle, edit: Edit): Promise<EditedDocument>;
   /** Takes back the last edit (nothing, when there is none). Same answer as `applyEdit`. */
   undo(document: DocumentHandle): Promise<EditedDocument>;
   /** Re-applies the last undone edit (nothing, when there is none). */
@@ -213,4 +347,23 @@ export interface Engine {
   selectText(document: DocumentHandle, pageIndex: number, anchor: PagePoint, focus: PagePoint): Promise<TextSelection>;
   /** The word under `point`; empty on whitespace. Same refusal as `search`. */
   selectWord(document: DocumentHandle, pageIndex: number, point: PagePoint): Promise<TextSelection>;
+  /** The session's annotations as they are now (what every `EditedDocument` carries). */
+  annotations(document: DocumentHandle): Promise<Annotation[]>;
+  /** Every comment, page by page: the file's own first, then the session's notes. Never refused for permissions. */
+  comments(document: DocumentHandle): Promise<Comment[]>;
+  /**
+   * How `contents` lays out in a free-text box `widthPt` x `heightPt` (the
+   * box's own frame): what the box will look like once added. Empty text is
+   * fine; rejects with `EncodingGap` for a character Helvetica cannot show.
+   */
+  freeTextLayout(contents: string, widthPt: number, heightPt: number): Promise<FreeTextLayout>;
+  /**
+   * The box the core gives an image stamp dropped or pasted at `anchor` on a
+   * page: the image's own proportions, its longest side two inches, the
+   * image's own top-left corner at the anchor (on a page drawn turned, the
+   * box's drawn corner turned with it, as in the native shells). Pass it to
+   * an `addStamp` edit. The image
+   * is copied, not transferred. Rejects with `InvalidImage`.
+   */
+  stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect>;
 }

@@ -2014,6 +2014,7 @@ dependencies = [
  "console_error_panic_hook",
  "js-sys",
  "lopdf",
+ "pdf-annotate",
  "pdf-document",
  "pdf-manip",
  "pdf-render",

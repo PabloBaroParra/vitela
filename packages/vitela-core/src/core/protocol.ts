@@ -4,12 +4,16 @@
 // depends on how the other is implemented.
 
 import type {
+  Annotation,
+  Comment,
   DocumentHandle,
+  Edit,
   EditedDocument,
+  FreeTextLayout,
   ImportedDocument,
   OpenedDocument,
-  PageEdit,
   PagePoint,
+  PageRect,
   PreparedImport,
   RenderedPage,
   SearchHit,
@@ -26,7 +30,7 @@ export type EngineRequest =
     }
   | { readonly kind: 'close'; readonly document: DocumentHandle }
   | { readonly kind: 'save'; readonly document: DocumentHandle; readonly invalidateSignatures: boolean }
-  | { readonly kind: 'applyEdit'; readonly document: DocumentHandle; readonly edit: PageEdit }
+  | { readonly kind: 'applyEdit'; readonly document: DocumentHandle; readonly edit: Edit }
   | { readonly kind: 'undo'; readonly document: DocumentHandle }
   | { readonly kind: 'redo'; readonly document: DocumentHandle }
   | { readonly kind: 'prepareImport'; readonly bytes: Uint8Array; readonly password?: string }
@@ -50,6 +54,16 @@ export type EngineRequest =
       readonly document: DocumentHandle;
       readonly pageIndex: number;
       readonly point: PagePoint;
+    }
+  | { readonly kind: 'annotations'; readonly document: DocumentHandle }
+  | { readonly kind: 'comments'; readonly document: DocumentHandle }
+  | { readonly kind: 'freeTextLayout'; readonly contents: string; readonly widthPt: number; readonly heightPt: number }
+  | {
+      readonly kind: 'stampPlacement';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly image: Uint8Array;
+      readonly anchor: PagePoint;
     };
 
 export interface EngineResults {
@@ -66,6 +80,10 @@ export interface EngineResults {
   search: SearchHit[];
   selectText: TextSelection;
   selectWord: TextSelection;
+  annotations: Annotation[];
+  comments: Comment[];
+  freeTextLayout: FreeTextLayout;
+  stampPlacement: PageRect;
 }
 
 /** UI -> worker. `id` correlates the reply. */

@@ -10,7 +10,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { documentEngine } from './documentEngine.js';
-import { coreEdits } from './engine.js';
+import { coreEdits, coreFunctions } from './engine.js';
 import { instantiatePdfium, type PdfiumModule } from './pdfium.js';
 import * as core from '../generated/engine/pdf_wasm.js';
 
@@ -66,7 +66,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it('renders by handle and refuses a closed document, as documentEngine relies on', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
     const a = await engine.open(readFileSync(fixture));
     const b = await engine.open(readFileSync(fixture));
     expect(a.handle).not.toBe(b.handle);
@@ -77,7 +77,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it("searches and selects through the core's placement, on the page as drawn", async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
     const { handle, info } = await engine.open(readFileSync(fixture));
     expect(info.textExtractionAllowed).toBe(true);
 
@@ -104,7 +104,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it('edits pages through the real EditCommand and renders the edit at once', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
     const { handle, info } = await engine.open(readFileSync(fixture));
     expect(info.documentAssemblyAllowed).toBe(true);
     expect(info.pageIds).toHaveLength(1);
@@ -128,7 +128,7 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
 
   it('imports a PDF through the real core as one step, with its own block', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
-    const engine = documentEngine(new core.Engine(), { placeRects: core.placeRects, pointToPdf: core.pointToPdf }, coreEdits);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
     const { handle, info } = await engine.open(readFileSync(fixture));
     expect(info.importRefusal).toBeNull();
     expect(info.blocks).toEqual([{ source: { kind: 'base' }, part: null, start: 0, count: 1 }]);
@@ -152,4 +152,123 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     });
     await engine.close(handle);
   });
+
+  it('highlights through the real core: no refresh, saved as /Highlight, painted on reopen, taken out by undo', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+    expect(info.annotationEditingAllowed).toBe(true);
+    const before = await engine.saveToBytes(handle, false);
+    expect(highlights(before)).toBe(0);
+
+    // A band across the title line, on the page as drawn (top-left origin).
+    const band = { left: 72, top: 30, width: 200, height: 20 };
+    const yellow = { r: 255, g: 255, b: 0 };
+    const added = await engine.applyEdit(handle, { kind: 'addMarkup', page: 0, markup: 'highlight', rect: band, color: yellow });
+    expect(added).toMatchObject({ canUndo: true, addedAnnotationId: 0 });
+    expect(added.annotations).toHaveLength(1);
+    const [highlight] = added.annotations;
+    expect(highlight).toMatchObject({ kind: 'highlight', id: 0, pageIndex: 0, color: yellow });
+    expectBox(highlight!.kind === 'highlight' ? highlight!.rect : null, band);
+    // The session draws it: the preview leaves it out, so the page still renders unmarked.
+    expect(yellowPixels(await engine.renderPage(handle, 0, 72), band)).toBe(0);
+
+    const saved = await engine.saveToBytes(handle, false);
+    expect(highlights(saved)).toBe(1);
+    const reopened = await engine.open(saved);
+    // Reopened, it is the file's own: pdfium paints it, and no session holds it.
+    expect(yellowPixels(await engine.renderPage(reopened.handle, 0, 72), band)).toBeGreaterThan(100);
+    expect(await engine.annotations(reopened.handle)).toEqual([]);
+    await engine.close(reopened.handle);
+
+    const undone = await engine.undo(handle);
+    expect(undone).toMatchObject({ canUndo: false, canRedo: true, annotations: [] });
+    expect(highlights(await engine.saveToBytes(handle, false))).toBe(0);
+    await engine.close(handle);
+  });
+
+  it('keeps a markup box where it was drawn on a page drawn turned, and lists a session note', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    const band = { left: 100, top: 50, width: 30, height: 200 };
+    const added = await engine.applyEdit(handle, {
+      kind: 'addMarkup',
+      page: 0,
+      markup: 'underline',
+      rect: band,
+      color: { r: 0, g: 0, b: 255 },
+    });
+    const [underline] = added.annotations;
+    expectBox(underline!.kind === 'underline' ? underline!.rect : null, band);
+
+    const moved = await engine.applyEdit(handle, { kind: 'moveAnnotation', id: 0, dx: 10, dy: 20 });
+    expectBox(moved.annotations[0]!.kind === 'underline' ? moved.annotations[0]!.rect : null, {
+      ...band,
+      left: band.left + 10,
+      top: band.top + 20,
+    });
+
+    await engine.applyEdit(handle, { kind: 'addNote', page: 0, rect: { left: 300, top: 300, width: 20, height: 20 }, contents: 'Mine' });
+    const comments = await engine.comments(handle);
+    expect(comments.at(-1)).toMatchObject({ contents: 'Mine', author: null, date: null, annotationId: 1 });
+    await expect(engine.freeTextLayout('日', 100, 40)).rejects.toMatchObject({ name: 'EncodingGap' });
+    await engine.close(handle);
+  });
+
+  it('places a dropped stamp on a page drawn a quarter-turn round as pdf-ffi does', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const turned = await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    const page = turned.info.pages[0]!;
+    const drop = { x: 300, y: 200 };
+    const placed = await engine.stampPlacement(handle, 0, WIDE_PNG, drop);
+
+    // pdf-ffi's path: the drop point in PDF space, `stamp_placement` there,
+    // the box it returns drawn on the page.
+    const [ax, ay] = core.pointToPdf(drop.x, drop.y, page.widthPt, page.heightPt, page.rotationDegrees);
+    const native = core.stampPlacement(WIDE_PNG, ax!, ay!);
+    const [left, top, width, height] = core.placeRects(Float32Array.from(native), page.widthPt, page.heightPt, page.rotationDegrees);
+    expectBox(placed, { left: left!, top: top!, width: width!, height: height! });
+    // The 2:1 image shows turned, and the drop point is its drawn top-right
+    // corner: the image's own top-left, turned with the page.
+    expectBox(placed, { left: drop.x - 72, top: drop.y, width: 72, height: 144 });
+
+    // Inserted at that box, the stamp is where the core placed it.
+    const added = await engine.applyEdit(handle, { kind: 'addStamp', page: 0, image: WIDE_PNG, rect: placed });
+    expectBox(added.annotations[0]!.kind === 'stamp' ? added.annotations[0]!.rect : null, placed);
+    await engine.close(handle);
+  });
 });
+
+/** A 2 x 1 pixel PNG: a stamp twice as wide as it is tall. */
+const WIDE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4z8AARAAI/gH/xp559wAAAABJRU5ErkJggg==',
+  'base64',
+);
+
+/** How many `/Highlight` annotations the bytes spell out (the core writes them uncompressed). */
+function highlights(bytes: Uint8Array): number {
+  return Buffer.from(bytes).toString('latin1').match(/\/Subtype\s*\/Highlight\b/g)?.length ?? 0;
+}
+
+/** Strongly yellow pixels (blue well below red and green) inside `box`, at 72 dpi. */
+function yellowPixels(page: { width: number; rgba: Uint8ClampedArray }, box: { left: number; top: number; width: number; height: number }) {
+  let count = 0;
+  for (let y = Math.ceil(box.top); y < box.top + box.height; y++) {
+    for (let x = Math.ceil(box.left); x < box.left + box.width; x++) {
+      const i = (y * page.width + x) * 4;
+      const [r, g, b] = [page.rgba[i]!, page.rgba[i + 1]!, page.rgba[i + 2]!];
+      if (r > 200 && g > 200 && b < 120) count++;
+    }
+  }
+  return count;
+}
+
+/** The box survived the trip through PDF space (the placement is single precision). */
+function expectBox(actual: { left: number; top: number; width: number; height: number } | null, expected: typeof actual) {
+  expect(actual).not.toBeNull();
+  for (const key of ['left', 'top', 'width', 'height'] as const) expect(actual![key]).toBeCloseTo(expected![key], 3);
+}

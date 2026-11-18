@@ -37,6 +37,7 @@ function info(pages: readonly FakePage[], allowed = true, importRefusal: string 
     documentAssemblyAllowed: allowed,
     blocks,
     importRefusal: allowed ? importRefusal : (importRefusal ?? 'this document does not permit inserting pages'),
+    annotationEditingAllowed: true,
   };
 }
 
@@ -57,7 +58,7 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
   let nextPageId = 100;
   /** While set, every page edit waits for it before it lands. */
   let held: Promise<void> | null = null;
-  const answer = (): EditedDocument => ({ info: info(pages, allowed, importRefusal), canUndo: undo.length > 0, canRedo: redo.length > 0 });
+  const answer = (): EditedDocument => ({ info: info(pages, allowed, importRefusal), canUndo: undo.length > 0, canRedo: redo.length > 0, annotations: [], addedAnnotationId: null });
   const record = (next: FakePage[]) => {
     undo.push(pages);
     redo.length = 0;
@@ -65,7 +66,8 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
   };
   const engine: Engine = fakeEngine({
     renderPage: async () => bitmap,
-    applyEdit: async (_handle, edit) => {
+    applyEdit: async (_handle, anyEdit) => {
+      const edit = anyEdit as PageEdit;
       edits.push(edit);
       if (held) await held;
       if (!allowed) {

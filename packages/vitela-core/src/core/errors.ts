@@ -8,6 +8,12 @@ export const WRONG_PASSWORD = 'WrongPassword';
 export const TEXT_EXTRACTION_DENIED = 'TextExtractionDenied';
 export const SIGNATURES_WOULD_BE_INVALIDATED = 'SignaturesWouldBeInvalidated';
 export const EDIT_NOT_PERMITTED = 'EditNotPermitted';
+/** Free text holds a character the box's font (Helvetica) cannot show; the message names it. */
+export const ENCODING_GAP = 'EncodingGap';
+/** No annotation of this session has that id (removed, or undone away). */
+export const ANNOTATION_NOT_FOUND = 'AnnotationNotFound';
+/** A stamp's bytes are not a PNG or JPEG the engine can decode. */
+export const INVALID_IMAGE = 'InvalidImage';
 
 /** A failure reported by the engine, carrying the core's kind as `name`. */
 export class EngineError extends Error {

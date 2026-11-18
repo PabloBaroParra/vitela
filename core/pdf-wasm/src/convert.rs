@@ -6,6 +6,8 @@
 
 use pdf_render::{Bitmap, TextRect};
 
+pub mod annotation;
+
 /// Floats per rect in a flattened buffer: `x, y, width, height` in PDF points
 /// with a bottom-left origin, the order `TextRect` declares them.
 pub const RECT_STRIDE: usize = 4;

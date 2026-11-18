@@ -11,8 +11,9 @@
 //! by the core's own rule before pdfium is asked.
 //!
 //! The edit surface (`applyEdit`, undo/redo, `saveToBytes`,
-//! `refreshPreview`) is in [`edit`]; import and the Documents view's blocks
-//! are in [`import`].
+//! `refreshPreview`, `previewStale`) is in [`edit`]; import and the
+//! Documents view's blocks are in [`import`]; annotations, comments and the
+//! free-text and stamp geometry are in [`annotation`].
 
 use std::collections::HashMap;
 
@@ -25,9 +26,11 @@ use crate::dto::{PageCharacters, PageDimensions, RenderedPage, SearchMatch, Text
 use crate::error::EngineError;
 use crate::model::{DocumentModel, PreparedSources};
 
+mod annotation;
 mod edit;
 mod import;
 
+pub use annotation::{free_text_layout, stamp_placement};
 pub use edit::EditCommand;
 
 struct OpenDocument {
@@ -252,6 +255,7 @@ impl Engine {
             .renderer
             .open_document_from_bytes(bytes, open.render_password.as_deref())?;
         let stale = std::mem::replace(&mut open.render, refreshed);
+        open.model.mark_preview_fresh();
         self.renderer.close_document(stale);
         Ok(())
     }

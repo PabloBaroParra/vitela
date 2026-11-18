@@ -14,72 +14,19 @@
 //! ```
 #![cfg(target_arch = "wasm32")]
 
-use std::cell::Cell;
-
 use pdf_wasm::{EditCommand, Engine};
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::*;
 
+#[path = "support/browser.rs"]
+mod browser;
 #[path = "support/pdfs.rs"]
 mod pdfs;
 
+use browser::{engine, error_name};
+
 wasm_bindgen_test_configure!(run_in_dedicated_worker);
 
-const PDFIUM_GLUE: &str = include_str!(concat!(env!("PDFIUM_WASM_DIR"), "/pdfium.js"));
-const PDFIUM_WASM: &[u8] = include_bytes!(concat!(env!("PDFIUM_WASM_DIR"), "/pdfium.wasm"));
 const LETTER_FORM: &[u8] = include_bytes!("../../../tests/fixtures/forms/reportlab_acroform.pdf");
-
-#[wasm_bindgen(inline_js = r#"
-export function loadPdfium(glue, wasmBinary) {
-  return new Promise((resolve, reject) => {
-    const module = {
-      wasmBinary,
-      onRuntimeInitialized: () => {
-        // The same alias the worker applies (pdfium.ts applyInitAlias).
-        module._PDFium_Init = module._FPDF_InitLibrary;
-        resolve(module);
-      },
-      onAbort: (what) => reject(new Error('pdfium runtime aborted: ' + what)),
-    };
-    new Function('Module', glue + `
-;Object.defineProperty(Module, "wasmExports", {
-  configurable: true,
-  get: function () { return typeof wasmExports != "undefined" ? wasmExports : undefined; }
-});`)(module);
-  });
-}
-
-export function bindPdfium(pdfium, rustExports) {
-  return rustExports.initialize_pdfium_render(pdfium, rustExports, false);
-}
-"#)]
-extern "C" {
-    #[wasm_bindgen(js_name = loadPdfium)]
-    fn load_pdfium(glue: &str, wasm_binary: &[u8]) -> js_sys::Promise;
-    #[wasm_bindgen(js_name = bindPdfium)]
-    fn bind_pdfium(pdfium: &JsValue, rust_exports: &JsValue) -> bool;
-}
-
-thread_local! {
-    static BOUND: Cell<bool> = const { Cell::new(false) };
-}
-
-/// An engine over the real pdfium, binding it on first use.
-async fn engine() -> Engine {
-    if !BOUND.with(Cell::get) {
-        let pdfium = JsFuture::from(load_pdfium(PDFIUM_GLUE, PDFIUM_WASM))
-            .await
-            .expect("pdfium loads");
-        assert!(bind_pdfium(&pdfium, &wasm_bindgen::exports()));
-        BOUND.with(|bound| bound.set(true));
-    }
-    Engine::new().expect("engine")
-}
-
-fn error_name(error: JsValue) -> String {
-    js_sys::Error::from(error).name().into()
-}
 
 fn inked_pixels(rgba: &[u8]) -> usize {
     rgba.as_chunks::<4>()

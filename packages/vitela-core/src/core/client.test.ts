@@ -55,6 +55,7 @@ describe('EngineClient', () => {
         documentAssemblyAllowed: true,
         blocks: [],
         importRefusal: null,
+        annotationEditingAllowed: true,
       },
     };
     reply({ type: 'result', id: message.id, value });
@@ -187,8 +188,9 @@ describe('EngineClient', () => {
       documentAssemblyAllowed: true,
       blocks: [],
       importRefusal: null,
+      annotationEditingAllowed: true,
     };
-    const value = { info, canUndo: true, canRedo: false };
+    const value = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
     reply({ type: 'result', id: sent[0]!.message.id, value });
     await expect(edited).resolves.toBe(value);
   });
@@ -208,5 +210,42 @@ describe('EngineClient', () => {
     expect(sent[0]!.transfer).toEqual([bytes.buffer]);
     reply({ type: 'error', id: sent[0]!.message.id, name: 'WrongPassword', message: 'wrong' });
     await expect(prepared).rejects.toMatchObject({ name: 'WrongPassword' });
+  });
+
+  it('sends an annotation edit and its stamp image as they are, copied rather than transferred', () => {
+    const { port, sent } = fakePort();
+    const client = new EngineClient(port);
+    const image = new Uint8Array([1, 2, 3]);
+    const edit = {
+      kind: 'addStamp',
+      page: 0,
+      rect: { left: 1, top: 2, width: 3, height: 4 },
+      image,
+    } as const;
+    void client.applyEdit(2, edit);
+    void client.stampPlacement(2, 0, image, { x: 5, y: 6 });
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'applyEdit', document: 2, edit },
+      { kind: 'stampPlacement', document: 2, pageIndex: 0, image, anchor: { x: 5, y: 6 } },
+    ]);
+    expect(sent.map((s) => s.transfer)).toEqual([[], []]);
+    expect(image.byteLength).toBe(3);
+  });
+
+  it('asks for the annotations, the comments and a free-text layout', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const listed = client.annotations(7);
+    void client.comments(7);
+    const layout = client.freeTextLayout('Hello', 120, 30);
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'annotations', document: 7 },
+      { kind: 'comments', document: 7 },
+      { kind: 'freeTextLayout', contents: 'Hello', widthPt: 120, heightPt: 30 },
+    ]);
+    reply({ type: 'error', id: sent[2]!.message.id, name: 'EncodingGap', message: "'日' cannot be shown" });
+    reply({ type: 'result', id: sent[0]!.message.id, value: [] });
+    await expect(listed).resolves.toEqual([]);
+    await expect(layout).rejects.toMatchObject({ name: 'EncodingGap' });
   });
 });

@@ -11,8 +11,10 @@ use pdf_render::line_rects;
 use crate::convert::flatten_rects;
 use crate::model::PageSize;
 
+mod annotation;
 mod import;
 
+pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
 pub use import::{DocumentBlock, ImportedPages, PreparedImport};
 
 /// One page's layout size in PDF points and the clockwise turn (0, 90, 180

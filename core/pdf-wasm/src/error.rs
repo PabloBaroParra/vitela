@@ -42,6 +42,15 @@ pub enum ErrorKind {
     SignaturesWouldBeInvalidated,
     /// The edited document could not be written.
     SaveFailed,
+    /// No annotation of this session answers to that id (removed, undone
+    /// away, or never added).
+    AnnotationNotFound,
+    /// The bytes given for an image stamp are not a PNG or JPEG the core can
+    /// decode.
+    InvalidImage,
+    /// Free text holds a character the box's font (Helvetica, WinAnsi)
+    /// cannot show. The message names it; the UI keeps the dialog open.
+    EncodingGap,
 }
 
 impl ErrorKind {
@@ -61,6 +70,9 @@ impl ErrorKind {
             Self::UnsupportedOperation => "UnsupportedOperation",
             Self::SignaturesWouldBeInvalidated => "SignaturesWouldBeInvalidated",
             Self::SaveFailed => "SaveFailed",
+            Self::AnnotationNotFound => "AnnotationNotFound",
+            Self::InvalidImage => "InvalidImage",
+            Self::EncodingGap => "EncodingGap",
         }
     }
 }
@@ -189,6 +201,27 @@ impl From<pdf_save::ImportError> for EngineError {
                 return Self::page_out_of_bounds(u32::try_from(*index).unwrap_or(u32::MAX))
             }
             E::Source(_) => ErrorKind::SaveFailed,
+            _ => ErrorKind::UnsupportedOperation,
+        };
+        Self::new(kind, err.to_string())
+    }
+}
+
+impl From<pdf_annotate::AnnotateError> for EngineError {
+    /// An annotation the core would not build or change, by the kinds
+    /// `pdf-ffi` gives the same failures: a missing id, an image that does
+    /// not decode and a character Helvetica cannot show keep their own kinds;
+    /// a change the kind cannot take and an unusable box are
+    /// `UnsupportedOperation`.
+    fn from(err: pdf_annotate::AnnotateError) -> Self {
+        use pdf_annotate::AnnotateError as E;
+        let kind = match err {
+            E::AnnotationNotFound(_) => ErrorKind::AnnotationNotFound,
+            E::InvalidImage(_) => ErrorKind::InvalidImage,
+            E::EncodingGap { .. } => ErrorKind::EncodingGap,
+            // `UnsupportedOperation`, `InvalidRect`, and whatever the core
+            // adds later (the enum is `#[non_exhaustive]`): a refusal of the
+            // request that leaves the document intact.
             _ => ErrorKind::UnsupportedOperation,
         };
         Self::new(kind, err.to_string())
@@ -357,5 +390,30 @@ mod tests {
         let err = EngineError::from(pdf_manip::TextExtractionDenied);
         assert_eq!(err.kind, ErrorKind::TextExtractionDenied);
         assert_eq!(err.kind.name(), "TextExtractionDenied");
+    }
+
+    #[test]
+    fn annotation_failures_map_like_the_ffi_boundary() {
+        use pdf_annotate::AnnotateError as E;
+        let kind = |err| EngineError::from(err).kind;
+        assert_eq!(
+            kind(E::AnnotationNotFound(pdf_document::AnnotationId(4))),
+            ErrorKind::AnnotationNotFound
+        );
+        assert_eq!(kind(E::InvalidImage("x".into())), ErrorKind::InvalidImage);
+        assert_eq!(
+            kind(E::EncodingGap { character: '日' }),
+            ErrorKind::EncodingGap
+        );
+        assert_eq!(kind(E::InvalidRect), ErrorKind::UnsupportedOperation);
+        assert_eq!(
+            kind(E::UnsupportedOperation("restyle")),
+            ErrorKind::UnsupportedOperation
+        );
+        let gap = EngineError::from(E::EncodingGap { character: '日' });
+        assert!(gap.message.contains('日'), "{}", gap.message);
+        assert_eq!(ErrorKind::EncodingGap.name(), "EncodingGap");
+        assert_eq!(ErrorKind::AnnotationNotFound.name(), "AnnotationNotFound");
+        assert_eq!(ErrorKind::InvalidImage.name(), "InvalidImage");
     }
 }
