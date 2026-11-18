@@ -13,11 +13,12 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function drawing(outcome: AddOutcome = { status: 'added' }, allowed = true, rotation = 0) {
+function drawing(outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' }, allowed = true, rotation = 0) {
   const add = vi.fn(async (_edit: AnnotationEdit, _page: number, _key: string, _shown?: readonly string[]) => outcome);
-  const edits: DrawingEdits = { allowed, add };
+  const notify = vi.fn();
+  const edits: DrawingEdits = { allowed, add, notify };
   const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation), { initialProps: edits });
-  return { ...view, add };
+  return { ...view, add, notify };
 }
 
 describe('useDrawing', () => {
@@ -51,7 +52,7 @@ describe('useDrawing', () => {
   it('arms nothing, and drops an armed tool, when annotating is forbidden', () => {
     const { result, rerender, add } = drawing();
     act(() => result.current.choose('note'));
-    rerender({ allowed: false, add });
+    rerender({ allowed: false, add, notify: vi.fn() });
     expect(result.current.tool).toBe('select');
     act(() => result.current.choose('ink'));
     expect(result.current.tool).toBe('select');
@@ -111,5 +112,49 @@ describe('useDrawing', () => {
     const { result } = drawing({ status: 'added' }, true, 90);
     act(() => result.current.onGesture(0, '0/0', 'freeText', { kind: 'box', rect: BOX }));
     expect(result.current.draft?.frame).toEqual({ width: 50, height: 200 });
+  });
+
+  it('tells the user when a stroke or a shape is refused (a step started mid-gesture)', async () => {
+    const { result, notify } = drawing({ status: 'refused' });
+    const points = [
+      { x: 1, y: 2 },
+      { x: 3, y: 4 },
+    ];
+    await act(async () => result.current.onGesture(0, '0/0', 'ink', { kind: 'stroke', points }));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]![0]).toMatch(/nothing was added/i);
+    await act(async () => result.current.onGesture(0, '0/0', 'shape', { kind: 'box', rect: BOX }));
+    expect(notify).toHaveBeenCalledTimes(2);
+  });
+
+  it('says nothing more when a stroke is added, or failed (the viewer shows that failure)', async () => {
+    const added = drawing({ status: 'added' });
+    const points = [
+      { x: 1, y: 2 },
+      { x: 3, y: 4 },
+    ];
+    await act(async () => added.result.current.onGesture(0, '0/0', 'ink', { kind: 'stroke', points }));
+    expect(added.notify).not.toHaveBeenCalled();
+    const failed = drawing({ status: 'failed', kind: null, message: 'The page changed' });
+    await act(async () => failed.result.current.onGesture(0, '0/0', 'ink', { kind: 'stroke', points }));
+    expect(failed.notify).not.toHaveBeenCalled();
+  });
+
+  it('keeps the dialog open on cancel while its text is being added', async () => {
+    let answer: (outcome: AddOutcome) => void = () => {};
+    const { result } = drawing(new Promise<AddOutcome>((resolve) => (answer = resolve)));
+    act(() => result.current.onGesture(0, '0/0', 'note', { kind: 'box', rect: BOX }));
+    let sent: Promise<void> = Promise.resolve();
+    act(() => {
+      sent = result.current.submit('hello');
+    });
+    expect(result.current.draft?.busy).toBe(true);
+    act(() => result.current.cancel());
+    expect(result.current.draft).toMatchObject({ busy: true });
+    await act(async () => {
+      answer({ status: 'added' });
+      await sent;
+    });
+    expect(result.current.draft).toBeNull();
   });
 });

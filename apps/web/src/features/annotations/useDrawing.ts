@@ -10,6 +10,9 @@
 // refuses it if another page is there by the time it goes in. A text box
 // whose text the core refuses (`EncodingGap`) keeps its dialog open with the
 // core's message; any other failure closes it and is the viewer's to show.
+// A stroke or shape refused before reaching the core (a step started while it
+// was drawn) is told through the viewer's notice (`notify`). A dialog whose
+// text was sent cannot be cancelled until the core answers.
 
 import { useCallback, useEffect, useState } from 'react';
 import { ENCODING_GAP } from '@vitela/core';
@@ -28,6 +31,8 @@ export interface DrawingEdits {
     expectedKey: string,
     shownByCaller?: readonly string[],
   ) => Promise<AddOutcome>;
+  /** Shows `message` where the viewer shows its edit failures. */
+  readonly notify: (message: string) => void;
 }
 
 /** A note or text box placed on the page, waiting for its text. */
@@ -45,12 +50,14 @@ export interface Draft {
 }
 
 const NOT_NOW = 'Another change is still being made. Try again in a moment.';
+/** A stroke or shape refused before reaching the core (a step started mid-gesture). */
+export const NOT_DRAWN = 'Another change was still being made. Nothing was added.';
 
 export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number) {
   const [chosen, setChosen] = useState<DrawTool>('select');
   const [color, setColor] = useState<Rgb>(PALETTE[0]!.color);
   const [draft, setDraft] = useState<Draft | null>(null);
-  const { allowed, add } = edits;
+  const { allowed, add, notify } = edits;
   // Forbidden after all (the core said so): back to Select, the draft goes.
   const tool: DrawTool = allowed ? chosen : 'select';
   useEffect(() => {
@@ -81,14 +88,19 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
     (pageIndex: number, pageKey: string, armed: ArmedTool, gesture: Gesture) => {
       if (armed === 'ink' || armed === 'shape') {
         const edit = drawnEdit(armed, pageIndex, gesture, color);
-        if (edit) void add(edit, pageIndex, pageKey);
+        // A refusal leaves no failure of its own: say the drawing went nowhere.
+        if (edit) {
+          void add(edit, pageIndex, pageKey).then((outcome) => {
+            if (outcome.status === 'refused') notify(NOT_DRAWN);
+          });
+        }
         return;
       }
       if (gesture.kind !== 'box') return;
       const { width, height } = freeTextFrame(gesture.rect, rotationOf(pageIndex));
       setDraft({ tool: armed, pageIndex, pageKey, rect: gesture.rect, frame: { width, height }, busy: false, error: null });
     },
-    [add, color, rotationOf],
+    [add, color, notify, rotationOf],
   );
 
   const submit = useCallback(
@@ -108,7 +120,8 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
     [add, draft],
   );
 
-  const cancel = useCallback(() => setDraft(null), []);
+  // Once the text is sent the edit is queued and will land: wait for it.
+  const cancel = useCallback(() => setDraft((shown) => (shown?.busy ? shown : null)), []);
   /** The text changed: the core's last refusal no longer describes it. */
   const retyped = useCallback(() => setDraft((shown) => (shown?.error ? { ...shown, error: null } : shown)), []);
 

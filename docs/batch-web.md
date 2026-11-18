@@ -1119,11 +1119,14 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   dibujada; el core lo pasa a espacio PDF con cualquier `/Rotate`. Tamaños de los shells
   nativos: umbral de arrastre 8 pt (distancia, no por eje); forma trazada (lado mínimo 4 pt) o
   144 × 36 pt con un clic; nota 24 pt con la esquina en el clic; texto libre trazado (mínimo del
-  core 16 × 17,8 pt) o 200 × 50 pt con un clic; todo deslizado dentro de la página. La tinta es
+  core 16 × 17,8 pt) o 200 × 50 pt con un clic; todo deslizado dentro de la página. Los dos
+  tamaños del texto libre son del marco propio de la caja: en una página `/Rotate 90`/`270` la
+  caja dibujada los lleva girados (`drawnSize`), así el marco siempre tiene al menos una línea. La tinta es
   un `addInk` por trazo, puntos a menos de 0,5 pt del anterior fuera, recortados a la página.
 - **Nota y texto libre:** el gesto solo elige la caja; nada llega al core hasta "Add" en un
   `<dialog>` modal con el área de texto enfocada (Ctrl/⌘+Enter añade, Escape cancela; un texto
-  en blanco no se puede añadir). El de texto libre pide `freeTextLayout` al core al pararse la
+  en blanco no se puede añadir). Mientras el "Add" está en curso la edición ya está en la cola:
+  Cancel queda deshabilitado y Escape se ignora hasta que el core responde. El de texto libre pide `freeTextLayout` al core al pararse la
   escritura (120 ms; una respuesta para un texto ya cambiado se descarta) y lo dibuja en el
   marco propio de la caja (lados cambiados a 90°/270°): el mismo maquetado que el guardado, y un
   carácter fuera de WinAnsi se ve al teclearlo. Si el core rechaza el "Add" con `EncodingGap`,
@@ -1132,7 +1135,10 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
 - **Guardas:** la misma que el marcado: rechazado mientras corre un paso (los botones de
   herramienta quedan `aria-disabled` y la capa no empieza gesto, `data-busy`), y comprobado
   justo antes de aplicar contra la página en la que **empezó** el gesto (`pageKey` tomado al
-  pulsar); si cambió, nada y el aviso. Sin permiso de anotar, Ink/Shape/Note/Free text quedan
+  pulsar); si cambió, nada y el aviso. Una tinta o forma rechazada porque empezó un paso a mitad
+  del gesto (p. ej. Ctrl/⌘+Z) también avisa en el mismo sitio (`notify` de
+  `useAnnotationEdits`). Un `pointercancel` o una captura de puntero perdida
+  (`lostpointercapture`) descartan el gesto sin dibujar nada. Sin permiso de anotar, Ink/Shape/Note/Free text quedan
   `aria-disabled` y descritos por una nota; un `EditNotPermitted` del core devuelve a Select y
   cierra un diálogo abierto. Select siempre funciona.
 - **`historyKeys.ts`** exporta `isTextField` y `modalOpen` (el Escape de las herramientas lee

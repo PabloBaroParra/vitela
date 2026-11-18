@@ -13,7 +13,7 @@ interface TextDialogProps {
   readonly label: string;
   /** The submit button's label. */
   readonly submit: string;
-  /** The annotation is being added: the buttons wait. */
+  /** The annotation is being added: the buttons wait and the dialog cannot be cancelled. */
   readonly busy: boolean;
   /** Why the text cannot be used, shown under it; the dialog stays open. */
   readonly error: string | null;
@@ -51,8 +51,9 @@ export function TextDialog({ title, label, submit, busy, error, children, onChan
       aria-labelledby={titleId}
       onCancel={(event) => {
         // The parent unmounts the dialog; do not let the browser close it first.
+        // While adding, the edit is already queued: stay open until it settles.
         event.preventDefault();
-        onCancel();
+        if (!busy) onCancel();
       }}
     >
       <form method="dialog" onSubmit={send}>
@@ -89,7 +90,7 @@ export function TextDialog({ title, label, submit, busy, error, children, onChan
           </p>
         )}
         <div className="dialog__actions">
-          <button type="button" onClick={onCancel}>
+          <button type="button" onClick={onCancel} disabled={busy}>
             Cancel
           </button>
           <button type="submit" className="button--primary" disabled={busy || isBlank(text)}>

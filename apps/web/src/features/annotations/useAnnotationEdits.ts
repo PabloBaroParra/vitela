@@ -174,6 +174,9 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     [allowed, enqueue, engine, handle],
   );
 
+  /** Shows a caller's own notice as the failure, until the next step starts. */
+  const notify = useCallback((message: string) => setFailure(message), []);
+
   const canUndo = !!document.canUndo;
   const canRedo = !!document.canRedo;
   const undo = useCallback(async () => {
@@ -183,5 +186,5 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     if (canRedo) await enqueue([() => engine.redo(handle)]);
   }, [canRedo, enqueue, engine, handle]);
 
-  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, undo, redo };
+  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, notify, undo, redo };
 }

@@ -95,4 +95,19 @@ describe('DrawingLayer', () => {
     fireEvent.pointerUp(surface, at(10, 10));
     expect(onGesture).not.toHaveBeenCalled();
   });
+
+  it('drops a gesture whose pointer capture is lost, and takes the next one', () => {
+    const { surface, onGesture, container } = layer('ink');
+    fireEvent.pointerDown(surface, at(10, 10));
+    fireEvent.pointerMove(surface, at(40, 40));
+    fireEvent.lostPointerCapture(surface, at(40, 40));
+    expect(container.querySelector('svg')).toBeNull();
+    fireEvent.pointerUp(surface, at(50, 50));
+    expect(onGesture).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(surface, { ...at(100, 100), pointerId: 2 });
+    fireEvent.pointerUp(surface, { ...at(120, 100), pointerId: 2 });
+    expect(onGesture).toHaveBeenCalledTimes(1);
+    expect(onGesture.mock.calls[0]![3]).toMatchObject({ kind: 'stroke' });
+  });
 });

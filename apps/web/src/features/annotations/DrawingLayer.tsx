@@ -4,6 +4,9 @@
 // on top of the page's other layers only while a drawing tool is armed, so
 // text selection is out of reach until Select is chosen again.
 //
+// A gesture ends on pointerup; pointercancel or a lost pointer capture drop
+// it without drawing anything.
+//
 // Drawn in an SVG whose units are the page's drawn points, like the
 // annotation layer: the pointer is divided by the zoom (`toPagePoint`) and
 // the rest is `drawing.ts`.
@@ -60,6 +63,12 @@ export const DrawingLayer = memo(function DrawingLayer(props: DrawingLayerProps)
     if (gesture) onGesture(pageIndex, drawn.pageKey, tool, gesture);
   };
 
+  // The browser took the pointer away (a system gesture, the element went
+  // away): the gesture is dropped, never finished, so the next press starts.
+  const lost = (event: PointerEvent<HTMLDivElement>) => {
+    if (current.current?.pointerId === event.pointerId) update(null);
+  };
+
   const preview = stroke && finishGesture(tool, stroke.points, page);
   return (
     <div
@@ -80,6 +89,7 @@ export const DrawingLayer = memo(function DrawingLayer(props: DrawingLayerProps)
       }}
       onPointerUp={(event) => end(event, true)}
       onPointerCancel={(event) => end(event, false)}
+      onLostPointerCapture={lost}
     >
       {stroke && (
         <svg

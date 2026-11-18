@@ -23,6 +23,12 @@ function quarterTurn(rotationDegrees: number): 0 | 90 | 180 | 270 {
   return turn as 0 | 90 | 180 | 270;
 }
 
+/** Whether a page turned `rotationDegrees` is a quarter turn off upright: its sides swap. */
+export function isSideways(rotationDegrees: number): boolean {
+  const turn = quarterTurn(rotationDegrees);
+  return turn === 90 || turn === 270;
+}
+
 /**
  * Where the rule of an underline or strikeout goes in its drawn box. The box
  * is the annotation's PDF rect turned with the page, and the saved file draws
@@ -68,7 +74,7 @@ export interface TextFrame {
  */
 export function freeTextFrame(rect: PageRect, rotationDegrees: number): TextFrame {
   const turn = quarterTurn(rotationDegrees);
-  const sideways = turn === 90 || turn === 270;
+  const sideways = isSideways(rotationDegrees);
   const width = sideways ? rect.height : rect.width;
   const height = sideways ? rect.width : rect.height;
   const cx = rect.left + rect.width / 2;

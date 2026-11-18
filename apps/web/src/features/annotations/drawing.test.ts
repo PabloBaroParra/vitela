@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { PageSize } from '@vitela/core';
 import { toPagePoint } from '../text/pageRects';
+import { freeTextFrame } from './geometry';
 import {
   clickRect,
   drawnEdit,
+  drawnSize,
   extendStroke,
   finishGesture,
   fitOnPage,
@@ -163,5 +165,58 @@ describe('edits', () => {
       false,
     ]);
     expect(PALETTE[0]!.color).toEqual(YELLOW);
+  });
+});
+
+describe('rotation-aware text box sizes', () => {
+  const frame = { width: 200, height: 50 };
+
+  it('a text frame size is the drawn size upright and upside down, swapped on a quarter turn', () => {
+    expect(drawnSize(frame, 0)).toEqual({ width: 200, height: 50 });
+    expect(drawnSize(frame, 90)).toEqual({ width: 50, height: 200 });
+    expect(drawnSize(frame, 180)).toEqual({ width: 200, height: 50 });
+    expect(drawnSize(frame, 270)).toEqual({ width: 50, height: 200 });
+    expect(drawnSize(frame, -90)).toEqual({ width: 50, height: 200 });
+  });
+
+  const press = { x: 100, y: 100 };
+  const click = [press, { x: 102, y: 101 }];
+  for (const rotationDegrees of [0, 90, 180, 270]) {
+    const sideways = rotationDegrees % 180 !== 0;
+    const page: PageSize = sideways ? { widthPt: 792, heightPt: 612, rotationDegrees } : { ...LETTER, rotationDegrees };
+
+    it(`a click at ${rotationDegrees}° gives a text frame of the default size`, () => {
+      const gesture = finishGesture('freeText', click, page);
+      expect(gesture?.kind).toBe('box');
+      const rect = gesture!.kind === 'box' ? gesture!.rect : null;
+      const { width, height } = freeTextFrame(rect!, rotationDegrees);
+      expect({ width, height }).toEqual(FREE_TEXT_CLICK_SIZE);
+    });
+
+    it(`a flat drag at ${rotationDegrees}° still gives a text frame one line high and one glyph wide`, () => {
+      // A sweep along the drawn x axis, and one along the drawn y axis.
+      for (const end of [{ x: 200, y: 101 }, { x: 101, y: 200 }]) {
+        const gesture = finishGesture('freeText', [press, end], page);
+        const rect = gesture!.kind === 'box' ? gesture!.rect : null;
+        const { width, height } = freeTextFrame(rect!, rotationDegrees);
+        expect(width).toBeGreaterThanOrEqual(FREE_TEXT_MIN_SIZE.width);
+        expect(height).toBeGreaterThanOrEqual(FREE_TEXT_MIN_SIZE.height);
+      }
+    });
+  }
+
+  it('on a page turned 90° the minimum is laid sideways in drawn space', () => {
+    expect(finishGesture('freeText', [press, { x: 200, y: 102 }], TURNED)).toEqual({
+      kind: 'box',
+      rect: { left: 100, top: 100, width: 100, height: FREE_TEXT_MIN_SIZE.width },
+    });
+    expect(finishGesture('freeText', [press, { x: 102, y: 200 }], TURNED)).toEqual({
+      kind: 'box',
+      rect: { left: 100, top: 100, width: FREE_TEXT_MIN_SIZE.height, height: 100 },
+    });
+    expect(finishGesture('freeText', click, TURNED)).toEqual({
+      kind: 'box',
+      rect: { left: 100, top: 100, width: FREE_TEXT_CLICK_SIZE.height, height: FREE_TEXT_CLICK_SIZE.width },
+    });
   });
 });

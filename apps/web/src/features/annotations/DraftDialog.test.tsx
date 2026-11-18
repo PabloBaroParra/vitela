@@ -102,6 +102,17 @@ describe('DraftDialog', () => {
     expect(getByRole('button', { name: 'Add text box' })).toHaveProperty('disabled', true);
   });
 
+  it('cannot be cancelled while its text is being added: Cancel waits, Escape is ignored', () => {
+    const { getByRole, onCancel } = dialog(draft({ busy: true }));
+    const cancel = getByRole('button', { name: 'Cancel' });
+    expect(cancel).toHaveProperty('disabled', true);
+    fireEvent.click(cancel);
+    const escape = new Event('cancel', { cancelable: true });
+    fireEvent(getByRole('dialog'), escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it('drops a layout that arrives for text since changed', async () => {
     vi.useFakeTimers();
     try {

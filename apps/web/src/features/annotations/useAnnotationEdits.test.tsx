@@ -325,4 +325,15 @@ describe('useAnnotationEdits.add', () => {
     expect(result.current.failure).toMatch(/page changed/i);
     expect(applyEdit).not.toHaveBeenCalled();
   });
+
+  it('shows a notice a caller raises until the next step starts', async () => {
+    const engine = fakeEngine({ applyEdit: vi.fn(async () => edited(true)) });
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc(), vi.fn()));
+    act(() => result.current.notify('Nothing was added.'));
+    expect(result.current.failure).toBe('Nothing was added.');
+    await act(async () => {
+      await result.current.add(ink, 0, PAGE_0);
+    });
+    expect(result.current.failure).toBeNull();
+  });
 });
