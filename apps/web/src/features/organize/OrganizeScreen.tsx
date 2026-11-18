@@ -32,7 +32,7 @@ import {
 } from './selection';
 import { ThumbnailCache } from './thumbnailCache';
 import { ThumbnailGrid, type GridItem } from './ThumbnailGrid';
-import { blockLabel, unitsOf, type OrganizeView, type Units } from './units';
+import { blockLabel, reselect, unitsOf, type OrganizeView, type Units } from './units';
 import { useImport, type PreparedSource } from './useImport';
 import { useOrganize } from './useOrganize';
 
@@ -63,7 +63,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
   // One cache per screen: thumbnails are kept by page id across every edit and both views.
   const cache = useMemo(() => new ThumbnailCache(), []);
   const [view, setView] = useState<OrganizeView>('pages');
-  /** The view as of the last render, for an import that lands later. */
+  /** The view as of the last render, for an edit or import that lands later. */
   const viewNow = useRef(view);
   viewNow.current = view;
   const units = unitsOf(view, info);
@@ -73,11 +73,21 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
   const pages = run && units.pageRun(run);
   const canEdit = organize.allowed && !organize.pending && pages !== null;
 
-  /** Applies `edit` and, once the core took it, selects what `next` says in the edited document. */
+  /**
+   * Applies `edit` and, once the core took it, selects what `next` says in the
+   * edited document. `next` answers in the units of the view the edit started
+   * in; when the view was switched while the edit was in flight, the same
+   * pages are selected in the view on screen now.
+   */
   const edit = useCallback(
     async (pageEdit: PageEdit, next: (edited: EditedDocument, units: Units) => Selection | null) => {
+      const startedIn = view;
       const edited = await organize.apply(pageEdit);
-      if (edited) setChosen(next(edited, unitsOf(view, edited.info)));
+      if (!edited) return;
+      const before = unitsOf(startedIn, edited.info);
+      const chosenThen = next(edited, before);
+      const now = viewNow.current;
+      setChosen(chosenThen && now !== startedIn ? reselect(chosenThen, before, unitsOf(now, edited.info)) : chosenThen);
     },
     [organize, view],
   );
@@ -124,7 +134,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
   const switchView = (next: OrganizeView) => {
     if (next === view) return;
     // The same pages stay selected: as the cards of the other view that hold them.
-    setChosen(pages && pages.count > 0 ? selectRun(unitsOf(next, info).covering(pages)) : chosen);
+    setChosen(selection ? reselect(selection, units, unitsOf(next, info)) : chosen);
     setView(next);
   };
 

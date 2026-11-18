@@ -770,6 +770,31 @@ que sigue:
   **No corrido en local:** los `wasm-bindgen-test` en Chrome headless (no hay chromedriver en
   esta máquina; los dos nuevos —importar + mover bloque + guardar, y fuente cifrada— compilan
   con clippy wasm32 y los verifica el job `wasm32` de `core.yml`), ni `linux-gtk` (no toca).
+- **Dos arreglos de la revisión:**
+  - *Cambiar de vista con una edición en vuelo.* El conmutador Pages/Documents no espera a
+    `pending` (no manda nada al motor), pero `edit` calculaba la selección nueva en las
+    unidades de la vista en la que *empezó* la edición: con un cambio de vista en medio, un
+    índice de bloque se leía como índice de página (o al revés) y el siguiente Delete/Rotate
+    podía tocar otras páginas. Ahora, si `viewNow.current` (la vista del último render, como
+    ya hacía la importación) no es la del inicio, la selección se traduce con
+    `reselect` (`units.ts`, puro: las mismas páginas como las tarjetas de la otra vista que
+    las contienen), la misma función que usa el conmutador. Se eligió esto y no apagar el
+    conmutador mientras hay edición: el resultado es correcto sea cual sea el momento.
+  - *Una importación terminada se perdía con otra edición en vuelo.* Rotar/borrar/mover/
+    deshacer siguen vivos mientras se prepara o se pide una contraseña; si uno seguía en
+    vuelo al llegar `importPrepared`, el candado de `useOrganize` (`busy`) devolvía `null`
+    sin mensaje, se descartaba lo preparado y el estado volvía a reposo aunque el usuario
+    hubiera tecleado contraseñas. Ahora la importación **espera su turno**
+    (`runInTurn`: aguarda a que termine el paso en vuelo y entonces corre); un clic doble
+    sobre una edición se sigue descartando como antes. La importación va detrás de las
+    páginas que dejó esa edición: `run` actualiza `pageCount` con la respuesta, porque el
+    siguiente paso puede empezar antes de que un render traiga la lista nueva. Si la edición
+    esperada falla, su error se queda a la vista (la importación no lo borra); si falla la
+    importación, se ve como cualquier fallo de Organize.
+  - Tests: Vitest de pantalla (mover en Pages y cambiar a Documents en vuelo, rotar un bloque
+    y cambiar a Pages en vuelo, selección que cruza bloques al cambiar de vista, importar con
+    un borrado en vuelo), de `useOrganize` (la importación espera y va tras las páginas que
+    quedan; conserva el fallo de la edición esperada) y de `reselect`.
 - **No cubierto:** elegir dónde insertar (siempre al final, como "append"); avisos del
   injerto antes de importar (se muestran después, en la línea de estado, no se pregunta como
   en Linux); renombrar bloques; un drop sobre Organize con la importación rechazada no hace

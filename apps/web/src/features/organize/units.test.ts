@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DocumentBlock } from '@vitela/core';
-import { blockLabel, blockUnits, pageUnits } from './units';
+import { blockLabel, blockUnits, pageUnits, reselect } from './units';
 
 const block = (start: number, count: number, source: DocumentBlock['source'] = { kind: 'base' }, part: number | null = null) => ({
   source,
@@ -66,5 +66,29 @@ describe('blockLabel', () => {
 
   it('falls back to a generic name for an import it has no file name for', () => {
     expect(blockLabel(block(0, 1, { kind: 'imported', id: 9 }), 'main.pdf', names)).toBe('Added PDF');
+  });
+});
+
+describe('reselect', () => {
+  const pages = pageUnits(6);
+  const blocks = blockUnits(BLOCKS, 6);
+
+  it('selects the blocks that hold the selected pages', () => {
+    expect(reselect({ anchor: 2, focus: 4 }, pages, blocks)).toEqual({ anchor: 1, focus: 1 });
+    // A run across a block boundary takes every block it touches.
+    expect(reselect({ anchor: 1, focus: 2 }, pages, blocks)).toEqual({ anchor: 0, focus: 1 });
+  });
+
+  it('selects the pages of the selected blocks', () => {
+    expect(reselect({ anchor: 1, focus: 1 }, blocks, pages)).toEqual({ anchor: 2, focus: 4 });
+    expect(reselect({ anchor: 2, focus: 0 }, blocks, pages)).toEqual({ anchor: 0, focus: 5 });
+  });
+
+  it('keeps the selection as it is within the same units', () => {
+    expect(reselect({ anchor: 3, focus: 1 }, pages, pages)).toEqual({ anchor: 3, focus: 1 });
+  });
+
+  it('selects nothing when there is nothing to hold it', () => {
+    expect(reselect({ anchor: 0, focus: 0 }, pageUnits(0), blockUnits([], 0))).toBeNull();
   });
 });

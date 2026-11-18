@@ -55,6 +55,8 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
   let nextPrepared = 1;
   let nextSource = 1;
   let nextPageId = 100;
+  /** While set, every page edit waits for it before it lands. */
+  let held: Promise<void> | null = null;
   const answer = (): EditedDocument => ({ info: info(pages, allowed, importRefusal), canUndo: undo.length > 0, canRedo: redo.length > 0 });
   const record = (next: FakePage[]) => {
     undo.push(pages);
@@ -65,6 +67,7 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
     renderPage: async () => bitmap,
     applyEdit: async (_handle, edit) => {
       edits.push(edit);
+      if (held) await held;
       if (!allowed) {
         const error = new Error('the document does not permit page assembly');
         error.name = 'EditNotPermitted';
@@ -113,7 +116,16 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
       return { ...answer(), sourceIds };
     },
   });
-  return { engine, edits, imports, prepared, opened: answer().info };
+  /** Holds page edits in flight until the returned release is called. */
+  const holdEdits = () => {
+    let release!: () => void;
+    held = new Promise<void>((resolve) => (release = resolve));
+    return () => {
+      held = null;
+      release();
+    };
+  };
+  return { engine, edits, imports, prepared, opened: answer().info, holdEdits };
 }
 
 function Harness({ engine, initial, markDirty }: { engine: Engine; initial: DocumentInfo; markDirty: () => void }) {
@@ -375,6 +387,55 @@ describe('OrganizeScreen', () => {
     await act(async () => fireEvent.pointerUp(grid(), { pointerId: 1, clientX: middleOf(0) - 10, clientY: y }));
     expect(edits).toEqual([{ kind: 'move', from: 1, count: 2, to: 0 }]);
     expect(blocks()).toEqual(['b.pdf, 2 pages', 'a.pdf, 1 page']);
+  });
+
+  it('keeps the pages an edit selected when the view is switched while it is in flight', async () => {
+    const { blocks, grid, holdEdits } = setup(2);
+    await addPdfs([pdf('b.pdf', 3)]);
+    // Pages view, pages 3–5 (the added block) selected: move them one place earlier.
+    const release = holdEdits();
+    await act(async () => fireEvent.keyDown(grid(), { key: 'ArrowLeft', ctrlKey: true, shiftKey: true }));
+    fireEvent.click(button('Documents'));
+    await act(async () => release());
+    // a.pdf now sits on both sides of b.pdf: the moved pages are the middle block, and only it.
+    expect(blocks()).toEqual(['a.pdf, 1 page', 'b.pdf, 3 pages', 'a.pdf, 1 page']);
+    expect(screen.getByText('Document 2 of 3 selected (3 pages)')).toBeTruthy();
+  });
+
+  it('keeps a rotated block selected as its pages when switched to the Pages view mid-edit', async () => {
+    const { selected, holdEdits } = setup(2);
+    await addPdfs([pdf('b.pdf', 3)]);
+    fireEvent.click(button('Documents'));
+    const release = holdEdits();
+    await act(async () => fireEvent.click(button('Rotate right')));
+    fireEvent.click(button('Pages'));
+    await act(async () => release());
+    expect(selected()).toEqual([2, 3, 4]);
+    expect(screen.getByText('Pages 3–5 of 5 selected')).toBeTruthy();
+  });
+
+  it('switches a selection spanning blocks to every block that holds it', async () => {
+    const { cards } = setup(2);
+    await addPdfs([pdf('b.pdf', 3)]);
+    // Pages 2–3: the last of a.pdf and the first of b.pdf.
+    fireEvent.click(cards()[1]!);
+    fireEvent.click(cards()[2]!, { shiftKey: true });
+    expect(screen.getByText('Pages 2–3 of 5 selected')).toBeTruthy();
+    fireEvent.click(button('Documents'));
+    expect(screen.getByText('Documents 1–2 of 2 selected (5 pages)')).toBeTruthy();
+  });
+
+  it('adds a pick that finishes while an edit is in flight once that edit lands, after the pages it left', async () => {
+    const { imports, order, holdEdits } = setup(3);
+    const release = holdEdits();
+    await act(async () => fireEvent.click(button('Delete')));
+    await addPdfs([pdf('b.pdf', 2)]);
+    expect(imports).toEqual([]);
+    await act(async () => release());
+    await waitFor(() => expect(imports).toHaveLength(1));
+    expect(imports).toEqual([[[1], 2]]);
+    expect(order()).toEqual([1, 2, 100, 101]);
+    expect(screen.getByText('Added 2 pages from b.pdf.')).toBeTruthy();
   });
 
   it('is blocked when the document withholds the assembly permission', async () => {

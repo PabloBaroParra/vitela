@@ -114,6 +114,50 @@ describe('useOrganize', () => {
     expect(reported).toEqual([imported]);
   });
 
+  it('runs an import asked for while an edit is in flight once that edit lands, after the pages it left', async () => {
+    const edit = deferred<EditedDocument>();
+    const steps: string[] = [];
+    const imported = { info: info(4), canUndo: true, canRedo: false, sourceIds: [1] };
+    const engine = fakeEngine({
+      applyEdit: () => (steps.push('edit'), edit.promise),
+      importPrepared: async (_handle, _ids, index) => (steps.push(`import at ${index}`), imported),
+    });
+    const { result } = renderHook(() => useOrganize(engine, doc(), () => {}));
+
+    let editing!: Promise<EditedDocument | null>;
+    let importing!: Promise<unknown>;
+    act(() => {
+      editing = result.current.apply({ kind: 'remove', from: 0, count: 1 });
+      importing = result.current.importPrepared([7]);
+    });
+    await act(async () => {
+      edit.resolve({ info: info(2), canUndo: true, canRedo: false });
+      await editing;
+      expect(await importing).toBe(imported);
+    });
+    expect(steps).toEqual(['edit', 'import at 2']);
+    expect(result.current.pending).toBe(false);
+  });
+
+  it('keeps the failure of the edit an import waited for on show', async () => {
+    const edit = deferred<EditedDocument>();
+    const engine = fakeEngine({
+      applyEdit: () => edit.promise,
+      importPrepared: async () => ({ info: info(4), canUndo: true, canRedo: false, sourceIds: [1] }),
+    });
+    const { result } = renderHook(() => useOrganize(engine, doc(), () => {}));
+    let importing!: Promise<unknown>;
+    act(() => {
+      void result.current.apply({ kind: 'remove', from: 0, count: 1 });
+      importing = result.current.importPrepared([7]);
+    });
+    await act(async () => {
+      edit.reject(new EngineError('UnsupportedOperation', 'cannot rewrite this document'));
+      await importing;
+    });
+    expect(result.current.failure).toBe('cannot rewrite this document');
+  });
+
   it('turns an import the core refuses into a failure and answers null', async () => {
     const engine = fakeEngine({
       importPrepared: async () => {
