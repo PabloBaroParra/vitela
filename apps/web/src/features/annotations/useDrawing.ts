@@ -1,7 +1,8 @@
 // The drawing tools' state in the viewer: which tool is armed, the colour,
 // and the note or text box waiting for its text. Turns a finished gesture
 // into an edit through the viewer's queue (`useAnnotationEdits.add`): ink
-// and shapes at once, notes and text boxes once their dialog is answered.
+// and shapes at once, notes and text boxes once their dialog is answered;
+// a stamp's click goes to `onStamp`, which owns the picked image.
 // Container logic only.
 //
 // A tool stays armed until Select or Escape (several strokes make a
@@ -16,7 +17,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ENCODING_GAP } from '@vitela/core';
-import type { AnnotationEdit, PageRect, Rgb } from '@vitela/core';
+import type { AnnotationEdit, PagePoint, PageRect, Rgb } from '@vitela/core';
 import { isTextField, modalOpen } from '../document/historyKeys';
 import { drawnEdit, PALETTE, textEdit, type ArmedTool, type DrawTool, type Gesture, type Size } from './drawing';
 import { freeTextFrame } from './geometry';
@@ -30,6 +31,7 @@ export interface DrawingEdits {
     pageIndex: number,
     expectedKey: string,
     shownByCaller?: readonly string[],
+    onAdded?: (id: number) => void,
   ) => Promise<AddOutcome>;
   /** Shows `message` where the viewer shows its edit failures. */
   readonly notify: (message: string) => void;
@@ -53,7 +55,10 @@ const NOT_NOW = 'Another change is still being made. Try again in a moment.';
 /** A stroke or shape refused before reaching the core (a step started mid-gesture). */
 export const NOT_DRAWN = 'Another change was still being made. Nothing was added.';
 
-export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number) {
+/** Stamps the armed image at `anchor` on page `pageIndex` (see `useStamps.place`). */
+export type PlaceStamp = (pageIndex: number, pageKey: string, anchor: PagePoint) => void;
+
+export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number, onStamp: PlaceStamp) {
   const [chosen, setChosen] = useState<DrawTool>('select');
   const [color, setColor] = useState<Rgb>(PALETTE[0]!.color);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -86,6 +91,10 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
 
   const onGesture = useCallback(
     (pageIndex: number, pageKey: string, armed: ArmedTool, gesture: Gesture) => {
+      if (armed === 'stamp') {
+        if (gesture.kind === 'point') onStamp(pageIndex, pageKey, gesture.point);
+        return;
+      }
       if (armed === 'ink' || armed === 'shape') {
         const edit = drawnEdit(armed, pageIndex, gesture, color);
         // A refusal leaves no failure of its own: say the drawing went nowhere.
@@ -100,7 +109,7 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
       const { width, height } = freeTextFrame(gesture.rect, rotationOf(pageIndex));
       setDraft({ tool: armed, pageIndex, pageKey, rect: gesture.rect, frame: { width, height }, busy: false, error: null });
     },
-    [add, color, notify, rotationOf],
+    [add, color, notify, onStamp, rotationOf],
   );
 
   const submit = useCallback(

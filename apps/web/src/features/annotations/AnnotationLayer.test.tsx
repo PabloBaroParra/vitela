@@ -97,4 +97,39 @@ describe('AnnotationLayer', () => {
       'translate(110 230) rotate(90) translate(-30 -10)',
     );
   });
+
+  it('draws a stamp with the image kept for its id, else the placeholder box', () => {
+    const stamps: Annotation[] = [
+      { id: 3, pageIndex: 0, kind: 'stamp', rect: { left: 100, top: 500, width: 144, height: 72 } },
+      { id: 4, pageIndex: 0, kind: 'stamp', rect: { left: 300, top: 500, width: 72, height: 144 } },
+    ];
+    const images = new Map([[3, 'data:image/png;base64,AAAA']]);
+    const { container } = render(<AnnotationLayer page={LETTER} annotations={stamps} stampImages={images} />);
+
+    const pictured = container.querySelector('[data-annotation-id="3"]')!;
+    expect(pictured.tagName).toBe('g');
+    expect(pictured.getAttribute('transform')).toBe('translate(172 536) rotate(0) translate(-72 -36)');
+    const image = pictured.querySelector('image')!;
+    expect(image.getAttribute('href')).toBe('data:image/png;base64,AAAA');
+    expect([image.getAttribute('width'), image.getAttribute('height')]).toEqual(['144', '72']);
+    // The core already gave the box the image's proportions: fill it exactly.
+    expect(image.getAttribute('preserveAspectRatio')).toBe('none');
+
+    const placeholder = container.querySelector('[data-annotation-id="4"]')!;
+    expect(placeholder.tagName).toBe('rect');
+    expect(placeholder.getAttribute('class')).toContain('annotation-mark--stamp');
+  });
+
+  it('turns a stamp’s image with a page drawn turned, as the saved appearance is', () => {
+    const turned: PageSize = { widthPt: 792, heightPt: 612, rotationDegrees: 90 };
+    // A 2:1 image on a quarter-turned page: drawn 72 wide, 144 high.
+    const stamp: Annotation = { id: 1, pageIndex: 0, kind: 'stamp', rect: { left: 100, top: 200, width: 72, height: 144 } };
+    const { container } = render(
+      <AnnotationLayer page={turned} annotations={[stamp]} stampImages={new Map([[1, 'data:image/png;base64,AAAA']])} />,
+    );
+    const mark = container.querySelector('[data-annotation-id="1"]')!;
+    expect(mark.getAttribute('transform')).toBe('translate(136 272) rotate(90) translate(-72 -36)');
+    const image = mark.querySelector('image')!;
+    expect([image.getAttribute('width'), image.getAttribute('height')]).toEqual(['144', '72']);
+  });
 });

@@ -277,6 +277,27 @@ describe('useAnnotationEdits.add', () => {
     expect(onEdited).toHaveBeenCalledTimes(1);
   });
 
+  it('hands the added annotation id over before the edited document is reported', async () => {
+    const applyEdit = vi.fn(async (): Promise<EditedDocument> => ({ ...edited(true), addedAnnotationId: 42 }));
+    const order: string[] = [];
+    const onEdited = vi.fn(() => order.push('edited'));
+    const onAdded = vi.fn((id: number) => order.push(`added ${id}`));
+    const { result } = renderHook(() => useAnnotationEdits(fakeEngine({ applyEdit }), doc(), onEdited));
+
+    await act(async () => {
+      await result.current.add(ink, 0, PAGE_0, [], onAdded);
+    });
+    // In the same step, so the layer never draws the annotation without what the caller keeps for it.
+    expect(order).toEqual(['added 42', 'edited']);
+
+    // An answer with no added id calls nothing.
+    applyEdit.mockResolvedValueOnce(edited(true));
+    await act(async () => {
+      await result.current.add(ink, 0, PAGE_0, [], onAdded);
+    });
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
   it('returns an error the caller shows itself without making it the viewer failure', async () => {
     const engine = fakeEngine({
       applyEdit: () => Promise.reject(new EngineError(ENCODING_GAP, "'日' cannot be shown in Helvetica (WinAnsi)")),

@@ -17,8 +17,9 @@ function drawing(outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' }
   const add = vi.fn(async (_edit: AnnotationEdit, _page: number, _key: string, _shown?: readonly string[]) => outcome);
   const notify = vi.fn();
   const edits: DrawingEdits = { allowed, add, notify };
-  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation), { initialProps: edits });
-  return { ...view, add, notify };
+  const onStamp = vi.fn();
+  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation, onStamp), { initialProps: edits });
+  return { ...view, add, notify, onStamp };
 }
 
 describe('useDrawing', () => {
@@ -71,6 +72,16 @@ describe('useDrawing', () => {
       [{ kind: 'addInk', page: 2, points, color: BLUE }, 2, '5/0'],
       [{ kind: 'addShape', page: 2, rect: BOX, color: BLUE }, 2, '5/0'],
     ]);
+    expect(result.current.draft).toBeNull();
+  });
+
+  it('hands a stamp click over as the anchor for the page it began on, with no draft', () => {
+    const { result, add, onStamp } = drawing();
+    act(() => result.current.choose('stamp'));
+    expect(result.current.tool).toBe('stamp');
+    act(() => result.current.onGesture(1, '3/90', 'stamp', { kind: 'point', point: { x: 40, y: 50 } }));
+    expect(onStamp).toHaveBeenCalledWith(1, '3/90', { x: 40, y: 50 });
+    expect(add).not.toHaveBeenCalled();
     expect(result.current.draft).toBeNull();
   });
 

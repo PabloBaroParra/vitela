@@ -362,5 +362,31 @@ describe('useDocument', () => {
     await waitFor(() => expect(result.current.state.document?.handle).toBe(2));
     expect(result.current.state.document?.sourceNames).toBeUndefined();
   });
+
+  it('keeps each stamp’s image by its annotation id, for the document on screen only', async () => {
+    const engine = engineWith(async () => info(3));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(1));
+    expect(result.current.state.document?.stampImages).toBeUndefined();
+
+    act(() => result.current.keepStampImage(1, 4, 'data:image/png;base64,AAAA'));
+    act(() => result.current.keepStampImage(1, 9, 'data:image/jpeg;base64,BBBB'));
+    act(() => result.current.keepStampImage(5, 1, 'data:image/png;base64,CCCC'));
+    expect([...(result.current.state.document?.stampImages ?? [])]).toEqual([
+      [4, 'data:image/png;base64,AAAA'],
+      [9, 'data:image/jpeg;base64,BBBB'],
+    ]);
+
+    // An edit keeps them: an undone stamp comes back by redo with the same id.
+    act(() => {
+      result.current.revise(1, { info: info(3), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null });
+    });
+    expect(result.current.state.document?.stampImages?.size).toBe(2);
+
+    act(() => result.current.open(file('d.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(2));
+    expect(result.current.state.document?.stampImages).toBeUndefined();
+  });
 });
 

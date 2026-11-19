@@ -22,9 +22,13 @@ interface AnnotationLayerProps {
   readonly page: PageSize;
   /** This page's annotations, in paint order. */
   readonly annotations: readonly Annotation[];
+  /** The image of each stamp added this session, by annotation id (the engine hands none back). */
+  readonly stampImages?: ReadonlyMap<number, string>;
 }
 
-export const AnnotationLayer = memo(function AnnotationLayer({ page, annotations }: AnnotationLayerProps) {
+const NO_IMAGES: ReadonlyMap<number, string> = new Map();
+
+export const AnnotationLayer = memo(function AnnotationLayer({ page, annotations, stampImages = NO_IMAGES }: AnnotationLayerProps) {
   // Only characters that need no escaping inside `url(#…)`.
   const clipPrefix = `clip${useId().replace(/[^\w-]/g, '')}`;
   return (
@@ -35,13 +39,27 @@ export const AnnotationLayer = memo(function AnnotationLayer({ page, annotations
       aria-hidden="true"
     >
       {annotations.map((annotation) => (
-        <Mark key={annotation.id} annotation={annotation} rotation={page.rotationDegrees} clipId={`${clipPrefix}-${annotation.id}`} />
+        <Mark
+          key={annotation.id}
+          annotation={annotation}
+          rotation={page.rotationDegrees}
+          clipId={`${clipPrefix}-${annotation.id}`}
+          image={annotation.kind === 'stamp' ? stampImages.get(annotation.id) : undefined}
+        />
       ))}
     </svg>
   );
 });
 
-function Mark({ annotation, rotation, clipId }: { annotation: Annotation; rotation: number; clipId: string }) {
+interface MarkProps {
+  readonly annotation: Annotation;
+  readonly rotation: number;
+  readonly clipId: string;
+  /** A stamp's image, when this session kept one for it. */
+  readonly image: string | undefined;
+}
+
+function Mark({ annotation, rotation, clipId, image }: MarkProps) {
   const tag = { 'data-annotation-id': annotation.id, 'data-kind': annotation.kind };
   switch (annotation.kind) {
     case 'highlight': {
@@ -118,7 +136,18 @@ function Mark({ annotation, rotation, clipId }: { annotation: Annotation; rotati
       );
     }
     case 'stamp': {
-      // The engine hands no image back: a placeholder box until stamps get theirs (T-239).
+      if (image) {
+        // Upright in the box's own frame, turned with the page like free text
+        // (and like the saved appearance). The core gave the box the image's
+        // proportions, so the image fills it exactly.
+        const frame = freeTextFrame(annotation.rect, rotation);
+        return (
+          <g {...tag} className="annotation-mark annotation-mark--stamp-image" transform={frame.transform}>
+            <image href={image} width={frame.width} height={frame.height} preserveAspectRatio="none" />
+          </g>
+        );
+      }
+      // No image kept for it (the engine hands none back): a placeholder box.
       const { left, top, width, height } = annotation.rect;
       return (
         <rect

@@ -37,13 +37,14 @@ interface ViewerProps {
   readonly document: OpenDocument;
   readonly onEdited?: (handle: DocumentHandle, edited: EditedDocument) => boolean;
   readonly markDirty?: () => void;
+  readonly onStampImage?: (handle: DocumentHandle, id: number, href: string) => void;
 }
 
 /** The viewer inside the save state the workspace provides. */
-function Viewer({ engine, document, onEdited = () => true, markDirty = () => {} }: ViewerProps) {
+function Viewer({ engine, document, onEdited = () => true, markDirty = () => {}, onStampImage = () => {} }: ViewerProps) {
   return (
     <MarkDirtyContext.Provider value={markDirty}>
-      <DocumentViewer engine={engine} document={document} onEdited={onEdited} />
+      <DocumentViewer engine={engine} document={document} onEdited={onEdited} onStampImage={onStampImage} />
     </MarkDirtyContext.Provider>
   );
 }
@@ -474,5 +475,62 @@ describe('DocumentViewer drawing tools', () => {
     expect(document.getElementById(ink.getAttribute('aria-describedby')!)?.textContent).toMatch(/does not allow annotations/);
     fireEvent.click(ink);
     expect(container.querySelector('.drawing-layer')).toBeNull();
+  });
+
+  const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const BOX = { left: 40, top: 60, width: 144, height: 72 };
+  const png = () => new File([PNG], 'logo.png', { type: 'image/png' });
+
+  it('arms Image with a picked PNG and stamps it where the page is clicked, keeping its image by id', async () => {
+    const stampPlacement = vi.fn(async (_handle: DocumentHandle, _page: number, _image: Uint8Array, _anchor: { x: number; y: number }) => BOX);
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5 }));
+    const onStampImage = vi.fn();
+    const { container, getByRole, getByLabelText } = render(
+      <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} onStampImage={onStampImage} />,
+    );
+    fireEvent.change(getByLabelText('Stamp image'), { target: { files: [png()] } });
+    await waitFor(() => expect(getByRole('button', { name: 'Image' }).getAttribute('aria-pressed')).toBe('true'));
+
+    const surface = container.querySelector('[data-page="2"] .drawing-layer')!;
+    fireEvent.pointerDown(surface, at(30, 60));
+    fireEvent.pointerUp(surface, at(30, 60));
+
+    await waitFor(() => expect(onStampImage).toHaveBeenCalledTimes(1));
+    const [, page, image, anchor] = stampPlacement.mock.calls[0]!;
+    expect(page).toBe(1);
+    expect([...image]).toEqual([...PNG]);
+    expect([Math.round(anchor.x), Math.round(anchor.y)]).toEqual([30, 60]);
+    expect(applyEdit.mock.calls[0]![1]).toEqual({ kind: 'addStamp', page: 1, rect: BOX, image });
+    expect(onStampImage).toHaveBeenCalledWith(1, 5, expect.stringMatching(/^data:image\/png;base64,/));
+  });
+
+  it('stamps a PNG dropped on a page, claiming the drop so the workspace does not open it', async () => {
+    const stampPlacement = vi.fn(async () => BOX);
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2 }));
+    const onStampImage = vi.fn();
+    const { container } = render(
+      <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} onStampImage={onStampImage} />,
+    );
+    const slot = container.querySelector('[data-page="1"]')!;
+    const claimed = !fireEvent.drop(slot, { dataTransfer: { files: [png()], types: ['Files'] } });
+    expect(claimed).toBe(true);
+    await waitFor(() => expect(onStampImage).toHaveBeenCalledWith(1, 2, expect.stringMatching(/^data:image\/png;base64,/)));
+    expect(applyEdit.mock.calls[0]![1]).toMatchObject({ kind: 'addStamp', page: 0, rect: BOX });
+
+    // A PDF dropped on a page is the workspace's to open.
+    const pdf = new File(['%PDF-1.7'], 'other.pdf', { type: 'application/pdf' });
+    expect(fireEvent.drop(slot, { dataTransfer: { files: [pdf], types: ['Files'] } })).toBe(true);
+  });
+
+  it('draws a session stamp with the image the workspace kept for it', () => {
+    const stamped = {
+      ...doc,
+      annotations: [{ id: 5, pageIndex: 0, kind: 'stamp' as const, rect: BOX }],
+      stampImages: new Map([[5, 'data:image/png;base64,iVBORw==']]),
+    };
+    const { container } = render(<Viewer engine={engine} document={stamped} />);
+    expect(container.querySelector('[data-page="1"] [data-annotation-id="5"] image')?.getAttribute('href')).toBe(
+      'data:image/png;base64,iVBORw==',
+    );
   });
 });

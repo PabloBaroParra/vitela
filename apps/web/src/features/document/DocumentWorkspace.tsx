@@ -41,7 +41,7 @@ interface DocumentWorkspaceProps {
 }
 
 export function DocumentWorkspace({ engine, intro, initialScreen = 'view', standIn }: DocumentWorkspaceProps) {
-  const { state, open, submitPassword, cancelPassword, revise, nameSources } = useDocument(engine);
+  const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
   const [screenFor, setScreenFor] = useState(document?.generation);
@@ -91,7 +91,13 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
         <MarkDirtyContext.Provider value={save.markDirty}>
           {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
           {screen === 'view' ? (
-            <DocumentViewer key={document.generation} engine={engine} document={document} onEdited={revise} />
+            <DocumentViewer
+              key={document.generation}
+              engine={engine}
+              document={document}
+              onEdited={revise}
+              onStampImage={keepStampImage}
+            />
           ) : (
             <OrganizeScreen
               key={document.generation}

@@ -10,12 +10,16 @@
 import type { AnnotationEdit, PagePoint, PageRect, PageSize, Rgb } from '@vitela/core';
 import { isSideways } from './geometry';
 
-/** What a press on the page does: select text, or draw one kind of annotation. */
-export type DrawTool = 'select' | 'ink' | 'shape' | 'note' | 'freeText';
+/**
+ * What a press on the page does: select text, draw one kind of annotation,
+ * or stamp the picked image (`stamp`, armed by picking one: see `useStamps`).
+ */
+export type DrawTool = 'select' | 'ink' | 'shape' | 'note' | 'freeText' | 'stamp';
 
 /** The tools that take the pointer away from text selection. */
 export type ArmedTool = Exclude<DrawTool, 'select'>;
 
+/** The tools armed by their own button; Image (`stamp`) is armed by picking a file. */
 export const DRAW_TOOLS: readonly { readonly tool: DrawTool; readonly label: string }[] = [
   { tool: 'select', label: 'Select' },
   { tool: 'ink', label: 'Ink' },
@@ -68,7 +72,9 @@ export interface Size {
 /** What a finished gesture on one page asks for, in drawn points. */
 export type Gesture =
   | { readonly kind: 'stroke'; readonly points: readonly PagePoint[] }
-  | { readonly kind: 'box'; readonly rect: PageRect };
+  | { readonly kind: 'box'; readonly rect: PageRect }
+  /** Where a stamp goes: the anchor the core places the image's top-left corner at. */
+  | { readonly kind: 'point'; readonly point: PagePoint };
 
 /** `point` moved inside the page. */
 export function clampPoint(point: PagePoint, page: PageSize): PagePoint {
@@ -124,8 +130,9 @@ export function extendStroke(points: readonly PagePoint[], point: PagePoint, pag
  * What `tool` makes of a press at `points[0]` dragged through the rest:
  * ink keeps the stroke (a stroke needs two points), a shape or a text box
  * the traced box (or the default one for a click), a note the default box
- * at the click. A text box's minimum and default sizes are its text frame's,
- * so they turn with the page. `null` when the gesture makes nothing.
+ * at the click, a stamp the press itself (the core sizes it). A text box's
+ * minimum and default sizes are its text frame's, so they turn with the
+ * page. `null` when the gesture makes nothing.
  */
 export function finishGesture(tool: ArmedTool, points: readonly PagePoint[], page: PageSize): Gesture | null {
   const start = points[0];
@@ -136,6 +143,8 @@ export function finishGesture(tool: ArmedTool, points: readonly PagePoint[], pag
       return points.length >= 2 ? { kind: 'stroke', points } : null;
     case 'note':
       return { kind: 'box', rect: clickRect(clampPoint(start, page), NOTE_SIZE, page) };
+    case 'stamp':
+      return { kind: 'point', point: clampPoint(start, page) };
     case 'shape':
       return {
         kind: 'box',

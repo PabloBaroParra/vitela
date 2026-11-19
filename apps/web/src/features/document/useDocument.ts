@@ -38,6 +38,13 @@ export interface OpenDocument {
    * the first import.
    */
   readonly sourceNames?: ReadonlyMap<number, string>;
+  /**
+   * The image of each stamp added to this document, by annotation id, as a
+   * URL to draw (the engine never hands a stamp's image back). Kept across
+   * undo and redo: a redone stamp comes back with its id, and ids are never
+   * reused. Unset until the first stamp.
+   */
+  readonly stampImages?: ReadonlyMap<number, string>;
 }
 
 /** What is happening besides showing the open document, if any. */
@@ -177,5 +184,14 @@ export function useDocument(engine: Engine) {
     );
   }, []);
 
-  return { state, open, submitPassword, cancelPassword, revise, nameSources };
+  /** Keeps stamp `id`'s image for the document still on screen. */
+  const keepStampImage = useCallback((handle: DocumentHandle, id: number, href: string) => {
+    setState((s) =>
+      s.document?.handle === handle
+        ? { ...s, document: { ...s.document, stampImages: new Map([...(s.document.stampImages ?? []), [id, href]]) } }
+        : s,
+    );
+  }, []);
+
+  return { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage };
 }

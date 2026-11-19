@@ -64,13 +64,25 @@ function enclosingDictionary(text: string, at: number): string | null {
  */
 export function annotationRects(bytes: Buffer, subtype: string): number[][] {
   const rects: number[][] = [];
+  for (const dictionary of subtypeDictionaries(bytes, subtype)) {
+    const rect = /\/Rect\s*\[([^\]]*)\]/.exec(dictionary);
+    if (rect) rects.push(rect[1]!.trim().split(/\s+/).map(Number));
+  }
+  return rects;
+}
+
+/**
+ * Every dictionary of `subtype` the saved bytes hold, as its source text:
+ * an annotation's (`Stamp`, …) or an XObject's (`Image`, `Form`).
+ */
+export function subtypeDictionaries(bytes: Buffer, subtype: string): string[] {
+  const found: string[] = [];
   const pattern = new RegExp(`/Subtype\\s*/${subtype}(?![A-Za-z0-9])`, 'g');
   for (const text of texts(bytes)) {
     for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
       const dictionary = enclosingDictionary(text, match.index);
-      const rect = dictionary && /\/Rect\s*\[([^\]]*)\]/.exec(dictionary);
-      if (rect) rects.push(rect[1]!.trim().split(/\s+/).map(Number));
+      if (dictionary) found.push(dictionary);
     }
   }
-  return rects;
+  return found;
 }

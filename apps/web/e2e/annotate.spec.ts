@@ -9,7 +9,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { saveAsDownload } from './organize';
 import { annotationRects } from './pdfObjects';
 import { buildPdf, lineBaseline, type PageSpec } from './pdf';
-import { expectOpened, expectPagePainted, loadApp, openBytes, pageSlot } from './support';
+import { buildPng } from './png';
+import { dropFileAt, expectOpened, expectPagePainted, loadApp, openBytes, pageSlot } from './support';
 
 const LETTER: PageSpec = { widthPt: 612, heightPt: 792 };
 /** CSS px per point at 100%. */
@@ -163,13 +164,23 @@ test('a PDF that forbids annotations keeps markup off and says why', async ({ pa
       'This PDF does not allow annotations, so Highlight, Underline and Strikeout are turned off.',
     );
   }
-  // The drawing tools too (T-238).
-  for (const name of ['Ink', 'Shape', 'Note', 'Free text']) {
+  // The drawing tools too (T-238), and Image (T-239).
+  for (const name of ['Ink', 'Shape', 'Note', 'Free text', 'Image']) {
     await expect(button(page, name)).toHaveAttribute('aria-disabled', 'true');
     await expect(button(page, name)).toHaveAccessibleDescription(
-      'This PDF does not allow annotations, so Ink, Shape, Note and Free text are turned off.',
+      'This PDF does not allow annotations, so Ink, Shape, Note, Free text and Image are turned off.',
     );
   }
+  // A PNG dropped on the page is refused with the reason (and not opened in its place).
+  const slot = await pageSlot(page, 1).boundingBox();
+  await dropFileAt(
+    page,
+    { name: 'logo.png', mimeType: 'image/png', buffer: buildPng(20, 10, [200, 0, 0]) },
+    slot!.x + 100,
+    slot!.y + 100,
+  );
+  await expect(page.getByRole('alert')).toHaveText('This PDF does not allow annotations, so the image was not added.');
+  await expect(page.getByText('no-annotate.pdf —')).toBeVisible();
   // `force`: Playwright would otherwise wait for an aria-disabled button to turn on.
   await button(page, 'Ink').click({ force: true });
   await expect(button(page, 'Select')).toHaveAttribute('aria-pressed', 'true');

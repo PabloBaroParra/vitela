@@ -1,5 +1,5 @@
 // The viewer's edits: markup over a text selection, an annotation drawn with
-// a tool (ink, shape, note, free text), and undo/redo of the
+// a tool (ink, shape, note, free text, image stamp), and undo/redo of the
 // document's history (any step: an annotation here, or a page edit made in
 // Organize). Sends them to the engine one at a time and reports every
 // edited document. Container logic only.
@@ -152,17 +152,28 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
    * One drawn annotation on page `pageIndex`, which held the page
    * `expectedKey` when the gesture began: one undo step. Errors of a kind in
    * `shownByCaller` (say `EncodingGap`, for a dialog that stays open with
-   * it) are returned without becoming the viewer's `failure`.
+   * it) are returned without becoming the viewer's `failure`. `onAdded`
+   * gets the new annotation's id in the same step, before the edited
+   * document is reported: what the caller keeps for it (a stamp's image) is
+   * there by the time the layer draws it.
    */
   const add = useCallback(
-    async (edit: AnnotationEdit, pageIndex: number, expectedKey: string, shownByCaller: readonly string[] = []): Promise<AddOutcome> => {
+    async (
+      edit: AnnotationEdit,
+      pageIndex: number,
+      expectedKey: string,
+      shownByCaller: readonly string[] = [],
+      onAdded?: (id: number) => void,
+    ): Promise<AddOutcome> => {
       if (!allowed || runningNow.current > 0) return { status: 'refused' };
       const { complete, error } = await enqueue(
         [
-          () =>
-            pageKey(latest.current, pageIndex) === expectedKey
-              ? engine.applyEdit(handle, edit)
-              : Promise.reject(new PageChanged()),
+          async () => {
+            if (pageKey(latest.current, pageIndex) !== expectedKey) throw new PageChanged();
+            const edited = await engine.applyEdit(handle, edit);
+            if (edited.addedAnnotationId !== null) onAdded?.(edited.addedAnnotationId);
+            return edited;
+          },
         ],
         PAGE_CHANGED_UNDER_TOOL,
         shownByCaller,

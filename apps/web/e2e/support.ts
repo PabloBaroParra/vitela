@@ -65,6 +65,31 @@ export async function dropFile(page: Page, name: string, buffer: Buffer): Promis
   );
 }
 
+/**
+ * Drops a file at viewport point (`x`, `y`) the way a file manager drag does:
+ * the events go to whatever element is there, with the point as their
+ * client coordinates.
+ */
+export async function dropFileAt(
+  page: Page,
+  file: { readonly name: string; readonly mimeType: string; readonly buffer: Buffer },
+  x: number,
+  y: number,
+): Promise<void> {
+  await page.evaluate(
+    ({ name, mimeType, bytes, x, y }) => {
+      const transfer = new DataTransfer();
+      transfer.items.add(new File([new Uint8Array(bytes)], name, { type: mimeType }));
+      const target = document.elementFromPoint(x, y)!;
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        const init = { bubbles: true, cancelable: true, dataTransfer: transfer, clientX: x, clientY: y };
+        target.dispatchEvent(new DragEvent(type, init));
+      }
+    },
+    { name: file.name, mimeType: file.mimeType, bytes: [...file.buffer], x, y },
+  );
+}
+
 /** Counts the canvas pixels of page `number` that are clearly not paper-white. */
 export function inkedPixelCount(page: Page, number = 1): Promise<{ width: number; height: number; inked: number }> {
   return pageSlot(page, number)
