@@ -62,10 +62,17 @@ pub(super) fn choose_destination_from(
         None => builder.initial_name("document.pdf"),
     }
     .build();
+    // Holds the active tab in place while the chooser is up, and binds the
+    // answer to it: a write must never take another document's bytes. See
+    // `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.save(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 viewer.status.set_text(&operation.cancelled());
                 return;
@@ -95,19 +102,25 @@ fn pdf_destination(mut path: PathBuf) -> PathBuf {
     path
 }
 
-/// Guards every overwrite behind the same prompt.
+/// Guards every overwrite behind the same prompt — and refuses outright a
+/// file another tab has open, which would go on showing, and saving, bytes
+/// the file no longer holds.
 ///
 /// The native chooser raises its own overwrite warning, but only for the name
 /// the user typed — appending `.pdf` can land on a file it never checked. One
 /// prompt here covers both cases, so a collision is always a question rather
 /// than sometimes a dead end the user has to reopen the chooser to escape.
-fn confirm_destination(
+pub(super) fn confirm_destination(
     window: &ApplicationWindow,
     viewer: &Viewer,
     operation: WriteOperation,
     destination: PathBuf,
     proceed: Proceed,
 ) {
+    if crate::app::tabs::path_held_by_other_tab(viewer, &destination) {
+        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+        return;
+    }
     match destination.try_exists() {
         Ok(false) => proceed(window, viewer, destination),
         Err(error) => viewer
@@ -125,7 +138,13 @@ fn confirm_destination(
                 let viewer = viewer.clone();
                 let window = window.clone();
                 move |response| {
-                    if response == Ok(1) {
+                    // Asked again now: a tab may have opened the file while
+                    // the question was up.
+                    if response == Ok(1)
+                        && crate::app::tabs::path_held_by_other_tab(&viewer, &destination)
+                    {
+                        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+                    } else if response == Ok(1) {
                         proceed(&window, &viewer, destination.clone());
                     } else {
                         viewer.status.set_text(&operation.cancelled());
@@ -170,13 +189,16 @@ pub(super) fn confirm_signature_loss(
         .modal(true)
         .build();
 
+    // The answer is about the document on screen now: accepting it after the
+    // active tab changed would write another one, so it is refused.
+    let bound = crate::app::tabs::bind_active(viewer);
     dialog.choose(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |response| {
-            if response == Ok(1) {
-                proceed();
-            } else {
+            if response != Ok(1) {
                 viewer.status.set_text(&operation.cancelled());
+            } else if bound.ensure_active_or_report(&viewer) {
+                proceed();
             }
         }
     });
@@ -196,7 +218,53 @@ fn check_failed(destination: &std::path::Path, error: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_failed, pdf_destination};
+    use super::{check_failed, confirm_destination, pdf_destination};
+    use crate::app::document::SAMPLE_PDF;
+    use crate::app::state::DocumentSource;
+    use crate::app::ui_tests::built_ui;
+    use gtk::prelude::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    /// A Save As onto the file another tab has open is refused before the
+    /// overwrite question, and nothing is written.
+    #[gtk::test]
+    fn gtk_ui_a_destination_another_tab_holds_is_refused() {
+        let built = built_ui();
+        let held = std::env::temp_dir().join(format!("vitela-held-{}.pdf", std::process::id()));
+        std::fs::write(&held, SAMPLE_PDF).unwrap();
+        crate::app::tabs::open_and_wait(
+            &built.window,
+            &built.viewer,
+            DocumentSource::File(held.clone()),
+        );
+        crate::app::tabs::open_and_wait(
+            &built.window,
+            &built.viewer,
+            DocumentSource::Embedded(SAMPLE_PDF),
+        );
+        let proceeded = Rc::new(Cell::new(false));
+
+        confirm_destination(
+            &built.window,
+            &built.viewer,
+            super::super::SAVE,
+            held.clone(),
+            Rc::new({
+                let proceeded = proceeded.clone();
+                move |_, _, _| proceeded.set(true)
+            }),
+        );
+
+        let status = built.viewer.status.text().to_string();
+        built.viewer.state.borrow_mut().session = None;
+        built.viewer.tabs.borrow_mut().clear_for_test();
+        built.window.close();
+        let _ = std::fs::remove_file(&held);
+        assert!(!proceeded.get(), "nothing is written");
+        assert_eq!(status, tr("tabs-path-open-elsewhere"));
+    }
+
     use crate::app::i18n::{speak, tr, Language};
     use std::path::PathBuf;
 

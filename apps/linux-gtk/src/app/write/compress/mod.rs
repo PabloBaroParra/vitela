@@ -95,9 +95,9 @@ struct CompressRequest {
     /// `DocumentSession::base_breaks_signatures`: the bytes the session
     /// opened from had already broken a signature.
     base_breaks_signatures: bool,
-    /// Generation of the session this compression started under.
-    /// [`worker`] compares it before touching the status line, so one that
-    /// finishes after the document was replaced says nothing at all.
+    /// Generation of the session this compression started under. [`worker`]
+    /// compares it before offering the result: bytes compressed from a
+    /// document that has since been reopened are set aside, not offered.
     generation: u64,
 }
 
@@ -127,6 +127,7 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
     // see `dialog` for why the dialog shows the one number it can stand
     // behind and no predicted saving at all.
     let current_size = request.backing.original_bytes.len() as u64;
+    let bound = crate::app::tabs::bind_active(viewer);
     dialog::prompt_for_preset(
         &window,
         current_size,
@@ -136,7 +137,12 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
         },
         {
             let viewer = viewer.clone();
-            move |window, preset| compress_with(window, &viewer, preset)
+            move |window, preset| {
+                // The document the dialog was opened over, and no other.
+                if bound.ensure_active_or_report(&viewer) {
+                    compress_with(window, &viewer, preset);
+                }
+            }
         },
     );
 }

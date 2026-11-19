@@ -65,6 +65,11 @@ pub(crate) const PASTE: Shortcut = Shortcut {
     action: "paste",
     accel: "<Control>v",
 };
+/// Closes the active document's tab, asking about unsaved changes first.
+pub(crate) const CLOSE_TAB: Shortcut = Shortcut {
+    action: "close-tab",
+    accel: "<Control>w",
+};
 /// Opens the command palette (B27).
 pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
     action: "command-palette",

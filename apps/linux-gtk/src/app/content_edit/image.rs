@@ -414,9 +414,15 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("edit-replace-image-accept"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 return;
             };
@@ -632,9 +638,15 @@ pub(crate) fn insert_at(
         .accept_label(tr("edit-insert-image-accept"))
         .default_filter(&filter)
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.open(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(file) = result else {
                 return;
             };

@@ -61,7 +61,7 @@ pub(crate) fn begin_sign(window: &ApplicationWindow, viewer: &Viewer, request: S
 /// back into the session — the signing twin of `save::spawn_save`.
 fn spawn_sign(viewer: &Viewer, request: SignRequest, destination: PathBuf) {
     let token = request.token;
-    spawn_write(viewer, SIGN, token, None, move || {
+    spawn_write(viewer, SIGN, token, &destination.clone(), None, move || {
         sign_snapshot_and_reopen(request, &destination)
     });
 }

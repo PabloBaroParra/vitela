@@ -1,7 +1,7 @@
 //! The recovery directory on disk — no GTK, no pdfium, only files.
 //!
-//! One entry per window that has unsaved work, named by an [`EntryKey`] the
-//! window mints once. An entry is three files beside each other:
+//! One entry per tab that has unsaved work, named by an [`EntryKey`] the
+//! tab's autosave mints once. An entry is three files beside each other:
 //!
 //! - `<key>.pdf` — the document's bytes, pending edits applied.
 //! - `<key>.meta` — a small text sidecar ([`Meta`]): when, what, and from where.
@@ -52,8 +52,8 @@ pub(crate) struct RecoveryDir {
     root: PathBuf,
 }
 
-/// Names one window's entry: process id, the moment the key was minted, and a
-/// per-process sequence number, so neither two windows of one process nor a
+/// Names one tab's entry: process id, the moment the key was minted, and a
+/// per-process sequence number, so neither two tabs of one process nor a
 /// later process that reuses the PID can land on the same files.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EntryKey(String);

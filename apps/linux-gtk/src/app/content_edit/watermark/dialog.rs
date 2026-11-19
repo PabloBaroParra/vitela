@@ -17,6 +17,7 @@ use gtk::{
 use pdf_document::{Watermark, WatermarkLayer};
 
 use crate::app::i18n::{tr, tr_args};
+use crate::app::state::Viewer;
 
 use super::options::{
     default_opacity_percent, default_scale_percent, default_text, fraction_from_percent,
@@ -32,6 +33,7 @@ use super::options::{
 /// answer without redoing the rest.
 pub(super) fn prompt_for_options<F>(
     window: &ApplicationWindow,
+    viewer: &Viewer,
     total_pages: u32,
     current_page: u32,
     on_cancel: impl Fn() + 'static,
@@ -174,6 +176,7 @@ pub(super) fn prompt_for_options<F>(
 
     choose.connect_clicked({
         let dialog = dialog.clone();
+        let viewer = viewer.clone();
         let picked = picked.clone();
         let picture_name = picture_name.clone();
         let error_label = error_label.clone();
@@ -183,11 +186,18 @@ pub(super) fn prompt_for_options<F>(
                 .accept_label(tr("watermark-chooser-accept"))
                 .default_filter(&crate::app::content_edit::image::picture_filter())
                 .build();
+            // Held until the answer is in, and bound to the tab the
+            // watermark is for — see `tabs::ChooserScope`.
+            let scope = crate::app::tabs::ChooserScope::for_active(&viewer);
             chooser.open(Some(&dialog), None::<&gio::Cancellable>, {
+                let viewer = viewer.clone();
                 let picked = picked.clone();
                 let picture_name = picture_name.clone();
                 let error_label = error_label.clone();
                 move |result| {
+                    if !scope.settle(&viewer) {
+                        return;
+                    }
                     // Dismissing the chooser keeps whatever was picked before.
                     let Ok(file) = result else {
                         return;

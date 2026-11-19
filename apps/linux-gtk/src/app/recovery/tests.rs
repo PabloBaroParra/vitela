@@ -14,13 +14,15 @@ use gtk::prelude::*;
 use pdf_document::Command;
 
 use super::autosave::{
-    self, attempts, crash, is_writing, pause_next_serialize, pause_next_write, shutdown_within,
-    tick, tick_at,
+    self, attempts, crash, held_entries, is_writing, pause_next_serialize, pause_next_write,
+    shutdown_within, tick, tick_at,
 };
 use super::meta::Meta;
 use super::restore::restore;
 use super::store::{EntryKey, RecoveryDir};
-use crate::app::document::{begin_loading, open_document, show_document, SAMPLE_PDF};
+use crate::app::document::{
+    begin_loading, open_document, open_file, open_initial, show_document, SAMPLE_PDF,
+};
 use crate::app::i18n::tr;
 use crate::app::state::{DocumentSource, Viewer};
 use crate::app::test_fixtures::{a_highlight, one_password_security};
@@ -90,6 +92,33 @@ impl Window {
         tick(self.viewer());
         settle_until(|| !is_writing(self.viewer()));
     }
+
+    /// Names the active document, the way a file it came from would.
+    fn name_active(&self, name: &str) {
+        if let Some(session) = self.viewer().state.borrow_mut().session.as_mut() {
+            session.base_name = name.to_owned();
+        }
+    }
+
+    /// Opens the sample again, in a tab of its own, and waits for it.
+    fn open_another(&self) {
+        let before = self.viewer().tabs.borrow().parked_count();
+        open_initial(
+            &self.built.window,
+            self.viewer(),
+            DocumentSource::Embedded(SAMPLE_PDF),
+        );
+        settle_until(|| self.viewer().tabs.borrow().parked_count() == before + 1);
+    }
+
+    /// Every open document's name, in strip order.
+    fn tab_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        crate::app::tabs::for_each_session(self.viewer(), |_, session, _| {
+            names.push(session.base_name.clone());
+        });
+        names
+    }
 }
 
 impl Drop for Window {
@@ -97,6 +126,7 @@ impl Drop for Window {
         // The session goes first so the close raises no unsaved-changes
         // prompt.
         self.built.viewer.state.borrow_mut().session = None;
+        self.built.viewer.tabs.borrow_mut().clear_for_test();
         self.built.window.close();
     }
 }
@@ -249,7 +279,6 @@ fn gtk_ui_a_crashed_entry_comes_back_as_the_unsaved_document() {
         restored.viewer(),
         orphans.remove(0),
         Vec::new(),
-        None,
     );
     settle_until(|| {
         restored.viewer().status.text() == tr("recovery-restored") && !is_writing(restored.viewer())
@@ -306,7 +335,6 @@ fn gtk_ui_an_entry_that_cannot_be_opened_is_discarded() {
         window.viewer(),
         orphans.remove(0),
         Vec::new(),
-        None,
     );
     settle_until(|| window.viewer().status.text() == tr("recovery-unreadable"));
 
@@ -564,7 +592,6 @@ fn gtk_ui_a_restored_document_still_knows_it_broke_a_signature() {
         window.viewer(),
         dir.orphans().remove(0),
         Vec::new(),
-        None,
     );
     settle_until(|| {
         window.viewer().status.text() == tr("recovery-restored") && !is_writing(window.viewer())
@@ -606,7 +633,6 @@ fn gtk_ui_an_entry_that_cannot_be_read_right_now_is_kept() {
         window.viewer(),
         orphans.remove(0),
         Vec::new(),
-        None,
     );
     settle_until(|| window.viewer().status.text() == tr("recovery-restore-failed"));
 
@@ -619,32 +645,274 @@ fn gtk_ui_an_entry_that_cannot_be_read_right_now_is_kept() {
     );
 }
 
-/// Launched by "Open With" and asked to restore instead: if the restore
-/// fails, the file the user asked for is opened after all.
+/// Launched by "Open With" and asked to restore as well: the restore queues
+/// behind the launch's own open instead of cancelling it, and both open.
 #[gtk::test]
-fn gtk_ui_a_failed_restore_opens_the_file_the_app_was_launched_with() {
+fn gtk_ui_a_restore_does_not_cancel_the_launch_open() {
     let (scratch, dir) = scratch("launch-file");
-    crashed_entry(&dir, b"%PDF-1.7 and then nothing", &a_meta("broken.pdf"));
+    crashed_entry(&dir, SAMPLE_PDF, &a_meta("crashed.pdf"));
     let launched = scratch.0.join("launched.pdf");
     fs::write(&launched, SAMPLE_PDF).unwrap();
     let window = Window::over(&dir);
+
+    open_file(window.viewer(), launched.clone());
+    restore(
+        &window.built.window,
+        window.viewer(),
+        dir.orphans().remove(0),
+        Vec::new(),
+    );
+    settle_until(|| {
+        window.viewer().tabs.borrow().parked_count() == 2 && !is_writing(window.viewer())
+    });
+
+    let mut origins = Vec::new();
+    crate::app::tabs::for_each_session(window.viewer(), |_, session, _| {
+        origins.push(session.origin_path.clone());
+    });
+    assert!(origins.contains(&Some(launched)), "{origins:?}");
+    assert!(window.tab_names().contains(&"crashed.pdf".to_owned()));
+}
+
+/// Every restored orphan opens in a tab of its own, and each tab writes its
+/// own entry.
+#[gtk::test]
+fn gtk_ui_every_restored_orphan_opens_in_a_tab_of_its_own() {
+    let (_scratch, dir) = scratch("several-orphans");
+    crashed_entry(&dir, SAMPLE_PDF, &a_meta("one.pdf"));
+    crashed_entry(&dir, SAMPLE_PDF, &a_meta("two.pdf"));
+    let window = Window::over(&dir);
+
+    let mut orphans = dir.orphans();
+    assert_eq!(orphans.len(), 2);
+    // Both answered Restore: the second is queued behind the first.
+    restore(
+        &window.built.window,
+        window.viewer(),
+        orphans.remove(0),
+        Vec::new(),
+    );
+    restore(
+        &window.built.window,
+        window.viewer(),
+        orphans.remove(0),
+        Vec::new(),
+    );
+    settle_until(|| {
+        window.viewer().tabs.borrow().parked_count() == 2
+            && held_entries(window.viewer()) == 2
+            && !is_writing(window.viewer())
+    });
+
+    let names = window.tab_names();
+    assert!(names.contains(&"one.pdf".to_owned()), "{names:?}");
+    assert!(names.contains(&"two.pdf".to_owned()), "{names:?}");
+}
+
+/// An orphan restored while the active tab is busy opens in the background:
+/// its tab says so on the status line, and the restore's own message does
+/// not hide where it went.
+#[gtk::test]
+fn gtk_ui_an_orphan_restored_in_the_background_says_where_it_went() {
+    let (_scratch, dir) = scratch("orphan-background");
+    crashed_entry(&dir, SAMPLE_PDF, &a_meta("behind.pdf"));
+    let window = Window::over(&dir);
+    let dialog = gtk::Window::builder()
+        .transient_for(&window.built.window)
+        .modal(true)
+        .build();
+    dialog.present();
+    let active = window.viewer().state.borrow().session_id;
 
     restore(
         &window.built.window,
         window.viewer(),
         dir.orphans().remove(0),
         Vec::new(),
-        Some(launched.clone()),
     );
-    settle_until(|| {
-        window
-            .viewer()
-            .state
-            .borrow()
+    settle_until(|| window.viewer().tabs.borrow().parked_count() == 1);
+    dialog.destroy();
+
+    assert_eq!(
+        window.viewer().state.borrow().session_id,
+        active,
+        "it stays behind"
+    );
+    assert!(window.tab_names().contains(&"behind.pdf".to_owned()));
+    assert_eq!(
+        window.viewer().status.text(),
+        crate::app::i18n::tr_args(
+            "tabs-opened-in-background",
+            &[("name", "behind.pdf".into())]
+        )
+    );
+    settle_until(|| held_entries(window.viewer()) == 1 && !is_writing(window.viewer()));
+}
+
+/// A tab parked twice with the same edit revision — a rebuild resets it to
+/// 0 — but different edits is written again: the revision a parked tab is
+/// known by must never repeat.
+#[gtk::test]
+fn gtk_ui_a_tab_parked_again_after_a_rebuild_is_written_again() {
+    let (_scratch, dir) = scratch("parked-revision");
+    let window = Window::over(&dir);
+    window.edit();
+    window.open_another();
+    window.tick_and_settle();
+    let written = attempts(window.viewer());
+    assert!(written > 0, "the parked dirty tab is written");
+
+    crate::app::tabs::switch_to(window.viewer(), 0);
+    if let Some(session) = window.viewer().state.borrow_mut().session.as_mut() {
+        // What a rebuilding preview refresh leaves: the counter starts over.
+        session.edit_revision = 0;
+    }
+    window.edit();
+    crate::app::tabs::switch_to(window.viewer(), 1);
+    window.tick_and_settle();
+
+    assert!(
+        attempts(window.viewer()) > written,
+        "the new edit must reach the entry"
+    );
+}
+
+/// A restored document whose file is already open in another tab is
+/// restored without claiming that path: two tabs must never hold one file.
+#[gtk::test]
+fn gtk_ui_a_restore_of_a_file_already_open_does_not_claim_its_path() {
+    let (scratch, dir) = scratch("restore-open-path");
+    let original = scratch.0.join("quote.pdf");
+    fs::create_dir_all(&scratch.0).unwrap();
+    fs::write(&original, SAMPLE_PDF).unwrap();
+    crashed_entry(
+        &dir,
+        SAMPLE_PDF,
+        &Meta {
+            origin: Some(original.clone()),
+            ..a_meta("quote.pdf")
+        },
+    );
+    let window = Window::over(&dir);
+    open_file(window.viewer(), original.clone());
+    settle_until(|| window.viewer().tabs.borrow().parked_count() == 1);
+
+    restore(
+        &window.built.window,
+        window.viewer(),
+        dir.orphans().remove(0),
+        Vec::new(),
+    );
+    settle_until(|| window.viewer().tabs.borrow().parked_count() == 2);
+
+    let mut holders = 0;
+    crate::app::tabs::for_each_session(window.viewer(), |_, session, _| {
+        if session.origin_path.as_deref() == Some(original.as_path()) {
+            holders += 1;
+        }
+    });
+    assert_eq!(holders, 1);
+}
+
+/// Discard confirmed, but its reload dropped (the tab was left during the
+/// read): the work stays unsaved and protected.
+#[gtk::test]
+fn gtk_ui_a_discard_whose_reload_is_dropped_keeps_the_work_and_its_entry() {
+    let (scratch, dir) = scratch("discard-dropped");
+    let path = scratch.0.join("kept.pdf");
+    fs::create_dir_all(&scratch.0).unwrap();
+    fs::write(&path, SAMPLE_PDF).unwrap();
+    let window = Window::over(&dir);
+    open_file(window.viewer(), path.clone());
+    settle_until(|| window.viewer().tabs.borrow().parked_count() == 1);
+    window.edit();
+    window.tick_and_settle();
+    let entry = files_in(dir.root());
+
+    open_file(window.viewer(), path.clone());
+    let discard = || {
+        gtk::Window::list_toplevels()
+            .into_iter()
+            .filter_map(|widget| widget.downcast::<gtk::Window>().ok())
+            .filter(|dialog| dialog.is_visible())
+            .find_map(|dialog| find_label(dialog.upcast_ref(), &tr("open-unsaved-discard")))
+    };
+    settle_until(|| discard().is_some());
+    discard().expect("Discard").emit_clicked();
+    while discard().is_some() {
+        gtk::glib::MainContext::default().iteration(false);
+    }
+    crate::app::tabs::switch_to(window.viewer(), 0);
+    let state = window.viewer().state.borrow();
+    assert!(
+        state
             .session
             .as_ref()
-            .is_some_and(|session| session.origin_path.as_deref() == Some(launched.as_path()))
+            .is_some_and(|s| s.origin_path.is_none()),
+        "left in time"
+    );
+    drop(state);
+    crate::app::test_support::pump_for(std::time::Duration::from_secs(2));
+    window.tick_and_settle();
+
+    let mut tabs = Vec::new();
+    crate::app::tabs::for_each_session(window.viewer(), |_, s, _| {
+        tabs.push((s.origin_path.clone(), s.unsaved_to_disk));
     });
+    assert!(
+        tabs.contains(&(Some(path), true)),
+        "the work is still there, unsaved"
+    );
+    assert_eq!(files_in(dir.root()), entry, "and still protected");
+}
+
+/// The first button labelled `label` under `root`.
+fn find_label(root: &gtk::Widget, label: &str) -> Option<gtk::Button> {
+    let own = root.downcast_ref::<gtk::Button>();
+    own.filter(|button| button.label().as_deref() == Some(label))
+        .cloned()
+        .or_else(|| {
+            std::iter::successors(root.first_child(), |w| w.next_sibling())
+                .find_map(|w| find_label(&w, label))
+        })
+}
+
+/// A parked tab with unsaved work keeps its entry while a clean tab is
+/// active, and two dirty tabs keep two entries, each under its own name.
+#[gtk::test]
+fn gtk_ui_each_dirty_tab_keeps_an_entry_of_its_own() {
+    let (_scratch, dir) = scratch("per-tab");
+    let window = Window::over(&dir);
+    window.name_active("first.pdf");
+    window.edit();
+    window.tick_and_settle();
+    let first_entry = files_in(dir.root());
+    assert_eq!(extensions(dir.root()), ["lock", "meta", "pdf"]);
+
+    window.open_another();
+    window.tick_and_settle();
+
+    assert_eq!(
+        files_in(dir.root()),
+        first_entry,
+        "a clean active tab must not forget the parked dirty one"
+    );
+
+    window.name_active("second.pdf");
+    window.edit();
+    window.tick_and_settle();
+
+    let mut names: Vec<String> = files_in(dir.root())
+        .into_iter()
+        .filter(|name| name.ends_with(".meta"))
+        .map(|name| {
+            let sidecar = fs::read_to_string(dir.root().join(name)).unwrap();
+            Meta::parse(&sidecar).expect("a sidecar").name
+        })
+        .collect();
+    names.sort();
+    assert_eq!(names, ["first.pdf", "second.pdf"]);
+    assert_eq!(held_entries(window.viewer()), 2);
 }
 
 /// The origin an entry records is the file the document came from.

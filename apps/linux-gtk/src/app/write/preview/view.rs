@@ -55,7 +55,7 @@ pub(super) fn restore_screen(viewer: &Viewer, preserved: Option<glib::GString>) 
 /// document has no business inheriting the previous one's zoom or scroll
 /// position. Re-showing the same one does.
 #[derive(Clone, Copy)]
-pub(super) struct ViewState {
+pub(crate) struct ViewState {
     zoom: crate::app::layout::Zoom,
     reading: crate::app::layout::ReadingPosition,
 }
@@ -63,7 +63,7 @@ pub(super) struct ViewState {
 /// Reads the current zoom and reading position. Pure observation — unlike
 /// `edits::take_edit_state` there is nothing to move out, because
 /// `document::show_document` rebuilds these from scratch rather than carrying them.
-pub(super) fn take_view_state(viewer: &Viewer) -> Option<ViewState> {
+pub(crate) fn take_view_state(viewer: &Viewer) -> Option<ViewState> {
     // Read before the borrow: `vadjustment()` touches the widget tree, not
     // `viewer.state`, but keeping the two apart is what lets the borrow below
     // stay as short as it is.
@@ -83,7 +83,7 @@ pub(super) fn take_view_state(viewer: &Viewer) -> Option<ViewState> {
 /// `page_heights`, so the reading position must be resolved *after* it —
 /// against the stacking the user will actually be scrolling through, not the
 /// fit-width one `show_document` left behind.
-pub(super) fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewState>) {
+pub(crate) fn restore_view_state(viewer: &Viewer, generation: u64, preserved: Option<ViewState>) {
     let Some(preserved) = preserved else {
         return;
     };

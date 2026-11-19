@@ -298,9 +298,15 @@ pub(crate) fn disarm(viewer: &Viewer) {
 }
 
 pub(crate) fn update_annotation_controls(viewer: &Viewer) {
+    // Every command, undo, redo and reopen comes through here, so this is
+    // where a tab's unsaved marker learns that its document changed.
+    crate::app::tabs::schedule_sync(viewer);
     let state = viewer.state.borrow();
     let buttons = &viewer.annotation_buttons;
     let Some(session) = state.session.as_ref() else {
+        // No document — the last tab closed: back to how the toolbar is
+        // built, every tool and selection command off.
+        disable_annotation_controls(buttons);
         return;
     };
     let enabled = session.annotation_access.refusal().is_none();
@@ -350,6 +356,24 @@ pub(crate) fn update_annotation_controls(viewer: &Viewer) {
     viewer
         .save_button
         .set_sensitive(can_undo || session.unsaved_base);
+}
+
+/// Every annotation control off, as `add_annotation_toolbar` builds them.
+fn disable_annotation_controls(buttons: &AnnotationToolbar) {
+    for (_, button) in &buttons.create {
+        button.set_sensitive(false);
+    }
+    for button in [
+        &buttons.select_previous,
+        &buttons.move_selection,
+        &buttons.resize_selection,
+        &buttons.restyle_selection,
+        &buttons.edit_text_selection,
+        &buttons.delete_selection,
+    ] {
+        button.set_sensitive(false);
+    }
+    buttons.delete_action.set_enabled(false);
 }
 
 #[cfg(test)]

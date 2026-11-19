@@ -16,11 +16,10 @@
 //! [`save_worker_result`]) and none of the machinery that is about
 //! *installing* them.
 //!
-//! That is also why the staleness guard here is the generation alone, the way
-//! `export::worker` guards, rather than `write::worker::session_matches`:
-//! nothing is being installed, so an edit recorded while the split ran does
-//! not make the files that were written any less true. Only a different
-//! document does.
+//! Nor is there a staleness guard: nothing is installed, and the files
+//! are written whatever the document did meanwhile, so the result — the
+//! files, or why they could not be written — is always reported. The tab
+//! itself is held while it runs (`tabs::JobGuard`).
 
 use std::path::{Path, PathBuf};
 
@@ -38,18 +37,19 @@ use pdf_document::prune::prune_to;
 pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBuf) {
     viewer.status.set_text(&SPLIT.busy());
 
-    let generation = request.generation;
     let parts = request.parts.len();
     let signed = request.signed;
     let shown = folder.clone();
 
+    // Holds the active tab until the result is in — see `tabs::JobGuard`.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || write_parts(request, &folder)).await;
-            if !viewer.session_is_generation(generation) {
-                return;
-            }
+            drop(job);
+            // The files are the user's whatever happened to the document
+            // meanwhile: say where they went, or why they did not.
             match save_worker_result(result) {
                 Ok(()) => viewer
                     .status
@@ -209,7 +209,6 @@ mod tests {
             sources: Vec::new(),
             parts: vec![(0, 0), (1, total as u32 - 1)],
             stem: "sample".to_owned(),
-            generation: 0,
             signed: false,
         };
 

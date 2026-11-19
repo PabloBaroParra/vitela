@@ -244,6 +244,7 @@ impl Drop for OpenRetype {
             dialog.destroy();
         }
         self.built.viewer.state.borrow_mut().session = None;
+        self.built.viewer.tabs.borrow_mut().clear_for_test();
         self.built.window.close();
     }
 }

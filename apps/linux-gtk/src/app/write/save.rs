@@ -47,6 +47,8 @@ pub(crate) fn show_save_chooser_then(
         .session
         .as_ref()
         .and_then(|session| session.origin_path.clone());
+    // The chooser binds its answer to the active tab (`tabs::ChooserScope`):
+    // a save writes the document it was opened over, never another.
     choose_destination_from(
         window,
         viewer,
@@ -143,15 +145,22 @@ fn spawn_save(
     after_save: Option<Rc<dyn Fn()>>,
     signatures: pdf_save::SignatureAcknowledgement,
 ) {
-    spawn_write(viewer, SAVE, token, after_save, move || {
-        save_snapshot_and_reopen(
-            &snapshot.document,
-            &snapshot.backing,
-            &snapshot.sources,
-            &destination,
-            signatures,
-        )
-    });
+    spawn_write(
+        viewer,
+        SAVE,
+        token,
+        &destination.clone(),
+        after_save,
+        move || {
+            save_snapshot_and_reopen(
+                &snapshot.document,
+                &snapshot.backing,
+                &snapshot.sources,
+                &destination,
+                signatures,
+            )
+        },
+    );
 }
 
 #[derive(Clone)]

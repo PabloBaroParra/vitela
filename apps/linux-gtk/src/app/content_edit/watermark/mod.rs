@@ -64,6 +64,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
 
     dialog::prompt_for_options(
         &window,
+        viewer,
         total_pages,
         current_page,
         {

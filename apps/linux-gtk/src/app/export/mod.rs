@@ -60,10 +60,6 @@ use super::write::OutputSource;
 /// when the user confirmed the dialog.
 struct ExportRequest {
     source: OutputSource,
-    /// Generation of the session this export was started under. `worker`
-    /// compares it before touching the status line, so an export that
-    /// finishes after the document was replaced says nothing at all.
-    generation: u64,
     stem: String,
     total_pages: u32,
     options: ExportOptions,
@@ -126,7 +122,6 @@ fn build_request(viewer: &Viewer, options: ExportOptions) -> Option<ExportReques
     let session = state.session.as_ref()?;
     Some(ExportRequest {
         source: OutputSource::of(session),
-        generation: state.generation,
         stem: pdf_save::document_file_stem(&session.base_name).to_owned(),
         total_pages: session.pages.len() as u32,
         options,
@@ -145,9 +140,15 @@ fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportReq
         .title(tr("export-chooser-title"))
         .accept_label(tr("export-accept"))
         .build();
+    // Held until the answer is in, and bound to the tab it is for —
+    // see `tabs::ChooserScope`.
+    let scope = crate::app::tabs::ChooserScope::for_active(viewer);
     chooser.select_folder(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
             let Ok(folder) = result else {
                 viewer.status.set_text(&tr("export-cancelled"));
                 return;

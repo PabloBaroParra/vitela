@@ -12,10 +12,10 @@
 //! [`save_worker_result`]) and none of the machinery that is about installing
 //! them.
 //!
-//! The staleness guard is therefore the generation alone, as in
-//! `export::worker` and `extract::worker`: nothing is installed, so an edit
-//! recorded while the compression ran does not make the bytes it produced any
-//! less true. Only a different document does.
+//! Compressed bytes from a document that has since been reopened are not
+//! offered — nothing has been written yet, so the result is set aside
+//! (`write::report_result_unused`). Once the user has picked a destination,
+//! the write is reported whatever the document did meanwhile.
 //!
 //! ## Two blocking steps, not one
 //!
@@ -52,18 +52,26 @@ pub(super) fn spawn_compress(
     viewer.status.set_text(&COMPRESS.busy());
     let generation = request.generation;
 
+    // Holds the active tab until the result is in — see `tabs::JobGuard`.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         let window = window.clone();
         async move {
             let result = gio::spawn_blocking(move || compress(request, preset, signatures)).await;
-            if !viewer.session_is_generation(generation) {
+            drop(job);
+            let result = save_worker_result(result);
+            // Nothing is on disk yet: bytes compressed from a document that
+            // has changed since are not offered — but a failure is still the
+            // failure it was.
+            if result.is_ok() && !viewer.session_is_generation(generation) {
+                super::super::report_result_unused(&viewer);
                 return;
             }
-            match save_worker_result(result) {
+            match result {
                 Ok((bytes, report)) if options::is_reduced(&report) => {
                     viewer.status.set_text(&options::reduction_summary(&report));
-                    offer_destination(&window, &viewer, bytes, report, generation);
+                    offer_destination(&window, &viewer, bytes, report);
                 }
                 Ok((_, report)) => viewer.status.set_text(&options::no_gain_summary(&report)),
                 Err(error) => viewer.status.set_text(&COMPRESS.failed(&error)),
@@ -116,7 +124,6 @@ fn offer_destination(
     viewer: &Viewer,
     bytes: Vec<u8>,
     report: CompressReport,
-    generation: u64,
 ) {
     let bytes = Arc::new(bytes);
     let report = Arc::new(report);
@@ -125,13 +132,7 @@ fn offer_destination(
         viewer,
         COMPRESS,
         Rc::new(move |_window, viewer, destination| {
-            spawn_write(
-                viewer,
-                Arc::clone(&bytes),
-                Arc::clone(&report),
-                destination,
-                generation,
-            );
+            spawn_write(viewer, Arc::clone(&bytes), Arc::clone(&report), destination);
         }),
     );
 }
@@ -142,19 +143,18 @@ fn spawn_write(
     bytes: Arc<Vec<u8>>,
     report: Arc<CompressReport>,
     destination: PathBuf,
-    generation: u64,
 ) {
     viewer.status.set_text(&tr(options::WRITING));
+    // Holds the active tab until the result is in — see `tabs::JobGuard`.
+    let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let written = destination.clone();
             let result = gio::spawn_blocking(move || atomic_write(&destination, &bytes)).await;
-            // The file is written either way — only the sentence about it is
-            // withheld, for the reason in this module's header.
-            if !viewer.session_is_generation(generation) {
-                return;
-            }
+            drop(job);
+            // The file is written whatever happened to the document
+            // meanwhile: say where it went, or why it did not.
             match save_worker_result(result) {
                 Ok(()) => viewer
                     .status
@@ -172,6 +172,72 @@ mod tests {
 
     use super::super::CompressRequest;
     use super::compress;
+    use crate::app::state::DocumentSource;
+    use crate::app::ui_tests::built_ui;
+    use gtk::prelude::*;
+
+    /// A compression in flight holds the active tab: a switch, or an open
+    /// landing in front, would otherwise retire the generation its result is
+    /// checked against and set the result aside. Once it ends, the tab is let
+    /// go and its result is reported — the reduction (with the destination
+    /// chooser it then offers) or the no-gain sentence.
+    #[gtk::test]
+    fn gtk_ui_a_running_compression_holds_the_tab_and_still_reports() {
+        let built = built_ui();
+        crate::app::tabs::open_and_wait(
+            &built.window,
+            &built.viewer,
+            DocumentSource::Embedded(SAMPLE_PDF),
+        );
+        let request = super::super::snapshot(&built.viewer).expect("the sample compresses");
+        // What this compression reports, computed the same way, so the
+        // status can be checked word for word.
+        let (_, report) = compress(
+            request.clone(),
+            CompressPreset::Lossless,
+            pdf_save::SignatureAcknowledgement::Unacknowledged,
+        )
+        .expect("the sample compresses");
+        let expected = if super::options::is_reduced(&report) {
+            super::options::reduction_summary(&report)
+        } else {
+            super::options::no_gain_summary(&report)
+        };
+
+        super::spawn_compress(
+            &built.window,
+            &built.viewer,
+            request,
+            CompressPreset::Lossless,
+            pdf_save::SignatureAcknowledgement::Unacknowledged,
+        );
+        let held = crate::app::tabs::busy_refusal(&built.viewer);
+        let busy = super::super::super::COMPRESS.busy();
+        crate::app::test_support::wait_until(|| built.viewer.status.text() != busy);
+        let status = built.viewer.status.text().to_string();
+        // The job is over; a reduction then offers its destination chooser,
+        // which holds the tab for a reason of its own.
+        let jobs_after = built.viewer.jobs_in_flight.get();
+
+        for window in gtk::Window::list_toplevels() {
+            if let Ok(window) = window.downcast::<gtk::Window>() {
+                if window.transient_for().as_ref() == Some(built.window.upcast_ref()) {
+                    window.destroy();
+                }
+            }
+        }
+        built.viewer.state.borrow_mut().session = None;
+        built.viewer.tabs.borrow_mut().clear_for_test();
+        built.window.close();
+        assert_eq!(held, Some(crate::app::i18n::tr("tabs-busy")));
+        assert_ne!(status, busy, "the result is reported");
+        // Word for word but for the figures: two runs of the repack can
+        // differ by a byte or so, and with them the rounded sizes.
+        let words =
+            |text: &str| -> String { text.chars().filter(|c| !c.is_ascii_digit()).collect() };
+        assert_eq!(words(&status), words(&expected));
+        assert_eq!(jobs_after, 0, "the job lets go once it ends");
+    }
     use crate::app::document::SAMPLE_PDF;
     use crate::app::state::SaveBacking;
     use pdf_compress::CompressPreset;

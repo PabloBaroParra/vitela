@@ -97,10 +97,11 @@ pub(crate) fn update_draw_signature_control(viewer: &Viewer) {
     viewer.draw_signature.set_sensitive(enabled);
 }
 
-/// The id of the document open right now, or `None` with no document. Changes
-/// only when `document::show_document` replaces the visible document, which is
-/// what makes it the right thing to capture before background work: a result
-/// that comes back to a different id was made for a document that is gone.
+/// The id of the document on screen right now, or `None` with no document.
+/// Changes whenever another session becomes the active one — an open, a
+/// reopen, a tab switch — which is what makes it the right thing to capture
+/// before background work: a result that comes back to a different id was
+/// made for a document that is no longer the one on screen.
 fn current_session_id(viewer: &Viewer) -> Option<u64> {
     let state = viewer.state.borrow();
     state.session.as_ref().map(|_| state.session_id)

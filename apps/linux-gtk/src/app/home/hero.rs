@@ -78,8 +78,8 @@ fn build_drop_zone(window: &ApplicationWindow, viewer: &Viewer) -> GtkBox {
             // The button inside runs its own handler. Relying on GtkButton
             // claiming the gesture sequence first would probably be enough,
             // but "probably" here costs a second file chooser stacked on the
-            // first — the same failure `document::begin_loading` already had
-            // to fix for password prompts. Asking which widget is under the
+            // first — the same failure stacked password prompts once were
+            // (opens are queued now, see `tabs::enqueue_open`). Asking which widget is under the
             // release makes it a fact instead.
             if on_the_button(&zone_for_pick, &choose, x, y) {
                 return;

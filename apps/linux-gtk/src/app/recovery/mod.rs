@@ -2,7 +2,7 @@
 //!
 //! While a document has unsaved changes, its window periodically writes the
 //! document's bytes — every pending edit applied — to a private recovery
-//! directory under the user's state directory. A clean exit, a Save, or a
+//! directory under the user's state directory, one entry per tab. A clean exit, a Save, or a
 //! Discard deletes them; a crash does not, and the next launch offers to
 //! restore them as the unsaved document they were.
 //!
@@ -27,7 +27,6 @@ mod store;
 mod tests;
 
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use gtk::ApplicationWindow;
@@ -46,22 +45,21 @@ pub(crate) type Recovery = Rc<RefCell<Autosave>>;
 /// Nothing happens on a machine with no usable state directory: no entry can
 /// be written, and none can have been.
 ///
-/// `launch_file` is the file the application was started to open, if any —
-/// "Open With" from a file manager. A restore supersedes that open; should
-/// the restore fail, the file is opened after all rather than leaving the
-/// window empty.
-pub(crate) fn install(window: &ApplicationWindow, viewer: &Viewer, launch_file: Option<PathBuf>) {
+/// Every orphan the user restores opens in a tab of its own, queued behind
+/// any open already running — the file an "Open With" launch asked for
+/// included — so a restore never cancels it.
+pub(crate) fn install(window: &ApplicationWindow, viewer: &Viewer) {
     let Some(dir) = RecoveryDir::in_user_state_dir() else {
         return;
     };
     // Scanned before this window owns an entry, so its own is never offered.
     let orphans = dir.orphans();
     autosave::start(window, viewer, dir);
-    restore::offer(window, viewer, orphans, launch_file);
+    restore::offer(window, viewer, orphans);
 }
 
-/// Deletes the window's recovery entry: its unsaved work was saved to disk,
-/// or the document holding it was replaced after the user chose to discard.
+/// Deletes the active tab's recovery entry: its unsaved work was saved to
+/// disk, or the user chose to discard it. Other tabs' entries are kept.
 pub(crate) fn forget(viewer: &Viewer) {
-    autosave::forget(viewer);
+    autosave::forget_active(viewer);
 }

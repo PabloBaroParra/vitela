@@ -1,12 +1,15 @@
 //! Document lifecycle: the file chooser, the built-in sample, the
-//! generation-guarded open flow, the encrypted-document password prompt, and
-//! background close.
+//! queued open flow (each open lands in a tab of its own, see
+//! [`super::tabs`]), the encrypted-document password prompt, and background
+//! close. Installing a session on screen lives in [`install`].
 //!
 //! Everything that writes a document out lives in [`super::write`] instead —
 //! Save, signing, protecting and the content-edit preview refresh. The two
 //! halves meet at [`show_document`], which every one of those chains reaches
 //! to install the document it reopened, and at the unsaved-changes prompt
 //! below, which is the one place lifecycle has to run a save itself.
+
+mod install;
 
 use std::collections::HashMap;
 use std::fs;
@@ -15,22 +18,25 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{
-    gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, ContentFit, FileDialog,
-    Label, Orientation as GtkOrientation, Overlay, PasswordEntry, Picture, Window,
+    gio, glib, AlertDialog, ApplicationWindow, Box as GtkBox, Button, FileDialog, Label,
+    Orientation as GtkOrientation, Overlay, PasswordEntry, Picture, Window,
 };
 use pdf_document::{Document, FieldValue, Orientation, PageSize, SecurityContext};
 use pdf_manip::ManipError;
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError};
 
+pub(crate) use install::{
+    build_pages, cancel_renders, clear_page_widgets, install_session, parked_session,
+    retire_active_session, show_document, show_no_document, BuiltPages, PageShape,
+};
+
 use super::home::abandon_pending_tool;
 use super::i18n::{tr, tr_args};
-use super::layout::set_placeholder_size;
-use super::render::update_viewport;
-use super::search::update_search_controls;
 use super::state::{
-    AnnotationAccess, ContentEditAccess, DocumentSession, DocumentSource, FitRequest,
-    OpenedDocument, PageAssemblyAccess, PageSlot, PageState, TextAccess, Viewer,
+    AnnotationAccess, ContentEditAccess, DocumentSource, OpenedDocument, PageAssemblyAccess,
+    TextAccess, Viewer,
 };
+use super::tabs::Placement;
 use super::write::pdf_filter;
 
 /// The sample document, linked into the binary at compile time from the same
@@ -70,33 +76,50 @@ pub(crate) fn show_file_chooser(window: &ApplicationWindow, viewer: &Viewer) {
         .accept_label(tr("open-accept"))
         .default_filter(&filter)
         .build();
-    chooser.open(Some(window), None::<&gio::Cancellable>, {
+    // Several at once: each chosen file opens in a tab of its own.
+    // Held until the answer is in — see `tabs::ChooserScope`. Unbound: the
+    // files open into tabs of their own, whatever tab is active by then.
+    let scope = crate::app::tabs::ChooserScope::unbound(viewer);
+    chooser.open_multiple(Some(window), None::<&gio::Cancellable>, {
         let window = window.clone();
         let viewer = viewer.clone();
-        move |result| open_chosen_file(&window, &viewer, result)
+        move |result| {
+            if !scope.settle(&viewer) {
+                return;
+            }
+            let files = result.map(|model| {
+                (0..model.n_items())
+                    .filter_map(|index| model.item(index).and_downcast::<gio::File>())
+                    .collect()
+            });
+            open_chosen_files(&window, &viewer, files)
+        }
     });
 }
 
-/// What the file chooser's answer leads to: an open for a local file, and
-/// nothing at all for a dismissed chooser or a file with no local path.
+/// What the file chooser's answer leads to: one tab per local file, and
+/// nothing at all for a dismissed chooser or a choice with no local path.
 ///
 /// Split out of [`show_file_chooser`] so the answers that end the open there
 /// can be driven without a real dialog.
-fn open_chosen_file(
+fn open_chosen_files(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    result: Result<gio::File, glib::Error>,
+    result: Result<Vec<gio::File>, glib::Error>,
 ) {
-    let Ok(file) = result else {
+    let Ok(files) = result else {
         abandon_pending_tool(viewer);
         return;
     };
-    let Some(path) = file.path() else {
+    let paths: Vec<PathBuf> = files.iter().filter_map(gio::File::path).collect();
+    if paths.len() < files.len() {
         viewer.status.set_text(&tr("open-not-local-file"));
+    }
+    if paths.is_empty() {
         abandon_pending_tool(viewer);
         return;
-    };
-    open_initial(window, viewer, DocumentSource::File(path));
+    }
+    super::tabs::open_paths(window, viewer, paths);
 }
 
 /// The page ids of `model`, in its own page order — the order any bytes
@@ -149,11 +172,7 @@ pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: Sam
 /// Opens a local file dropped over a page. A drop has no direct window
 /// parameter, so recover the shell window from the status widget.
 pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
-    let Some(window) = viewer
-        .status
-        .root()
-        .and_then(|root| root.downcast::<ApplicationWindow>().ok())
-    else {
+    let Some(window) = viewer.window() else {
         viewer.status.set_text(&tr("open-window-unavailable"));
         return;
     };
@@ -177,69 +196,128 @@ pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
     open_initial(window, viewer, DocumentSource::Bytes(bytes));
 }
 
-/// Every path that replaces the open document funnels through here, so the
-/// prompt guarding unsaved work only has to exist once.
-fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
-    confirm_replacing_edits(window, viewer, {
-        let window = window.clone();
-        let viewer = viewer.clone();
-        move || start_open(&window, &viewer, source.clone())
-    });
+/// Every single-document open funnels through here — a chooser pick, a
+/// drop, a recents card, the sample, a blank document: one user action, so
+/// it may land in front (`tabs::Placement::Front`).
+pub(crate) fn open_initial(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
+    open_source(window, viewer, source, Placement::Front);
 }
 
-/// Save, Discard or Cancel for work the open would replace.
-///
-/// This unifies three behaviours that used to disagree: a drop and Ctrl+N
-/// refused outright, while the file chooser replaced the document and reported
-/// the loss afterwards. Refusing was a dead end — the counter it consulted
-/// could not return to clean — and reporting after the fact was worse, because
-/// by then the work was gone. Asking is the answer both were reaching for.
-///
-/// Cancel is every exit that is not a deliberate choice: the button, Escape,
-/// and closing the window. Work is lost only when someone picks Discard.
-fn confirm_replacing_edits(
+/// Opens `source` in a tab of its own, so nothing on screen is replaced and
+/// there is no unsaved work to ask about. Opens are queued
+/// (`tabs::enqueue_open`), so one never cancels another.
+pub(crate) fn open_source(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    proceed: impl Fn() + 'static,
+    source: DocumentSource,
+    placement: Placement,
 ) {
-    if !has_unsaved_changes_after_commit(viewer) {
-        proceed();
-        return;
-    }
+    super::tabs::enqueue_open(
+        window,
+        viewer,
+        Box::new(move |window: &ApplicationWindow, viewer: &Viewer| {
+            begin_open(window, viewer, source, placement)
+        }),
+    );
+}
 
-    confirm_unsaved_edits(window, viewer, UNSAVED_DETAIL_OPENING, proceed);
+/// An open's turn: a file that is already open in a tab — perhaps opened
+/// by an earlier open of this same queue — is not opened twice.
+fn begin_open(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    source: DocumentSource,
+    placement: Placement,
+) {
+    let placement = match (&source, placement) {
+        // A reload was decided when it was queued; read it as it is.
+        (_, Placement::Reload(_) | Placement::ReloadOverUnsaved(_)) => placement,
+        (DocumentSource::File(path), _) => {
+            match super::tabs::activate_open_path(viewer, path, placement) {
+                super::tabs::AlreadyOpen::No => placement,
+                super::tabs::AlreadyOpen::Reload(holder) => Placement::Reload(holder),
+                super::tabs::AlreadyOpen::Handled => {
+                    super::tabs::finish_open(window, viewer);
+                    return;
+                }
+                super::tabs::AlreadyOpen::AskThenReload(holder) => {
+                    // Asked (holding the tab) before this open ends; the answer
+                    // queues the reload as an open of its own.
+                    ask_then_reload(window, viewer, path.clone(), holder);
+                    super::tabs::finish_open(window, viewer);
+                    return;
+                }
+            }
+        }
+        _ => placement,
+    };
+    start_open(window, viewer, source, placement);
+}
+
+/// The file on screen, opened again over unsaved work: the question closing
+/// its tab would ask — Save, Discard or Cancel — then, unless cancelled, a
+/// reload from disk into the same tab. Save writes the work first. Discard
+/// changes nothing yet: the work is replaced — and its recovery entry let go —
+/// only when the reload lands; one that is dropped leaves it as it was.
+fn ask_then_reload(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    path: PathBuf,
+    holder: super::tabs::TabId,
+) {
+    confirm_unsaved_edits(window, viewer, UNSAVED_DETAIL_RELOADING, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move || {
+            if super::tabs::active_tab(&viewer) != Some(holder) {
+                viewer.status.set_text(&tr("tabs-document-changed"));
+                return;
+            }
+            open_source(
+                &window,
+                &viewer,
+                DocumentSource::File(path.clone()),
+                Placement::ReloadOverUnsaved(holder),
+            );
+        }
+    });
 }
 
 /// Stops a close request while unsaved work is being resolved.
 ///
 /// The signal itself must return synchronously, while both the confirmation
 /// and save flows are asynchronous. A dirty window therefore stays alive
-/// until Discard is explicit or Save has reached disk successfully.
+/// until every dirty tab has been saved or explicitly discarded — see
+/// `tabs::close::resolve_dirty_tabs_then`.
 pub(crate) fn confirm_closing_edits(
     window: &ApplicationWindow,
     viewer: &Viewer,
 ) -> glib::Propagation {
-    if !has_unsaved_changes_after_commit(viewer) {
+    if !has_unsaved_changes_after_commit(viewer) && !super::tabs::has_dirty_parked_tab(viewer) {
         return glib::Propagation::Proceed;
     }
 
     let window_to_close = window.clone();
-    confirm_unsaved_edits(window, viewer, UNSAVED_DETAIL_CLOSING, move || {
-        window_to_close.destroy()
-    });
+    super::tabs::close::resolve_dirty_tabs_then(window, viewer, move || window_to_close.destroy());
     glib::Propagation::Stop
 }
 
-/// The unsaved-changes detail when another document is about to replace this
-/// one — a catalog key for [`confirm_unsaved_edits`].
-const UNSAVED_DETAIL_OPENING: &str = "open-unsaved-detail-opening";
 /// The unsaved-changes detail when the window is about to close.
-const UNSAVED_DETAIL_CLOSING: &str = "open-unsaved-detail-closing";
+pub(crate) const UNSAVED_DETAIL_CLOSING: &str = "open-unsaved-detail-closing";
+/// The unsaved-changes detail when the file on screen is about to be read
+/// again from disk.
+const UNSAVED_DETAIL_RELOADING: &str = "tabs-unsaved-detail-reloading";
 
+/// Save, Discard or Cancel for the active document's unsaved work, then
+/// `proceed` — on Discard at once, on Save only once the bytes reached disk.
+///
+/// Cancel is every exit that is not a deliberate choice: the button, Escape,
+/// and closing the window. Work is lost only when someone picks Discard.
+///
 /// `detail_key` names the whole detail paragraph rather than its second
 /// sentence: two sentences joined in code would fix their order and spacing
 /// for every language.
-fn confirm_unsaved_edits(
+pub(crate) fn confirm_unsaved_edits(
     window: &ApplicationWindow,
     viewer: &Viewer,
     detail_key: &'static str,
@@ -259,15 +337,22 @@ fn confirm_unsaved_edits(
         .build();
 
     let proceed: Rc<dyn Fn()> = Rc::new(proceed);
+    // Holds the tab being asked about on screen until the answer is in — an
+    // open landing meanwhile would otherwise park it under the dialog.
+    let guard = super::tabs::PromptGuard::hold(viewer);
     dialog.choose(Some(window), None::<&gio::Cancellable>, {
         let viewer = viewer.clone();
         let window = window.clone();
-        move |response| match unsaved_decision(response.ok()) {
-            UnsavedDecision::Discard => proceed(),
-            UnsavedDecision::Save => {
-                save_then(&window, &viewer, proceed.clone());
+        move |response| {
+            // Let go before acting: the answer may itself switch tabs.
+            drop(guard);
+            match unsaved_decision(response.ok()) {
+                UnsavedDecision::Discard => proceed(),
+                UnsavedDecision::Save => {
+                    save_then(&window, &viewer, proceed.clone());
+                }
+                UnsavedDecision::Keep => viewer.status.set_text(&tr("open-unsaved-kept")),
             }
-            UnsavedDecision::Keep => viewer.status.set_text(&tr("open-unsaved-kept")),
         }
     });
 }
@@ -290,39 +375,58 @@ fn unsaved_decision(response: Option<i32>) -> UnsavedDecision {
 /// Runs the save chooser and, only if the bytes reach disk, continues.
 ///
 /// A cancelled chooser or a failed write must not continue: the reader chose
-/// Save precisely to keep the work, and opening anyway would discard exactly
+/// Save precisely to keep the work, and closing anyway would discard exactly
 /// what they asked to preserve.
 fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn()>) {
     super::write::show_save_chooser_then(window, viewer, Some(after_save));
 }
 
-fn start_open(window: &ApplicationWindow, viewer: &Viewer, source: DocumentSource) {
-    let generation = begin_loading(viewer);
+fn start_open(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    source: DocumentSource,
+    placement: Placement,
+) {
     viewer.status.set_text(&tr("open-busy"));
     glib::spawn_future_local({
         let window = window.clone();
         let viewer = viewer.clone();
         async move {
             match open_in_background(source.clone(), None).await {
-                Ok(document) if is_current(&viewer, generation) => {
-                    show_document(&viewer, generation, document);
-                    remember_recent(&source);
-                    // Whatever the replaced document had unsaved was saved
-                    // or discarded at the prompt before this open started.
-                    super::recovery::forget(&viewer);
+                Ok(document) => land_opened(&window, &viewer, document, source, placement),
+                Err(RenderError::InvalidPassword) => {
+                    prompt_for_password(&window, &viewer, source, placement);
                 }
-                Ok(document) => close_document_in_background(document.document),
-                Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
-                    prompt_for_password(&window, &viewer, source, generation);
-                }
-                Err(error) if is_current(&viewer, generation) => {
+                Err(error) => {
                     viewer.status.set_text(&open_failed(&error));
                     abandon_pending_tool(&viewer);
+                    super::tabs::finish_open(&window, &viewer);
                 }
-                Err(_) => {}
             }
         }
     });
+}
+
+/// Puts an opened document in a new tab — once the active one can be parked
+/// (`tabs::land_in_new_tab`) — then registers it as recent and ends the
+/// open, which starts the next queued one.
+fn land_opened(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    document: OpenedDocument,
+    source: DocumentSource,
+    placement: Placement,
+) {
+    let window = window.clone();
+    super::tabs::land_in_new_tab(
+        viewer,
+        document,
+        placement,
+        Box::new(move |viewer: &Viewer, _: Option<super::tabs::TabId>| {
+            remember_recent(&source);
+            super::tabs::finish_open(&window, viewer);
+        }),
+    );
 }
 
 /// The status line for an open that failed. `error` is the renderer's own
@@ -351,29 +455,14 @@ fn remember_recent(source: &DocumentSource) {
     }
 }
 
-/// Marks the start of a new open attempt and returns its generation.
-///
-/// This does NOT touch the currently displayed document: a failed or
-/// superseded open must leave the previous document on screen. The old
-/// session is replaced only once the new one opens successfully, in
-/// [`show_document`]. The bumped generation lets [`is_current`] discard the
-/// results of any open this one supersedes.
+/// Bumps the session generation the way a reopen does and returns it, so a
+/// test can hand [`show_document`] a current generation without going
+/// through an open — the way the recovery tests install a document.
+#[cfg(test)]
 pub(crate) fn begin_loading(viewer: &Viewer) -> u64 {
-    // A new open attempt supersedes any password prompt still waiting on the
-    // previous one — tear it down here rather than leaving it stacked
-    // underneath a second prompt if this attempt also turns out encrypted
-    // (observed when a single click somehow re-fires the menu action: two
-    // `prompt_for_password` dialogs stack exactly on top of each other, and
-    // dismissing the front one "reveals" the back one a moment later).
-    let stale_dialog = {
-        let mut state = viewer.state.borrow_mut();
-        state.generation += 1;
-        state.password_dialog.take()
-    };
-    if let Some(dialog) = stale_dialog {
-        dialog.destroy();
-    }
-    viewer.state.borrow().generation
+    let mut state = viewer.state.borrow_mut();
+    state.generation += 1;
+    state.generation
 }
 
 pub(crate) fn is_current(viewer: &Viewer, generation: u64) -> bool {
@@ -637,215 +726,6 @@ fn page_overlay(picture: &Picture) -> Overlay {
     overlay
 }
 
-pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDocument) {
-    if !is_current(viewer, generation) {
-        close_document_in_background(document.document);
-        return;
-    }
-
-    super::organize::document_changed(viewer);
-
-    // Before the measuring below, not after: a document on screen means the
-    // editor page, whichever view the open was started from (Home's drop
-    // zone, a recents card, Ctrl+O, a file-manager launch), and `FitRequest::
-    // measure` reads an allocation the stack only gives a page it is showing.
-    // A first open still measures one frame early — `refresh_layout`, wired
-    // to the scroller's page-size change, refits as soon as the real
-    // allocation lands.
-    super::home::show_editor(viewer);
-
-    // The new document opened successfully: only now replace the previous
-    // one. Cancel its in-flight renders and close it, then clear its page
-    // widgets before building the new layout.
-    {
-        let mut state = viewer.state.borrow_mut();
-        if let Some(session) = state.session.take() {
-            for active in session.active.values() {
-                active.cancellation.cancel();
-            }
-            for active in session.active_tiles.values() {
-                active.cancellation.cancel();
-            }
-            close_document_in_background(session.document);
-        }
-    }
-    while let Some(child) = viewer.pages.first_child() {
-        viewer.pages.remove(&child);
-    }
-    while let Some(child) = viewer.page_navigation.first_child() {
-        viewer.page_navigation.remove(&child);
-    }
-
-    let fit = FitRequest::measure(viewer);
-    let mut slots = Vec::with_capacity(document.page_geometry.len());
-    let mut page_heights = Vec::with_capacity(document.page_geometry.len());
-    for (page_index, geometry) in document.page_geometry.into_iter().enumerate() {
-        let (width_pt, height_pt) = (geometry.width_pt, geometry.height_pt);
-        let picture = Picture::new();
-        picture.set_can_shrink(true);
-        picture.set_content_fit(ContentFit::Contain);
-        let logical_height = set_placeholder_size(&picture, width_pt, height_pt, fit);
-        let overlay = page_overlay(&picture);
-        // Added after the child, so it sits above the rendered page. The tile
-        // pipeline slips its tiles in under it (`render::put_tile`).
-        let highlights = super::selection::build_highlight_layer(viewer, page_index);
-        overlay.add_overlay(&highlights);
-        viewer.pages.append(&overlay);
-        let page_number = page_index + 1;
-        let page_button = Button::with_label(&page_number.to_string());
-        let go_to = go_to_page(page_number);
-        page_button.set_tooltip_text(Some(&go_to));
-        page_button.update_property(&[gtk::accessible::Property::Label(&go_to)]);
-        page_button.connect_clicked({
-            let viewer = viewer.clone();
-            move |_| super::navigate_to_page(&viewer, page_index)
-        });
-        viewer.page_navigation.append(&page_button);
-        let box_ = super::layout::resolve_page_box(
-            super::layout::Zoom::FitWidth,
-            width_pt,
-            height_pt,
-            fit.viewport(),
-        );
-        slots.push(PageSlot {
-            overlay,
-            picture,
-            highlights,
-            characters: None,
-            characters_requested: false,
-            content: None,
-            width_pt,
-            height_pt,
-            rotation: geometry.rotation,
-            state: PageState::Idle,
-            target_dpi: box_.base_dpi,
-            budget: box_.budget(),
-            tiles: HashMap::new(),
-            tile_dpi: 0,
-            tile_generation: 0,
-            tile_failed_dpi: 0,
-        });
-        page_heights.push(logical_height);
-    }
-
-    let page_count = slots.len();
-    let next_form_field_id = next_form_field_id(document.document_model.as_ref());
-    // The handle installed below and the model beside it were read from the
-    // same bytes, so pdfium's page order *is* this model's page order. A
-    // preview refresh reopens with a model that is thrown away again a moment
-    // later, so it re-installs this from the preserved one — see
-    // `restore_edit_state`.
-    let backend_pages = backend_page_order(document.document_model.as_ref());
-    // Same "the model beside the handle describes the handle" reasoning as
-    // `backend_pages` — but unlike it, this one is deliberately *not*
-    // re-installed by `restore_edit_state`. See its field doc.
-    let rendered_field_values = rendered_field_values(document.document_model.as_ref());
-    {
-        let mut state = viewer.state.borrow_mut();
-        state.session_id += 1;
-        state.session = Some(DocumentSession {
-            document: document.document,
-            base_name: document.name,
-            origin_path: document.origin_path,
-            text_access: document.text_access,
-            annotation_access: document.annotation_access,
-            content_edit_access: document.content_edit_access,
-            page_assembly_access: document.page_assembly_access,
-            document_model: document.document_model,
-            backend_pages,
-            rendered_field_values,
-            save_backing: document.save_backing,
-            imported_sources: Vec::new(),
-            content_checkpoints: Default::default(),
-            import_warning_revision: None,
-            // Freshly shown: whatever is on screen right now is exactly what
-            // this session's bytes came from, which for an ordinary open or a
-            // disk-save reopen means it matches disk. A T-163 preview refresh
-            // shows bytes that were never written anywhere, so it restores
-            // this to `true` right after — see `restore_edit_state`.
-            unsaved_to_disk: false,
-            unsaved_base: false,
-            base_breaks_signatures: false,
-            edit_revision: 0,
-            next_annotation_id: 0,
-            selected_annotation: None,
-            next_form_field_id,
-            selected_form_field: None,
-            form_placement: None,
-            form_field_drag: None,
-            stamp_surfaces: HashMap::new(),
-            placement: None,
-            annotation_drag: None,
-            content_editor: None,
-            selected_image: None,
-            image_drag: None,
-            selected_text_block: None,
-            selected_path: None,
-            path_drag: None,
-            content_selection: None,
-            selection_gesture: None,
-            content_pointer: None,
-            content_hover: None,
-            content_hover_pointer: None,
-            text_drag: None,
-            physical_width: fit.available_width,
-            physical_height: fit.available_height,
-            scale_factor: fit.scale_factor,
-            pages: slots,
-            page_heights,
-            last_visible: None,
-            search: None,
-            next_search_id: 0,
-            selection: None,
-            active: HashMap::new(),
-            next_render_id: 0,
-            zoom: super::layout::Zoom::FitWidth,
-            zoom_generation: 0,
-            active_tiles: HashMap::new(),
-        });
-    }
-    super::metadata::refresh(viewer);
-    // A new document invalidates the previous document's matches.
-    update_search_controls(viewer);
-    super::annotations::update_annotation_controls(viewer);
-    super::content_edit::update_controls(viewer);
-    super::update_content_edit_controls(viewer);
-    super::forms::update_forms_controls(viewer);
-    super::sign::update_sign_controls(viewer);
-    // The mode outlives the document it was armed on, so a session installed
-    // while it is on has to be given the same start `set_mode` would have —
-    // see `content_edit::rearm_for_session`.
-    super::content_edit::rearm_for_session(viewer);
-    viewer.print_button.set_sensitive(page_count > 0);
-    // `save_button` was wired to `show_save_chooser` from the start (see
-    // `mod.rs`'s `connect_clicked`) but never got the other half of the pair
-    // its own comment already describes: nothing ever flipped it back on
-    // after `editor_toolbar::build_editor_toolbar`'s initial `set_sensitive
-    // (false)`, so the toolbar's Save button stayed permanently greyed out —
-    // saving only ever worked through the `Ctrl+S` accelerator. Same gate as
-    // `print_button` right above: there is nothing to save or print with no
-    // pages on screen.
-    viewer.save_button.set_sensitive(page_count > 0);
-    // Same gate again: there are no pages to rasterize into images
-    // either. The permission question the export also asks is left to
-    // `export::begin_export`, so a restricted document still offers the
-    // button and explains itself, rather than greying out in silence.
-    viewer.export_button.set_sensitive(page_count > 0);
-    // A document with no pages leaves the page area empty, so the mark stays
-    // up — the same call the WinUI shell makes when it re-shows its empty
-    // state for a pageless document.
-    viewer.app_mark.set_visible(page_count == 0);
-    if page_count == 0 {
-        viewer.status.set_text(&tr("open-no-pages"));
-    } else {
-        update_viewport(viewer);
-    }
-    // Last, so a tool armed on Home before there was a document to apply it
-    // to lands on controls whose sensitivity the `update_*` calls above have
-    // already settled for *this* document.
-    super::home::apply_pending_tool(viewer);
-}
-
 /// [`has_unsaved_changes`], once an open retype box has been committed.
 ///
 /// The box is work too, but it is not in the model until it is committed,
@@ -853,12 +733,13 @@ pub(crate) fn show_document(viewer: &Viewer, generation: u64, document: OpenedDo
 /// any other edit. One the core refuses stays open with its text and counts
 /// as unsaved by itself: the prompt is what stops that text going with the
 /// document, and only Discard gives it up.
-fn has_unsaved_changes_after_commit(viewer: &Viewer) -> bool {
+pub(crate) fn has_unsaved_changes_after_commit(viewer: &Viewer) -> bool {
     !crate::app::content_edit::editor::commit_open_retype(viewer) || has_unsaved_changes(viewer)
 }
 
-/// Whether the open document carries changes that have not been written to
-/// disk. Read before the session is replaced — see [`show_document`].
+/// Whether the active tab's document carries changes that have not been
+/// written to disk. Asked before that tab is closed, and for each dirty tab
+/// when the window closes (`tabs::close`).
 ///
 /// Reads `session.unsaved_to_disk` rather than
 /// `document_model.pending_edits.can_undo()` (T-163). The two now agree in
@@ -890,7 +771,7 @@ fn prompt_for_password(
     window: &ApplicationWindow,
     viewer: &Viewer,
     source: DocumentSource,
-    generation: u64,
+    placement: Placement,
 ) {
     let content = GtkBox::new(GtkOrientation::Vertical, 8);
     content.set_margin_top(12);
@@ -917,12 +798,13 @@ fn prompt_for_password(
     content.append(&buttons);
     password_entry.grab_focus();
 
-    // Tracked so a later, superseding open attempt can tear this dialog down
-    // instead of leaving it stacked behind a second prompt — see
-    // `begin_loading` and `dismiss_password_dialog`.
+    // Tracked so its own close can tell whether it is still the current
+    // prompt — see `dismiss_password_dialog`. Opens are queued, so there is
+    // never more than one.
     viewer.state.borrow_mut().password_dialog = Some(dialog.clone());
 
     let submit: Rc<dyn Fn()> = Rc::new({
+        let window = window.clone();
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         let password_entry = password_entry.clone();
@@ -932,6 +814,7 @@ fn prompt_for_password(
             viewer.status.set_text(&tr("open-password-busy"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
+                let window = window.clone();
                 let dialog = dialog.clone();
                 let viewer = viewer.clone();
                 let password_entry = password_entry.clone();
@@ -939,32 +822,37 @@ fn prompt_for_password(
                 let source = source.clone();
                 async move {
                     let password = password_entry.text().to_string();
-                    match open_in_background(source.clone(), Some(password)).await {
-                        Ok(document) if is_current(&viewer, generation) => {
-                            show_document(&viewer, generation, document);
-                            remember_recent(&source);
-                            // As in `start_open`: the replaced document's
-                            // unsaved work was resolved at the prompt.
-                            super::recovery::forget(&viewer);
-                            // See the comment on the cancel branch above:
-                            // `close` would re-emit `response(DeleteEvent)`
-                            // and stomp the status `show_document` just set.
-                            dismiss_password_dialog(&viewer, &dialog);
+                    let opened = open_in_background(source.clone(), Some(password)).await;
+                    // Closed while the password was being tried: the open was
+                    // abandoned — and already ended by the close — so the answer
+                    // is dropped, the document with it.
+                    if viewer.state.borrow().password_dialog.as_ref() != Some(&dialog) {
+                        if let Ok(document) = opened {
+                            close_document_in_background(document.document);
                         }
-                        Ok(document) => close_document_in_background(document.document),
-                        Err(RenderError::InvalidPassword) if is_current(&viewer, generation) => {
+                        return;
+                    }
+                    match opened {
+                        Ok(document) => {
+                            // See the comment on the cancel branch below:
+                            // `close` would re-emit `response(DeleteEvent)`
+                            // and stomp the status the landing sets.
+                            dismiss_password_dialog(&viewer, &dialog);
+                            land_opened(&window, &viewer, document, source, placement);
+                        }
+                        Err(RenderError::InvalidPassword) => {
                             dialog.set_sensitive(true);
                             viewer.status.set_text(&tr("open-password-waiting"));
                             error_label.set_text(&tr("open-password-wrong"));
                             password_entry.set_text("");
                             password_entry.grab_focus();
                         }
-                        Err(error) if is_current(&viewer, generation) => {
+                        Err(error) => {
                             viewer.status.set_text(&open_failed(&error));
                             abandon_pending_tool(&viewer);
                             dismiss_password_dialog(&viewer, &dialog);
+                            super::tabs::finish_open(&window, &viewer);
                         }
-                        Err(_) => {}
                     }
                 }
             });
@@ -976,24 +864,30 @@ fn prompt_for_password(
     });
     password_entry.connect_activate(move |_| submit());
     cancel.connect_clicked({
+        let window = window.clone();
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
             viewer.status.set_text(&tr("open-password-cancelled"));
             abandon_pending_tool(&viewer);
             dismiss_password_dialog(&viewer, &dialog);
+            super::tabs::finish_open(&window, &viewer);
         }
     });
     // The title bar's close button abandons the open as surely as Cancel.
-    // `destroy` — how Cancel, a landed open and a superseding open each take
-    // the prompt down — does not emit `close-request`, so this sees only the
-    // user closing it; the generation check is belt and braces for the
-    // superseded case, whose tool belongs to the newer open.
+    // `destroy` — how Cancel and a landed or failed open take the prompt
+    // down — does not emit `close-request`, so this sees only the user
+    // closing it.
     dialog.connect_close_request({
+        let window = window.clone();
         let viewer = viewer.clone();
+        let dialog = dialog.clone();
         move |_| {
-            if is_current(&viewer, generation) {
+            if viewer.state.borrow().password_dialog.as_ref() == Some(&dialog) {
+                viewer.state.borrow_mut().password_dialog = None;
+                viewer.status.set_text(&tr("open-password-cancelled"));
                 abandon_pending_tool(&viewer);
+                super::tabs::finish_open(&window, &viewer);
             }
             glib::Propagation::Proceed
         }
@@ -1002,8 +896,8 @@ fn prompt_for_password(
 }
 
 /// Clears the tracked password dialog and tears it down — but only if it
-/// still points at `dialog`. A later open attempt may have already
-/// superseded and destroyed this same dialog via `begin_loading`; comparing
+/// still points at `dialog`. A test, or the window's teardown, may have
+/// replaced or destroyed this same dialog already; comparing
 /// identity keeps this from clobbering a newer dialog's slot.
 fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
     let mut state = viewer.state.borrow_mut();
@@ -1017,13 +911,13 @@ fn dismiss_password_dialog(viewer: &Viewer, dialog: &Window) {
 #[cfg(test)]
 mod tests {
     use super::{
-        begin_loading, confirm_closing_edits, go_to_page, next_form_field_id, open_chosen_file,
-        open_failed, open_initial, page_overlay, prompt_for_password, rendered_field_values,
-        source_name, unsaved_decision, UnsavedDecision, AES128_SAMPLE_PDF, SAMPLE_PDF,
-        UNSAVED_DETAIL_CLOSING, UNSAVED_DETAIL_OPENING,
+        confirm_closing_edits, go_to_page, next_form_field_id, open_chosen_files, open_failed,
+        open_initial, page_overlay, prompt_for_password, rendered_field_values, source_name,
+        unsaved_decision, Placement, UnsavedDecision, AES128_SAMPLE_PDF, SAMPLE_PDF,
+        UNSAVED_DETAIL_CLOSING,
     };
     use crate::app::content_edit::test_support::OpenRetype;
-    use crate::app::i18n::{speak, tr, Language};
+    use crate::app::i18n::{speak, tr, tr_args, Language};
     use crate::app::state::DocumentSource;
     use crate::app::state::HomeTool;
     use crate::app::test_fixtures::a_form_field;
@@ -1187,7 +1081,6 @@ mod tests {
             "open-window-unavailable",
             "open-blank-failed",
             "open-unsaved-title",
-            UNSAVED_DETAIL_OPENING,
             UNSAVED_DETAIL_CLOSING,
             "open-unsaved-cancel",
             "open-unsaved-discard",
@@ -1232,8 +1125,6 @@ mod tests {
                 "The application window is unavailable.",
                 "Could not create a blank PDF.",
                 "Unsaved changes",
-                "The open document has changes that are not saved. Opening another document \
-                 will discard them.",
                 "The open document has changes that are not saved. Closing Vitela will \
                  discard them.",
                 "Cancel",
@@ -1271,8 +1162,6 @@ mod tests {
                 "La ventana de la aplicación no está disponible.",
                 "No se pudo crear un PDF en blanco.",
                 "Cambios sin guardar",
-                "El documento abierto tiene cambios que no se han guardado. Si abres otro \
-                 documento, se descartarán.",
                 "El documento abierto tiene cambios que no se han guardado. Si cierras \
                  Vitela, se descartarán.",
                 "Cancelar",
@@ -1312,20 +1201,8 @@ mod tests {
         assert_eq!(source_name(&source), "PDF abierto");
     }
 
-    /// Pumps the main loop until `condition` holds or three seconds pass, and
-    /// answers whether it held — the opens below finish on a background
-    /// thread and report back through the main context.
-    fn wait_until(condition: impl Fn() -> bool) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(3);
-        while !condition() && Instant::now() < deadline {
-            let context = glib::MainContext::default();
-            while context.pending() {
-                context.iteration(false);
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        condition()
-    }
+    /// The shared wait — see `test_support`.
+    use crate::app::test_support::wait_until;
 
     /// The first button under `root` labelled `label`, depth first.
     fn find_button(root: &gtk::Widget, label: &str) -> Option<Button> {
@@ -1352,39 +1229,98 @@ mod tests {
     /// they need not wait on a background open to report the password.
     fn prompting_for_a_password(built: &BuiltUi) -> Window {
         built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
-        let generation = begin_loading(&built.viewer);
         prompt_for_password(
             &built.window,
             &built.viewer,
             DocumentSource::Embedded(AES128_SAMPLE_PDF),
-            generation,
+            Placement::Front,
         );
         let dialog = built.viewer.state.borrow().password_dialog.clone();
         dialog.expect("the prompt is tracked")
     }
 
-    /// An open box is work the open would replace. It is committed, and the
-    /// commit is what makes the unsaved-changes prompt fire: before, a clean
-    /// document with a box open was replaced without a word unless a dialog
-    /// had already taken the window's activation away.
+    /// An open box is work on the active document, and an open never takes
+    /// that document away from it: the box is committed — its text reaches
+    /// the model — and since the commit's preview refresh then holds the tab,
+    /// the new document opens in the background. Nothing asks.
     #[gtk::test]
-    fn gtk_ui_opening_another_document_commits_the_open_retype_and_asks() {
+    fn gtk_ui_opening_another_document_commits_the_open_retype_and_opens_behind_it() {
         let window = OpenRetype::new();
         assert!(window.box_open(), "the fixture must leave the box open");
-        assert!(!window.unsaved_to_disk(), "only the box holds unsaved work");
 
         open_initial(
             window.window(),
             window.viewer(),
             DocumentSource::Embedded(SAMPLE_PDF),
         );
-        let status = window.viewer().status.text();
+        assert!(
+            wait_until(|| window.viewer().tabs.borrow().parked_count() == 1),
+            "the new document must open in a tab of its own"
+        );
         window.settle();
 
-        assert!(!window.box_open(), "the open commits the box");
+        assert!(window.dialogs().is_empty(), "opening asks nothing");
+        assert!(!window.box_open(), "the box is committed");
         assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);
-        assert_ne!(status, tr("open-busy"), "the open must wait on the prompt");
-        assert_eq!(window.dialogs().len(), 1, "the unsaved-changes prompt");
+    }
+
+    /// A box the core refuses keeps its text and its document in front: every
+    /// open made meanwhile lands in the background, none is dropped, and the
+    /// queue drains.
+    #[gtk::test]
+    fn gtk_ui_opens_over_a_refused_retype_land_in_the_background() {
+        let window = OpenRetype::typing("Kőszeg");
+        let said = crate::app::test_support::status_log(window.viewer());
+
+        for _ in 0..3 {
+            open_initial(
+                window.window(),
+                window.viewer(),
+                DocumentSource::Embedded(SAMPLE_PDF),
+            );
+        }
+
+        assert!(
+            wait_until(|| window.viewer().tabs.borrow().parked_count() == 3),
+            "every open lands: {}",
+            window.viewer().status.text()
+        );
+        assert!(window.box_open(), "the refused box stays open");
+        assert!(!window.viewer().tabs.borrow().is_opening());
+        let opened = tr_args(
+            "tabs-opened-in-background",
+            &[("name", tr("open-name-sample").into())],
+        );
+        assert!(said.borrow().contains(&opened), "{:?}", said.borrow());
+    }
+
+    /// Discard over a refused retype box: the file is read again in its place.
+    #[gtk::test]
+    fn gtk_ui_discarding_over_a_refused_retype_reloads_the_file() {
+        let window = OpenRetype::typing("Kőszeg");
+        let path = std::env::temp_dir().join(format!("vitela-refused-{}.pdf", std::process::id()));
+        std::fs::write(&path, SAMPLE_PDF).unwrap();
+        if let Some(session) = window.viewer().state.borrow_mut().session.as_mut() {
+            session.origin_path = Some(path.clone());
+        }
+        let (viewer, source) = (window.viewer(), DocumentSource::File(path.clone()));
+        let handle = || viewer.state.borrow().session.as_ref().map(|s| s.document);
+        let before = handle();
+
+        open_initial(window.window(), viewer, source);
+        assert!(wait_until(|| window.dialogs().len() == 1));
+        let discard = tr("open-unsaved-discard");
+        let dialogs = window.dialogs();
+        let button = dialogs
+            .iter()
+            .find_map(|d| find_button(d.upcast_ref(), &discard));
+        button.expect("Discard").emit_clicked();
+        let reloaded = wait_until(|| handle() != before);
+        let _ = std::fs::remove_file(&path);
+
+        assert!(reloaded, "{}", window.viewer().status.text());
+        assert!(!window.box_open());
+        assert!(!window.unsaved_to_disk());
     }
 
     /// Closing the window: the same commit, and the close is held for the
@@ -1427,7 +1363,7 @@ mod tests {
         let built = built_ui();
         built.viewer.state.borrow_mut().pending_tool = Some(HomeTool::Sign);
 
-        open_chosen_file(
+        open_chosen_files(
             &built.window,
             &built.viewer,
             Err(glib::Error::new(gtk::DialogError::Dismissed, "dismissed")),
@@ -1447,7 +1383,7 @@ mod tests {
         let remote = gio::File::for_uri("vitela-test://nowhere/file.pdf");
         assert!(remote.path().is_none(), "the fixture must not be local");
 
-        open_chosen_file(&built.window, &built.viewer, Ok(remote));
+        open_chosen_files(&built.window, &built.viewer, Ok(vec![remote]));
 
         assert_eq!(built.viewer.status.text(), tr("open-not-local-file"));
         assert_eq!(built.viewer.state.borrow().pending_tool, None);
@@ -1500,6 +1436,53 @@ mod tests {
         dialog.close();
 
         assert_eq!(built.viewer.state.borrow().pending_tool, None);
+        built.window.close();
+    }
+
+    /// A prompt closed while the password it was given is being tried has
+    /// abandoned the open: the document must not open anyway, and the open
+    /// ends exactly once.
+    #[gtk::test]
+    fn gtk_ui_a_password_prompt_closed_during_its_load_opens_nothing() {
+        let built = built_ui();
+        crate::app::tabs::enqueue_open(&built.window, &built.viewer, Box::new(|_, _| {}));
+        let dialog = prompting_for_a_password(&built);
+        let entry = {
+            let mut found = None;
+            let mut stack = vec![dialog.clone().upcast::<gtk::Widget>()];
+            while let Some(widget) = stack.pop() {
+                if let Some(entry) = widget.downcast_ref::<gtk::PasswordEntry>() {
+                    found = Some(entry.clone());
+                }
+                let mut child = widget.first_child();
+                while let Some(next) = child {
+                    child = next.next_sibling();
+                    stack.push(next);
+                }
+            }
+            found.expect("the password entry")
+        };
+        entry.set_text("user-aes-pass");
+        find_button(dialog.upcast_ref(), &tr("open-password-open"))
+            .expect("the prompt offers Open")
+            .emit_clicked();
+        glib::MainContext::default().iteration(false);
+        dialog.close();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            let context = glib::MainContext::default();
+            while context.pending() {
+                context.iteration(false);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        assert!(
+            built.viewer.state.borrow().session.is_none(),
+            "nothing opened"
+        );
+        assert!(!built.viewer.tabs.borrow().is_opening(), "the open ended");
+        assert_eq!(built.viewer.status.text(), tr("open-password-cancelled"));
         built.window.close();
     }
 

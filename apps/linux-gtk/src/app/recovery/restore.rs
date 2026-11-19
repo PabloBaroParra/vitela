@@ -1,14 +1,14 @@
 //! Offering, on startup, the work a crashed session left behind — and putting
 //! it back on screen as the unsaved document it was.
 //!
-//! Each orphan gets one question, newest first: Restore or Discard. Restoring
-//! one ends the questions for this launch, because the window holds one
-//! document; the others stay on disk and are asked about next time. Escape or
-//! closing the dialog is not a decision — the entry is kept, exactly as the
-//! unsaved-changes prompt treats every exit that is not a deliberate choice.
+//! Each orphan gets one question, newest first: Restore or Discard. Every
+//! restored orphan opens in a tab of its own, beside whatever else is open,
+//! and its entry passes to that tab's autosave. Escape or closing the dialog
+//! is not a decision — the entry is kept, exactly as the unsaved-changes
+//! prompt treats every exit that is not a deliberate choice — and ends the
+//! questions for this launch.
 
 use std::io;
-use std::path::{Path, PathBuf};
 
 use gtk::{gio, glib, AlertDialog, ApplicationWindow};
 use pdf_render::RenderError;
@@ -16,12 +16,10 @@ use pdf_render::RenderError;
 use super::autosave;
 use super::meta::Meta;
 use super::store::Orphan;
-use crate::app::document::{
-    begin_loading, close_document_in_background, is_current, open_document, open_file,
-    show_document,
-};
+use crate::app::document::open_document;
 use crate::app::i18n::{tr, tr_args};
 use crate::app::state::{DocumentSource, OpenedDocument, Viewer};
+use crate::app::tabs::{enqueue_open, finish_open, land_in_new_tab, Placement, TabId};
 
 /// What the user answered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,13 +39,19 @@ fn choice(response: Option<i32>) -> Choice {
     }
 }
 
-/// Asks about the first of `orphans`, then — unless it was restored — about
-/// the rest.
-pub(super) fn offer(
+/// Asks about the first of `orphans`, then about the rest — after a restore,
+/// once it has finished.
+pub(super) fn offer(window: &ApplicationWindow, viewer: &Viewer, orphans: Vec<Orphan>) {
+    offer_placed(window, viewer, orphans, Placement::Front);
+}
+
+/// [`offer`], restoring at `placement`: the first orphan restored may come
+/// to the front, every later one opens in the background.
+fn offer_placed(
     window: &ApplicationWindow,
     viewer: &Viewer,
     mut orphans: Vec<Orphan>,
-    launch_file: Option<PathBuf>,
+    placement: Placement,
 ) {
     if orphans.is_empty() {
         return;
@@ -64,10 +68,10 @@ pub(super) fn offer(
         let window = window.clone();
         let viewer = viewer.clone();
         move |response| match choice(response.ok()) {
-            Choice::Restore => restore(&window, &viewer, orphan, orphans, launch_file.clone()),
+            Choice::Restore => restore_placed(&window, &viewer, orphan, orphans, placement),
             Choice::Discard => {
                 orphan.discard();
-                offer(&window, &viewer, orphans, launch_file.clone());
+                offer_placed(&window, &viewer, orphans, placement);
             }
             // Dropping the claims releases their locks; the files stay.
             Choice::Later => viewer.status.set_text(&tr("recovery-kept")),
@@ -92,22 +96,52 @@ fn saved_at_text(saved_at: i64) -> String {
         .map_or_else(|_| saved_at.to_string(), |text| text.to_string())
 }
 
-/// Opens the orphan's bytes as an unsaved document named and placed like the
-/// one that crashed, then hands the entry to this window's autosave.
-///
-/// A failure keeps the entry unless it proves the bytes can never be opened
-/// (see [`Failure`]), then asks about the next one. Either way, a restore
-/// that took the place of the file the application was launched to open
-/// opens that file after all — see [`open_launch_file`].
+/// [`restore_placed`] in front, asking about nothing afterwards — how the
+/// tests restore one orphan.
+#[cfg(test)]
 pub(super) fn restore(
     window: &ApplicationWindow,
     viewer: &Viewer,
     orphan: Orphan,
     rest: Vec<Orphan>,
-    launch_file: Option<PathBuf>,
 ) {
-    // A new open: it supersedes whatever was loading, as any open does.
-    let generation = begin_loading(viewer);
+    restore_placed(window, viewer, orphan, rest, Placement::Front);
+}
+
+/// Opens the orphan's bytes, in a tab of its own, as an unsaved document
+/// named and placed like the one that crashed, then hands the entry to that
+/// tab's autosave, and asks about `rest`.
+///
+/// Queued like every other open (`tabs::enqueue_open`), so it never cancels
+/// one already running — the file the application was launched to open
+/// included. A failure keeps the entry unless it proves the bytes can never
+/// be opened (see [`Failure`]).
+///
+/// Restored at `placement`; whatever is asked about afterwards restores in
+/// the background.
+fn restore_placed(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    orphan: Orphan,
+    rest: Vec<Orphan>,
+    placement: Placement,
+) {
+    enqueue_open(
+        window,
+        viewer,
+        Box::new(move |window: &ApplicationWindow, viewer: &Viewer| {
+            start_restore(window, viewer, orphan, rest, placement)
+        }),
+    );
+}
+
+fn start_restore(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    orphan: Orphan,
+    rest: Vec<Orphan>,
+    placement: Placement,
+) {
     viewer.status.set_text(&tr("open-busy"));
     glib::spawn_future_local({
         let window = window.clone();
@@ -119,15 +153,22 @@ pub(super) fn restore(
             })
             .await;
             let failure = match opened {
-                Ok((orphan, Ok(opened))) if is_current(&viewer, generation) => {
-                    show_document(&viewer, generation, opened);
-                    mark_restored(&viewer, orphan.meta());
-                    autosave::adopt(&viewer, orphan);
-                    return;
-                }
-                // Superseded by another open: keep the entry for next time.
-                Ok((_orphan, Ok(opened))) => {
-                    close_document_in_background(opened.document);
+                // Lands in a tab of its own — in front or in the background,
+                // as any open does — whose autosave takes the entry over.
+                Ok((orphan, Ok(opened))) => {
+                    land_in_new_tab(
+                        &viewer,
+                        opened,
+                        placement,
+                        Box::new(move |viewer: &Viewer, tab: Option<TabId>| {
+                            if let Some(tab) = tab {
+                                mark_restored(viewer, tab, orphan.meta());
+                                autosave::adopt(viewer, orphan, tab);
+                            }
+                            finish_open(&window, viewer);
+                            offer_placed(&window, viewer, rest, Placement::Back);
+                        }),
+                    );
                     return;
                 }
                 Ok((orphan, Err(Failure::Unrecoverable(error)))) => {
@@ -147,32 +188,11 @@ pub(super) fn restore(
                     "recovery-restore-failed"
                 }
             };
-            if is_current(&viewer, generation) {
-                viewer.status.set_text(&tr(failure));
-                open_launch_file(&viewer, launch_file.as_deref());
-            }
-            offer(&window, &viewer, rest, launch_file);
+            viewer.status.set_text(&tr(failure));
+            finish_open(&window, &viewer);
+            offer_placed(&window, &viewer, rest, placement);
         }
     });
-}
-
-/// Opens the file the application was launched with, unless it is already
-/// what the window shows — the launch's own open may have finished before
-/// the restore was chosen. Through the ordinary open, so its unsaved-changes
-/// question still guards whatever is on screen.
-fn open_launch_file(viewer: &Viewer, launch_file: Option<&Path>) {
-    let Some(path) = launch_file else {
-        return;
-    };
-    let shown = viewer
-        .state
-        .borrow()
-        .session
-        .as_ref()
-        .is_some_and(|session| session.origin_path.as_deref() == Some(path));
-    if !shown {
-        open_file(viewer, path.to_path_buf());
-    }
 }
 
 /// Why a restore did not put the document on screen.
@@ -217,21 +237,38 @@ fn open_orphan(orphan: &Orphan) -> Result<OpenedDocument, Failure> {
 /// its name, the file a Save should suggest, — like every edit the bytes
 /// hold — unsaved, and whether those edits broke a signature the original
 /// carries.
-fn mark_restored(viewer: &Viewer, meta: &Meta) {
-    if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+fn mark_restored(viewer: &Viewer, tab: TabId, meta: &Meta) {
+    // A file another tab already has open is not claimed a second time: the
+    // restored copy stays unsaved, and Save asks where it goes.
+    let origin = meta
+        .origin
+        .clone()
+        .filter(|origin| !crate::app::tabs::path_held_by_other_tab_than(viewer, origin, tab));
+    crate::app::tabs::with_session_mut(viewer, tab, |session| {
         session.base_name = meta.name.clone();
-        session.origin_path = meta.origin.clone();
+        session.origin_path = origin;
         session.unsaved_to_disk = true;
         session.unsaved_base = true;
         session.base_breaks_signatures = meta.breaks_signatures;
-    }
+    });
     crate::app::annotations::update_annotation_controls(viewer);
-    viewer.status.set_text(&tr("recovery-restored"));
+    // A document restored in the background has its tab say where it went —
+    // under the name it was restored as — rather than a message about a
+    // document the user is not looking at.
+    if crate::app::tabs::active_tab(viewer) == Some(tab) {
+        viewer.status.set_text(&tr("recovery-restored"));
+    } else {
+        viewer.status.set_text(&tr_args(
+            "tabs-opened-in-background",
+            &[("name", meta.name.clone().into())],
+        ));
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     #[test]
     fn bytes_that_are_not_a_pdf_can_never_be_restored() {
