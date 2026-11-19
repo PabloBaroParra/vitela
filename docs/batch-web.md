@@ -1192,12 +1192,24 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   demás; Escape → Select). Un PNG/JPEG **soltado sobre una página** se sella en el punto del
   *drop* en cualquier modo, sin armar nada: el `PageSlot` reclama el *drop*
   (`preventDefault`) y el oyente de la ventana no abre nada. Un *drop* que trae un PDF sigue
-  siendo del workspace (lo abre). La firma de los bytes se comprueba antes de llamar al core;
-  lo demás se rechaza con aviso.
+  siendo del workspace (lo abre). Un archivo de más de `MAX_STAMP_BYTES` (20 MB) se rechaza
+  por `File.size` **antes de leerlo**; después la firma de los bytes se comprueba antes de
+  llamar al core; lo demás se rechaza con aviso ("Only PNG and JPEG…" solo para un formato
+  que no es PNG/JPEG; un archivo que no se puede leer avisa "The image could not be read…").
+  De varios *picks* solo vale el último aunque las lecturas terminen desordenadas
+  (`useStamps`), y solo arma `stamp` si el usuario no eligió otra herramienta (ni pulsó
+  Escape) mientras se leía (`useDrawing.pickImage`). El punto del *drop* se recorta a la
+  página con el mismo `clampPoint` que el clic.
 - **Colocación: toda del core.** Ancla (clic o *drop*, puntos de la página dibujada) →
-  `stampPlacement` → `addStamp` por `useAnnotationEdits.add`: un paso de deshacer, rechazado
-  si corre otro paso y comprobado contra la página en la que se pulsó (`pageKey`), como el
-  resto de herramientas.
+  `stampPlacement` → `addStamp`, **los dos dentro del mismo paso** de
+  `useAnnotationEdits.add` (que ahora acepta una función que construye la edición dentro del
+  paso, tras comprobar la página): un paso de deshacer, comprobado contra la página en la que
+  se pulsó (`pageKey`). **Decisión (revisión):** un doble clic rápido da **un** sello y el
+  segundo clic se rechaza **antes de llamar al motor**, igual que un segundo trazo de tinta o
+  forma: `add` rechaza mientras corre cualquier paso (regla un gesto = un paso, `runningNow`)
+  y la capa ignora pulsaciones con `busy`. Antes, `stampPlacement` corría fuera de la cola, la
+  página no estaba ocupada y el segundo clic llegaba a `add` a mitad del primero y se
+  rechazaba con "Another change was still being made" tras haber preguntado al core.
 - **La imagen no vuelve del motor:** se guarda como `data:` URL (sin petición —zero-network—
   y sin nada que revocar) en `OpenDocument.stampImages` por `addedAnnotationId`
   (`useDocument.keepStampImage`, como `sourceNames`). `add` gana un `onAdded(id)` que se llama
@@ -1211,8 +1223,10 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
 - **Permiso y fallos:** sin permiso de anotar, Image queda `aria-disabled`, descrita por la
   misma nota (ahora "…Ink, Shape, Note, Free text and Image…"), con el selector deshabilitado;
   un *drop* se rechaza con "This PDF does not allow annotations, so the image was not added."
-  y no abre el PNG. `InvalidImage` de `stampPlacement`, un archivo que no es PNG/JPEG y un
-  sello rechazado porque corría otro paso se avisan en el mismo sitio (`notify`).
+  y no abre el PNG. `InvalidImage` de `stampPlacement` falla el paso y lo muestra el visor
+  como cualquier error del core; un archivo que no es PNG/JPEG, uno que no se lee, uno
+  demasiado grande y un sello rechazado porque corría otro paso se avisan en el mismo sitio
+  (`notify`).
 - **Playwright** (`e2e/stamp.spec.ts`, tres navegadores): soltar un PNG 2:1 en (100, 150) → se
   ve con su `data:` URL, 144 × 72 pt con la esquina en el punto; elegir un PNG 1:2 con Image y
   hacer clic → segundo sello; Escape → Select; deshacer dos veces quita ambos y rehacer dos
@@ -1227,8 +1241,20 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   Access fuera de Chromium): Chromium 45/45, Firefox 35 + 10 saltados, WebKit 35 + 10
   saltados, incluido zero-network; `stamp.spec.ts` además 18/18 con `--repeat-each=3`. Sin
   cambios en `@vitela/core` ni en Rust.
+  Tras la revisión: `npm run typecheck` limpio, Vitest 499/499 (58 archivos), build;
+  Playwright igual (115 pasados / 20 saltados; Chromium 45, Firefox 35 + 10, WebKit 35 + 10) y
+  `stamp.spec.ts --repeat-each=3` 18/18.
+- **Revisión de T-239 (en el árbol de trabajo):** `PlaceStamp`/`ImageDrop`/`PickStamp` viven
+  junto a `useStamps`, que devuelve los manejadores listos (`place`, `drop`, `pick`);
+  `DocumentViewer` ya no tiene cableado de sellos (`useDrawing(editing, rotationOf, stamps)`,
+  `onImage={drawing.pickImage}`, `onImageDrop={stamps.drop}`). Tests nuevos: Vitest para el
+  paso con edición diferida (`useAnnotationEdits`), lectura fallida, límite de tamaño y *pick*
+  más reciente (`useStamps`), armado protegido (`useDrawing`), doble clic → una sola
+  `stampPlacement`, *drop* fuera del borde recortado y *drop* de PDF sin sello
+  (`DocumentViewer`).
 - **No cubierto:** sin vista previa del sello antes del clic (el tamaño lo decide el core al
-  colocar); sin pegar una imagen del portapapeles; un *drop* fuera de una página (en el hueco
+  colocar); un doble clic rápido no encola dos sellos (el segundo se rechaza, ver
+  Colocación); sin pegar una imagen del portapapeles; un *drop* fuera de una página (en el hueco
   entre páginas) sigue yendo al workspace, que intenta abrir el PNG como PDF y falla con su
   mensaje; las imágenes de sesión viven en memoria como `data:` URL (una imagen grande pesa
   ~4/3 en memoria del shell, además de la copia del motor); no hay E2E con JPEG (solo PNG; la

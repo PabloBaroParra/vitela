@@ -1,9 +1,8 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ENCODING_GAP } from '@vitela/core';
-import type { AnnotationEdit } from '@vitela/core';
 import { NOTE_SIZE, PALETTE } from './drawing';
-import type { AddOutcome } from './useAnnotationEdits';
+import type { AddOutcome, PendingEdit } from './useAnnotationEdits';
 import { useDrawing, type DrawingEdits } from './useDrawing';
 
 const BLUE = PALETTE.find(({ name }) => name === 'Blue')!.color;
@@ -14,12 +13,17 @@ afterEach(() => {
 });
 
 function drawing(outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' }, allowed = true, rotation = 0) {
-  const add = vi.fn(async (_edit: AnnotationEdit, _page: number, _key: string, _shown?: readonly string[]) => outcome);
+  const add = vi.fn(async (_edit: PendingEdit, _page: number, _key: string, _shown?: readonly string[]) => outcome);
   const notify = vi.fn();
   const edits: DrawingEdits = { allowed, add, notify };
   const onStamp = vi.fn();
-  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation, onStamp), { initialProps: edits });
-  return { ...view, add, notify, onStamp };
+  // Each pick waits until the test says whether the image read.
+  const picks: ((read: boolean) => void)[] = [];
+  const pick = vi.fn((_file: File) => new Promise<boolean>((resolve) => picks.push(resolve)));
+  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation, { place: onStamp, pick }), {
+    initialProps: edits,
+  });
+  return { ...view, add, notify, onStamp, pick, picks };
 }
 
 describe('useDrawing', () => {
@@ -83,6 +87,38 @@ describe('useDrawing', () => {
     expect(onStamp).toHaveBeenCalledWith(1, '3/90', { x: 40, y: 50 });
     expect(add).not.toHaveBeenCalled();
     expect(result.current.draft).toBeNull();
+  });
+
+  it('arms Image once the picked image reads, unless the tool changed or another pick began meanwhile', async () => {
+    const image = new File([], 'a.png');
+    const { result, pick, picks } = drawing();
+
+    act(() => result.current.pickImage(image));
+    expect(pick).toHaveBeenCalledWith(image);
+    await act(async () => picks[0]!(true));
+    expect(result.current.tool).toBe('stamp');
+
+    // The user chose Ink while the image was loading: Ink stays.
+    act(() => result.current.choose('select'));
+    act(() => result.current.pickImage(image));
+    act(() => result.current.choose('ink'));
+    await act(async () => picks[1]!(true));
+    expect(result.current.tool).toBe('ink');
+
+    // Escape while loading counts as a choice too.
+    act(() => result.current.pickImage(image));
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    await act(async () => picks[2]!(true));
+    expect(result.current.tool).toBe('select');
+
+    // A pick superseded by a later one arms nothing; one that did not read arms nothing.
+    act(() => result.current.pickImage(image));
+    act(() => result.current.pickImage(image));
+    await act(async () => picks[4]!(false));
+    await act(async () => picks[3]!(true));
+    expect(result.current.tool).toBe('select');
   });
 
   it('asks for a note’s text before adding it, and closes once it is in', async () => {

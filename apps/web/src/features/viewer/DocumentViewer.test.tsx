@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, createEvent, fireEvent, render, waitFor } from '@testing-library/react';
 import { useLayoutEffect } from 'react';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EngineError, EDIT_NOT_PERMITTED } from '@vitela/core';
@@ -517,9 +517,47 @@ describe('DocumentViewer drawing tools', () => {
     await waitFor(() => expect(onStampImage).toHaveBeenCalledWith(1, 2, expect.stringMatching(/^data:image\/png;base64,/)));
     expect(applyEdit.mock.calls[0]![1]).toMatchObject({ kind: 'addStamp', page: 0, rect: BOX });
 
-    // A PDF dropped on a page is the workspace's to open.
+    // A PDF dropped on a page is the workspace's to open, and stamps nothing.
     const pdf = new File(['%PDF-1.7'], 'other.pdf', { type: 'application/pdf' });
     expect(fireEvent.drop(slot, { dataTransfer: { files: [pdf], types: ['Files'] } })).toBe(true);
+    await act(async () => {});
+    expect(stampPlacement).toHaveBeenCalledTimes(1);
+    expect(applyEdit).toHaveBeenCalledTimes(1);
+    expect(onStampImage).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps a drop past the page edge on the page, as a click is', async () => {
+    const stampPlacement = vi.fn(async (_handle: DocumentHandle, _page: number, _image: Uint8Array, _anchor: { x: number; y: number }) => BOX);
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2 }));
+    const { container } = render(<Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} />);
+    const slot = container.querySelector('[data-page="1"]')!;
+    // jsdom's drop event carries no pointer position: give it one past the right and top edges.
+    const drop = createEvent.drop(slot, { dataTransfer: { files: [png()], types: ['Files'] } });
+    Object.defineProperties(drop, { clientX: { value: 5000 * PX }, clientY: { value: -40 * PX } });
+    fireEvent(slot, drop);
+    await waitFor(() => expect(stampPlacement).toHaveBeenCalledTimes(1));
+    expect(stampPlacement.mock.calls[0]![3]).toEqual({ x: 612, y: 0 });
+  });
+
+  it('stamps once for a quick double click, asking the core to place only the first', async () => {
+    let placed: (box: typeof BOX) => void = () => {};
+    const stampPlacement = vi.fn(() => new Promise<typeof BOX>((resolve) => (placed = resolve)));
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5 }));
+    const { container, getByRole, getByLabelText } = render(
+      <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} />,
+    );
+    fireEvent.change(getByLabelText('Stamp image'), { target: { files: [png()] } });
+    await waitFor(() => expect(getByRole('button', { name: 'Image' }).getAttribute('aria-pressed')).toBe('true'));
+
+    const surface = container.querySelector('[data-page="2"] .drawing-layer')!;
+    for (const x of [30, 31]) {
+      fireEvent.pointerDown(surface, at(x, 60));
+      fireEvent.pointerUp(surface, at(x, 60));
+    }
+    await waitFor(() => expect(stampPlacement).toHaveBeenCalledTimes(1));
+    await act(async () => placed(BOX));
+    await waitFor(() => expect(applyEdit).toHaveBeenCalledTimes(1));
+    expect(stampPlacement).toHaveBeenCalledTimes(1);
   });
 
   it('draws a session stamp with the image the workspace kept for it', () => {

@@ -7,11 +7,12 @@
 // canvas, no annotation layer and no text layer at all.
 
 import { memo, type DragEvent } from 'react';
-import type { Annotation, DocumentHandle, Engine, PagePoint, PageRects, PageSize, Rgb } from '@vitela/core';
+import type { Annotation, DocumentHandle, Engine, PageRects, PageSize, Rgb } from '@vitela/core';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
-import type { ArmedTool, Gesture } from '../annotations/drawing';
+import { clampPoint, type ArmedTool, type Gesture } from '../annotations/drawing';
 import { DrawingLayer } from '../annotations/DrawingLayer';
 import { stampFileOf } from '../annotations/stamps';
+import type { ImageDrop } from '../annotations/useStamps';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import { toPagePoint } from '../text/pageRects';
@@ -42,11 +43,9 @@ interface PageSlotProps {
   readonly textInput: TextInput | null;
   /** The armed drawing tool; `null` while Select is: the text layer has the pointer. */
   readonly drawing: DrawingInput | null;
-  /** A PNG or JPEG dropped on the page, at the drop point (drawn points). */
+  /** A PNG or JPEG dropped on the page, at the drop point (drawn points, kept on the page). */
   readonly onImageDrop: ImageDrop;
 }
-
-export type ImageDrop = (pageIndex: number, pageKey: string, anchor: PagePoint, file: File) => void;
 
 /** What the drawing layer needs from the viewer, the same for every page. */
 export interface DrawingInput {
@@ -64,12 +63,14 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   // An image dropped here is stamped, not opened: claiming the drop
   // (`preventDefault`) tells the workspace's window-wide listener, which sees
   // it next, to open nothing. A drop with a PDF in it is still the workspace's.
+  // The drop point is kept on the page, as a click's is (`finishGesture`).
   const dropped = (event: DragEvent<HTMLDivElement>) => {
     const file = stampFileOf([...(event.dataTransfer?.files ?? [])]);
     if (!file) return;
     event.preventDefault();
     const box = event.currentTarget.getBoundingClientRect();
-    onImageDrop(index, pageKey, toPagePoint(event.clientX - box.left, event.clientY - box.top, scale), file);
+    const point = toPagePoint(event.clientX - box.left, event.clientY - box.top, scale);
+    onImageDrop(index, pageKey, clampPoint(point, page), file);
   };
   return (
     <div

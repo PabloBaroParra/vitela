@@ -2,8 +2,10 @@
 // and the note or text box waiting for its text. Turns a finished gesture
 // into an edit through the viewer's queue (`useAnnotationEdits.add`): ink
 // and shapes at once, notes and text boxes once their dialog is answered;
-// a stamp's click goes to `onStamp`, which owns the picked image.
-// Container logic only.
+// a stamp's click goes to the stamps' `place`, which owns the picked image.
+// Image picks a file through the stamps' `pick` and arms the stamp tool once
+// it reads — unless the user chose a tool (or Escape) or picked again while
+// it was loading: the latest choice wins. Container logic only.
 //
 // A tool stays armed until Select or Escape (several strokes make a
 // drawing), and drops back to Select when annotating turns out to be
@@ -15,19 +17,20 @@
 // was drawn) is told through the viewer's notice (`notify`). A dialog whose
 // text was sent cannot be cancelled until the core answers.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ENCODING_GAP } from '@vitela/core';
-import type { AnnotationEdit, PagePoint, PageRect, Rgb } from '@vitela/core';
+import type { PageRect, Rgb } from '@vitela/core';
 import { isTextField, modalOpen } from '../document/historyKeys';
 import { drawnEdit, PALETTE, textEdit, type ArmedTool, type DrawTool, type Gesture, type Size } from './drawing';
 import { freeTextFrame } from './geometry';
-import type { AddOutcome } from './useAnnotationEdits';
+import type { AddOutcome, PendingEdit } from './useAnnotationEdits';
+import type { PickStamp, PlaceStamp } from './useStamps';
 
 /** The slice of `useAnnotationEdits` drawing needs. */
 export interface DrawingEdits {
   readonly allowed: boolean;
   readonly add: (
-    edit: AnnotationEdit,
+    edit: PendingEdit,
     pageIndex: number,
     expectedKey: string,
     shownByCaller?: readonly string[],
@@ -55,11 +58,16 @@ const NOT_NOW = 'Another change is still being made. Try again in a moment.';
 /** A stroke or shape refused before reaching the core (a step started mid-gesture). */
 export const NOT_DRAWN = 'Another change was still being made. Nothing was added.';
 
-/** Stamps the armed image at `anchor` on page `pageIndex` (see `useStamps.place`). */
-export type PlaceStamp = (pageIndex: number, pageKey: string, anchor: PagePoint) => void;
+/** The slice of `useStamps` drawing needs. */
+export interface DrawingStamps {
+  readonly place: PlaceStamp;
+  readonly pick: PickStamp;
+}
 
-export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number, onStamp: PlaceStamp) {
+export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number, stamps: DrawingStamps) {
   const [chosen, setChosen] = useState<DrawTool>('select');
+  /** Counts the user's choices (a tool, Escape, a pick): a pick arms only if none came after it. */
+  const choices = useRef(0);
   const [color, setColor] = useState<Rgb>(PALETTE[0]!.color);
   const [draft, setDraft] = useState<Draft | null>(null);
   const { allowed, add, notify } = edits;
@@ -72,6 +80,7 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
   const choose = useCallback(
     (next: DrawTool) => {
       if (next !== 'select' && !allowed) return;
+      choices.current += 1;
       setChosen(next);
     },
     [allowed],
@@ -83,16 +92,29 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
     const listener = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
       if (isTextField(event.target) || modalOpen(event.target)) return;
+      choices.current += 1;
       setChosen('select');
     };
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, []);
 
+  const { place, pick } = stamps;
+  /** Image: reads `file` and arms the stamp tool with it, if it is still the latest choice. */
+  const pickImage = useCallback(
+    (file: File) => {
+      const choice = ++choices.current;
+      void pick(file).then((picked) => {
+        if (picked && choice === choices.current) setChosen('stamp');
+      });
+    },
+    [pick],
+  );
+
   const onGesture = useCallback(
     (pageIndex: number, pageKey: string, armed: ArmedTool, gesture: Gesture) => {
       if (armed === 'stamp') {
-        if (gesture.kind === 'point') onStamp(pageIndex, pageKey, gesture.point);
+        if (gesture.kind === 'point') place(pageIndex, pageKey, gesture.point);
         return;
       }
       if (armed === 'ink' || armed === 'shape') {
@@ -109,7 +131,7 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
       const { width, height } = freeTextFrame(gesture.rect, rotationOf(pageIndex));
       setDraft({ tool: armed, pageIndex, pageKey, rect: gesture.rect, frame: { width, height }, busy: false, error: null });
     },
-    [add, color, notify, onStamp, rotationOf],
+    [add, color, notify, place, rotationOf],
   );
 
   const submit = useCallback(
@@ -134,5 +156,5 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
   /** The text changed: the core's last refusal no longer describes it. */
   const retyped = useCallback(() => setDraft((shown) => (shown?.error ? { ...shown, error: null } : shown)), []);
 
-  return { tool, choose, color, setColor, draft, onGesture, submit, cancel, retyped };
+  return { tool, choose, color, setColor, draft, onGesture, pickImage, submit, cancel, retyped };
 }

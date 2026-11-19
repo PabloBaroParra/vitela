@@ -16,6 +16,15 @@ export type StampImageType = 'image/png' | 'image/jpeg';
 /** The picker's filter: by type, and by name for files the browser types as nothing. */
 export const STAMP_ACCEPT = 'image/png,image/jpeg,.png,.jpg,.jpeg';
 
+/**
+ * The largest image a stamp can be, in bytes, checked on the file's size
+ * before it is read. The shell holds such an image three times over (its
+ * bytes, its `data:` URL at ~4/3, and the engine's copy) for the session:
+ * 20 MB covers any logo, signature or photo worth stamping, and keeps a
+ * mis-picked camera RAW or scan from stalling the tab.
+ */
+export const MAX_STAMP_BYTES = 20 * 1024 * 1024;
+
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 const STAMP_TYPES: readonly string[] = ['image/png', 'image/jpeg'];

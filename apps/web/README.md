@@ -211,16 +211,23 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
 - **Image stamps** (T-239): **Image** in the `Draw` toolbar opens a PNG/JPEG
   picker (a hidden `<input type=file>` labelled "Stamp image"); once the file
   reads it arms the `stamp` tool, and each click on a page stamps that image
-  there (the tool stays armed; Escape goes back to Select). A PNG or JPEG
-  **dropped on a page** is stamped at the drop point in any tool mode: the page
+  there (the tool stays armed; Escape goes back to Select). Only the latest
+  pick is kept, and it arms the tool only if no tool was chosen (nor Escape
+  pressed) while it loaded. A PNG or JPEG **dropped on a page** is stamped at
+  the drop point (kept on the page, like a click) in any tool mode: the page
   slot claims the drop (`preventDefault`), so the workspace's window-wide
   listener opens nothing; a drop with a PDF in it is still the workspace's, to
-  open. The bytes are checked by their signature before the core sees them
-  (`stamps.ts`, pure: anything else is refused with a notice). The core does
+  open. A file over `MAX_STAMP_BYTES` (20 MB) is refused before it is read;
+  then the bytes are checked by their signature before the core sees them
+  (`stamps.ts`, pure: anything else is refused with a notice; a file that does
+  not read gets its own notice). The core does
   all the placing: `stampPlacement` gives the box (longest side 144 pt, the
   image's own proportions, its top-left corner at the anchor — on a page turned
-  90° that is the drawn top-right corner) and `addStamp` adds it through
-  `useAnnotationEdits.add`, one undo step, refused like any drawn annotation.
+  90° that is the drawn top-right corner) and `addStamp` adds it, both inside
+  one step of `useAnnotationEdits.add` (which takes a function that builds the
+  edit in the step): one undo step, and the page is busy from the click, so a
+  second click or drop meanwhile is refused before it asks the core anything,
+  like a second stroke.
   The engine never hands the image back, so `useStamps` keeps it as a `data:`
   URL (no request, nothing to revoke) by the `addedAnnotationId`:
   `add`'s `onAdded` gets the id in the same step, before the edited document is

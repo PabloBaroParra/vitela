@@ -6,7 +6,7 @@
 // empty space.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind, PagePoint } from '@vitela/core';
+import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
 import { DraftDialog } from '../annotations/DraftDialog';
 import { DrawToolbar } from '../annotations/DrawToolbar';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
@@ -22,7 +22,7 @@ import { useCopy } from '../text/useCopy';
 import { useTextSelection } from '../text/useTextSelection';
 import { HistoryControls } from './HistoryControls';
 import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
-import { PageSlot, type DrawingInput, type ImageDrop } from './PageSlot';
+import { PageSlot, type DrawingInput } from './PageSlot';
 import { renderDpi } from './renderDpi';
 import { revealScroll } from './reveal';
 import { useScrollMetrics } from './useScrollMetrics';
@@ -108,25 +108,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   const rotationOf = useCallback((index: number) => shownPages.current[index]?.rotationDegrees ?? 0, []);
   const keepStampImage = useCallback((id: number, href: string) => onStampImage(handle, id, href), [onStampImage, handle]);
   const stamps = useStamps(engine, handle, editing, keepStampImage);
-  const placeStamp = stamps.place;
-  const onStamp = useCallback(
-    (pageIndex: number, key: string, anchor: PagePoint) => void placeStamp(pageIndex, key, anchor),
-    [placeStamp],
-  );
-  const dropStamp = stamps.drop;
-  const onImageDrop = useCallback<ImageDrop>(
-    (pageIndex, key, anchor, file) => void dropStamp(pageIndex, key, anchor, file),
-    [dropStamp],
-  );
-  const drawing = useDrawing(editing, rotationOf, onStamp);
-  const chooseTool = drawing.choose;
-  const pickStampImage = stamps.pick;
-  const onImage = useCallback(
-    (file: File) => {
-      void pickStampImage(file).then((picked) => picked && chooseTool('stamp'));
-    },
-    [pickStampImage, chooseTool],
-  );
+  const drawing = useDrawing(editing, rotationOf, stamps);
   const armed = drawing.tool === 'select' ? null : drawing.tool;
   useEffect(() => {
     if (armed) clearSelection();
@@ -234,7 +216,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
           textInput={textAllowed ? input : null}
           drawing={drawingInput}
-          onImageDrop={onImageDrop}
+          onImageDrop={stamps.drop}
         />,
       );
     }
@@ -270,7 +252,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           onTool={drawing.choose}
           color={drawing.color}
           onColor={drawing.setColor}
-          onImage={onImage}
+          onImage={drawing.pickImage}
           allowed={editing.allowed}
           ready={!editing.pending}
         />

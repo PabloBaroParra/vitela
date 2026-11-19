@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { EngineError, EDIT_NOT_PERMITTED, ENCODING_GAP } from '@vitela/core';
-import type { Edit, EditedDocument, Engine } from '@vitela/core';
+import type { AnnotationEdit, Edit, EditedDocument, Engine } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { MARKUP_COLOR, useAnnotationEdits } from './useAnnotationEdits';
@@ -344,6 +344,51 @@ describe('useAnnotationEdits.add', () => {
     });
     expect(after).toMatchObject({ status: 'failed', kind: null });
     expect(result.current.failure).toMatch(/page changed/i);
+    expect(applyEdit).not.toHaveBeenCalled();
+  });
+
+  it('builds a deferred edit inside its own step, so a second add meanwhile is refused before it builds anything', async () => {
+    const applyEdit = vi.fn(async () => edited(true));
+    const { result } = renderHook(() => useAnnotationEdits(fakeEngine({ applyEdit }), doc(), vi.fn()));
+    const inkEdit = ink as AnnotationEdit;
+    let finishBuild: (edit: AnnotationEdit) => void = () => {};
+    const build = vi.fn(() => new Promise<AnnotationEdit>((resolve) => (finishBuild = resolve)));
+    const second = vi.fn(async () => inkEdit);
+
+    let first: Promise<AddOutcome> = Promise.resolve({ status: 'refused' });
+    let during: AddOutcome = { status: 'added' };
+    await act(async () => {
+      first = result.current.add(build, 0, PAGE_0);
+      // The build is part of the step: the queue is busy from the call on.
+      during = await result.current.add(second, 0, PAGE_0);
+    });
+    expect(during).toEqual({ status: 'refused' });
+    expect(second).not.toHaveBeenCalled();
+    await waitFor(() => expect(build).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      finishBuild(inkEdit);
+      expect(await first).toEqual({ status: 'added' });
+    });
+    expect(applyEdit).toHaveBeenCalledWith(7, ink);
+  });
+
+  it('checks the page before building a deferred edit, and shows why a build failed', async () => {
+    const applyEdit = vi.fn(async () => edited(true));
+    const { result } = renderHook(() => useAnnotationEdits(fakeEngine({ applyEdit }), doc(), vi.fn()));
+    const build = vi.fn(async () => ink as AnnotationEdit);
+    let outcome: AddOutcome = { status: 'added' };
+    await act(async () => {
+      outcome = await result.current.add(build, 0, '9/0');
+    });
+    expect(outcome).toMatchObject({ status: 'failed', kind: null });
+    expect(build).not.toHaveBeenCalled();
+
+    await act(async () => {
+      outcome = await result.current.add(() => Promise.reject(new Error('The image could not be decoded')), 0, PAGE_0);
+    });
+    expect(outcome).toMatchObject({ status: 'failed', message: 'The image could not be decoded' });
+    expect(result.current.failure).toBe('The image could not be decoded');
     expect(applyEdit).not.toHaveBeenCalled();
   });
 

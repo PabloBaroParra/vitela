@@ -59,6 +59,9 @@ export type AddOutcome =
   | { readonly status: 'refused' }
   | { readonly status: 'failed'; readonly kind: string | null; readonly message: string };
 
+/** An edit to add, or what builds it inside its step (see `add`). */
+export type PendingEdit = AnnotationEdit | (() => Promise<AnnotationEdit>);
+
 /** How a run of queued steps ended: how many went in, whether all did, and the error that stopped it. */
 interface QueueResult {
   readonly applied: number;
@@ -150,7 +153,11 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
 
   /**
    * One drawn annotation on page `pageIndex`, which held the page
-   * `expectedKey` when the gesture began: one undo step. Errors of a kind in
+   * `expectedKey` when the gesture began: one undo step. `edit` may be a
+   * function that builds it (asking the core, say, where a stamp goes): it
+   * runs inside the step, after the page check, so the queue is busy from
+   * the call on and a second gesture meanwhile is refused before it asks the
+   * core anything; a build that throws fails the step. Errors of a kind in
    * `shownByCaller` (say `EncodingGap`, for a dialog that stays open with
    * it) are returned without becoming the viewer's `failure`. `onAdded`
    * gets the new annotation's id in the same step, before the edited
@@ -159,7 +166,7 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
    */
   const add = useCallback(
     async (
-      edit: AnnotationEdit,
+      edit: PendingEdit,
       pageIndex: number,
       expectedKey: string,
       shownByCaller: readonly string[] = [],
@@ -170,7 +177,8 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
         [
           async () => {
             if (pageKey(latest.current, pageIndex) !== expectedKey) throw new PageChanged();
-            const edited = await engine.applyEdit(handle, edit);
+            const built = typeof edit === 'function' ? await edit() : edit;
+            const edited = await engine.applyEdit(handle, built);
             if (edited.addedAnnotationId !== null) onAdded?.(edited.addedAnnotationId);
             return edited;
           },
