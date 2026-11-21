@@ -64,7 +64,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = I18n.T("extract-nothing-written");
                 return;
             }
-            if (_session?.SessionId != session.SessionId) return;
+            if (_session?.SessionId != session.SessionId || RefuseHeldDestination(file.Path)) return;
             await WriteExtractedPagesAsync(session.SessionId, plan, file);
         }
         catch (Exception error)

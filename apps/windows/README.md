@@ -99,17 +99,50 @@ only until Spanish is declared. The shell picks its language from .NET's UI
 culture rather than from the package's resource languages; that a packaged
 build still follows a Spanish display language is not yet verified.
 
+## Document tabs
+
+Several PDFs can be open at once, one tab each — a port of the GTK shell's
+`tabs/`. Each tab owns its own `PdfDocumentFacade`; only the active tab's is the
+window's `_facade`, and its session `_session`, so per-document features are
+unchanged. Parked tabs keep their open document, history, unsaved state, file
+and reading position; their page widgets are rebuilt when they come back.
+
+- **Opening.** The picker is multi-select; a drop with several PDFs and several
+  command-line files (Explorer's "Open with") open several tabs. The first file
+  of one action lands in front when the active tab can give way (its inline
+  edit settles); the rest land in background tabs. Samples and New always get
+  a tab of their own. With no document open the first file simply becomes the
+  first tab. Rules: `Viewer/TabOpenRouting.cs`, `Viewer/DocumentTabList.cs`.
+- **Reopening** a file a background tab holds switches to that tab. Reopening
+  the file on screen reads it again from disk: at once when clean, after
+  Save/Discard/Cancel when dirty.
+- **Strip** (`MainWindow.TabStrip.cs`): name, unsaved marker and close button;
+  hidden on Home and with no document. Ctrl+W or Ctrl+F4 closes the active tab,
+  Ctrl+Tab and Ctrl+Shift+Tab cycle.
+- **Switching rule.** A tab cannot be switched away from or closed while an
+  operation or dialog acts on it; the click is refused with a status message.
+  Late results of work started on another tab are dropped by the existing
+  session-id checks (session ids are unique across tabs).
+- **Writes.** Save As, Protect, Sign, Compress and Extract refuse a destination
+  another tab holds, so two tabs never claim one file.
+- **Recovery** is per tab: every dirty tab, active or parked, has its own entry.
+
+`Tests/TabsSmoke.targets` drives these flows on the real core.
+
 ## Document lifecycle dialogs
 
 Home, the editor toolbar and Ctrl+O share one native PDF picker and its
-duplicate-picker guard. Replacing a document or creating a blank portrait A4 PDF
-uses **Unsaved changes**, with Save, Discard and Cancel. The wording covers all
-edits, including forms, metadata and page organization, not only annotations.
+duplicate-picker guard. Opening and creating land in a tab of their own
+(above), so they never replace a document; **Unsaved changes**, with Save,
+Discard and Cancel, guards closing a tab, reloading a dirty file and closing the
+window. The wording covers all edits, including forms, metadata and page
+organization, not only annotations.
 
-The system Close button and Alt+F4 use the same confirmation with a close-specific
-explanation. Cancel, a cancelled Save picker, a refused save or a failed write
-keeps the window and document open. Close requests during an operation or modal
-are ignored; retry after it finishes. Pending inline text and submitted form
+The system Close button and Alt+F4 ask about every dirty tab in turn, each
+brought forward, with a close-specific explanation. Cancel, a cancelled Save
+picker, a refused save or a failed write keeps the window and every document
+open. Close requests during an operation are refused with a status message;
+retry after it finishes. Pending inline text and submitted form
 fills settle before querying unsaved work. The shell opts into Facade's conservative
 lifecycle policy: after an edit, even full Undo still prompts before Open, New or
 Close, matching Linux. Only a successful destination save or an explicitly

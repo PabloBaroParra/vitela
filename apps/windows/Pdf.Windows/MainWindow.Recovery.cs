@@ -10,9 +10,10 @@ namespace Pdf.Windows;
 
 /// <summary>
 /// Autosave and crash recovery for this window: the timer that keeps a
-/// recovery copy of unsaved work, and the startup question that restores what
-/// a crashed session left behind. The rules live in <c>Recovery/</c>; this
-/// partial only wires them to the window.
+/// recovery copy of every tab's unsaved work — each document tab has its own
+/// entry — and the startup question that restores what a crashed session left
+/// behind. The rules live in <c>Recovery/</c>; this partial only wires them to
+/// the window and its tabs.
 /// </summary>
 /// <remarks>
 /// Disabled until <see cref="EnableCrashRecovery"/>, which only the production
@@ -21,7 +22,6 @@ namespace Pdf.Windows;
 /// </remarks>
 public sealed partial class MainWindow
 {
-    private AutosaveScheduler? _autosave;
     private DispatcherQueueTimer? _autosaveTimer;
     private RecoveryDirectory? _recoveryDirectory;
     private bool _recoveryOffered;
@@ -34,15 +34,14 @@ public sealed partial class MainWindow
     private string? _documentOrigin;
 
     /// <summary>
-    /// Starts autosave for this window and, once it has a root to show a dialog
-    /// on, offers whatever a crashed session left in <paramref name="directory"/>.
+    /// Starts autosave for this window's tabs and, once it has a root to show a
+    /// dialog on, offers whatever a crashed session left in <paramref name="directory"/>.
     /// </summary>
     internal void EnableCrashRecovery(RecoveryDirectory directory)
     {
-        if (_autosave is not null) return;
+        if (_recoveryDirectory is not null) return;
         _recoveryDirectory = directory;
-        _autosave = new AutosaveScheduler(directory, new WindowAutosaveSource(this), LogRecovery, () =>
-            AnnotationStatus.Text = "Autosave is unavailable, so a crash would lose your unsaved changes. Save to keep them.");
+        foreach (var tab in _tabs.Values) tab.Autosave ??= NewTabAutosave(tab);
         _autosaveTimer = DispatcherQueue.CreateTimer();
         _autosaveTimer.Interval = AutosaveScheduler.Interval;
         _autosaveTimer.IsRepeating = true;
@@ -56,14 +55,25 @@ public sealed partial class MainWindow
 
     private TimeSpan AutosaveClock => Stopwatch.GetElapsedTime(_autosaveClockStart);
 
-    private Task TickAutosaveAsync() => _autosave?.TickAsync(AutosaveClock) ?? Task.CompletedTask;
+    /// <summary>One tab's own recovery entry; <c>null</c> while crash recovery is off.</summary>
+    private AutosaveScheduler? NewTabAutosave(DocumentTab tab) => _recoveryDirectory is { } directory
+        ? new AutosaveScheduler(directory, new TabAutosaveSource(this, tab), LogRecovery, () =>
+            AnnotationStatus.Text = "Autosave is unavailable, so a crash would lose your unsaved changes. Save to keep them.")
+        : null;
+
+    /// <summary>Every tab is looked at, parked or not: a parked tab's unsaved work is just as unsaved.</summary>
+    private Task TickAutosaveAsync()
+    {
+        var clock = AutosaveClock;
+        return Task.WhenAll(_tabs.Values.Select(tab => tab.Autosave?.TickAsync(clock) ?? Task.CompletedTask).ToList());
+    }
 
     /// <summary>
     /// The document's unsaved work was saved to disk, or the document holding it
     /// was replaced — after the unsaved-changes prompt, or because it had none.
     /// Either way its recovery entry is obsolete.
     /// </summary>
-    private void ForgetRecoveryEntry() => _autosave?.Forget();
+    private void ForgetRecoveryEntry() => ActiveTab?.Autosave?.Forget();
 
     /// <summary>
     /// A clean close: the close request already asked about unsaved work, and
@@ -73,7 +83,7 @@ public sealed partial class MainWindow
     private void ShutDownAutosave()
     {
         _autosaveTimer?.Stop();
-        _autosave?.Shutdown(AutosaveScheduler.ShutdownWait);
+        foreach (var tab in _tabs.Values) tab.Autosave?.Shutdown(AutosaveScheduler.ShutdownWait);
     }
 
     /// <summary>Called once the window has a XAML root; asks at most once per launch.</summary>
@@ -105,8 +115,7 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// One question per orphan, newest first. Restoring one ends the questions
-    /// for this launch — the window holds one document — and the rest stay on
-    /// disk for next time. Closing the dialog is not a decision: like the
+    /// for this launch, and the rest stay on disk for next time. Closing the dialog is not a decision: like the
     /// unsaved-changes prompt, only a deliberate choice loses work.
     /// </summary>
     private async Task OfferAsync(Queue<RecoveryOrphan> orphans)
@@ -181,8 +190,8 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// Opens the orphan's bytes as an unsaved document named and placed like the
-    /// one that crashed, then hands the entry to this window's autosave, which
-    /// deletes it only once its own copy is written. A failure keeps the entry
+    /// one that crashed, in a tab of its own, then hands the entry to that tab's
+    /// autosave, which deletes it only once its own copy is written. A failure keeps the entry
     /// unless it proves the bytes can never be opened.
     /// </summary>
     /// <returns>Whether the document is now on screen.</returns>
@@ -191,6 +200,7 @@ public sealed partial class MainWindow
         if (_isBusy) return Keep(orphan, "Vitela is busy. Your recovered work is kept for the next time it starts.");
         SetBusy(true);
         RecoveredOpen opened;
+        PdfDocumentFacade facade;
         try
         {
             byte[] bytes;
@@ -210,7 +220,8 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = "The recovered copy could not be opened and was discarded.";
                 return false;
             }
-            opened = await _facade.OpenRecoveredAsync(new DocumentSource(orphan.Meta.Name, bytes), orphan.Meta.BreaksSignatures);
+            facade = NewDocumentFacade();
+            opened = await facade.OpenRecoveredAsync(new DocumentSource(orphan.Meta.Name, bytes), orphan.Meta.BreaksSignatures);
         }
         finally
         {
@@ -219,6 +230,7 @@ public sealed partial class MainWindow
 
         if (!opened.Result.IsSuccess)
         {
+            facade.Dispose();
             RestoreAnnotationControls();
             if (opened.Unrecoverable)
             {
@@ -231,9 +243,11 @@ public sealed partial class MainWindow
             return Keep(orphan, "The recovered copy could not be opened. It is kept for the next time Vitela starts.");
         }
 
-        ShowOpenedDocument(opened.Result.Value!, orphan.Meta.Origin);
+        // Like any open: in front when the tab on screen can give way.
+        if (await SettleActiveTabAsync()) LandInFront(facade, opened.Result.Value!, orphan.Meta.Origin);
+        else LandInBackground(facade, opened.Result.Value!, orphan.Meta.Origin);
         AnnotationStatus.Text = "Recovered unsaved work. Save it to keep it.";
-        _autosave?.Adopt(orphan);
+        _tabs.Values.FirstOrDefault(tab => ReferenceEquals(tab.Facade, facade))?.Autosave?.Adopt(orphan);
         // Snapshot right away rather than a whole interval later, so the
         // crashed entry is replaced by this window's own as soon as possible.
         await TickAutosaveAsync();
@@ -248,15 +262,22 @@ public sealed partial class MainWindow
         return false;
     }
 
-    /// <summary>The window, as the autosave scheduler sees it.</summary>
-    private sealed class WindowAutosaveSource(MainWindow window) : IAutosaveSource
+    /// <summary>
+    /// One tab, as its autosave scheduler sees it: its own facade, whether it is
+    /// on screen or parked, and the inline editor only while it is on screen.
+    /// </summary>
+    private sealed class TabAutosaveSource(MainWindow window, DocumentTab tab) : IAutosaveSource
     {
-        public Task<RecoveryObservation?> ObserveAsync() => window._facade.ObserveForRecoveryAsync();
+        private bool OnScreen => ReferenceEquals(window.ActiveTab, tab);
 
-        public bool EditingText => window._pump.Box is not null;
+        public Task<RecoveryObservation?> ObserveAsync() => tab.Facade.ObserveForRecoveryAsync();
 
-        public Task<OperationResult<RecoverySnapshot>> SnapshotAsync(string sessionId) => window._facade.RecoverySnapshotAsync(sessionId);
+        public bool EditingText => OnScreen && window._pump.Box is not null;
 
-        public (string Name, string? Origin) Describe() => (window._session?.DisplayName ?? "document.pdf", window._documentOrigin);
+        public Task<OperationResult<RecoverySnapshot>> SnapshotAsync(string sessionId) => tab.Facade.RecoverySnapshotAsync(sessionId);
+
+        public (string Name, string? Origin) Describe() => OnScreen
+            ? (window._session?.DisplayName ?? "document.pdf", window._documentOrigin)
+            : (tab.Session?.DisplayName ?? "document.pdf", tab.Origin);
     }
 }

@@ -37,6 +37,8 @@ public sealed partial class MainWindow
                 return false;
             }
             if (_session?.SessionId != session.SessionId) return false;
+            // Two tabs never claim one file (MainWindow.Tabs.cs).
+            if (RefuseHeldDestination(file.Path)) return false;
             var acknowledged = await AskSignatureLossAsync();
             if (acknowledged is null)
             {
@@ -79,6 +81,7 @@ public sealed partial class MainWindow
             }
             AnnotationStatus.Text = I18n.T("save-done-editable");
             _documentOrigin = file.Path;
+            ActiveTabMoved(file.Path);
             ForgetRecoveryEntry();
             return true;
         }

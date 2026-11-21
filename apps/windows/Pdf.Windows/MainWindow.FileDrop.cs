@@ -14,7 +14,8 @@ namespace Pdf.Windows;
 
 /// <summary>
 /// Files and images arriving from outside the app, and the meanings a drop can
-/// have: a PDF opens as the document, an image lands on a page as a stamp.
+/// have: every PDF opens in a document tab of its own, and an image lands on a
+/// page as a stamp.
 /// Ctrl+V takes the clipboard down the same stamp path.
 ///
 /// There are two drop targets rather than one. The page canvases claim their
@@ -80,19 +81,23 @@ public sealed partial class MainWindow
         args.Handled = true;
         if (_isBusy || _shellPickingFile || _dialogOpen || IsPaletteOpen) return;
 
-        if (await ClaimDroppedFileAsync(args) is not { } file)
+        if (await ClaimDroppedFilesAsync(args) is not { Count: > 0 } files)
         {
             AnnotationStatus.Text = HomeView.Visibility == Visibility.Visible
                 ? I18n.T("home-drop-not-pdf")
                 : UnsupportedDropMessage;
         }
-        else if (await ReadDroppedFileAsync(file) is not { } dropped)
+        else if (await PlanDropAsync(files) is not { } plan)
         {
             AnnotationStatus.Text = I18n.T("drop-unreadable");
         }
-        else if (dropped.Kind == DroppedFileKind.Document)
+        else if (plan.Documents.Count > 0)
         {
-            await OpenStorageFileAsync(dropped.Item);
+            await OpenDroppedDocumentsAsync(plan.Documents);
+        }
+        else if (plan.Single is null)
+        {
+            AnnotationStatus.Text = I18n.T("drop-unreadable");
         }
         else
         {
@@ -116,14 +121,14 @@ public sealed partial class MainWindow
         var sessionId = _session?.SessionId;
         if (sessionId is null) return;
         var point = ToPdf(slot, pageIndex, args.GetPosition(slot.Annotations));
-        var file = await ClaimDroppedFileAsync(args);
+        var files = await ClaimDroppedFilesAsync(args);
         if (_session?.SessionId != sessionId || pageIndex >= _slots.Count || !ReferenceEquals(_slots[pageIndex], slot)
             || _isBusy || _shellPickingFile || _dialogOpen) return;
-        if (file is null)
+        if (files is not { Count: > 0 })
         {
             AnnotationStatus.Text = UnsupportedDropMessage;
         }
-        else if (await ReadDroppedFileAsync(file) is not { } dropped)
+        else if (await PlanDropAsync(files) is not { } plan || (plan.Documents.Count == 0 && plan.Single is null))
         {
             if (_session?.SessionId == sessionId) AnnotationStatus.Text = I18n.T("drop-unreadable");
         }
@@ -132,12 +137,15 @@ public sealed partial class MainWindow
         {
             return;
         }
-        else if (dropped.Kind == DroppedFileKind.Document)
+        else if (plan.Documents.Count > 0)
         {
-            // Dropping a PDF onto an open page means "open this instead",
-            // not "stamp it" — so it takes the same route as the picker,
-            // unsaved-changes guard included.
-            await OpenStorageFileAsync(dropped.Item);
+            // Dropping PDFs onto an open page means "open these", not "stamp
+            // them" — so they take the same route as the picker: tabs of their own.
+            await OpenDroppedDocumentsAsync(plan.Documents);
+        }
+        else if (plan.Single is not { } dropped)
+        {
+            return;
         }
         else if (dropped.Kind == DroppedFileKind.Unsupported)
         {
@@ -173,28 +181,27 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Takes the one file out of the drop the shell will act on, and closes the
-    /// drop behind it. Null when the payload holds no files at all — dragged
-    /// text, a link, a folder.
+    /// Takes the files out of the drop, and closes the drop behind them. Null
+    /// when the payload holds no files at all — dragged text, a link, a folder.
     ///
     /// The deferral covers reading the <see cref="DragEventArgs.DataView"/> and
     /// nothing more. It has to exist, because the source is free to tear the
     /// view down the moment the handler returns, and it has to end here: the
     /// drag is not over for the system until the deferral completes, so holding
     /// it across the work that follows leaves the drag image stuck to the
-    /// cursor. Opening a document can now stop on a modal prompt, which turned
+    /// cursor. Opening a document can stop on a modal prompt, which turned
     /// that from a brief delay into an image pinned to the screen until the
     /// reader answered. A <see cref="StorageFile"/> outlives the view it came
-    /// from, so the caller loses nothing by being handed one.
+    /// from, so the caller loses nothing by being handed them.
     /// </summary>
-    private static async Task<StorageFile?> ClaimDroppedFileAsync(DragEventArgs args)
+    private static async Task<IReadOnlyList<StorageFile>?> ClaimDroppedFilesAsync(DragEventArgs args)
     {
         if (!args.DataView.Contains(StandardDataFormats.StorageItems)) return null;
         var deferral = args.GetDeferral();
         try
         {
             var items = await args.DataView.GetStorageItemsAsync();
-            return FileDropRouting.FirstFile(items.OfType<StorageFile>());
+            return items.OfType<StorageFile>().ToList();
         }
         catch (Exception)
         {
@@ -205,6 +212,26 @@ public sealed partial class MainWindow
             deferral.Complete();
         }
     }
+
+    /// <summary>
+    /// Reads and classifies every claimed file, then decides what the drop
+    /// comes to (<see cref="FileDropRouting.Plan"/>): its PDFs open, or else its
+    /// first file is acted on. Files that cannot be read are left out; null
+    /// when none could be.
+    /// </summary>
+    private static async Task<DropPlan<DroppedFile>?> PlanDropAsync(IReadOnlyList<StorageFile> files)
+    {
+        var read = new List<(DroppedFile Item, DroppedFileKind Kind)>();
+        foreach (var file in files)
+        {
+            if (await ReadDroppedFileAsync(file) is { } dropped) read.Add((dropped, dropped.Kind));
+        }
+        return read.Count == 0 ? null : FileDropRouting.Plan(read);
+    }
+
+    /// <summary>The drop's PDFs, one tab each: the first in front, the rest behind it.</summary>
+    private Task OpenDroppedDocumentsAsync(IReadOnlyList<DroppedFile> documents) =>
+        OpenFilesInTabsAsync(documents.Select(document => document.Item).ToList());
 
     /// <summary>
     /// Reads and classifies a claimed file after its drag deferral has completed.

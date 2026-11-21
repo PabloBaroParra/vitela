@@ -94,14 +94,22 @@ public sealed partial class MainWindow
         await ApplyHistoryAsync(true);
         Check(!UndoButton.IsEnabled && RedoButton.IsEnabled && (await _facade.HasUnsavedChangesAsync(session.SessionId)).Value,
             "Full Undo remains conservatively dirty");
-        var creating = CreateNewDocumentAsync();
+        // Replacing the document in its own tab still asks: the in-place open path.
+        var sample = await File.ReadAllBytesAsync(SamplePath);
+        var replacing = OpenDocumentAsync(SampleDisplayName, sample);
         await ClickDecision("CloseButton");
-        await creating;
+        await replacing;
         Check(_session!.SessionId == session.SessionId && RedoButton.IsEnabled && !_isBusy, "Full Undo Cancel preserves history");
-        creating = CreateNewDocumentAsync();
+        var tabs = _tabList.Count;
+        replacing = OpenDocumentAsync(SampleDisplayName, sample);
         await ClickDecision("SecondaryButton");
-        await creating;
-        Check(_session!.SessionId != session.SessionId && _session.PageCount == 1
-            && !(await _facade.HasUnsavedChangesAsync(_session.SessionId)).Value, "Explicit Discard creates fresh clean A4");
+        await replacing;
+        Check(_session!.SessionId != session.SessionId && _tabList.Count == tabs
+            && !(await _facade.HasUnsavedChangesAsync(_session.SessionId)).Value, "Explicit Discard replaces the document in the same tab");
+        // A new document never replaces one: it lands in a tab of its own, with nothing to ask.
+        var replaced = _session.SessionId;
+        await CreateNewDocumentAsync();
+        Check(_session!.SessionId != replaced && _session.PageCount == 1 && _tabList.Count == tabs + 1
+            && !(await _facade.HasUnsavedChangesAsync(_session.SessionId)).Value, "New document opens a fresh clean A4 in a new tab");
     }
 }

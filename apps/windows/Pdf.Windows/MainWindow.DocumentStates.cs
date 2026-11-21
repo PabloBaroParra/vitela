@@ -66,5 +66,7 @@ public sealed partial class MainWindow
         UpdateMetadataControls();
         FormFieldsScroller.IsEnabled = !_isBusy && _session is not null;
         UpdatePageNavigationControls();
+        // Edits, undo and saves all pass through here: the strip's unsaved markers follow.
+        SyncTabStrip();
     }
 }

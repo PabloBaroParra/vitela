@@ -36,7 +36,12 @@ public sealed partial class MainWindow : Window
     private static readonly string Rc4128SamplePath = Path.Combine(AppContext.BaseDirectory, "Assets", "rc4_128_user_and_owner.pdf");
     private const string Rc4128SampleDisplayName = "RC4-128 sample.pdf";
 
-    private readonly PdfDocumentFacade _facade = new(new GeneratedPdfCore(), new FileDiagnosticLogger(FileDiagnosticLogger.DefaultPath), conservativeLifecycle: true);
+    /// <summary>
+    /// The active document tab's facade. Each tab owns one (see
+    /// <c>MainWindow.Tabs.cs</c>); switching tabs swaps this field, so every
+    /// feature keeps talking to "the" facade and reaches the document on screen.
+    /// </summary>
+    private PdfDocumentFacade _facade = NewDocumentFacade();
     private DocumentSession? _session;
     private bool _isBusy;
 
@@ -108,13 +113,17 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        await OpenDocumentAsync(displayName, bytes);
+        SetBusy(false);
+        // A sample has no file of its own a tab could hold: every open of one is a new tab.
+        await OpenBytesInTabAsync(displayName, bytes);
     }
 
     /// <summary>
-    /// The one open path every entry point shares: open, settle any pending
-    /// edits, retry on password, then either show the document or report the
-    /// failure.
+    /// Opens bytes into the active tab, replacing its document: open, settle
+    /// any pending edits, retry on password, then either show the document or
+    /// report the failure. User opens do not come here — they land in a tab of
+    /// their own (<c>MainWindow.TabOpen.cs</c>); this is the in-place
+    /// replacement the native harnesses drive directly.
     /// </summary>
     /// <remarks>
     /// The pending-edit decision has to come before the password prompt,

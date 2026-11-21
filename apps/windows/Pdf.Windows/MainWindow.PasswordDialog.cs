@@ -8,8 +8,10 @@ namespace Pdf.Windows;
 
 public sealed partial class MainWindow
 {
-    private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes, bool discardPendingEdits)
+    /// <param name="facade">The facade to open into: the active tab's by default, a new tab's own while that tab is being opened.</param>
+    private async Task<OperationResult<DocumentSession>?> OpenWithPasswordAsync(string displayName, byte[] bytes, bool discardPendingEdits, PdfDocumentFacade? facade = null)
     {
+        facade ??= _facade;
         var passwordBox = new PasswordBox { PlaceholderText = I18n.T("open-password-placeholder"), PasswordRevealMode = PasswordRevealMode.Peek };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(passwordBox, I18n.T("open-password-name"));
         var errorText = new TextBlock
@@ -42,7 +44,7 @@ public sealed partial class MainWindow
             AnnotationStatus.Text = I18n.T("open-password-busy");
             try
             {
-                result = await _facade.OpenAsync(new DocumentSource(displayName, bytes), passwordBox.Password, discardPendingEdits);
+                result = await facade.OpenAsync(new DocumentSource(displayName, bytes), passwordBox.Password, discardPendingEdits);
                 if (!result.IsSuccess && result.Error!.RequiresPassword)
                 {
                     args.Cancel = true;

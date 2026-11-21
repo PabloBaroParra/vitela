@@ -26,7 +26,7 @@ public partial class App : Application
         {
             await _window.LifecycleDialogsSmokeAsync();
             File.WriteAllText(Path.Combine(output, "lifecycle-dialogs-smoke.log"),
-                "PASS clean signed source Compress-specific warning Cancel/default/ack and real compression, signed Extract completion note/unchanged source; Protect two roles, same-modal empty/equal validation and secret clearing; Protect signed-source shared warning/cancel/default; paused inline text committed, refused text blocks lifecycle and retains editor, corrected text releases refusal; real encrypted sample wrong password/same modal/clear/retry and cancel; real signed source Save warning Cancel/default/acknowledgement; real atomic save, locked-destination failure preserves file and pending work; replacement Cancel/Discard; fresh A4 blank; native close Cancel/Discard and approved programmatic close. Native Save picker cancellation tested separately.");
+                "PASS clean signed source Compress-specific warning Cancel/default/ack and real compression, signed Extract completion note/unchanged source; Protect two roles, same-modal empty/equal validation and secret clearing; Protect signed-source shared warning/cancel/default; paused inline text committed, refused text blocks lifecycle and retains editor, corrected text releases refusal; real encrypted sample wrong password/same modal/clear/retry and cancel; real signed source Save warning Cancel/default/acknowledgement; real atomic save, locked-destination failure preserves file and pending work; replacement Cancel; fresh A4 blank in a tab of its own without a prompt; native close Cancel, then Discard for each of two dirty tabs and approved programmatic close. Native Save picker cancellation tested separately.");
         }
         catch (Exception error) { File.WriteAllText(Path.Combine(output, "lifecycle-dialogs-smoke.log"), "FAIL " + error); }
         finally { if (!_window.LifecycleSmokeClosed) _window.Close(); }
@@ -243,16 +243,16 @@ public sealed partial class MainWindow
         original = _session!.SessionId;
         var edit = await _facade.SetDocumentPropertyAsync(original, DocumentProperty.Title, "Lifecycle smoke");
         Check(edit.IsSuccess, "Metadata fixture edit failed");
-        var creating = CreateNewDocumentAsync();
+        var replacing = OpenDocumentAsync(SampleDisplayName, await File.ReadAllBytesAsync(SamplePath));
         Click(await Dialog("Unsaved changes"), "CloseButton");
-        await creating;
-        Check(_session!.SessionId == original && (await _facade.HasUnsavedChangesAsync(original)).Value, "New-document Cancel must preserve work");
-        creating = CreateNewDocumentAsync();
-        Click(await Dialog("Unsaved changes"), "SecondaryButton");
-        await creating;
-        Check(_session!.SessionId != original && _session.PageCount == 1
+        await replacing;
+        Check(_session!.SessionId == original && (await _facade.HasUnsavedChangesAsync(original)).Value, "Replacement Cancel must preserve work");
+        var tabs = _tabList.Count;
+        await CreateNewDocumentAsync();
+        Check(CurrentDialog() is null && _session!.SessionId != original && _session.PageCount == 1 && _tabList.Count == tabs + 1
             && Math.Abs(_session.Pages[0].WidthPt - 595.28) < 1 && Math.Abs(_session.Pages[0].HeightPt - 841.89) < 1,
-            "Discard must open a fresh portrait A4 page");
+            "New must open a fresh portrait A4 page in a tab of its own, without asking");
+        var blankTab = _session.SessionId;
         Check(!(await _facade.HasUnsavedChangesAsync(_session.SessionId)).Value, "Fresh blank page is not an edit");
         Check((await _facade.SetDocumentPropertyAsync(_session.SessionId, DocumentProperty.Title, "Close smoke")).IsSuccess, "Close fixture edit failed");
         var handle = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -263,6 +263,10 @@ public sealed partial class MainWindow
         await Wait(() => !_confirmingClose, "Close Cancel did not settle");
         Check(!_windowClosed && (await _facade.HasUnsavedChangesAsync(_session.SessionId)).Value, "Close Cancel must preserve the live window/work");
         Check(PostMessage(handle, 0x0010, IntPtr.Zero, IntPtr.Zero), "Second native close request failed");
+        Click(await Dialog("Unsaved changes"), "SecondaryButton");
+        // The other dirty tab comes forward and is asked about in turn.
+        await Wait(() => _session?.SessionId == original && CurrentDialog() is not null && !_windowClosed, "Close did not bring the other dirty tab forward");
+        Check(blankTab != original, "Each dirty tab is asked about once");
         Click(await Dialog("Unsaved changes"), "SecondaryButton");
         await Wait(() => _approvedClose && _windowClosed, "Approved programmatic close did not destroy the window");
     }

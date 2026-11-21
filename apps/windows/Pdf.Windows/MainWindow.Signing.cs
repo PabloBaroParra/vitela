@@ -98,7 +98,7 @@ public sealed partial class MainWindow
             InitializeWithWindow.Initialize(destination, WindowNative.GetWindowHandle(this));
             var output = await destination.PickSaveFileAsync();
             if (output is null) { AnnotationStatus.Text = I18n.T("sign-cancelled"); return; }
-            if (_session?.SessionId != sessionId) return;
+            if (_session?.SessionId != sessionId || RefuseHeldDestination(output.Path)) return;
             AnnotationStatus.Text = I18n.T("sign-busy-document");
             var result = await _facade.SignToDestinationAsync(sessionId, certificate, selected.Id, output.Name, async signedBytes =>
             {
