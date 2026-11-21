@@ -1,0 +1,74 @@
+{
+  "name": "@vitela/viewer",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vitela's PDF editor UI (React) on top of @vitela/core: view, organize, import, annotate and stamp PDFs in the browser.",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PabloBaroParra/vitela.git",
+    "directory": "packages/vitela-viewer"
+  },
+  "keywords": [
+    "pdf",
+    "pdf-editor",
+    "viewer",
+    "react",
+    "wasm"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./style.css": "./dist/styles/index.css",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE-MIT",
+    "LICENSE-APACHE"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build:core": "npm run build --workspace @vitela/core",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "watch": "node scripts/watch.mjs",
+    "clean": "node scripts/clean-dist.mjs",
+    "prepack": "npm run clean && npm run build",
+    "typecheck": "npm run build:core && tsc -b",
+    "test": "npm run build:core && vitest run",
+    "test:watch": "npm run build:core && vitest"
+  },
+  "dependencies": {
+    "@vitela/core": "0.1.0"
+  },
+  "peerDependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "jsdom": "31.0.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

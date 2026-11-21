@@ -1,5 +1,7 @@
 // Test support: an `Engine` whose every method fails unless a test supplies
-// it, so each test spells out only the calls it expects.
+// it, so each test spells out only the calls it expects. A copy of
+// packages/vitela-viewer/src/test/fakeEngine.ts: the package ships no test
+// helpers, and App.test.tsx is the only app test that needs one.
 
 import type { Engine } from '@vitela/core';
 

@@ -8,16 +8,19 @@
   "scripts": {
     "build:wasm": "npm run build:wasm --workspace @vitela/core",
     "build:core": "npm run build --workspace @vitela/core",
-    "dev": "npm run build:core && node scripts/dev.mjs",
-    "build": "npm run build:core && tsc -b && vite build",
+    "build:viewer": "npm run build --workspace @vitela/viewer",
+    "build:packages": "npm run build:core && npm run build:viewer",
+    "dev": "npm run build:packages && node scripts/dev.mjs",
+    "build": "npm run build:packages && tsc -b && vite build",
     "preview": "vite preview --strictPort",
-    "typecheck": "npm run build:core && tsc -b",
-    "test": "npm run build:core && vitest run",
-    "test:watch": "npm run build:core && vitest",
+    "typecheck": "npm run build:packages && tsc -b",
+    "test": "npm run build:packages && vitest run",
+    "test:watch": "npm run build:packages && vitest",
     "e2e": "playwright test"
   },
   "dependencies": {
     "@vitela/core": "0.1.0",
+    "@vitela/viewer": "0.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1"
   },

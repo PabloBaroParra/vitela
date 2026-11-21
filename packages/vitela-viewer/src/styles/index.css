@@ -1,0 +1,9 @@
+/* Stylesheet entry of the editor (`@vitela/viewer/style.css`): the design
+   tokens, the base rules and the editor's own screens. Brand: the navy of the
+   Vitela mark, on white. One accent, hairline borders: the document is the
+   colourful thing here. */
+@import './tokens.css';
+@import './base.css';
+@import './viewer.css';
+@import './organize.css';
+@import './dialogs.css';

@@ -92,6 +92,7 @@ tests junto al módulo que prueban.
 | 2 | Organize + guardar | Reordenar, rotar, borrar, importar PDFs, descargar. |
 | 3 | Anotar + formularios | Paridad con el panel de anotación y el de rellenado. |
 | 4 | Editar contenido, comprimir, proteger, exportar imágenes | Paridad con Linux/Windows. |
+| E | Visor embebible (`@vitela/viewer`) | Cualquier web lo instala con `npm install` y lo monta con la interfaz completa (ver Fase E). |
 | 5 | PWA + deploy estático | Instalable y funcional offline tras la primera carga. Hosting decidido (2026-11-17): **Cloudflare Pages**, Direct Upload desde `.github/workflows/web-deploy.yml` (solo cuando el push cambia la web o un crate del que se compila el motor WASM, calculado con `cargo metadata`; Playwright en los tres navegadores sobre el mismo build antes de publicar). |
 
 Las tareas T-xxx de cada fase se desglosan al arrancarla; solo la fase 0 se detalla ya,
@@ -1265,6 +1266,108 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
     El `<image>` llena la caja (`preserveAspectRatio="none"`): un redimensionado que no
     guarde la proporción la deformará en la capa.
   - T-241: sin cambios por los sellos.
+
+## Fase E — Visor embebible (`@vitela/viewer`)
+
+Decisión del usuario (2026-11-21): Vitela se tiene que poder instalar en **cualquier web**
+con `npm install`, **con la interfaz**, no solo el motor. El objetivo final es editar
+textos desde cualquier web; eso necesita antes la edición de contenido en wasm (Fase 4,
+`pdf-wasm` hoy no depende de `pdf-edit`), así que esta fase empaqueta lo que la web ya
+hace (ver, organizar, importar, anotar, sellos) y la Fase 4 llegará al paquete sin tocar la
+integración.
+
+Hechos de partida (mapa de `apps/web`, 2026-11-21):
+
+- `features/document/DocumentWorkspace.tsx` ya es una raíz limpia (`engine`, `intro`,
+  `initialScreen`, `standIn`); el resto de `app/`, `features/tools/` y la landing son la
+  *app*, no el editor.
+- Acoples que impiden embeber: tokens en `:root`, reglas sobre `body`/`a`/`button` sin
+  clase, `.app` a `100vh`, `.drop-hint` `position: fixed`, clases sin prefijo; soltar
+  archivos escucha en `window` (`useFileDrop`); Ctrl+Z/Y, copiar y Escape escuchan en
+  `window` (`useUndoKeys`, `useCopy`, `useDrawing`); `modalOpen()` mira todo el
+  `document`; `download.ts` cuelga el `<a>` de `document.body` (inofensivo).
+- No hay forma de abrir desde bytes/URL ni de recibir el guardado: `Delivery`
+  (`save/delivery.ts`) ya es la costura, pero `DocumentWorkspace` no la expone.
+- Ni `@vitela/core` ni nada está publicado en npm (`npm view @vitela/core` → 404).
+
+| Tarea | Entrega | Verificación |
+|---|---|---|
+| **T-244** ✓ | `packages/vitela-viewer` (`@vitela/viewer`, workspace npm): se **mueve** ahí la UI del editor (`DocumentWorkspace` y `features/document`, `viewer`, `organize`, `annotations`, `render`, `search`, `text`, `save`, `platform`, las piezas de `ui/` que usa, `useEngineStatus`, sus estilos y sus tests). `apps/web` lo consume como dependencia. **Cero cambio de comportamiento.** | Vitest del paquete y de la app en verde (mismos totales repartidos); Playwright completo de la app en los tres navegadores; `typecheck`; build. |
+| **T-245** | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
+| **T-246** | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
+| **T-247** | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
+| **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
+
+Riesgos abiertos (NO verificados):
+
+- Vite pre-empaqueta las dependencias (`optimizeDeps`) y eso rompe
+  `new Worker(new URL('…', import.meta.url))` dentro de `node_modules`; probablemente el
+  consumidor necesite `optimizeDeps.exclude: ['@vitela/core']`. Se comprueba en T-247.
+- Estilos de la anfitriona que se cuelan **dentro** del editor: la clase raíz evita que
+  los nuestros salgan, no que entren los suyos. Shadow DOM lo resolvería pero choca con
+  los diálogos y la selección de texto; se decide con la anfitriona de prueba de T-245.
+
+### T-244 — resultado
+
+Mudanza pura con `git mv` (el historial sigue a los ficheros); ninguna regla CSS ni
+línea de lógica cambia.
+
+- **Se movió a `packages/vitela-viewer/src/`:** `features/` (`document`, `viewer`,
+  `organize`, `annotations`, `render`, `search`, `text`, `save`), `platform/`,
+  `ui/` (`FilePicker` y su test, `StatusLine`, `ViewSwitch`), `engine/useEngineStatus.ts`
+  (antes `app/`), `test/fakeEngine.ts` y `styles/` (`tokens`, `base`, `viewer`,
+  `organize`, `dialogs`, más un `index.css` nuevo que los importa en ese orden). Las
+  rutas relativas internas no cambian porque `src/` conserva la forma de la app.
+- **Se queda en `apps/web`:** `main.tsx`, `app/App.tsx` (+ test), `features/tools/`, las
+  piezas de la landing en `ui/` y `landing.css` + `tools.css` (`app/styles/index.css`
+  ya solo importa esos dos). `main.tsx` importa `@vitela/viewer/style.css` **antes**
+  que `index.css`, así que el orden de la cascada es el de siempre: el CSS del build es
+  **idéntico byte a byte** (mismo hash `index-DVwe0LQM.css`, `cmp` sin diferencias).
+- **API pública mínima** (`src/index.ts`): `DocumentWorkspace` + `DocumentScreen`,
+  `useEngineStatus` + `EngineStatus` y `StatusLine` — exactamente lo que `App.tsx` y
+  `tools.ts` usan. Exports: `.` (`dist/index.js` + `.d.ts`) y `./style.css`
+  (`dist/styles/index.css`). React y React DOM 19.3.1 son `peerDependencies`;
+  `@vitela/core` 0.1.0 es `dependency`.
+- **`dist`, no alias de Vite.** La app consume el `dist/` del paquete igual que ya hace
+  con `@vitela/core`: lo que se construye y se prueba (Vitest de la app, build, los tres
+  navegadores de Playwright) es lo que instalará un consumidor, y no hay `paths`/alias
+  que solo existan en este repo. El coste es un paso de build: los scripts de la app
+  corren `build:packages` (core y luego viewer) y `scripts/dev.mjs` arranca también el
+  `watch.mjs` del paquete (tsc `--watch` + copia de los CSS). En dev, viewer y app
+  resuelven `@vitela/core` al mismo `dist/index.js` y React al mismo pre-bundle (una
+  sola instancia de cada uno).
+- `App.test.tsx` necesita `fakeEngine`, y el paquete no publica helpers de test: la app
+  guarda una **copia** de 29 líneas en `src/test/fakeEngine.ts`. Si `Engine` crece, el
+  typecheck de ambos lados avisa.
+- CI: `web.yml` y `web-deploy.yml` corren typecheck, Vitest y build de
+  `@vitela/viewer` tras los de `@vitela/core` (sin eso, `web-deploy` habría dejado de
+  correr 481 tests unitarios antes de publicar).
+
+Gates (Windows 11, local):
+
+- Vitest antes: **58 ficheros / 499 tests** en un worktree limpio de `HEAD` (d678ea3).
+  Después: `@vitela/viewer` 52 / 481 + `apps/web` 6 / 18 = **58 / 499**, misma lista
+  de ficheros. Ojo: una primera pasada en el checkout principal antes de mover nada dio
+  59 / 517 (un fichero de 18 tests de más) y no se pudo reproducir ni identificar; el
+  worktree de `HEAD` sí cuadra fichero a fichero.
+- `npm run typecheck`, `npm test` y `npm run build` en `packages/vitela-viewer` y en
+  `apps/web`: verde. `npm pack --dry-run` del viewer: `dist/` (sin tests) + licencias.
+- Playwright de `apps/web` en Chromium, Firefox y WebKit: **115 pasan, 20 omitidos**,
+  igual que antes de mover.
+- Ningún fichero de `apps/web` importa por ruta relativa un módulo movido (grep).
+
+Lo que condiciona T-245…T-247:
+
+- T-245 trabaja ya sobre `packages/vitela-viewer/src/styles/`; `tokens.css` y
+  `base.css` (`:root`, `body`, `a`, `button`) siguen globales y **la landing de la app
+  depende de esos tokens**: al acotarlos bajo `.vitela`, la app tiene que seguir
+  recibiéndolos (p. ej. la app pone `.vitela` en su raíz o importa los tokens aparte).
+- El JSX del paquete lo compila `tsc` (`react-jsx`), no `@vitejs/plugin-react`: en
+  dev, los avisos de React desde el editor pierden la ubicación de fuente (runtime
+  `jsx`, no `jsxDEV`) y no hay Fast Refresh dentro del paquete (recarga vía el watch).
+- T-247 decide la API real; `StatusLine` y `useEngineStatus` están exportados solo
+  porque la app los usa y pueden dejar de ser públicos. El riesgo de `optimizeDeps` sigue
+  sin verificar: los workspaces enlazados no se pre-empaquetan, un consumidor desde npm sí.
 
 ## Verificación
 

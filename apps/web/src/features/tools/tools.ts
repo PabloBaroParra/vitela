@@ -8,7 +8,7 @@
 // Icons are stroke paths on a 24×24 grid with round caps and joins, most of
 // them taken from the shared shell icons in assets/icons.
 
-import type { DocumentScreen } from '../document/DocumentWorkspace';
+import type { DocumentScreen } from '@vitela/viewer';
 
 export type ToolId =
   | 'view'

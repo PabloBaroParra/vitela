@@ -1,0 +1,13 @@
+{
+  // The public entry and everything it reaches into dist/, with declarations.
+  // Tests and their helpers never ship.
+  "extends": "./tsconfig.lib.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": null,
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true
+  },
+  "exclude": ["src/test", "src/**/*.test.ts", "src/**/*.test.tsx"]
+}
