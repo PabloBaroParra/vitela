@@ -2,14 +2,12 @@
 
 import { useMemo, type ReactNode } from 'react';
 import type { EngineClient } from '@vitela/core';
-import { DocumentWorkspace } from '../features/document/DocumentWorkspace';
+import { DocumentWorkspace, StatusLine, useEngineStatus, type EngineStatus } from '@vitela/viewer';
 import { HomePage } from '../features/tools/HomePage';
 import { resolveRoute, type Route } from '../features/tools/route';
 import { ToolPage } from '../features/tools/ToolPage';
 import { ToolUnavailable } from '../features/tools/ToolUnavailable';
 import { SiteHeader } from '../ui/SiteHeader';
-import { StatusLine } from '../ui/StatusLine';
-import { useEngineStatus, type EngineStatus } from './useEngineStatus';
 
 interface AppProps {
   readonly engine: EngineClient;

@@ -1,9 +1,10 @@
 name: web
 
-# The web shell (apps/web, B26) and its engine package (packages/vitela-core,
-# @vitela/core). The core crates stay gated by core.yml; this workflow builds
-# the WASM the worker loads, then runs both Vitest suites and the Playwright
-# flows (Chromium, Firefox and WebKit) against the production build.
+# The web shell (apps/web, B26), its engine package (packages/vitela-core,
+# @vitela/core) and its editor UI package (packages/vitela-viewer,
+# @vitela/viewer). The core crates stay gated by core.yml; this workflow
+# builds the WASM the worker loads, then runs the three Vitest suites and the
+# Playwright flows (Chromium, Firefox and WebKit) against the production build.
 on:
   push:
     branches: [main]
@@ -99,6 +100,15 @@ jobs:
 
       - name: "@vitela/core: type-check, Vitest (includes the real-pdfium test), build"
         working-directory: packages/vitela-core
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      # apps/web consumes the viewer's dist/, like @vitela/core's: what a
+      # consumer installs is what the app is built and tested against.
+      - name: "@vitela/viewer: type-check, Vitest, build"
+        working-directory: packages/vitela-viewer
         run: |
           npm run typecheck
           npm test
