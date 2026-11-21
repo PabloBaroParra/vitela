@@ -208,11 +208,42 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   other failure closes it and shows in the viewer. The tools are
   `aria-disabled` (Select excepted) while a step runs and, with a note saying
   why, when the document forbids annotations.
+- **Image stamps** (T-239): **Image** in the `Draw` toolbar opens a PNG/JPEG
+  picker (a hidden `<input type=file>` labelled "Stamp image"); once the file
+  reads it arms the `stamp` tool, and each click on a page stamps that image
+  there (the tool stays armed; Escape goes back to Select). Only the latest
+  pick is kept, and it arms the tool only if no tool was chosen (nor Escape
+  pressed) while it loaded. A PNG or JPEG **dropped on a page** is stamped at
+  the drop point (kept on the page, like a click) in any tool mode: the page
+  slot claims the drop (`preventDefault`), so the workspace's window-wide
+  listener opens nothing; a drop with a PDF in it is still the workspace's, to
+  open. A file over `MAX_STAMP_BYTES` (20 MB) is refused before it is read;
+  then the bytes are checked by their signature before the core sees them
+  (`stamps.ts`, pure: anything else is refused with a notice; a file that does
+  not read gets its own notice). The core does
+  all the placing: `stampPlacement` gives the box (longest side 144 pt, the
+  image's own proportions, its top-left corner at the anchor — on a page turned
+  90° that is the drawn top-right corner) and `addStamp` adds it, both inside
+  one step of `useAnnotationEdits.add` (which takes a function that builds the
+  edit in the step): one undo step, and the page is busy from the click, so a
+  second click or drop meanwhile is refused before it asks the core anything,
+  like a second stroke.
+  The engine never hands the image back, so `useStamps` keeps it as a `data:`
+  URL (no request, nothing to revoke) by the `addedAnnotationId`:
+  `add`'s `onAdded` gets the id in the same step, before the edited document is
+  reported, and the URL goes to `OpenDocument.stampImages`
+  (`useDocument.keepStampImage`), so it survives undo/redo (a redone stamp
+  keeps its id; ids are never reused) and a switch to Organize and back. The
+  layer draws it as an SVG `<image>` filling the box's own frame
+  (`freeTextFrame`: turned with the page, like the saved appearance); a stamp
+  without a kept image keeps the dashed placeholder box. `InvalidImage`,
+  "not allowed" and "another step was running" show in the viewer's notice.
 
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text
 at known positions, an RC4-encrypted PDF that forbids copying — are built in
-memory by `e2e/pdf.ts` and never written to disk.
+memory by `e2e/pdf.ts` and never written to disk; so are the PNGs the stamp
+flows drop and pick (`e2e/png.ts`).
 
 ## Saving
 

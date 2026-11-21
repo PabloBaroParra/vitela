@@ -69,8 +69,9 @@ export interface TextFrame {
 
 /**
  * The core lays a free-text box's lines out in the box's own frame, which
- * turns with the page (as any viewer draws the saved box). The frame is the
- * drawn box with its sides swapped on a quarter turn, turned about its centre.
+ * turns with the page (as any viewer draws the saved box); a stamp's image
+ * fills its box's frame the same way. The frame is the drawn box with its
+ * sides swapped on a quarter turn, turned about its centre.
  */
 export function freeTextFrame(rect: PageRect, rotationDegrees: number): TextFrame {
   const turn = quarterTurn(rotationDegrees);

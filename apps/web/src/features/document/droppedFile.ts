@@ -1,6 +1,6 @@
 // Which file of a drag-and-drop the viewer opens. Pure.
 
-const isPdf = (file: File) => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+export const isPdf = (file: File): boolean => file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 
 /**
  * The first PDF among `files`, else the first file at all — opening that

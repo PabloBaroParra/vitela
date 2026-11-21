@@ -1,5 +1,5 @@
 // The viewer's edits: markup over a text selection, an annotation drawn with
-// a tool (ink, shape, note, free text), and undo/redo of the
+// a tool (ink, shape, note, free text, image stamp), and undo/redo of the
 // document's history (any step: an annotation here, or a page edit made in
 // Organize). Sends them to the engine one at a time and reports every
 // edited document. Container logic only.
@@ -58,6 +58,9 @@ export type AddOutcome =
   | { readonly status: 'added' }
   | { readonly status: 'refused' }
   | { readonly status: 'failed'; readonly kind: string | null; readonly message: string };
+
+/** An edit to add, or what builds it inside its step (see `add`). */
+export type PendingEdit = AnnotationEdit | (() => Promise<AnnotationEdit>);
 
 /** How a run of queued steps ended: how many went in, whether all did, and the error that stopped it. */
 interface QueueResult {
@@ -150,19 +153,35 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
 
   /**
    * One drawn annotation on page `pageIndex`, which held the page
-   * `expectedKey` when the gesture began: one undo step. Errors of a kind in
+   * `expectedKey` when the gesture began: one undo step. `edit` may be a
+   * function that builds it (asking the core, say, where a stamp goes): it
+   * runs inside the step, after the page check, so the queue is busy from
+   * the call on and a second gesture meanwhile is refused before it asks the
+   * core anything; a build that throws fails the step. Errors of a kind in
    * `shownByCaller` (say `EncodingGap`, for a dialog that stays open with
-   * it) are returned without becoming the viewer's `failure`.
+   * it) are returned without becoming the viewer's `failure`. `onAdded`
+   * gets the new annotation's id in the same step, before the edited
+   * document is reported: what the caller keeps for it (a stamp's image) is
+   * there by the time the layer draws it.
    */
   const add = useCallback(
-    async (edit: AnnotationEdit, pageIndex: number, expectedKey: string, shownByCaller: readonly string[] = []): Promise<AddOutcome> => {
+    async (
+      edit: PendingEdit,
+      pageIndex: number,
+      expectedKey: string,
+      shownByCaller: readonly string[] = [],
+      onAdded?: (id: number) => void,
+    ): Promise<AddOutcome> => {
       if (!allowed || runningNow.current > 0) return { status: 'refused' };
       const { complete, error } = await enqueue(
         [
-          () =>
-            pageKey(latest.current, pageIndex) === expectedKey
-              ? engine.applyEdit(handle, edit)
-              : Promise.reject(new PageChanged()),
+          async () => {
+            if (pageKey(latest.current, pageIndex) !== expectedKey) throw new PageChanged();
+            const built = typeof edit === 'function' ? await edit() : edit;
+            const edited = await engine.applyEdit(handle, built);
+            if (edited.addedAnnotationId !== null) onAdded?.(edited.addedAnnotationId);
+            return edited;
+          },
         ],
         PAGE_CHANGED_UNDER_TOOL,
         shownByCaller,

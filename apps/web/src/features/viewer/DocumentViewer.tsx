@@ -1,6 +1,7 @@
 // Container: the open document as one vertically scrolling, virtualized
 // column of pages, with zoom, search, text selection, the session's
-// annotations, markup over the selection, the drawing tools and undo/redo. Only pages within a
+// annotations, markup over the selection, the drawing tools, image stamps
+// (picked or dropped on a page) and undo/redo. Only pages within a
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
@@ -10,6 +11,7 @@ import { DraftDialog } from '../annotations/DraftDialog';
 import { DrawToolbar } from '../annotations/DrawToolbar';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import { useDrawing } from '../annotations/useDrawing';
+import { useStamps } from '../annotations/useStamps';
 import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
@@ -45,9 +47,14 @@ interface DocumentViewerProps {
    * is no longer the one on screen (then it is not marked dirty either).
    */
   readonly onEdited: (handle: DocumentHandle, edited: EditedDocument) => boolean;
+  /**
+   * Keeps the image of stamp `id` with the document (the engine hands none
+   * back), so it is drawn again after a redo or when the viewer remounts.
+   */
+  readonly onStampImage: (handle: DocumentHandle, id: number, href: string) => void;
 }
 
-export function DocumentViewer({ engine, document, onEdited }: DocumentViewerProps) {
+export function DocumentViewer({ engine, document, onEdited, onStampImage }: DocumentViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages, pageIds } = document.info;
   // Zoom first: its layout effect must scroll before the metrics re-read.
@@ -99,7 +106,9 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
     shownPages.current = pages;
   });
   const rotationOf = useCallback((index: number) => shownPages.current[index]?.rotationDegrees ?? 0, []);
-  const drawing = useDrawing(editing, rotationOf);
+  const keepStampImage = useCallback((id: number, href: string) => onStampImage(handle, id, href), [onStampImage, handle]);
+  const stamps = useStamps(engine, handle, editing, keepStampImage);
+  const drawing = useDrawing(editing, rotationOf, stamps);
   const armed = drawing.tool === 'select' ? null : drawing.tool;
   useEffect(() => {
     if (armed) clearSelection();
@@ -197,6 +206,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           page={pages[index]!}
           pageKey={pageKeys[index]!}
           annotations={annotationsByPage.get(index) ?? NO_ANNOTATIONS}
+          stampImages={document.stampImages}
           slot={layout.slots[index]!}
           dpi={renderDpi(pages[index]!, renderZoom, pixelRatio)}
           label={`Page ${index + 1} of ${document.name}`}
@@ -206,6 +216,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
           textInput={textAllowed ? input : null}
           drawing={drawingInput}
+          onImageDrop={stamps.drop}
         />,
       );
     }
@@ -241,6 +252,7 @@ export function DocumentViewer({ engine, document, onEdited }: DocumentViewerPro
           onTool={drawing.choose}
           color={drawing.color}
           onColor={drawing.setColor}
+          onImage={drawing.pickImage}
           allowed={editing.allowed}
           ready={!editing.pending}
         />

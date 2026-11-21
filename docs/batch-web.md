@@ -808,7 +808,7 @@ que sigue:
 | **T-236** ✓ | `pdf-wasm` + `@vitela/core`: `applyEdit` crece con las ediciones de anotación (añadir marcado/tinta/forma/nota/texto libre/sello; mover/redimensionar/recolorear/retexto/borrar), `annotations`, `comments`, `annotationEditingAllowed`, `freeTextLayout`, `stampPlacement`; `EditedDocument` devuelve la instantánea. | `wasm-bindgen-test`: subrayar, guardar, reabrir con lopdf y encontrar `/Highlight`; deshacer lo quita; sin permiso de anotar → `EditNotPermitted`. Vitest contra pdfium real. |
 | **T-237** ✓ | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
 | **T-238** ✓ | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
-| **T-239** | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
+| **T-239** ✓ | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
 | **T-240** | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
 | **T-241** | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
 | **T-242** | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
@@ -1174,6 +1174,97 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
     `useFreeTextPreview`); la paleta de `drawing.ts` para recolorear.
   - T-241: la nota de la sesión lleva su texto en `contents`; el diálogo de lectura puede
     reutilizar `TextDialog` en solo lectura.
+
+### T-239 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Image stamps"). Sin cambios en el
+core ni en `@vitela/core`. Lo que condiciona lo que sigue:
+
+- **Archivos nuevos en `features/annotations/`:** `stamps.ts` (puro, con tests: firma PNG/JPEG,
+  `data:` URL, qué archivo de un *drop* se sella, la edición `addStamp`) y `useStamps.ts`
+  (contenedor: la imagen elegida, sellar con clic o con *drop*). `drawing.ts` gana la
+  herramienta `stamp` y un gesto `point` (el punto pulsado, dentro de la página);
+  `useDrawing` pasa ese punto a `onStamp`. `e2e/png.ts` construye los PNG en memoria (como
+  `e2e/pdf.ts`; no hay PNG en `tests/fixtures`).
+- **Dos entradas (decisión).** **Image** en la barra "Draw" abre un selector PNG/JPEG
+  (`<input type=file>` oculto, etiqueta "Stamp image"); cuando el archivo se lee arma la
+  herramienta `stamp` y **cada clic** en una página sella esa imagen (sigue armada, como las
+  demás; Escape → Select). Un PNG/JPEG **soltado sobre una página** se sella en el punto del
+  *drop* en cualquier modo, sin armar nada: el `PageSlot` reclama el *drop*
+  (`preventDefault`) y el oyente de la ventana no abre nada. Un *drop* que trae un PDF sigue
+  siendo del workspace (lo abre). Un archivo de más de `MAX_STAMP_BYTES` (20 MB) se rechaza
+  por `File.size` **antes de leerlo**; después la firma de los bytes se comprueba antes de
+  llamar al core; lo demás se rechaza con aviso ("Only PNG and JPEG…" solo para un formato
+  que no es PNG/JPEG; un archivo que no se puede leer avisa "The image could not be read…").
+  De varios *picks* solo vale el último aunque las lecturas terminen desordenadas
+  (`useStamps`), y solo arma `stamp` si el usuario no eligió otra herramienta (ni pulsó
+  Escape) mientras se leía (`useDrawing.pickImage`). El punto del *drop* se recorta a la
+  página con el mismo `clampPoint` que el clic.
+- **Colocación: toda del core.** Ancla (clic o *drop*, puntos de la página dibujada) →
+  `stampPlacement` → `addStamp`, **los dos dentro del mismo paso** de
+  `useAnnotationEdits.add` (que ahora acepta una función que construye la edición dentro del
+  paso, tras comprobar la página): un paso de deshacer, comprobado contra la página en la que
+  se pulsó (`pageKey`). **Decisión (revisión):** un doble clic rápido da **un** sello y el
+  segundo clic se rechaza **antes de llamar al motor**, igual que un segundo trazo de tinta o
+  forma: `add` rechaza mientras corre cualquier paso (regla un gesto = un paso, `runningNow`)
+  y la capa ignora pulsaciones con `busy`. Antes, `stampPlacement` corría fuera de la cola, la
+  página no estaba ocupada y el segundo clic llegaba a `add` a mitad del primero y se
+  rechazaba con "Another change was still being made" tras haber preguntado al core.
+- **La imagen no vuelve del motor:** se guarda como `data:` URL (sin petición —zero-network—
+  y sin nada que revocar) en `OpenDocument.stampImages` por `addedAnnotationId`
+  (`useDocument.keepStampImage`, como `sourceNames`). `add` gana un `onAdded(id)` que se llama
+  **en el mismo paso, antes de `onEdited`**: la capa nunca pinta el sello sin su imagen. Vive en
+  el documento y no en el visor, así que sobrevive a deshacer/rehacer (mismo id; los ids no
+  se reutilizan) y a ir a Organize y volver (el visor se vuelve a montar). Abrir otro
+  documento la descarta.
+- **Capa:** el sello con imagen es un `<image preserveAspectRatio="none">` en el marco propio
+  de la caja (`freeTextFrame`: lados cambiados y girado con la página, como la apariencia
+  guardada); sin imagen guardada sigue el recuadro discontinuo (`annotation-mark--stamp`).
+- **Permiso y fallos:** sin permiso de anotar, Image queda `aria-disabled`, descrita por la
+  misma nota (ahora "…Ink, Shape, Note, Free text and Image…"), con el selector deshabilitado;
+  un *drop* se rechaza con "This PDF does not allow annotations, so the image was not added."
+  y no abre el PNG. `InvalidImage` de `stampPlacement` falla el paso y lo muestra el visor
+  como cualquier error del core; un archivo que no es PNG/JPEG, uno que no se lee, uno
+  demasiado grande y un sello rechazado porque corría otro paso se avisan en el mismo sitio
+  (`notify`).
+- **Playwright** (`e2e/stamp.spec.ts`, tres navegadores): soltar un PNG 2:1 en (100, 150) → se
+  ve con su `data:` URL, 144 × 72 pt con la esquina en el punto; elegir un PNG 1:2 con Image y
+  hacer clic → segundo sello; Escape → Select; deshacer dos veces quita ambos y rehacer dos
+  veces los vuelve a pintar **con imagen** (ningún recuadro de reserva); guardar y encontrar
+  dos `/Stamp` con su `/Rect` en espacio PDF y `/AP << /N … R >>`, y los dos `/Image` con su
+  `/Width`/`/Height`; reabrir la descarga: capa de sesión vacía y pdfium los pinta. Segundo
+  test: en una página `/Rotate 90` el sello lleva `rotate(90)`, 72 × 144 dibujado, con el ancla
+  en la esquina superior derecha dibujada. `annotate.spec.ts` comprueba además Image apagada y
+  el *drop* rechazado en el PDF sin permiso.
+- **Verificado en local (Windows, Playwright 1.65.1):** app: `tsc -b`, Vitest 490/490 (58
+  archivos; 25 tests nuevos), build; Playwright 115 pasados / 20 saltados (los de File System
+  Access fuera de Chromium): Chromium 45/45, Firefox 35 + 10 saltados, WebKit 35 + 10
+  saltados, incluido zero-network; `stamp.spec.ts` además 18/18 con `--repeat-each=3`. Sin
+  cambios en `@vitela/core` ni en Rust.
+  Tras la revisión: `npm run typecheck` limpio, Vitest 499/499 (58 archivos), build;
+  Playwright igual (115 pasados / 20 saltados; Chromium 45, Firefox 35 + 10, WebKit 35 + 10) y
+  `stamp.spec.ts --repeat-each=3` 18/18.
+- **Revisión de T-239 (en el árbol de trabajo):** `PlaceStamp`/`ImageDrop`/`PickStamp` viven
+  junto a `useStamps`, que devuelve los manejadores listos (`place`, `drop`, `pick`);
+  `DocumentViewer` ya no tiene cableado de sellos (`useDrawing(editing, rotationOf, stamps)`,
+  `onImage={drawing.pickImage}`, `onImageDrop={stamps.drop}`). Tests nuevos: Vitest para el
+  paso con edición diferida (`useAnnotationEdits`), lectura fallida, límite de tamaño y *pick*
+  más reciente (`useStamps`), armado protegido (`useDrawing`), doble clic → una sola
+  `stampPlacement`, *drop* fuera del borde recortado y *drop* de PDF sin sello
+  (`DocumentViewer`).
+- **No cubierto:** sin vista previa del sello antes del clic (el tamaño lo decide el core al
+  colocar); un doble clic rápido no encola dos sellos (el segundo se rechaza, ver
+  Colocación); sin pegar una imagen del portapapeles; un *drop* fuera de una página (en el hueco
+  entre páginas) sigue yendo al workspace, que intenta abrir el PNG como PDF y falla con su
+  mensaje; las imágenes de sesión viven en memoria como `data:` URL (una imagen grande pesa
+  ~4/3 en memoria del shell, además de la copia del motor); no hay E2E con JPEG (solo PNG; la
+  firma JPEG tiene Vitest); no se puede mover ni redimensionar un sello (T-240).
+- **Para T-240…T-241:**
+  - T-240: `stampImages` va por id; si mover/redimensionar/borrar+deshacer conservan el id
+    de la anotación, la imagen sigue valiendo sin tocar nada (comprobarlo al implementarlo).
+    El `<image>` llena la caja (`preserveAspectRatio="none"`): un redimensionado que no
+    guarde la proporción la deformará en la capa.
+  - T-241: sin cambios por los sellos.
 
 ## Verificación
 

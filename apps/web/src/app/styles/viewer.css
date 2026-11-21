@@ -171,6 +171,11 @@
   -webkit-user-select: none;
 }
 
+/* The Image tool places the picked image where the page is clicked. */
+.drawing-layer[data-tool='stamp'] {
+  cursor: copy;
+}
+
 .drawing-layer[data-busy='true'] {
   cursor: progress;
 }

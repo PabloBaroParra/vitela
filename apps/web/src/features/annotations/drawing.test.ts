@@ -134,6 +134,18 @@ describe('finishGesture', () => {
       rect: { left: 100, top: 100, ...FREE_TEXT_CLICK_SIZE },
     });
   });
+
+  it('a stamp is the press, on the page: the anchor the core places the image at', () => {
+    expect(finishGesture('stamp', click, LETTER)).toEqual({ kind: 'point', point: press });
+    expect(finishGesture('stamp', drag, LETTER)).toEqual({ kind: 'point', point: press });
+    expect(finishGesture('stamp', [{ x: -5, y: 900 }], LETTER)).toEqual({ kind: 'point', point: { x: 0, y: 792 } });
+    expect(finishGesture('stamp', [], LETTER)).toBeNull();
+  });
+
+  it('only a stamp gesture is a point: no other tool makes an edit of it', () => {
+    expect(drawnEdit('shape', 0, { kind: 'point', point: press }, YELLOW)).toBeNull();
+    expect(drawnEdit('ink', 0, { kind: 'point', point: press }, YELLOW)).toBeNull();
+  });
 });
 
 describe('edits', () => {
@@ -157,10 +169,11 @@ describe('edits', () => {
   it('blank text is refused; colour is only for ink and shapes; the palette starts at the core default', () => {
     expect(isBlank(' \n\t')).toBe(true);
     expect(isBlank(' a ')).toBe(false);
-    expect(['select', 'ink', 'shape', 'note', 'freeText'].map((tool) => usesColor(tool as never))).toEqual([
+    expect(['select', 'ink', 'shape', 'note', 'freeText', 'stamp'].map((tool) => usesColor(tool as never))).toEqual([
       false,
       true,
       true,
+      false,
       false,
       false,
     ]);
