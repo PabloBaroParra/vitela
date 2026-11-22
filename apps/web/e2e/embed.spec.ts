@@ -227,7 +227,10 @@ test('takes a file dropped on the editor, and leaves one dropped on the host pag
 
   // Over the editor: the hint shows, and the drop opens the PDF in it.
   const pdf = buildPdf([{ widthPt: 612, heightPt: 792 }]);
-  expect(await dragFile(page, '.vitela', ['dragenter', 'dragover'])).toEqual({ taken: [false, true], hint: true });
+  expect((await dragFile(page, '.vitela', ['dragenter', 'dragover'])).taken).toEqual([false, true]);
+  // The hint is a React render away: wait for it rather than sampling it two
+  // frames later, which a loaded CI runner (Firefox) can miss.
+  await expect(page.locator('.drop-hint')).toBeVisible();
   await page.locator('.vitela').evaluate((root, bytes) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File([new Uint8Array(bytes)], 'dropped.pdf', { type: 'application/pdf' }));
