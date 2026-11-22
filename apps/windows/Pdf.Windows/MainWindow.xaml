@@ -20,7 +20,7 @@
         onto the empty state is the whole point. Same reason the page overlay
         Canvas carries one.
     -->
-    <Grid x:Name="ShellRoot" RowDefinitions="Auto,*,Auto" KeyboardAcceleratorPlacementMode="Hidden"
+    <Grid x:Name="ShellRoot" RowDefinitions="Auto,Auto,*,Auto" KeyboardAcceleratorPlacementMode="Hidden"
           Background="{ThemeResource VitelaWindowBackgroundBrush}" AllowDrop="True" DragOver="Window_DragOver" Drop="Window_Drop" Loaded="ShellRoot_Loaded">
         <Grid.KeyboardAccelerators>
             <KeyboardAccelerator Key="O" Modifiers="Control" Invoked="ShellOpen_Invoked" />
@@ -32,6 +32,10 @@
             <KeyboardAccelerator Key="F" Modifiers="Control" Invoked="FindDocument_Invoked" />
             <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewDocument_Invoked" />
             <KeyboardAccelerator Key="K" Modifiers="Control" Invoked="CommandPalette_Invoked" />
+            <KeyboardAccelerator Key="W" Modifiers="Control" Invoked="CloseTab_Invoked" />
+            <KeyboardAccelerator Key="F4" Modifiers="Control" Invoked="CloseTab_Invoked" />
+            <KeyboardAccelerator Key="Tab" Modifiers="Control" Invoked="NextTab_Invoked" />
+            <KeyboardAccelerator Key="Tab" Modifiers="Control,Shift" Invoked="PreviousTab_Invoked" />
         </Grid.KeyboardAccelerators>
         <!--
             The mode bar (GTK mode_bar.rs): Home, Edit, Annotate, Organize, Sign
@@ -56,7 +60,19 @@
             width, which collapsed the star columns and clipped the right column
             in the first Windows Home. HomeLayout reflows the columns instead.
         -->
-        <UserControl x:Name="HomeView" Grid.Row="1" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+        <!--
+            Document tabs (GTK tabs/strip.rs): one per open document, above the
+            editor and Organize screens, hidden on Home and with no document.
+            MainWindow.TabStrip.cs fills it; MainWindow.Tabs.cs owns the tabs.
+        -->
+        <Border x:Name="TabStrip" Grid.Row="1" Visibility="Collapsed" Padding="8,4,8,0"
+                Background="{ThemeResource VitelaSurfaceBrush}" BorderBrush="{ThemeResource VitelaStrongSeparatorBrush}" BorderThickness="0,0,0,1"
+                AutomationProperties.Name="{i18n:T Key=tabs-strip}">
+            <ScrollViewer HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+                <StackPanel x:Name="TabStripPanel" Orientation="Horizontal" Spacing="2" />
+            </ScrollViewer>
+        </Border>
+        <UserControl x:Name="HomeView" Grid.Row="2" IsTabStop="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
         <Grid RowDefinitions="Auto,*" Background="{ThemeResource VitelaWindowBackgroundBrush}">
             <Border Style="{StaticResource HomeHeaderStyle}">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
@@ -110,7 +126,7 @@
             </ScrollViewer>
         </Grid>
         </UserControl>
-        <Grid x:Name="EditorView" Grid.Row="1" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
+        <Grid x:Name="EditorView" Grid.Row="2" RowSpacing="0" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,*" Visibility="Collapsed">
         <Border Grid.Row="0" Style="{StaticResource EditorToolbarStyle}">
         <!--
             BuildEditorToolbar (MainWindow.Toolbar.cs) gives every button here
@@ -324,7 +340,7 @@
             </ScrollViewer>
         </Grid>
         </Grid>
-        <Grid x:Name="OrganizePanel" Grid.Row="1" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
+        <Grid x:Name="OrganizePanel" Grid.Row="2" Padding="16" Style="{StaticResource EditorMainStyle}" RowDefinitions="Auto,Auto,Auto,Auto,*"
               Visibility="Collapsed" RowSpacing="12" Loaded="OrganizePanel_Loaded">
             <StackPanel Spacing="12">
                 <TextBlock x:Name="OrganizeHeading" Text="{i18n:T Key=organize-heading}" Style="{StaticResource OrganizeHeadingStyle}" />
@@ -369,7 +385,7 @@
             <GridView x:Name="OrganizeGrid" Grid.Row="4" Visibility="Collapsed" SelectionMode="None" CanDragItems="True" CanReorderItems="True" AllowDrop="True"
                       DragOver="OrganizeGrid_DragOver" DragItemsStarting="OrganizeGrid_DragItemsStarting" DragItemsCompleted="OrganizeGrid_DragItemsCompleted" />
         </Grid>
-        <Border Grid.Row="2" Style="{StaticResource StatusBarStyle}"
+        <Border Grid.Row="3" Style="{StaticResource StatusBarStyle}"
                 AutomationProperties.Name="{i18n:T Key=editor-status-bar}">
             <StackPanel Spacing="4">
                 <TextBlock x:Name="AnnotationStatus" Style="{StaticResource StatusTextStyle}" Text="{i18n:T Key=editor-idle-status}"
@@ -387,7 +403,7 @@
             click outside the card and closes the palette; the card keeps Tab
             inside it. Behaviour lives in MainWindow.Palette.cs.
         -->
-        <Grid x:Name="PaletteLayer" Grid.RowSpan="3" Visibility="Collapsed"
+        <Grid x:Name="PaletteLayer" Grid.RowSpan="4" Visibility="Collapsed"
               ProcessKeyboardAccelerators="PaletteLayer_ProcessKeyboardAccelerators">
             <Rectangle x:Name="PaletteScrim" Fill="{ThemeResource VitelaWindowBackgroundBrush}" Opacity="0.55"
                        PointerPressed="PaletteScrim_PointerPressed" />

@@ -40,7 +40,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = I18n.T("protect-cancelled");
                 return;
             }
-            if (_session?.SessionId != session.SessionId) return;
+            if (_session?.SessionId != session.SessionId || RefuseHeldDestination(file.Path)) return;
             var result = await _facade.ProtectToDestinationAsync(
                 session.SessionId,
                 passwords.Value.Open,

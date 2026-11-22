@@ -110,6 +110,8 @@
     <Compile Include="..\Pdf.Windows\Viewer\PaletteCatalog.cs" Link="Viewer\PaletteCatalog.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ShellShortcuts.cs" Link="Viewer\ShellShortcuts.cs" />
     <Compile Include="..\Pdf.Windows\Viewer\ShellModes.cs" Link="Viewer\ShellModes.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\DocumentTabList.cs" Link="Viewer\DocumentTabList.cs" />
+    <Compile Include="..\Pdf.Windows\Viewer\TabOpenRouting.cs" Link="Viewer\TabOpenRouting.cs" />
     <Compile Include="..\Pdf.Windows\Localization\Language.cs" Link="Localization\Language.cs" />
     <Compile Include="..\Pdf.Windows\Localization\Translations.cs" Link="Localization\Translations.cs" />
     <Compile Include="..\Pdf.Windows\Localization\I18n.cs" Link="Localization\I18n.cs" />

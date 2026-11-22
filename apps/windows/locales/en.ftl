@@ -1144,3 +1144,28 @@ export-dpi-out-of-range = Choose a resolution between { $min } and { $max } DPI.
 export-page-oversized = Page { $page } is too large to export at { $dpi } DPI. Choose a lower resolution.
 # Keep "1-3,7" as typed: it is an example of the accepted page-range syntax.
 watermark-empty-selection = Type which pages to stamp, for example 1-3,7.
+
+## Document tabs: the strip, closing a tab and the switching refusals
+
+tabs-strip = Open documents
+tabs-close-tooltip = Close (Ctrl+W)
+# $name (String) - the document's file name.
+tabs-close-named = Close { $name }
+# $name (String) - the document's file name.
+tabs-tab-unsaved = { $name }, unsaved changes
+# $name (String) - the active document's file name.
+tabs-window-title = { $name } — Vitela
+# $name (String) - the document's file name.
+tabs-closed = Closed { $name }.
+tabs-busy = Wait for the current operation on this document to finish before switching or closing tabs.
+tabs-dialog-open = Close the open dialog before switching or closing tabs.
+tabs-finish-editing = Finish or cancel the text you are editing first.
+tabs-gone = That tab is no longer open.
+tabs-no-document = No document is open.
+tabs-unsaved-detail-closing = This document has changes that are not saved. Closing it will discard them.
+tabs-path-open-elsewhere = That file is open in another tab. Close that tab first, or choose another name.
+# $name (String) - the document's file name.
+tabs-opened-in-background = Opened { $name } in a new tab.
+tabs-close-held = Vitela stayed open: a document is still being worked on. Close the window again once it finishes.
+tabs-reload-skipped = The document was not reloaded because it changed while it was being read.
+tabs-unsaved-detail-reloading = This document has changes that are not saved. Reading it again from disk will discard them.

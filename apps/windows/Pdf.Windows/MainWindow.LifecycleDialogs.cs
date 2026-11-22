@@ -22,14 +22,16 @@ public sealed partial class MainWindow
         return false;
     }
 
-    private async Task<PendingEditDecision> AskPendingEditDecisionAsync(bool closing = false)
+    /// <param name="closing">Whether the window is closing, which has its own explanation.</param>
+    /// <param name="detail">An explanation of its own — closing or reloading one tab — over the default ones.</param>
+    private async Task<PendingEditDecision> AskPendingEditDecisionAsync(bool closing = false, string? detail = null)
     {
         var dialog = new ContentDialog
         {
             Title = I18n.T("open-unsaved-title"),
             Content = new TextBlock
             {
-                Text = closing ? I18n.T("open-unsaved-detail-closing") : I18n.T("open-unsaved-detail-opening"),
+                Text = detail ?? (closing ? I18n.T("open-unsaved-detail-closing") : I18n.T("open-unsaved-detail-opening")),
                 TextWrapping = TextWrapping.Wrap,
             },
             PrimaryButtonText = I18n.T("open-unsaved-save"),
@@ -53,33 +55,19 @@ public sealed partial class MainWindow
         // Cancel synchronously: an async confirmation cannot defer the native event.
         if (_approvedClose) return;
         args.Cancel = true;
-        if (_confirmingClose || _dialogOpen || _shellPickingFile || _isBusy
-            || _savingDocument || _protectingDocument || _compressingDocument
-            || _exportingImages || _extractingPages || _splittingPages) return;
+        if (_confirmingClose || _dialogOpen || _shellPickingFile) return;
+        if (_isBusy || _savingDocument || _protectingDocument || _compressingDocument
+            || _exportingImages || _extractingPages || _splittingPages || _tabsOpening || _tabSwitching)
+        {
+            // Nothing happens on a refused close but this line: say so.
+            AnnotationStatus.Text = I18n.T("tabs-close-held");
+            return;
+        }
         _confirmingClose = true;
         try
         {
-            SetBusy(true);
-            if (!await PrepareDocumentLifecycleAsync()) return;
-            var sessionId = _session?.SessionId;
-            var pending = sessionId is null ? null : await _facade.HasUnsavedChangesAsync(sessionId);
-            SetBusy(false);
-            RestoreAnnotationControls();
-            if (pending is { IsSuccess: false })
-            {
-                AnnotationStatus.Text = pending.Error!.Message;
-                return;
-            }
-            if (pending?.Value == true)
-            {
-                var decision = await AskPendingEditDecisionAsync(closing: true);
-                if (decision == PendingEditDecision.Cancel)
-                {
-                    return;
-                }
-                if (decision == PendingEditDecision.Save && !await SaveToPickedFileAsync()) return;
-            }
-            if (_session?.SessionId != sessionId) return;
+            // Every tab with unsaved work is asked about in turn (MainWindow.TabClose.cs).
+            if (!await ResolveUnsavedTabsForCloseAsync()) return;
             // Close destroys this window; no second system-close confirmation is needed.
             _approvedClose = true;
             Close();

@@ -92,19 +92,22 @@ public sealed partial class MainWindow
         Check(Entries(dir, "pdf").Length == 1 && Entries(dir, "meta").Length == 1, "a forced tick writes one entry for the unsaved edit");
         Check(dir.Orphans(_ => { }).Count == 0, "while the window lives, its entry is held and not offered");
         var crashedPdf = Entries(dir, "pdf").Single();
-        var unchangedTick = _autosave!.Attempts;
+        // Each document tab has its own entry; this one is the only tab.
+        var autosave = ActiveTab!.Autosave!;
+        var unchangedTick = autosave.Attempts;
         await TickAutosaveAsync();
-        Check(_autosave.Attempts == unchangedTick, "an unchanged document is not serialized again");
+        Check(autosave.Attempts == unchangedTick, "an unchanged document is not serialized again");
 
         // Crash: the lock goes with the process, the files stay.
-        _autosave.ReleaseLikeACrash();
+        autosave.ReleaseLikeACrash();
         _autosaveTimer!.Stop();
         Check(File.Exists(crashedPdf), "a crash leaves the entry");
 
         // Relaunch: an empty window, a fresh scheduler, the startup offer.
         var blank = await _facade.CreateBlankAsync(discardPendingEdits: true);
         ShowOpenedDocument(blank.Value!);
-        _autosave = null;
+        foreach (var tab in _tabs.Values) tab.Autosave = null;
+        _recoveryDirectory = null;
         _autosaveTimer = null;
         _recoveryOffered = false;
         EnableCrashRecovery(dir);
@@ -122,6 +125,7 @@ public sealed partial class MainWindow
         Check((await _facade.HasUnsavedChangesAsync(restored.SessionId)).Value, "as an unsaved document");
         await Wait(() => !File.Exists(crashedPdf), "the crashed entry is deleted once this window has written its own");
         Check(Entries(dir, "pdf").Length == 1 && Entries(dir, "pdf").Single() != crashedPdf, "the restored work is in this window's entry");
+        Check(_tabList.Count == 2, "the restored document lands in a tab of its own beside the blank one");
 
         // A clean close deletes everything.
         ShutDownAutosave();

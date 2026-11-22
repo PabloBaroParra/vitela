@@ -28,6 +28,7 @@ public sealed partial class MainWindow
         // Mirror the existing operation guard rather than introduce another busy owner.
         OpenButton.RegisterPropertyChangedCallback(Control.IsEnabledProperty, (_, _) =>
             SetNavigationEnabled(OpenButton.IsEnabled && !_shellPickingFile));
+        OpenStartupPaths();
     }
 
     private void SetNavigationEnabled(bool enabled)
@@ -42,6 +43,7 @@ public sealed partial class MainWindow
         OrganizePanel.Visibility = Visibility.Collapsed;
         HomeView.Visibility = Visibility.Visible;
         ReturnToDocumentButton.Visibility = _session is null ? Visibility.Collapsed : Visibility.Visible;
+        UpdateTabStripVisibility();
         _ = RefreshRecentFilesAsync();
     }
 
@@ -51,6 +53,7 @@ public sealed partial class MainWindow
         HomeView.Visibility = Visibility.Collapsed;
         EditorView.Visibility = _organizing ? Visibility.Collapsed : Visibility.Visible;
         OrganizePanel.Visibility = _organizing ? Visibility.Visible : Visibility.Collapsed;
+        UpdateTabStripVisibility();
     }
 
     private void ReturnToDocument_Click(object sender, RoutedEventArgs e)
@@ -70,10 +73,11 @@ public sealed partial class MainWindow
             var picker = new FileOpenPicker();
             picker.FileTypeFilter.Add(".pdf");
             InitializeWithWindow.Initialize(picker, WindowNative.GetWindowHandle(this));
-            var file = await picker.PickSingleFileAsync();
-            if (file is null) return false;
+            // Several files open as several tabs: the first in front, the rest behind it.
+            var files = await picker.PickMultipleFilesAsync();
+            if (files is null || files.Count == 0) return false;
             var previous = _session;
-            await OpenStorageFileAsync(file);
+            await OpenFilesInTabsAsync(files.ToList());
             return _session is not null && !ReferenceEquals(previous, _session);
         }
         catch (Exception error)

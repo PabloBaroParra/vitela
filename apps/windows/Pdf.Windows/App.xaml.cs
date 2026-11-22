@@ -26,5 +26,9 @@ public partial class App : Application
         window.Activate();
         // Only the real startup autosaves; the smoke harnesses replace this App.
         window.EnableCrashRecovery(new RecoveryDirectory(RecoveryDirectory.DefaultRoot));
+        // Files named on the command line — Explorer's "Open with" on one or
+        // several PDFs — open as document tabs once the window is ready.
+        var files = Environment.GetCommandLineArgs().Skip(1).Where(File.Exists).ToList();
+        if (files.Count > 0) window.OpenAtStartup(files);
     }
 }

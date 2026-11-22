@@ -1038,3 +1038,28 @@ export-forbidden = Este documento no permite extraer sus páginas como imágenes
 export-dpi-out-of-range = Elige una resolución entre { $min } y { $max } DPI.
 export-page-oversized = La página { $page } es demasiado grande para exportarla a { $dpi } DPI. Elige una resolución más baja.
 watermark-empty-selection = Escribe qué páginas quieres estampar, por ejemplo 1-3,7.
+
+## Document tabs: the strip, closing a tab and the switching refusals
+
+tabs-strip = Documentos abiertos
+tabs-close-tooltip = Cerrar (Ctrl+W)
+# $name (String) - the document's file name.
+tabs-close-named = Cerrar { $name }
+# $name (String) - the document's file name.
+tabs-tab-unsaved = { $name }, cambios sin guardar
+# $name (String) - the active document's file name.
+tabs-window-title = { $name } — Vitela
+# $name (String) - the document's file name.
+tabs-closed = Se cerró { $name }.
+tabs-busy = Espera a que termine la operación en curso en este documento antes de cambiar o cerrar pestañas.
+tabs-dialog-open = Cierra el diálogo abierto antes de cambiar o cerrar pestañas.
+tabs-finish-editing = Termina o cancela primero el texto que estás editando.
+tabs-gone = Esa pestaña ya no está abierta.
+tabs-no-document = No hay ningún documento abierto.
+tabs-unsaved-detail-closing = Este documento tiene cambios que no se han guardado. Si lo cierras, se descartarán.
+tabs-path-open-elsewhere = Ese archivo está abierto en otra pestaña. Cierra esa pestaña primero o elige otro nombre.
+# $name (String) - the document's file name.
+tabs-opened-in-background = Se abrió { $name } en una pestaña nueva.
+tabs-close-held = Vitela sigue abierto: todavía se está trabajando en un documento. Vuelve a cerrar la ventana cuando termine.
+tabs-reload-skipped = El documento no se volvió a cargar porque cambió mientras se leía.
+tabs-unsaved-detail-reloading = Este documento tiene cambios que no se han guardado. Si vuelves a leerlo del disco, se descartarán.

@@ -87,7 +87,7 @@ public sealed partial class MainWindow
                 AnnotationStatus.Text = I18n.T("compress-nothing-written");
                 return;
             }
-            if (_session?.SessionId != sessionId) return;
+            if (_session?.SessionId != sessionId || RefuseHeldDestination(file.Path)) return;
 
             AnnotationStatus.Text = I18n.T("compress-writing");
             var folder = await StorageFolder.GetFolderFromPathAsync(Path.GetDirectoryName(file.Path)!);
