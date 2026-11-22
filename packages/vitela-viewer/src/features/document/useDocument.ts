@@ -2,11 +2,22 @@
 // asks for a password when the core says one is needed, and tracks what the
 // UI should show. Container logic only, no markup.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '@vitela/core';
 import type { Annotation, DocumentHandle, DocumentInfo, EditedDocument, Engine } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { recordFileStamp } from '../../platform/fileStamp';
+
+/**
+ * What a document opens from: a picked or dropped `File`, or bytes the host
+ * page handed over (fetched from a URL, or already in memory). Read afresh on
+ * every attempt (a password retry), because the engine takes the bytes by
+ * transfer; a read that fails is a failed open, with its message.
+ */
+export interface PdfSource {
+  readonly name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
 
 export interface OpenDocument {
   readonly name: string;
@@ -76,7 +87,7 @@ export function useDocument(engine: Engine) {
   const [state, setState] = useState<DocumentState>({ document: null, activity: IDLE });
   const latest = useRef(0);
   /** The file waiting for a password; `null` when no prompt is open. */
-  const locked = useRef<{ file: File; fileHandle?: WritableFileHandle; attempt: number } | null>(null);
+  const locked = useRef<{ file: PdfSource; fileHandle?: WritableFileHandle; attempt: number } | null>(null);
   /** The handle of the document on screen, the one engine document kept. */
   const shown = useRef<DocumentHandle | null>(null);
   const release = useCallback(
@@ -85,8 +96,23 @@ export function useDocument(engine: Engine) {
     [engine],
   );
 
+  // The document on screen goes with the editor: a host that keeps its engine
+  // (and mounts the editor again later) must not keep every document opened.
+  // Only on unmount, with the engine as it is then.
+  const releaseNow = useRef(release);
+  useEffect(() => {
+    releaseNow.current = release;
+  }, [release]);
+  useEffect(
+    () => () => {
+      if (shown.current !== null) releaseNow.current(shown.current);
+      shown.current = null;
+    },
+    [],
+  );
+
   const attempt = useCallback(
-    (file: File, fileHandle: WritableFileHandle | undefined, attemptId: number, password: string | undefined) => {
+    (file: PdfSource, fileHandle: WritableFileHandle | undefined, attemptId: number, password: string | undefined) => {
       const current = () => attemptId === latest.current;
       // Read afresh each time: the engine takes the bytes by transfer.
       file
@@ -121,7 +147,7 @@ export function useDocument(engine: Engine) {
   );
 
   const open = useCallback(
-    (file: File, fileHandle?: WritableFileHandle) => {
+    (file: PdfSource, fileHandle?: WritableFileHandle) => {
       const attemptId = ++latest.current;
       locked.current = null;
       // The file as the user opened it, to notice a change made behind our back before a save.

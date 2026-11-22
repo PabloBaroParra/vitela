@@ -1295,7 +1295,7 @@ Hechos de partida (mapa de `apps/web`, 2026-11-21):
 | **T-244** ✓ | `packages/vitela-viewer` (`@vitela/viewer`, workspace npm): se **mueve** ahí la UI del editor (`DocumentWorkspace` y `features/document`, `viewer`, `organize`, `annotations`, `render`, `search`, `text`, `save`, `platform`, las piezas de `ui/` que usa, `useEngineStatus`, sus estilos y sus tests). `apps/web` lo consume como dependencia. **Cero cambio de comportamiento.** | Vitest del paquete y de la app en verde (mismos totales repartidos); Playwright completo de la app en los tres navegadores; `typecheck`; build. |
 | **T-245** ✓ | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
 | **T-246** ✓ | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
-| **T-247** | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
+| **T-247** ✓ | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
 | **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
 
 Riesgos abiertos (NO verificados):
@@ -1303,6 +1303,7 @@ Riesgos abiertos (NO verificados):
 - Vite pre-empaqueta las dependencias (`optimizeDeps`) y eso rompe
   `new Worker(new URL('…', import.meta.url))` dentro de `node_modules`; probablemente el
   consumidor necesite `optimizeDeps.exclude: ['@vitela/core']`. Se comprueba en T-247.
+  **Comprobado en T-247:** con Vite 8.3.8 no hace falta (ver "T-247 — resultado").
 - Estilos de la anfitriona que se cuelan **dentro** del editor: la clase raíz evita que
   los nuestros salgan, no que entren los suyos. Shadow DOM lo resolvería pero choca con
   los diálogos y la selección de texto; se decide con la anfitriona de prueba de T-245.
@@ -1563,6 +1564,149 @@ Lo que condiciona T-247:
 - Shadow DOM: `contains` y `isConnected` no cruzan sombras; si T-247 monta el editor en un
   shadow root, el ámbito hay que revisarlo allí.
 - Dos editores en la misma página: cada uno tiene su raíz y su ámbito, pero no se probó.
+
+### T-247 — resultado
+
+`@vitela/viewer` tiene ya una API para cualquier web: `<VitelaViewer>` (React) y
+`mountViewer(element, options)` (sin React propio), en `packages/vitela-viewer/src/embed/`.
+`<VitelaViewer>` es un contenedor sobre `DocumentWorkspace`: arranca (y para) su motor si no
+le dan uno, abre lo que le pasa la anfitriona, manda los guardados a `onSave` y dice cuándo
+el motor carga o falla. El marcado sigue siendo el del workspace.
+
+- **Superficie pública** (`src/index.ts`): `VitelaViewer` + `VitelaViewerProps`,
+  `VitelaViewerHandle`, `ViewerEngine`; `mountViewer` + `MountViewerOptions`,
+  `MountedViewer`; los tipos `ViewerSource` y `SaveCallback`. Siguen públicos
+  `DocumentWorkspace` + `DocumentScreen`, `EventScope`, `useEngineStatus` + `EngineStatus` y
+  `StatusLine`: la app (`App.tsx`, `tools.ts`) y su anfitriona de prueba (`e2e/host/main.ts`)
+  los usan para montar su propio shell (landing y rutas de herramientas alrededor del
+  editor), así que quitarlos rompería `apps/web`. El README los presenta como piezas de bajo
+  nivel. `EditorScopeContext`, `Delivery` y `callbackDelivery` no se exportan.
+- **Props** (y opciones de `mountViewer`, las mismas sin `ref`): `source` (`File`,
+  `Uint8Array` o URL `string`/`URL`), `name`, `engine` **o** `engineOptions`, `onSave(bytes,
+  name)`, `filePicker` (por defecto `true`), `initialScreen` y `eventScope` (por defecto
+  `'editor'`, como pidió T-246). Un `source` nuevo abre el documento nuevo.
+- **Fuentes:** `useDocument` ya no pide un `File` sino un `PdfSource` (`name` +
+  `arrayBuffer()`), que un `File` cumple tal cual, así que el selector y la caída no cambian.
+  Los bytes se **copian** en cada lectura (el motor los recibe por transferencia y el array de
+  la anfitriona quedaría separado); una URL se pide con `fetch` **una vez** y se reutiliza en
+  un reintento de contraseña (un fallo sí se reintenta). Un fallo al leer es un fallo al
+  abrir, con su mensaje en la línea de estado: `Could not open x.pdf: HTTP 404 Not Found`. El
+  nombre sale de `name`, si no del último tramo de la ruta de la URL (decodificado), si no
+  `document.pdf`.
+- **`onSave` como `Delivery`:** `callbackDelivery` (`features/save/callbackDelivery.ts`)
+  resuelve `prepare` al momento (no hay fichero que comprobar ni permiso que pedir) y
+  `deliver` espera al callback. Un resultado nuevo, `{ how: 'delivered' }`, quita la marca
+  de "cambios sin guardar" igual que `wrote` (la anfitriona ya tiene las ediciones) y se
+  lee "Saved x.pdf."; si el callback rechaza, el guardado falla con su mensaje. El callback
+  más reciente se lee por `ref`, así que una función nueva en cada render no rehace la
+  entrega. Sin `onSave`, la entrega es la de siempre (`browserDelivery`).
+- **`engine` o `engineOptions`:** con `engine`, la anfitriona lo mantiene vivo tras
+  desmontar. Sin él, el visor llama a `createEngine(engineOptions)` en un efecto (nunca en el
+  render: ni SSR ni dobles workers en StrictMode) y lo para al desmontar. Para eso
+  `@vitela/core` gana `EngineClient.terminate()`: hace fallar lo pendiente y lo posterior
+  con "the engine was terminated", también un `ready` pendiente, y llama a
+  `Worker.terminate()` (`MessagePortLike.terminate?` es opcional). Sin `terminate`,
+  `destroy()` habría dejado un worker con pdfium vivo por cada montaje. Un `createEngine`
+  que lanza (opción inválida) se muestra como "The PDF engine failed to load: …".
+- **Al desmontar,** `useDocument` cierra en el motor el documento en pantalla. Con un motor
+  compartido, cada montaje habría dejado su documento abierto en el worker.
+- **Handle:** `open(source, name?)` y `save()` (más `destroy()` en `mountViewer`) **no
+  devuelven nada**. Cómo fue la apertura o el guardado lo dice la línea de estado del editor,
+  y los bytes llegan a `onSave`. Una promesa habría tenido que decidir qué significa
+  "terminado" con una contraseña pendiente o una pregunta de firma abierta, y habría
+  cambiado el tipo de `open`/`save` en hooks que usan decenas de tests. `open` antes de que
+  el motor esté listo espera; la última petición gana y cada una se abre una sola vez (un
+  `ref` con su número, por los efectos dobles de StrictMode). `DocumentWorkspace` gana
+  `filePicker`, `delivery` y un `ref` (`WorkspaceHandle`) con esas dos operaciones.
+- **`mountViewer`** usa `createRoot` y un `flushSync` en el primer render, así que el handle
+  funciona en cuanto vuelve. `destroy()` desmonta y vacía el elemento; las llamadas
+  posteriores no hacen nada, y destruir dos veces no falla.
+- Sin documento abierto, el visor centra la acción de abrir (o el estado del motor) en
+  `.workspace__empty` (regla nueva en `viewer.css`, dentro de lo que exige
+  `styles/scoped.test.ts`).
+
+**El riesgo de `optimizeDeps`, comprobado** (Vite 8.3.8, paquetes empaquetados, Chromium,
+Firefox y WebKit): **no hace falta `optimizeDeps.exclude`**. En dev, Vite pre-empaqueta
+`@vitela/viewer` **junto con** `@vitela/core` en `node_modules/.vite/deps/@vitela_viewer.js`
+(visto en `_metadata.json`) y reescribe el
+`new Worker(new URL('./worker/worker.js', import.meta.url))` a
+`new URL("../../@vitela/core/dist/worker/worker.js", import.meta.url)`, que apunta otra vez
+al fichero del paquete; el worker y sus WASM cargan desde `node_modules`. Con
+`optimizeDeps.exclude: ['@vitela/core', '@vitela/viewer']` también funciona (prueba
+desechable en Chromium dev, 2/2), pero no cambia nada. En el build tampoco hace falta
+`worker.format: 'es'` ni `assetsInlineLimit: 0`: el worker sale en un solo fichero con el
+formato por defecto (IIFE) y los dos `.wasm` y el pegamento de pdfium salen como assets. El
+`vite.config` del ejemplo solo tiene `@vitejs/plugin-react` y las dos entradas HTML. No se
+probaron otras versiones de Vite ni otros bundlers; el README remite a
+`engineOptions.workerUrl`/`assetBaseUrl` si uno no sigue el `new URL(…)`.
+
+Ejemplo consumidor: `examples/embed-vite` (no es miembro del workspace npm). Su
+`package-lock.json` fija React, Vite y Playwright; `npm run setup`
+(`scripts/install-packed.mjs`) hace `npm pack` de `@vitela/core` y `@vitela/viewer` en
+`.packs/` (su `prepack` limpia y construye `dist/`) y los instala con `npm install --no-save`
+**encima**, sin enlaces de workspace y sin referencias `file:` en `package.json` ni en el
+lockfile (su integridad cambiaría en cada build); `npm ls` muestra el `@vitela/core` del
+viewer como `deduped` sobre el tarball. Copia además `large/edit_reopen_10pg.pdf` a
+`public/sample.pdf`. Dos páginas: `index.html` (`<VitelaViewer>` en `StrictMode`, abre
+`/sample.pdf`, guarda en `onSave` y puede reabrir los bytes guardados como `source`) y
+`vanilla.html` (`mountViewer` sin selector, con el handle en `window` para el test).
+`npm run typecheck` comprueba las páginas contra los `.d.ts` del tarball
+(`skipLibCheck: false`).
+
+Flujos (`examples/embed-vite/e2e/embed.spec.ts`, 2 tests × 3 navegadores × 2 servidores =
+12; proyectos `chromium-build` … `webkit-dev`, build + `vite preview` en el 4180 y
+`vite` dev en el 4181):
+
+- `<VitelaViewer>`: abre `sample.pdf` desde la URL (10 páginas), borra la primera en
+  Organize, Save → "Saved sample.pdf.", la anfitriona recibe `sample.pdf: N bytes, starts
+  %PDF-` y la marca de cambios desaparece; reabre los bytes y son 9 páginas. Sin errores de
+  página.
+- `mountViewer`: lo mismo con `viewer.save()` y `viewer.open(bytes, 'saved.pdf')` desde el
+  test, sin "Open PDF"; `viewer.destroy()` vacía el contenedor y el worker se cierra
+  (`page.workers()` pasa de 1 a 0, evento `close`).
+
+CI (`web.yml`): tras el Playwright de la app (empaquetar limpia y reconstruye los `dist/`),
+`npm ci` + `npm run setup`, `npm run typecheck` y `npx playwright test` en
+`examples/embed-vite`, con los navegadores ya instalados; `examples/embed-vite/**` entra en
+los `paths`, su lockfile en la caché de `setup-node` y sus informes en el artefacto de
+fallo. Ningún paso existente cambia.
+
+Gates (Windows 11, local):
+
+- `@vitela/core`: `npm run typecheck`, `npm test` y `npm run build` en verde. Vitest
+  **13 ficheros / 134 tests** (antes 13 / 132): los 2 de `terminate()` en `client.test.ts`,
+  vistos en rojo antes de implementar.
+- `@vitela/viewer`: `npm run typecheck`, `npm test` y `npm run build` en verde. Vitest
+  **57 ficheros / 532 tests** (antes 54 / 505): `VitelaViewer.test.tsx` (15),
+  `mountViewer.test.tsx` (2), `callbackDelivery.test.ts` (3), `DocumentWorkspace` (2),
+  `useDocument` (3), `useSave` (1) y `SaveControls` (1). En rojo antes de implementar: los
+  tres ficheros nuevos (no existía el módulo) y 5 tests de los existentes; dos de
+  `useDocument` (abrir una fuente que no es `File` y el fallo al leerla) ya pasaban, porque
+  el hook solo usaba `name` y `arrayBuffer()`: fijan ese contrato.
+- `apps/web`: `npm run typecheck`, `npm test` (**6 / 19**, sin cambios) y `npm run build`
+  en verde. No cambia ningún fichero de la app.
+- Playwright de `apps/web` (Chromium, Firefox, WebKit): **148 pasan, 20 omitidos**, como en
+  T-246. Una primera pasada dio 147 / 1 fallo / 20: el test conocido de
+  `embed.spec.ts` "takes a file dropped on the editor…" en Firefox (`hint: false`), el
+  mismo que arregla el PR #632, fuera de esta rama; con `--repeat-each=5` volvió a fallar 1
+  de 15. No se tocó aquí.
+- Playwright de `examples/embed-vite`: **12 pasan** (build y dev, tres navegadores).
+- Los flujos del ejemplo se escribieron después de la API: no se vieron en rojo (sin la API
+  no compilan).
+
+Lo que condiciona T-248:
+
+- El ejemplo es el sitio para la verificación de T-248: cuando los paquetes estén en npm,
+  `npm run setup` se cambia por `npm install @vitela/core @vitela/viewer` de las versiones
+  publicadas, con los mismos 12 flujos.
+- Publicar los dos a la vez y con la misma versión: `@vitela/viewer` depende de
+  `@vitela/core` **exacto** (`0.1.0`), y `terminate()` solo existe desde este cambio. Un
+  viewer publicado contra un core anterior fallaría al desmontar.
+- `npm pack` del viewer incluye ahora `README.md` (npm lo añade solo); `files` no cambia.
+- `onSave` no distingue "Save anyway" de "Save a copy" en la pregunta de firma: los dos
+  entregan los bytes con el nombre del documento (README, "Not supported yet").
+- React sigue siendo `peerDependency` exacta (`19.3.1`); un consumidor con otra 19.x choca
+  con ella al instalar (no probado). Relajarla a `^19` es decisión aparte.
 
 ## Verificación
 

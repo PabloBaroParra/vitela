@@ -39,6 +39,7 @@ export class EngineClient implements Engine {
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private failure: Error | null = null;
+  private terminated = false;
   private settleReady!: { resolve(): void; reject(reason: Error): void };
 
   constructor(private readonly port: MessagePortLike<WorkerMessage, RequestEnvelope>) {
@@ -120,6 +121,18 @@ export class EngineClient implements Engine {
   stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect> {
     // Copied, not transferred: the caller still has a stamp to add with it.
     return this.send({ kind: 'stampPlacement', document, pageIndex, image, anchor });
+  }
+
+  /**
+   * Stops the worker for good, freeing its memory (every open document goes
+   * with it). Pending and later requests fail, as does a `ready` still
+   * pending. For a host that unmounts the editor; calling it again does nothing.
+   */
+  terminate(): void {
+    if (this.terminated) return;
+    this.terminated = true;
+    this.fail('the engine was terminated');
+    this.port.terminate?.();
   }
 
   /** Marks the engine dead (e.g. the worker script failed to load). */

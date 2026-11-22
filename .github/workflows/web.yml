@@ -5,12 +5,15 @@ name: web
 # @vitela/viewer). The core crates stay gated by core.yml; this workflow
 # builds the WASM the worker loads, then runs the three Vitest suites and the
 # Playwright flows (Chromium, Firefox and WebKit) against the production build.
+# Last, examples/embed-vite installs both packages as `npm pack` tarballs (what
+# a consumer gets from npm) and runs its own flows, build and dev server.
 on:
   push:
     branches: [main]
     paths:
       - "apps/web/**"
       - "packages/**"
+      - "examples/embed-vite/**"
       - package.json
       - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
@@ -24,6 +27,7 @@ on:
     paths:
       - "apps/web/**"
       - "packages/**"
+      - "examples/embed-vite/**"
       - package.json
       - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
@@ -92,7 +96,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            examples/embed-vite/package-lock.json
       # npm workspaces: one install and one lockfile at the repository root.
       - name: Install npm dependencies
         run: npm ci
@@ -123,6 +129,21 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
       - name: Playwright (chromium, firefox, webkit)
         run: npx playwright test
+      # Not a workspace member: its own lockfile for React, Vite and Playwright,
+      # then the two packed tarballs on top (`npm run setup`). It runs after
+      # the app's flows because packing cleans and rebuilds the packages' dist/.
+      - name: "Example consumer (examples/embed-vite): install the packed packages"
+        working-directory: examples/embed-vite
+        run: |
+          npm ci
+          npm run setup
+      - name: "Example consumer: type-check against the packed declarations"
+        working-directory: examples/embed-vite
+        run: npm run typecheck
+      - name: "Example consumer: Playwright (chromium, firefox, webkit; build and dev server)"
+        working-directory: examples/embed-vite
+        run: npx playwright test
+
       - name: Upload the Playwright report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -131,4 +152,6 @@ jobs:
           path: |
             apps/web/playwright-report
             apps/web/test-results
+            examples/embed-vite/playwright-report
+            examples/embed-vite/test-results
           retention-days: 7

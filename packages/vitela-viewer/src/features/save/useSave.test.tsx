@@ -298,6 +298,17 @@ describe('useSave', () => {
       expect(result.current.dirty).toBe(false);
     });
 
+    it('handing the bytes to the host page clears them', async () => {
+      const { engine } = savingEngine();
+      const { delivery } = deliveries(undefined, undefined, { how: 'delivered', name: 'a.pdf' });
+      const { result } = renderHook(() => useSave(engine, document, delivery));
+      act(() => result.current.markDirty());
+
+      act(() => result.current.save());
+      await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+      expect(result.current.dirty).toBe(false);
+    });
+
     it('an edit made while the save runs stays unsaved even when the save wrote the file', async () => {
       let release: () => void = () => {};
       const gate = new Promise<void>((resolve) => (release = resolve));

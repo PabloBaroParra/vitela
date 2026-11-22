@@ -388,5 +388,36 @@ describe('useDocument', () => {
     await waitFor(() => expect(result.current.state.document?.handle).toBe(2));
     expect(result.current.state.document?.stampImages).toBeUndefined();
   });
-});
 
+  it('opens any named source of bytes, not only a File', async () => {
+    const seen: number[][] = [];
+    const engine = engineWith(async (bytes) => (seen.push([...bytes]), info(1)));
+    const { result } = renderHook(() => useDocument(engine));
+    const source = { name: 'fetched.pdf', arrayBuffer: async () => new Uint8Array([9, 8]).buffer };
+
+    act(() => result.current.open(source));
+    await waitFor(() => expect(result.current.state.document?.name).toBe('fetched.pdf'));
+    expect(seen).toEqual([[9, 8]]);
+  });
+
+  it('reports a source whose bytes cannot be read as a failed open, with its message', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    const source = { name: 'gone.pdf', arrayBuffer: () => Promise.reject(new Error('HTTP 404 Not Found')) };
+
+    act(() => result.current.open(source));
+    await waitFor(() =>
+      expect(result.current.state.activity).toEqual({ kind: 'failed', name: 'gone.pdf', message: 'HTTP 404 Not Found' }),
+    );
+  });
+
+  it('closes the document on screen in the engine when it unmounts', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result, unmount } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(1));
+
+    unmount();
+    expect(engine.closed).toEqual([1]);
+  });
+});
