@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vitela embed host (E2E fixture)</title>
+  </head>
+  <body>
+    <!-- A page that is not ours: the editor mounts into #host-frame, between
+         host elements that carry the host's own aggressive styles. -->
+    <header class="host-header">
+      <h1>Host page</h1>
+      <button id="host-button" type="button">Host button</button>
+      <a id="host-link" href="#host-frame">Host link</a>
+    </header>
+    <section id="host-frame"></section>
+    <footer>
+      <button id="host-footer-button" type="button">Footer button</button>
+    </footer>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

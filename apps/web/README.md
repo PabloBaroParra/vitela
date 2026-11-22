@@ -9,12 +9,14 @@ is TypeScript + React (Vite). The user's PDF never leaves the browser.
 src/
   main.tsx          boot only: starts the engine (createEngine), loads the
                     editor's stylesheet, renders App
-  app/              shell layout and the app's own styles (landing, tools)
+  app/              shell layout and the app's own styles (page frame,
+                    landing, tools)
   features/
     tools/          tool registry, routes, home and tool pages
   ui/               landing pieces (header, hero, footer, tool cards)
   test/             shared test fakes (Vitest only)
 e2e/                Playwright flows (production build); pdf.ts builds test PDFs
+  host/             embed host fixture page (own Vite build, port 4174)
 ```
 
 ## The editor
@@ -27,6 +29,15 @@ editor uses, `useEngineStatus`, and the stylesheet (`@vitela/viewer/style.css`:
 tokens, base, viewer, organize, dialogs). The feature paths named below are
 in that package. Like `@vitela/core`, the app consumes its built `dist/`, so
 every script below builds both packages first (`npm run build:packages`).
+
+The stylesheet is scoped to the editor's root class, `.vitela` (B26 T-245):
+tokens, colour scheme and font live on `.vitela`, element resets sit under
+`:where(.vitela)`, and the editor fills its container instead of the viewport.
+The app puts `class="vitela"` on `<html>` (`index.html`), so the whole page —
+site header and landing included — reads the same tokens as before.
+`e2e/embed.spec.ts` checks the scope on a host page with aggressive styles of
+its own (`e2e/host/`, built and served on port 4174 by Playwright's second web
+server, never part of `dist/`).
 
 ## The engine
 

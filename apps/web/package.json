@@ -13,6 +13,7 @@
     "dev": "npm run build:packages && node scripts/dev.mjs",
     "build": "npm run build:packages && tsc -b && vite build",
     "preview": "vite preview --strictPort",
+    "preview:host": "vite build --config e2e/host/vite.config.ts && vite preview --config e2e/host/vite.config.ts --strictPort",
     "typecheck": "npm run build:packages && tsc -b",
     "test": "npm run build:packages && vitest run",
     "test:watch": "npm run build:packages && vitest",

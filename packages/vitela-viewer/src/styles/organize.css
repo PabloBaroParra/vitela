@@ -103,7 +103,7 @@
 }
 
 .page-card__error {
-  font-size: 0.8rem;
+  font-size: calc(0.8 * var(--font-size));
   color: var(--error);
   text-align: center;
 }
@@ -130,13 +130,13 @@
   flex-shrink: 0;
   line-height: 1.25;
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: calc(0.9 * var(--font-size));
 }
 
 .block-card__pages {
   flex-shrink: 0;
   line-height: 1.25;
-  font-size: 0.8rem;
+  font-size: calc(0.8 * var(--font-size));
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }

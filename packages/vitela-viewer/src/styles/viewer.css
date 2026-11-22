@@ -6,12 +6,17 @@
   height: 100%;
 }
 
-/* Workspace: the open bar on top, the viewer filling the rest. */
+/* Workspace: the open bar on top, the viewer filling the rest. It is the
+   editor's root: it fills its container (`height: 100%`; as a flex item, as
+   in the app, `flex: 1` sizes it instead) and anchors the drop hint. */
 .workspace {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
+  height: 100%;
+  box-sizing: border-box;
+  position: relative;
   padding: 0 16px;
 }
 
@@ -276,16 +281,16 @@
   color: var(--error);
 }
 
-/* Shown while a file is dragged over the window. */
+/* Shown while a file is dragged over the window, over the editor only. */
 .drop-hint {
-  position: fixed;
+  position: absolute;
   inset: 12px;
   display: grid;
   place-items: center;
   border: 3px dashed var(--accent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--surface) 85%, transparent);
-  font-size: 1.3rem;
+  font-size: calc(1.3 * var(--font-size));
   pointer-events: none;
 }
 
@@ -303,7 +308,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: 0.88rem;
+    font-size: calc(0.88 * var(--font-size));
   }
 
   .workspace__bar > :last-child,

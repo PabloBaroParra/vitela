@@ -1,5 +1,10 @@
-/* The app's own stylesheet: the landing and the tool pages. The editor's
-   tokens, base rules and screens come from `@vitela/viewer/style.css`, which
-   main.tsx imports first, so the cascade order is unchanged. */
+/* The app's own stylesheet: the page frame, the landing and the tool pages.
+   The editor's tokens, base rules and screens come from
+   `@vitela/viewer/style.css`, which main.tsx imports first. They are scoped
+   to the `.vitela` class, which index.html puts on <html>: the whole app (the
+   site header and the landing included) is inside the editor's scope and
+   reads its tokens, and the root element keeps the colour scheme and font
+   size it always had. */
+@import './base.css';
 @import './landing.css';
 @import './tools.css';

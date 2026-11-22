@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { HOST_PORT } from './e2e/host/vite.config';
 
 const PORT = 4173;
 
@@ -22,9 +23,19 @@ export default defineConfig({
     { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
     { name: 'webkit', use: { ...devices['Desktop Safari'] } },
   ],
-  webServer: {
-    command: `npm run preview -- --port ${PORT}`,
-    url: `http://127.0.0.1:${PORT}`,
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: `npm run preview -- --port ${PORT}`,
+      url: `http://127.0.0.1:${PORT}`,
+      reuseExistingServer: !process.env.CI,
+    },
+    // The embed host fixture (e2e/host/): a page that is not ours with the
+    // editor inside. Built here, from the packages' dist/, never into the
+    // app's dist/.
+    {
+      command: 'npm run preview:host',
+      url: `http://127.0.0.1:${HOST_PORT}`,
+      reuseExistingServer: !process.env.CI,
+    },
+  ],
 });

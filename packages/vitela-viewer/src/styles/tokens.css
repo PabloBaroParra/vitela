@@ -1,8 +1,12 @@
-/* Design tokens: colours, type and shadows, with the dark theme. */
+/* Design tokens: colours, type and shadows, with the dark theme. All of
+   them live on the editor's root class, `.vitela`, never on `:root`: a page
+   that embeds the editor keeps its own custom properties, colour scheme and
+   font. The root also sets the editor's text colour, background and font, so
+   nothing the host page inherits down reaches the editor's text. */
 
 /* Brand: the navy of the Vitela mark, on white. One accent, hairline
    borders, no gradients: the document is the colourful thing here. */
-:root {
+.vitela {
   color-scheme: light dark;
   --surface: #ffffff;
   --surface-muted: #f6f6f4;
@@ -41,12 +45,17 @@
   --illo-line: #dfe2e8;
   --illo-heading: #b9bfcb;
   --illo-shadow: rgb(16 24 40 / 14%);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  /* Every font size is relative to this one (never `rem`: that is the host
+     page's root font size). */
+  --font-size: 15px;
+  font: var(--font-size)/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  color: var(--text);
+  background: var(--surface);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  .vitela {
     --surface: #121316;
     --surface-muted: #191a1e;
     --text: #e8e9ec;
