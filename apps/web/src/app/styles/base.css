@@ -1,0 +1,16 @@
+/* The page frame: the app fills the window. The editor itself fills
+   whatever contains it; here that is the column below the site header. */
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  box-sizing: border-box;
+}

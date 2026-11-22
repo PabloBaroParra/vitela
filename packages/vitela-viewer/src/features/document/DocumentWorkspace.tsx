@@ -66,7 +66,8 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
   );
 
   return (
-    <div className="workspace">
+    // `vitela` is the root class the editor's stylesheet is scoped to.
+    <div className="vitela workspace">
       {document ? (
         <div className="workspace__bar">
           {picker}

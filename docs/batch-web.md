@@ -1293,7 +1293,7 @@ Hechos de partida (mapa de `apps/web`, 2026-11-21):
 | Tarea | Entrega | Verificación |
 |---|---|---|
 | **T-244** ✓ | `packages/vitela-viewer` (`@vitela/viewer`, workspace npm): se **mueve** ahí la UI del editor (`DocumentWorkspace` y `features/document`, `viewer`, `organize`, `annotations`, `render`, `search`, `text`, `save`, `platform`, las piezas de `ui/` que usa, `useEngineStatus`, sus estilos y sus tests). `apps/web` lo consume como dependencia. **Cero cambio de comportamiento.** | Vitest del paquete y de la app en verde (mismos totales repartidos); Playwright completo de la app en los tres navegadores; `typecheck`; build. |
-| **T-245** | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
+| **T-245** ✓ | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
 | **T-246** | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
 | **T-247** | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
 | **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
@@ -1368,6 +1368,109 @@ Lo que condiciona T-245…T-247:
 - T-247 decide la API real; `StatusLine` y `useEngineStatus` están exportados solo
   porque la app los usa y pueden dejar de ser públicos. El riesgo de `optimizeDeps` sigue
   sin verificar: los workspaces enlazados no se pre-empaquetan, un consumidor desde npm sí.
+
+### T-245 — resultado
+
+El CSS de `@vitela/viewer` ya no sale de su raíz: tokens y reset viven bajo `.vitela`, que
+`DocumentWorkspace` lleva en su elemento raíz (`<div class="vitela workspace">`).
+
+- **Tokens** (`tokens.css`): `:root` → `.vitela`, también dentro de
+  `@media (prefers-color-scheme: dark)`. La raíz fija además `color: var(--text)`,
+  `background: var(--surface)`, `color-scheme` y la fuente, así que lo que hereda la
+  anfitriona (`body { font-family; color }`) no llega al texto del editor.
+- **Reset** (`base.css`): `body` y `.app` salen del paquete (son de la app); `a` y
+  `button` pasan a `:where(.vitela) a` / `:where(.vitela) button…`. `:where()` no suma
+  especificidad: el reset pesa lo mismo que el `button` suelto de antes y toda regla de
+  clase (`.button--primary`, …) lo sigue ganando. Con `.vitela button` (0,1,1) la regla
+  habría pisado a `.button--primary` (0,1,0).
+- **Tamaño:** `.workspace` lleva `height: 100%`, `box-sizing: border-box` y
+  `position: relative`. Como elemento flex (la app) manda `flex: 1` y el `height` no
+  cuenta; en un bloque con altura (la anfitriona) llena el contenedor.
+- **`.drop-hint`:** `position: absolute` contra la raíz (antes `fixed` al viewport).
+- **Sin `rem`:** los 10 `font-size` en `rem` pasan a `calc(N * var(--font-size))`, con
+  `--font-size: 15px` en `.vitela`. `rem` es el tamaño raíz **de la anfitriona**; en la
+  app daba 15px porque los tokens ponían la fuente en `:root`, así que el valor es el mismo.
+- **La app:** pone `class="vitela"` en `<html>` (`index.html`). Es lo más simple que la deja
+  igual: el `SiteHeader`, la landing, `ToolUnavailable` y el propio `<html>` siguen dentro
+  del ámbito, con el `color-scheme` y la fuente en el elemento raíz (barras de scroll,
+  lienzo, `rem` de `landing.css`). Ponerla en `main.app` habría dejado fuera `<html>` y
+  `body`; importar los tokens aparte obligaba a duplicarlos. `body { margin; background;
+  color }` y `.app` (100vh) pasan a `apps/web/src/app/styles/base.css`.
+- **Diálogos:** son `<dialog>` hijos del árbol de la raíz; en la capa superior siguen
+  heredando las propiedades personalizadas por el DOM, así que reciben los tokens. Los
+  `::backdrop` usan colores literales. No hay portales (`createPortal`) en el paquete.
+
+Anfitriona de prueba: `apps/web/e2e/host/` (HTML + `main.ts` + `host.css`), con su propio
+build de Vite a `e2e/host/dist/` (ignorado por git) y servida por un segundo `webServer` de
+Playwright en el puerto 4174 (`npm run preview:host`), así nunca entra en el `dist/` que se
+despliega. Estilos agresivos de la anfitriona, cargados **después** de los del editor:
+`:root { --accent; --text; font-size: 20px }`, `body` (margen, fondo, color, Courier,
+22px, `line-height: 2`), `a`, `button` (fondo, borde, radio, padding, Courier,
+`text-transform`, `letter-spacing`).
+
+Lo que se mide (`e2e/embed.spec.ts`, 6 tests × 3 navegadores):
+
+- No sale nada: `html` y `body` sin `--surface`/`--viewer-bg`, `color-scheme: normal`,
+  `font-size` raíz 20px; `body`, los botones de la anfitriona (antes y después del editor)
+  y su enlace conservan exactamente sus estilos.
+- El editor ocupa su contenedor (640px), también con un documento abierto, y el scroller
+  no se sale; el aviso de soltar cae dentro de la raíz con 12px de margen y mide 19,5px
+  (15 × 1,3), no 26px.
+- No entra lo heredado: dentro de la raíz `--accent`/`--text` son los nuestros pese al
+  `:root` de la anfitriona; color, fondo, fuente, 15px/22,5px y `color-scheme` también; un
+  documento abre y pinta. El diálogo de contraseña (capa superior) tiene fondo, color,
+  borde y fuente del editor y el título mide 17,25px (15 × 1,15).
+- **Fuga conocida, fijada en un test:** los selectores de tipo de la anfitriona **sí**
+  llegan a los elementos del editor. Las propiedades que el editor no fija pasan tal cual
+  (`text-transform: uppercase`, `letter-spacing: 3px` en los botones de `.view-switch`), y
+  en las que ambos fijan con la misma especificidad gana la hoja que carga después (aquí
+  la anfitriona: la fuente Courier en esos botones). Lo mismo vale para `p`, `input`,
+  `h2`, etc. y para nombres de clase sin prefijo que coincidan (`.dialog`,
+  `.button--primary`, `.workspace`, …): las reglas de clase del editor no están bajo
+  `.vitela` y saldrían a un elemento de la anfitriona con esa clase. Decisión: **sin
+  Shadow DOM** (choca con diálogos y selección de texto); se documenta y se mide.
+
+Que la app se ve igual: el CSS del build ya no es idéntico byte a byte (cambian los
+selectores), así que se compararon los estilos computados de **cada elemento** (todas las
+propiedades + caja) entre el build de `HEAD` y el nuevo, en claro/oscuro y 1280/390px, en
+inicio, `/organize`, `/sign`, visor con documento, Organize con documento, diálogo de
+contraseña y aviso de soltar (script desechable, no versionado). Chromium y Firefox: los
+28 escenarios cada uno; WebKit: 6 (el escenario de soltar agotó el tiempo en el script y
+el resto no corrió; los flujos de WebKit sí pasan en Playwright). Única diferencia
+visible: el aviso de soltar empieza bajo la cabecera del sitio (antes cubría el viewport).
+El resto son diferencias sin efecto en la caja: `<html>` con color/fondo propios (el
+`body` sigue pintando lo mismo), la raíz del editor con clase, `position: relative`,
+`box-sizing` (el `width` computado cambia de 1248 a 1280 por el modelo de caja, la caja es
+idéntica) y fondo `--surface` sobre el mismo `--surface`; y el `top` resuelto de spans
+absolutos ocultos, con la misma caja.
+
+Gates (Windows 11, local):
+
+- `@vitela/viewer`: `tsc -b` y build en verde; Vitest **53 ficheros / 487 tests**
+  (antes 52 / 481: `styles/scoped.test.ts` con 5 tests que leen las hojas y fallan con
+  `:root`, selectores que no empiezan por clase, `.vitela ` sin `:where()`, `100vh`,
+  `position: fixed` o `rem`; y uno en `DocumentWorkspace.test.tsx` para la clase raíz).
+  Todos se vieron en rojo antes del cambio.
+- `apps/web`: `npm run typecheck`, `npm test` (**6 / 18**) y `npm run build` en verde.
+- Playwright de `apps/web` (Chromium, Firefox, WebKit): **133 pasan, 20 omitidos** (los
+  115 / 20 de T-244 + 18 = 6 × 3 de `embed.spec.ts`). Una primera pasada completa falló en
+  Firefox porque la caja medía 640,00002px; las cajas se comparan ahora con tolerancia
+  subpíxel, y `embed.spec.ts` pasó 54/54 con `--repeat-each=3`. Los 6 de
+  `embed.spec.ts` se vieron en rojo antes del cambio (5 fallaban en Chromium; el de la
+  fuga conocida ya pasaba).
+
+Lo que condiciona T-246/T-247:
+
+- T-246: el aviso de soltar ya se dibuja dentro de la raíz, pero `useFileDrop` sigue
+  escuchando en `window`; en la anfitriona, soltar fuera del editor aún lo muestra y abre.
+  La anfitriona de `e2e/host/` es donde van sus tests (soltar fuera, Ctrl+Z fuera).
+- T-247: `<VitelaViewer>` hereda la clase raíz de `DocumentWorkspace`; el consumidor solo
+  tiene que importar `@vitela/viewer/style.css` y darle altura al contenedor. El README
+  debe decir que el editor llena su contenedor y avisar de la fuga de selectores de tipo
+  (y de las clases sin prefijo) si no se resuelve antes. La media query `max-width: 600px`
+  del visor sigue mirando el viewport, no el contenedor (container queries, si hace falta).
+- La landing de la app sigue leyendo tokens que solo usa ella (`--tone-*`, `--card-shadow`,
+  `--illo-*`) y que viven en el paquete; moverlos a la app es limpieza aparte.
 
 ## Verificación
 

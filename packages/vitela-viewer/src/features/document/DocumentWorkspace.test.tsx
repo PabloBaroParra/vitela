@@ -51,4 +51,9 @@ describe('DocumentWorkspace', () => {
     openPdf(getByLabelText);
     await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
   });
+
+  it('carries the .vitela root class its stylesheet is scoped to', () => {
+    const { container } = render(<DocumentWorkspace engine={engine} intro={(action) => action} />);
+    expect(container.firstElementChild?.classList.contains('vitela')).toBe(true);
+  });
 });

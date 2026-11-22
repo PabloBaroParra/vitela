@@ -64,7 +64,7 @@
 }
 
 .dialog--warning .dialog__title {
-  font-size: 1.05rem;
+  font-size: calc(1.05 * var(--font-size));
   font-weight: 600;
   line-height: 1.35;
   margin: 0 0 6px;
@@ -72,12 +72,12 @@
 
 .dialog__body p {
   margin: 0;
-  font-size: 0.93rem;
+  font-size: calc(0.93 * var(--font-size));
 }
 
 .dialog__body .dialog__hint {
   margin-top: 10px;
-  font-size: 0.85rem;
+  font-size: calc(0.85 * var(--font-size));
   opacity: 0.7;
 }
 
@@ -92,7 +92,7 @@
 
 .password-dialog__title,
 .dialog__title {
-  font-size: 1.15rem;
+  font-size: calc(1.15 * var(--font-size));
   margin: 0 0 8px;
 }
 
@@ -173,6 +173,6 @@
 
 .free-text-preview__caption {
   margin-top: 4px;
-  font-size: 0.85rem;
+  font-size: calc(0.85 * var(--font-size));
   opacity: 0.7;
 }

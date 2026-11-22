@@ -1,0 +1,37 @@
+/* The host page's own styles, deliberately aggressive: type selectors on
+   :root, body, a and button, a root font size that is not the browser's, and
+   custom properties named like the editor's tokens. Loaded after the
+   editor's stylesheet, so every tie on specificity goes to the host. */
+:root {
+  --accent: rgb(255 0 255);
+  --text: rgb(255 0 255);
+  font-size: 20px;
+}
+
+body {
+  margin: 24px;
+  background: rgb(10 20 30);
+  color: rgb(250 240 0);
+  font-family: 'Courier New', monospace;
+  font-size: 22px;
+  line-height: 2;
+}
+
+a {
+  color: rgb(0 200 0);
+}
+
+button {
+  font-family: 'Courier New', monospace;
+  background: rgb(200 0 0);
+  color: rgb(255 255 255);
+  border: 3px solid rgb(0 0 255);
+  border-radius: 0;
+  padding: 12px 24px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+}
+
+#host-frame {
+  height: 640px;
+}
