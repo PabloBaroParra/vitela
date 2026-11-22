@@ -94,10 +94,13 @@ export function VitelaViewer({
   }, [source, name]);
 
   // Hand the latest request over once documents can be opened, exactly once.
-  const opened = useRef(0);
+  // Per engine: after a swap the new workspace starts empty, so the latest
+  // request opens again there. `active` is a dependency for that reason.
+  const opened = useRef<{ engine: ViewerEngine | null; id: number }>({ engine: null, id: 0 });
   useEffect(() => {
-    if (!request || status.kind !== 'ready' || !workspace.current || opened.current === request.id) return;
-    opened.current = request.id;
+    if (!request || status.kind !== 'ready' || !workspace.current) return;
+    if (opened.current.engine === active && opened.current.id === request.id) return;
+    opened.current = { engine: active, id: request.id };
     workspace.current.open(request.source);
   }, [request, status.kind, active]);
 
@@ -128,6 +131,9 @@ export function VitelaViewer({
   }
   return (
     <DocumentWorkspace
+      // Document handles are numbered per engine: a new engine gets a new
+      // workspace, and the old one closes its document in the old engine.
+      key={engineKey(active)}
       ref={workspace}
       engine={active}
       intro={emptyState}
@@ -138,6 +144,16 @@ export function VitelaViewer({
       delivery={delivery}
     />
   );
+}
+
+const engineKeys = new WeakMap<ViewerEngine, number>();
+let nextEngineKey = 0;
+
+/** A key that is the same for one engine and different for every other. */
+function engineKey(engine: ViewerEngine): number {
+  let key = engineKeys.get(engine);
+  if (key === undefined) engineKeys.set(engine, (key = ++nextEngineKey));
+  return key;
 }
 
 /** What shows while no document is open: the open action, or why there is none yet. */

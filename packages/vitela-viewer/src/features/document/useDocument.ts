@@ -103,17 +103,22 @@ export function useDocument(engine: Engine) {
   useEffect(() => {
     releaseNow.current = release;
   }, [release]);
-  useEffect(
-    () => () => {
+  // An open still in flight when the editor goes is handed back as it lands
+  // (`current()` turns false). A flag, not a bump of `latest`: StrictMode runs
+  // this cleanup once on mount, and the editor's first open must survive it.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       if (shown.current !== null) releaseNow.current(shown.current);
       shown.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const attempt = useCallback(
     (file: PdfSource, fileHandle: WritableFileHandle | undefined, attemptId: number, password: string | undefined) => {
-      const current = () => attemptId === latest.current;
+      const current = () => mounted.current && attemptId === latest.current;
       // Read afresh each time: the engine takes the bytes by transfer.
       file
         .arrayBuffer()

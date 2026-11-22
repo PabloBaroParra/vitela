@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { createRef } from 'react';
+import { createRef, StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentInfo, Engine, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../test/fakeEngine';
@@ -108,6 +108,41 @@ describe('VitelaViewer', () => {
     rerender(<VitelaViewer engine={engine} source={new Uint8Array([2])} name="two.pdf" />);
     expect(await screen.findByText('two.pdf — 2 pages')).toBeTruthy();
     expect(engine.opened).toHaveLength(2);
+  });
+
+  it('opens its source under StrictMode, exactly once', async () => {
+    const engine = openingEngine();
+    render(
+      <StrictMode>
+        <VitelaViewer engine={engine} source={new Uint8Array([1])} name="a.pdf" />
+      </StrictMode>,
+    );
+    expect(await screen.findByText('a.pdf — 2 pages')).toBeTruthy();
+    expect(engine.opened).toHaveLength(1);
+  });
+
+  it('moves to a new engine: closes the document in the old one and reopens the source once the new one is ready', async () => {
+    const closedInA: number[] = [];
+    const a = openingEngine({ close: async (handle) => void closedInA.push(handle) });
+    let loaded!: () => void;
+    const closedInB: number[] = [];
+    const b = Object.assign(openingEngine({ close: async (handle) => void closedInB.push(handle) }), {
+      ready: new Promise<void>((resolve) => (loaded = resolve)),
+    });
+    const source = new Uint8Array([1]);
+    const { rerender } = render(<VitelaViewer engine={a} source={source} name="a.pdf" />);
+    expect(await screen.findByText('a.pdf — 2 pages')).toBeTruthy();
+
+    rerender(<VitelaViewer engine={b} source={source} name="a.pdf" />);
+    await settle();
+    expect(closedInA).toEqual([1]);
+    expect(b.opened).toHaveLength(0);
+    expect(screen.getByText('Loading the PDF engine…')).toBeTruthy();
+
+    act(() => loaded());
+    expect(await screen.findByText('a.pdf — 2 pages')).toBeTruthy();
+    expect(b.opened).toHaveLength(1);
+    expect(closedInB).toEqual([]);
   });
 
   it('waits for the engine to load before opening, and says it is loading', async () => {

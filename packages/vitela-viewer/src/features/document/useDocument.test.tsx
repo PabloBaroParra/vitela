@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { describe, expect, it } from 'vitest';
 import { EngineError } from '@vitela/core';
 import type { DocumentInfo, Engine, OpenedDocument } from '@vitela/core';
@@ -419,5 +420,25 @@ describe('useDocument', () => {
 
     unmount();
     expect(engine.closed).toEqual([1]);
+  });
+
+  it('closes a document the engine finishes opening after the editor unmounted', async () => {
+    const opening = deferred<DocumentInfo>();
+    const engine = engineWith(() => opening.promise);
+    const { result, unmount } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+
+    unmount();
+    await act(async () => opening.resolve(info(1)));
+    expect(engine.closed).toEqual([1]);
+  });
+
+  it('keeps a document opened under StrictMode, whose effects run twice on mount', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine), { wrapper: StrictMode });
+    act(() => result.current.open(file('a.pdf')));
+
+    await waitFor(() => expect(result.current.state.document?.handle).toBe(1));
+    expect(engine.closed).toEqual([]);
   });
 });

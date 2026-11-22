@@ -69,7 +69,7 @@ viewer.destroy();           // unmounts, closes the document, stops the editor's
 |---|---|---|
 | `source` | none | The PDF to open once the engine is ready: a `File`, a `Uint8Array` or a URL (`string` or `URL`, fetched with `fetch`; relative URLs resolve against the page). A new value opens the new document. Bytes are copied: your array stays usable. |
 | `name` | the URL's file name, else `document.pdf` | The document's name (status line, and the name `onSave` receives). A `File` keeps its own unless you give one. |
-| `engine` | none | An engine you started with `createEngine()` from `@vitela/core`. It keeps running after the editor unmounts (the editor only closes its document). |
+| `engine` | none | An engine you started with `createEngine()` from `@vitela/core`. It keeps running after the editor unmounts (the editor only closes its document). Passing a different engine closes the open document in the old one, drops its unsaved edits, and reopens the latest `source`/`open()` in the new one once it is ready. |
 | `engineOptions` | `{}` | Options for the engine the editor starts itself when given no `engine` (see `createEngine` in `@vitela/core`: `assetBaseUrl`, `workerUrl`, `loadTimeoutMs`). Read once, at mount. That engine is terminated when the editor unmounts. |
 | `onSave` | none | `(bytes, name) => void \| Promise<void>`: receives every save. A rejection fails the save and the editor says so; once it resolves the editor counts the edits as saved. Without it, a save writes over the opened file when the browser allows it (Chromium's file handles), else downloads. |
 | `filePicker` | `true` | Whether the editor offers its "Open PDF" button. Dropping a PDF on the editor still opens it. |

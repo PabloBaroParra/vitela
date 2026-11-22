@@ -1694,6 +1694,30 @@ Gates (Windows 11, local):
 - Los flujos del ejemplo se escribieron después de la API: no se vieron en rojo (sin la API
   no compilan).
 
+Revisión (cuatro lentes, sin bloqueantes). Dos avisos se corrigieron en el mismo PR:
+
+- **Apertura en vuelo al desmontar.** La limpieza de `useDocument` solo cerraba el documento
+  en pantalla; uno que el motor terminaba de abrir después se guardaba y no se cerraba nunca
+  (con un motor de la anfitriona, vivo hasta que ella lo pare). Ahora `current()` también
+  exige que el hook siga montado y la apertura tardía se devuelve al motor. Es una bandera y
+  no un `latest++`: StrictMode ejecuta esa limpieza una vez al montar, y con `latest++` la
+  primera apertura de `<VitelaViewer>` se habría descartado.
+- **Cambiar de motor con el editor montado.** Los handles se numeran por motor, y el
+  workspace seguía usando el del motor anterior contra el nuevo (pintar, guardar o cerrar el
+  documento de otro). `DocumentWorkspace` lleva ahora `key` por motor: el viejo cierra su
+  documento en su motor y el nuevo empieza vacío; la última petición (`source` u `open`) se
+  vuelve a abrir en cuanto el nuevo motor está listo. `useEngineStatus` ata el estado al
+  cliente que lo informó: un cliente nuevo está "cargando" hasta que diga lo suyo (antes
+  heredaba el "listo" del anterior).
+- Tests nuevos, vistos en rojo: apertura terminada tras desmontar (`useDocument`), cambio de
+  motor (`VitelaViewer`) y cliente nuevo vuelve a "cargando" (`useEngineStatus.test.ts`,
+  fichero nuevo con 3). Dos más fijan StrictMode (ya pasaban). Vitest del viewer:
+  **58 ficheros / 539 tests**.
+- Quedan como seguimiento: cambiar de documento o destruir sin avisar de cambios sin
+  guardar (no hay `dirty` en el handle), el ejemplo de `onSave` del README que guarda por un
+  nombre que el usuario controla, `callbackDelivery` reutilizando el destino `'copy'` y
+  descargas por URL sin cancelar.
+
 Lo que condiciona T-248:
 
 - El ejemplo es el sitio para la verificación de T-248: cuando los paquetes estén en npm,
