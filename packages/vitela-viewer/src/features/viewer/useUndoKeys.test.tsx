@@ -1,5 +1,6 @@
 import { cleanup, render, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { EditorScope } from '../document/editorScope';
 import { useUndoKeys } from './useUndoKeys';
 
 const key = (init: Partial<KeyboardEventInit> & { key: string }) => new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init });
@@ -60,5 +61,39 @@ describe('useUndoKeys', () => {
     expect(history.defaultPrevented).toBe(false);
     document.body.dispatchEvent(key({ key: 'z', metaKey: true, shiftKey: true }));
     expect(onRedo).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes only the keys pressed with focus in the editor', () => {
+    const onUndo = vi.fn();
+    const { container } = render(
+      <>
+        <button type="button">Host</button>
+        <div data-editor>
+          <button type="button">Editor</button>
+        </div>
+      </>,
+    );
+    const [host, inside] = container.querySelectorAll('button');
+    const scope: EditorScope = {
+      ownsEvent: (target) => target instanceof Element && !!target.closest('[data-editor]'),
+      takesDrop: () => true,
+      modalOpen: () => false,
+    };
+    renderHook(() => useUndoKeys(onUndo, vi.fn(), scope));
+    const away = key({ key: 'z', ctrlKey: true });
+    host!.dispatchEvent(away);
+    expect(onUndo).not.toHaveBeenCalled();
+    expect(away.defaultPrevented).toBe(false);
+    inside!.dispatchEvent(key({ key: 'z', ctrlKey: true }));
+    expect(onUndo).toHaveBeenCalledTimes(1);
+  });
+
+  it("goes by the editor's own dialogs only", () => {
+    const onUndo = vi.fn();
+    render(<dialog open aria-modal="true" />);
+    const scope: EditorScope = { ownsEvent: () => true, takesDrop: () => true, modalOpen: () => false };
+    renderHook(() => useUndoKeys(onUndo, vi.fn(), scope));
+    document.body.dispatchEvent(key({ key: 'z', ctrlKey: true }));
+    expect(onUndo).toHaveBeenCalledTimes(1);
   });
 });

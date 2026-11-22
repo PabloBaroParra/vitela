@@ -78,4 +78,17 @@ describe('useCopy', () => {
     rerender({ text: 'two' });
     expect(result.current.status).toBe('idle');
   });
+
+  it('takes no Ctrl+C pressed with focus outside the editor', () => {
+    const writeText = vi.fn(async () => {});
+    stubClipboard(writeText);
+    const scope = { ownsEvent: () => false, takesDrop: () => true, modalOpen: () => false };
+    renderHook(() => useCopy('Hello Vitela', scope));
+    const event = new KeyboardEvent('keydown', { key: 'c', ctrlKey: true, cancelable: true });
+    act(() => {
+      window.dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(false);
+    expect(writeText).not.toHaveBeenCalled();
+  });
 });

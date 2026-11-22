@@ -1294,7 +1294,7 @@ Hechos de partida (mapa de `apps/web`, 2026-11-21):
 |---|---|---|
 | **T-244** ✓ | `packages/vitela-viewer` (`@vitela/viewer`, workspace npm): se **mueve** ahí la UI del editor (`DocumentWorkspace` y `features/document`, `viewer`, `organize`, `annotations`, `render`, `search`, `text`, `save`, `platform`, las piezas de `ui/` que usa, `useEngineStatus`, sus estilos y sus tests). `apps/web` lo consume como dependencia. **Cero cambio de comportamiento.** | Vitest del paquete y de la app en verde (mismos totales repartidos); Playwright completo de la app en los tres navegadores; `typecheck`; build. |
 | **T-245** ✓ | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
-| **T-246** | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
+| **T-246** ✓ | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
 | **T-247** | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
 | **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
 
@@ -1471,6 +1471,98 @@ Lo que condiciona T-246/T-247:
   del visor sigue mirando el viewport, no el contenedor (container queries, si hace falta).
 - La landing de la app sigue leyendo tokens que solo usa ella (`--tone-*`, `--card-shadow`,
   `--illo-*`) y que viven en el paquete; moverlos a la app es limpieza aparte.
+
+### T-246 — resultado
+
+Los eventos de página del editor ya no salen de su raíz. Una pieza nueva,
+`features/document/editorScope.ts`, decide qué evento es del editor; `DocumentWorkspace`
+la crea sobre su elemento raíz y la pasa a los hooks (por parámetro a `useFileDrop`; por
+`EditorScopeContext` al visor y a Organize, que la pasan a `useUndoKeys`, `useCopy`,
+`useDrawing` e `historyAction`). Sin proveedor, el ámbito es `WHOLE_DOCUMENT` (todo el
+documento, el comportamiento de antes), así que un hook suelto sigue igual.
+
+- **Una sola opción, `eventScope?: 'editor' | 'window'`** en `DocumentWorkspace` (tipo
+  `EventScope`, exportado desde `src/index.ts`), por defecto `'editor'`. Gobierna a la vez
+  soltar archivos y teclas (Ctrl/⌘+Z/Y, Ctrl/⌘+C, Escape). Con `'window'` el ámbito acepta
+  todo evento de la ventana, como antes de T-246; con `'editor'`, solo los del editor. En
+  los dos modos, `modalOpen()` mira solo los diálogos del editor. Una primera versión
+  tenía solo `dropTarget` y acotaba las teclas también en la app; la revisión lo descartó:
+  en la app, un sello soltado sin haber hecho clic antes no se deshacía con Ctrl+Z (soltar
+  no es `pointerdown` ni `focusin`), ni tras un clic en la cabecera del sitio.
+- **`EditorScope`** es un objeto estable con tres preguntas: `ownsEvent(target)` (¿una tecla
+  dirigida ahí es del editor?), `takesDrop(target)` (¿un archivo arrastrado ahí?) y
+  `modalOpen()` (¿hay un diálogo del editor abierto?). Lee la raíz, el modo y la última
+  interacción al preguntarle; ningún listener se vuelve a registrar.
+- **"El foco está dentro"** (modo `'editor'`): la tecla va a un elemento dentro de la raíz,
+  **o** va a `<body>` (nada tiene el foco) y la última interacción del usuario cayó dentro de
+  la raíz: `pointerdown`, `focusin` o `drop`, escuchados en captura en `window`. Cubre los
+  casos en que el foco queda en `body` aunque el usuario esté en el editor: un clic en la
+  zona de páginas (no enfocable), un control enfocado que desaparece (un botón que se
+  deshabilita) y soltar un archivo o un sello sin haber hecho clic. Se descartó
+  `tabIndex=-1` en la raíz: un clic la enfocaría y habría que esconder su contorno, y no
+  resuelve ni el control que desaparece ni la caída.
+- **Soltar archivos** (modo `'editor'`): solo cuentan los arrastres cuyo destino está
+  dentro de la raíz; fuera no hay aviso, no se abre nada y **no** se llama a
+  `preventDefault` (lo que el navegador haga con un archivo soltado sobre la anfitriona es
+  cosa de la anfitriona). Los listeners siguen en `window` en los dos modos: Organize
+  reclama la caída con un `onDrop` de React, y React escucha en su contenedor raíz, **por
+  encima** de la raíz del editor; un listener nativo en la raíz lo vería antes que el
+  reclamo y abriría el PDF en vez de añadirlo. El conteo `dragenter`/`dragleave` solo
+  cuenta destinos dentro (al salir hacia la anfitriona, `dragenter` fuera llega antes que
+  `dragleave` dentro, y el conteo vuelve a 0), salvo un `dragleave` cuyo destino ya no
+  está en el documento (`!isConnected`): ese cuenta siempre, o el aviso se quedaría
+  puesto. Límite: un elemento quitado **antes** de que salga su `dragleave` no lo hace
+  llegar a `window` (no tiene camino hasta allí), igual que antes de T-246.
+- **Teclas:** `useUndoKeys`, `useCopy` y `useDrawing` piden `ownsEvent` antes que nada.
+  Organize ya escuchaba en su `<section>` (`onKeyDown`), así que solo cambia su chequeo de
+  diálogos. No hay más listeners de teclado o portapapeles en `window`/`document` en el
+  paquete (grep).
+- **`modalOpen()`** mira solo `dialog[open], [aria-modal="true"]` **dentro de la raíz**
+  (los diálogos del editor son hijos de su árbol aunque se pinten en la capa superior). El
+  `modalOpen(target)` de `historyKeys.ts` desaparece; `historyAction` recibe el ámbito como
+  tercer parámetro (por defecto, todo el documento).
+- **La app** pasa `eventScope="window"` (`App.tsx`) y se comporta igual que antes: soltar
+  en toda la ventana (el `dropFile` de sus E2E dispara sobre `main.app`, **fuera** de la
+  raíz) y teclas desde cualquier sitio. La única diferencia posible es de diálogos: un
+  diálogo abierto fuera del editor ya no frena sus teclas, y la app no tiene ninguno.
+  Ningún test Playwright existente tuvo que cambiar.
+
+Tests nuevos de punta a punta:
+
+- App (`e2e/keys.spec.ts`, 2): soltar un PDF y luego un PNG sobre la página, sin ningún clic,
+  y Ctrl+Z quita el sello; lo mismo tras un clic en la cabecera del sitio.
+- Anfitriona (`e2e/embed.spec.ts`, 3; sin elementos nuevos, bastan `#host-button` y
+  `body`): soltar sobre `#host-button` y sobre `body` no toma ningún evento, no muestra
+  aviso ni abre nada, y sobre `.vitela` sí; con el foco en `#host-button`, Ctrl+Z y Escape
+  no hacen nada, y tras un clic en la línea de estado del editor (foco en `body`) sí;
+  soltar un PDF y un sello sobre el editor sin hacer clic y Ctrl+Z quita el sello.
+
+Gates (Windows 11, local):
+
+- `@vitela/viewer`: `npm run typecheck`, `npm test` y `npm run build` en verde. Vitest
+  **54 ficheros / 505 tests** (antes 53 / 487): `editorScope.test.tsx` nuevo (9) y 9 más en
+  `historyKeys` (1), `useUndoKeys` (2), `useCopy` (1), `useDrawing` (1), `useFileDrop` (2)
+  y `DocumentWorkspace` (2). Todos se vieron en rojo antes de implementar, salvo dos que
+  fijan lo que ya era así: `DocumentWorkspace` con `eventScope="window"` y, añadido en la
+  revisión, "con `'window'` solo cuentan los diálogos propios".
+- `apps/web`: `npm run typecheck`, `npm test` (**6 / 19**, antes 6 / 18: soltar sobre la
+  cabecera del sitio abre el PDF; rojo sin la opción) y `npm run build` en verde.
+- Playwright de `apps/web` (Chromium, Firefox, WebKit): **148 pasan, 20 omitidos** (los 133 / 20 de
+  T-245 + 15 = 5 × 3). Los 5 nuevos se vieron en rojo en Chromium: los 2 primeros de la
+  anfitriona contra el código previo a T-246, y los 3 de "sin clic"/cabecera contra la
+  primera versión de T-246 (el sello seguía tras Ctrl+Z).
+
+Lo que condiciona T-247:
+
+- `<VitelaViewer>` y `mountViewer` deben exponer `eventScope` (por defecto `'editor'`). El
+  README tiene que contar que, embebido, las teclas solo actúan con el foco (o el último
+  clic o caída) dentro del editor, y que fuera de él soltar un archivo es cosa de la
+  anfitriona (si no lo trata, el navegador lo abre).
+- `EditorScopeContext` y el resto de `editorScope.ts` no se exportan; solo el tipo
+  `EventScope`.
+- Shadow DOM: `contains` y `isConnected` no cruzan sombras; si T-247 monta el editor en un
+  shadow root, el ámbito hay que revisarlo allí.
+- Dos editores en la misma página: cada uno tiene su raíz y su ámbito, pero no se probó.
 
 ## Verificación
 

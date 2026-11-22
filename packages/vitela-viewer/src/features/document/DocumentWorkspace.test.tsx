@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentInfo, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
@@ -55,5 +55,40 @@ describe('DocumentWorkspace', () => {
   it('carries the .vitela root class its stylesheet is scoped to', () => {
     const { container } = render(<DocumentWorkspace engine={engine} intro={(action) => action} />);
     expect(container.firstElementChild?.classList.contains('vitela')).toBe(true);
+  });
+
+  describe('dropped files', () => {
+    /** Drops a PDF on `target` (jsdom has no DragEvent/DataTransfer). */
+    function dropOn(target: Node) {
+      const pdf = new File([new Uint8Array([37, 80, 68, 70])], 'dropped.pdf', { type: 'application/pdf' });
+      for (const type of ['dragenter', 'dragover', 'drop']) {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files: [pdf], dropEffect: 'none' } });
+        fireEvent(target, event);
+      }
+    }
+
+    it('opens only the ones dropped on the editor by default', async () => {
+      const outside = document.body.appendChild(document.createElement('div'));
+      const { container, getByRole, queryByRole } = render(<DocumentWorkspace engine={engine} intro={(action) => action} />);
+      dropOn(outside);
+      expect(container.querySelector('.drop-hint')).toBeNull();
+      // Long enough for an open to land (the fake engine answers at once).
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      });
+      expect(queryByRole('button', { name: 'View' })).toBeNull();
+      dropOn(container.firstElementChild!);
+      await waitFor(() => expect(getByRole('button', { name: 'View' })).toBeTruthy());
+      outside.remove();
+    });
+
+    it('opens the ones dropped anywhere on the window when asked to', async () => {
+      const outside = document.body.appendChild(document.createElement('div'));
+      const { getByRole } = render(<DocumentWorkspace engine={engine} intro={(action) => action} eventScope="window" />);
+      dropOn(outside);
+      await waitFor(() => expect(getByRole('button', { name: 'View' })).toBeTruthy());
+      outside.remove();
+    });
   });
 });

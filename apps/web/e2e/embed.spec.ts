@@ -2,15 +2,28 @@
 // :root, body, a and button aggressively and sets a root font size of its own.
 // The editor's stylesheet must stay inside its `.vitela` root, size the editor
 // from its container, and keep its text and tokens whatever the host inherits
-// down. What still reaches in from the host is pinned at the end (T-245).
+// down. What still reaches in from the host is pinned (T-245). Its events stay
+// inside too: a file dropped on the host is the host's, and the editor's keys
+// work only with focus in the editor (T-246).
 
 import { expect, test, type Page } from '@playwright/test';
 import { HOST_PORT } from './host/vite.config';
-import { expectPagePainted, fixtureBytes, openFixture } from './support';
+import { buildPdf } from './pdf';
+import { buildPng } from './png';
+import {
+  dropFileAt,
+  expectOpened,
+  expectPagePainted,
+  fixtureBytes,
+  openBytes,
+  openFixture,
+  pageSlot,
+} from './support';
 
 type Box = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
 const HOST = `http://127.0.0.1:${HOST_PORT}/`;
+const RED_PNG = { name: 'red.png', mimeType: 'image/png', buffer: buildPng(200, 100, [220, 30, 30]) };
 
 /** Loads the host page and waits until the editor can open documents. */
 async function loadHost(page: Page): Promise<void> {
@@ -180,3 +193,97 @@ test('still lets host type selectors style the editor buttons (known leak)', asy
   expect(style).toMatchObject({ 'text-transform': 'uppercase', 'letter-spacing': '3px' });
   expect(style['font-family']).toContain('Courier New');
 });
+
+/**
+ * Dispatches a file drag on the first element matching `selector`, one event
+ * per type, as a file manager drag would. Returns, per event, whether the
+ * editor took it (`defaultPrevented`) and whether the drop hint showed a
+ * frame later.
+ */
+function dragFile(page: Page, selector: string, types: readonly string[]) {
+  return page.locator(selector).first().evaluate(async (target, types) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['%PDF-1.4'], 'dropped.pdf', { type: 'application/pdf' }));
+    const taken = types.map((type) => {
+      const event = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    // Two frames: React has rendered whatever the events asked for.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { taken, hint: !!document.querySelector('.drop-hint') };
+  }, types);
+}
+
+test('takes a file dropped on the editor, and leaves one dropped on the host page alone', async ({ page }) => {
+  await loadHost(page);
+
+  // Dragged over the host's own elements: no hint, the browser default left to the host.
+  for (const selector of ['#host-button', 'body']) {
+    expect(await dragFile(page, selector, ['dragenter', 'dragover'])).toEqual({ taken: [false, false], hint: false });
+    expect(await dragFile(page, selector, ['drop'])).toEqual({ taken: [false], hint: false });
+  }
+  await expect(page.locator('.workspace__bar')).toHaveCount(0);
+
+  // Over the editor: the hint shows, and the drop opens the PDF in it.
+  const pdf = buildPdf([{ widthPt: 612, heightPt: 792 }]);
+  expect(await dragFile(page, '.vitela', ['dragenter', 'dragover'])).toEqual({ taken: [false, true], hint: true });
+  await page.locator('.vitela').evaluate((root, bytes) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], 'dropped.pdf', { type: 'application/pdf' }));
+    root.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  }, [...pdf]);
+  await expectOpened(page, 'dropped.pdf');
+  await expect(page.locator('.drop-hint')).toHaveCount(0);
+});
+
+test('undoes from the keyboard only with focus in the editor', async ({ page }) => {
+  await loadHost(page);
+  await openBytes(page, 'keys.pdf', buildPdf([{ widthPt: 612, heightPt: 792 }]));
+  await expectPagePainted(page, 1);
+
+  // One ink stroke on page 1.
+  await page.getByRole('button', { name: 'Ink', exact: true }).click();
+  const slot = (await pageSlot(page, 1).boundingBox())!;
+  await page.mouse.move(slot.x + 100, slot.y + 100);
+  await page.mouse.down();
+  await page.mouse.move(slot.x + 200, slot.y + 160, { steps: 4 });
+  await page.mouse.up();
+  const ink = page.locator('.annotation-layer [data-kind="ink"]');
+  await expect(ink).toHaveCount(1);
+
+  // Focus on a host control: the key is the host's.
+  await page.locator('#host-button').click();
+  await page.keyboard.press('ControlOrMeta+Z');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Ink', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(ink).toHaveCount(1);
+
+  // A click on a part of the editor that takes no focus (its status line)
+  // leaves focus on the page body; the keys are the editor's again.
+  await page.locator('.workspace__bar').getByText('keys.pdf —').click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Select', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(ink).toHaveCount(0);
+});
+
+test('undoes a stamp dropped on the editor without a click first', async ({ page }) => {
+  await loadHost(page);
+  // Nothing clicked: the drops alone put the user in the editor.
+  await page.locator('.vitela').evaluate((root, bytes) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([new Uint8Array(bytes)], 'dropped.pdf', { type: 'application/pdf' }));
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      root.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }
+  }, [...buildPdf([{ widthPt: 612, heightPt: 792 }])]);
+  await expectOpened(page, 'dropped.pdf');
+  const slot = (await pageSlot(page, 1).boundingBox())!;
+  await dropFileAt(page, RED_PNG, slot.x + 100, slot.y + 150);
+  const stamps = page.locator('.annotation-layer [data-kind="stamp"]');
+  await expect(stamps).toHaveCount(1);
+  await page.keyboard.press('ControlOrMeta+Z');
+  await expect(stamps).toHaveCount(0);
+});
+

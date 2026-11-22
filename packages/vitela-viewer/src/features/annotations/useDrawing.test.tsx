@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ENCODING_GAP } from '@vitela/core';
 import { NOTE_SIZE, PALETTE } from './drawing';
 import type { AddOutcome, PendingEdit } from './useAnnotationEdits';
+import type { EditorScope } from '../document/editorScope';
 import { useDrawing, type DrawingEdits } from './useDrawing';
 
 const BLUE = PALETTE.find(({ name }) => name === 'Blue')!.color;
@@ -12,7 +13,12 @@ afterEach(() => {
   document.body.innerHTML = '';
 });
 
-function drawing(outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' }, allowed = true, rotation = 0) {
+function drawing(
+  outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' },
+  allowed = true,
+  rotation = 0,
+  scope?: EditorScope,
+) {
   const add = vi.fn(async (_edit: PendingEdit, _page: number, _key: string, _shown?: readonly string[]) => outcome);
   const notify = vi.fn();
   const edits: DrawingEdits = { allowed, add, notify };
@@ -20,7 +26,7 @@ function drawing(outcome: AddOutcome | Promise<AddOutcome> = { status: 'added' }
   // Each pick waits until the test says whether the image read.
   const picks: ((read: boolean) => void)[] = [];
   const pick = vi.fn((_file: File) => new Promise<boolean>((resolve) => picks.push(resolve)));
-  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation, { place: onStamp, pick }), {
+  const view = renderHook((props: DrawingEdits) => useDrawing(props, () => rotation, { place: onStamp, pick }, scope), {
     initialProps: edits,
   });
   return { ...view, add, notify, onStamp, pick, picks };
@@ -52,6 +58,31 @@ describe('useDrawing', () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     });
     expect(result.current.tool).toBe('shape');
+  });
+
+  it("leaves Escape pressed outside the editor, and goes by the editor's own dialogs", () => {
+    let inside = false;
+    let modal = false;
+    const scope: EditorScope = { ownsEvent: () => inside, takesDrop: () => true, modalOpen: () => modal };
+    const { result } = drawing(undefined, true, 0, scope);
+    act(() => result.current.choose('ink'));
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(result.current.tool).toBe('ink');
+    // A host dialog open elsewhere on the page does not hold the editor's Escape.
+    inside = true;
+    document.body.appendChild(document.createElement('dialog')).setAttribute('open', '');
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(result.current.tool).toBe('select');
+    act(() => result.current.choose('ink'));
+    modal = true;
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    expect(result.current.tool).toBe('ink');
   });
 
   it('arms nothing, and drops an armed tool, when annotating is forbidden', () => {

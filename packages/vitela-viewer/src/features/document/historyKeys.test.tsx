@@ -92,4 +92,14 @@ describe('historyAction', () => {
     document.body.dispatchEvent(after);
     expect(historyAction(after, false)).toBe('undo');
   });
+
+  it("asks the editor's scope whether one of its dialogs is open, not the whole page", () => {
+    const { unmount } = render(<dialog open aria-modal="true" />);
+    const event = key({ key: 'z', ctrlKey: true });
+    document.body.dispatchEvent(event);
+    // A host page's dialog is not the editor's: the editor's scope sees none.
+    expect(historyAction(event, false, { modalOpen: () => false })).toBe('undo');
+    expect(historyAction(event, false, { modalOpen: () => true })).toBeNull();
+    unmount();
+  });
 });

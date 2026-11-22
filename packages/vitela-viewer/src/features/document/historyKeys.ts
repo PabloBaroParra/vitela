@@ -2,8 +2,12 @@
 // viewer and Organize): Ctrl/⌘+Z undoes, Ctrl/⌘+Shift+Z redoes, and so does
 // Ctrl+Y — except on Apple platforms, where ⌘+Y is the browser's History.
 // A key is never taken from a text field (it keeps its own undo), from a
-// handler that already took it, or while a modal dialog is open (the page
-// behind it is inert; a key must not edit it). Pure apart from the DOM reads.
+// handler that already took it, or while one of the editor's own modal
+// dialogs is open (the page behind it is inert; a key must not edit it). A
+// host page's dialog does not count: the editor's scope says which are its
+// own. Pure apart from the DOM reads.
+
+import { WHOLE_DOCUMENT, type EditorScope } from './editorScope';
 
 export type HistoryKey = 'undo' | 'redo';
 
@@ -49,16 +53,21 @@ export function isTextField(target: EventTarget | null): boolean {
   return !!target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
 }
 
-/** The app opens dialogs only as modals (`showModal`), so an open one is modal. */
-export function modalOpen(target: EventTarget | null): boolean {
-  const owner = target instanceof Node ? (target.ownerDocument ?? (target as Document)) : globalThis.document;
-  return !!owner?.querySelector('dialog[open], [aria-modal="true"]');
-}
-
-/** The history step a key event asks for, or `null` when it is not one or is not ours to take. */
-export function historyAction(event: KeyEvent, apple: boolean): HistoryKey | null {
+/**
+ * The history step a key event asks for, or `null` when it is not one or is
+ * not ours to take. `scope` says whether one of the editor's dialogs is open
+ * (a host page's own dialog does not stop the editor's keys).
+ */
+export function historyAction(
+  event: KeyEvent,
+  apple: boolean,
+  scope: Pick<EditorScope, 'modalOpen'> = WHOLE_DOCUMENT,
+): HistoryKey | null {
   if (event.defaultPrevented) return null;
+  // Whose key it is (focus in the editor) is not asked here: the viewer's
+  // window listener asks its scope first, and Organize needs no check because
+  // its handler only receives keys from its own section.
   const action = historyKey(event, apple);
-  if (!action || isTextField(event.target) || modalOpen(event.target)) return null;
+  if (!action || isTextField(event.target) || scope.modalOpen()) return null;
   return action;
 }
