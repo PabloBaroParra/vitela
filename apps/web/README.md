@@ -7,19 +7,26 @@ is TypeScript + React (Vite). The user's PDF never leaves the browser.
 
 ```
 src/
-  main.tsx          boot only: starts the engine (createEngine) and renders App
-  app/              engine status, shell layout, styles
+  main.tsx          boot only: starts the engine (createEngine), loads the
+                    editor's stylesheet, renders App
+  app/              shell layout and the app's own styles (landing, tools)
   features/
-    document/       open a PDF: picker, drop on the window, password dialog
-    viewer/         virtualized page column, zoom (pure layout/zoom math + hooks)
-    render/         render a page and paint it into a canvas
-    search/         find in the document: match navigation (pure) + hook
-    text/           text layer, selection, copy, the text toolbar
-    organize/       thumbnail grid: reorder, rotate, delete, undo/redo
-  ui/               presentational pieces, no logic
+    tools/          tool registry, routes, home and tool pages
+  ui/               landing pieces (header, hero, footer, tool cards)
   test/             shared test fakes (Vitest only)
 e2e/                Playwright flows (production build); pdf.ts builds test PDFs
 ```
+
+## The editor
+
+The editor UI lives in the [`@vitela/viewer`](../../packages/vitela-viewer)
+package (npm workspace, B26 T-244): `DocumentWorkspace` and everything under
+its `src/features/` (`document`, `viewer`, `render`, `search`, `text`,
+`annotations`, `organize`, `save`), `src/platform/`, the `ui/` pieces the
+editor uses, `useEngineStatus`, and the stylesheet (`@vitela/viewer/style.css`:
+tokens, base, viewer, organize, dialogs). The feature paths named below are
+in that package. Like `@vitela/core`, the app consumes its built `dist/`, so
+every script below builds both packages first (`npm run build:packages`).
 
 ## The engine
 
@@ -69,12 +76,13 @@ npm run build:wasm    # core/pdf-wasm + pinned pdfium into packages/vitela-core/
 ```
 
 ```bash
-npm test              # builds @vitela/core, then the app's Vitest
+npm test              # builds both packages, then the app's Vitest
 npm test -w @vitela/core   # the engine's own Vitest (includes the real-pdfium test)
+npm test -w @vitela/viewer # the editor's own Vitest
 ```
 
 ```bash
-npm run build         # builds @vitela/core, type-checks, production build into dist/
+npm run build         # builds both packages, type-checks, production build into dist/
 ```
 
 ```bash

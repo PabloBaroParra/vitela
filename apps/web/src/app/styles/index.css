@@ -1,9 +1,5 @@
-/* Stylesheet entry. Brand: the navy of the Vitela mark, on white. One
-   accent, hairline borders: the document is the colourful thing here. */
-@import './tokens.css';
-@import './base.css';
-@import './viewer.css';
-@import './organize.css';
-@import './dialogs.css';
+/* The app's own stylesheet: the landing and the tool pages. The editor's
+   tokens, base rules and screens come from `@vitela/viewer/style.css`, which
+   main.tsx imports first, so the cascade order is unchanged. */
 @import './landing.css';
 @import './tools.css';

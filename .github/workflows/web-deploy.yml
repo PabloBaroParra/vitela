@@ -187,6 +187,12 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+      - name: "@vitela/viewer: type-check, Vitest, build"
+        working-directory: packages/vitela-viewer
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
       - name: Vitest (apps/web)
         run: npm test
       - name: Type-check and production build
