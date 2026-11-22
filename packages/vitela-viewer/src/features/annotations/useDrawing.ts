@@ -20,7 +20,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ENCODING_GAP } from '@vitela/core';
 import type { PageRect, Rgb } from '@vitela/core';
-import { isTextField, modalOpen } from '../document/historyKeys';
+import { WHOLE_DOCUMENT, type EditorScope } from '../document/editorScope';
+import { isTextField } from '../document/historyKeys';
 import { drawnEdit, PALETTE, textEdit, type ArmedTool, type DrawTool, type Gesture, type Size } from './drawing';
 import { freeTextFrame } from './geometry';
 import type { AddOutcome, PendingEdit } from './useAnnotationEdits';
@@ -64,7 +65,12 @@ export interface DrawingStamps {
   readonly pick: PickStamp;
 }
 
-export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) => number, stamps: DrawingStamps) {
+export function useDrawing(
+  edits: DrawingEdits,
+  rotationOf: (pageIndex: number) => number,
+  stamps: DrawingStamps,
+  scope: EditorScope = WHOLE_DOCUMENT,
+) {
   const [chosen, setChosen] = useState<DrawTool>('select');
   /** Counts the user's choices (a tool, Escape, a pick): a pick arms only if none came after it. */
   const choices = useRef(0);
@@ -86,18 +92,19 @@ export function useDrawing(edits: DrawingEdits, rotationOf: (pageIndex: number) 
     [allowed],
   );
 
-  // Escape anywhere puts the pointer back to selecting text — unless a text
-  // field or an open dialog has it (the dialog's own Escape cancels it).
+  // Escape with focus in the editor puts the pointer back to selecting text —
+  // unless a text field or one of the editor's open dialogs has it (the
+  // dialog's own Escape cancels it).
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return;
-      if (isTextField(event.target) || modalOpen(event.target)) return;
+      if (!scope.ownsEvent(event.target) || isTextField(event.target) || scope.modalOpen()) return;
       choices.current += 1;
       setChosen('select');
     };
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
-  }, []);
+  }, [scope]);
 
   const { place, pick } = stamps;
   /** Image: reads `file` and arms the stamp tool with it, if it is still the latest choice. */

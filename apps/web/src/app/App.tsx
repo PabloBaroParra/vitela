@@ -58,6 +58,8 @@ export function App({ engine, pathname = window.location.pathname }: AppProps) {
           intro={intro}
           initialScreen={route.kind === 'tool' ? route.tool.screen : undefined}
           standIn={standInFor(status)}
+          // The page is all editor: every key and dropped PDF on it is the editor's.
+          eventScope="window"
         />
       )}
     </main>

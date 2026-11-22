@@ -7,11 +7,12 @@
 // carry) are the core's; this screen keeps the selection in step with what an
 // edit did.
 
-import { useCallback, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useCallback, useContext, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
 import type { DocumentHandle, EditedDocument, Engine, ImportedDocument, PageEdit } from '@vitela/core';
 import { StatusLine } from '../../ui/StatusLine';
 import type { OpenDocument } from '../document/useDocument';
 import { carriesFiles } from '../document/droppedFile';
+import { EditorScopeContext } from '../document/editorScope';
 import { historyAction, isApplePlatform } from '../document/historyKeys';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { BlockCard, blockCardId } from './BlockCard';
@@ -53,6 +54,7 @@ const NO_NAMES: ReadonlyMap<number, string> = new Map();
 
 export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: OrganizeScreenProps) {
   const markDirty = useMarkDirty();
+  const scope = useContext(EditorScopeContext);
   const { handle, info } = document;
   const report = useCallback(
     (edited: EditedDocument) => {
@@ -158,7 +160,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
 
   // The same keys, read the same way, as the viewer's (`historyAction`).
   const onKeyDown = (event: KeyboardEvent) => {
-    const action = historyAction(event.nativeEvent, isApplePlatform());
+    const action = historyAction(event.nativeEvent, isApplePlatform(), scope);
     if (!action) return;
     event.preventDefault();
     if (action === 'undo') undo();
@@ -167,7 +169,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
 
   // Files dropped on this screen are added to the document rather than
   // opened in its place: claiming the drop (`preventDefault`) tells the
-  // workspace's window-wide listener, which sees it next, to open nothing.
+  // workspace's drop listener (on the window), which sees it next, to open nothing.
   const onFileDrop = (event: DragEvent) => {
     if (!carriesFiles([...event.dataTransfer.types])) return;
     event.preventDefault();

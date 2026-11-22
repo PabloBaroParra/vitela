@@ -1,5 +1,11 @@
-// Lets the user drop a file anywhere on the window. Reports whether a file
-// drag is over the window (to show a drop hint) and hands over the drop.
+// Lets the user drop a file on the editor — or anywhere on the window, when
+// the scope takes drops there (the app). Reports whether a file drag is over
+// a place that takes it (to show a drop hint) and hands over the drop. Drags
+// elsewhere on a host page are left to the host, default and all.
+//
+// The listeners sit on the window even when only the editor takes drops: a
+// drop that React handlers inside the editor claimed must be seen after
+// them, and React listens at its root container, above the editor's root.
 //
 // While disabled (a document is opening or the password prompt is up) a
 // dropped file is ignored, but the listeners stay: without them the browser
@@ -12,8 +18,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { handlesOfDrop, type WritableFileHandle } from '../../platform/fileHandle';
 import { carriesFiles, droppedFile } from './droppedFile';
+import { WHOLE_DOCUMENT, type EditorScope } from './editorScope';
 
-export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle) => void, enabled: boolean): boolean {
+export function useFileDrop(
+  onFile: (file: File, fileHandle?: WritableFileHandle) => void,
+  enabled: boolean,
+  scope: EditorScope = WHOLE_DOCUMENT,
+): boolean {
   const [dragging, setDragging] = useState(false);
   const handler = useRef(onFile);
   const accepting = useRef(enabled);
@@ -28,7 +39,14 @@ export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle
   useEffect(() => {
     // dragenter/dragleave fire for every child crossed; count them.
     let depth = 0;
-    const isFileDrag = (event: DragEvent) => carriesFiles(event.dataTransfer ? [...event.dataTransfer.types] : undefined);
+    // Only drags over a place that takes drops count. Moving between two
+    // elements fires dragenter on the new one before dragleave on the old,
+    // so leaving the editor for the host brings the count back to zero.
+    const carries = (event: DragEvent) => carriesFiles(event.dataTransfer ? [...event.dataTransfer.types] : undefined);
+    const isFileDrag = (event: DragEvent) => scope.takesDrop(event.target) && carries(event);
+    // An element entered inside the editor and then re-rendered away is no
+    // longer inside anything; its dragleave must still count, or the hint sticks.
+    const detached = (target: EventTarget | null) => target instanceof Node && !target.isConnected;
 
     const enter = (event: DragEvent) => {
       if (!isFileDrag(event)) return;
@@ -36,7 +54,7 @@ export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle
       if (accepting.current) setDragging(true);
     };
     const leave = (event: DragEvent) => {
-      if (!isFileDrag(event)) return;
+      if (!isFileDrag(event) && !(detached(event.target) && carries(event))) return;
       depth = Math.max(0, depth - 1);
       if (depth === 0) setDragging(false);
     };
@@ -82,7 +100,7 @@ export function useFileDrop(onFile: (file: File, fileHandle?: WritableFileHandle
       window.removeEventListener('dragover', over);
       window.removeEventListener('drop', onDrop);
     };
-  }, []);
+  }, [scope]);
 
   return dragging;
 }

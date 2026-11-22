@@ -1,22 +1,26 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { WritableFileHandle } from '../../platform/fileHandle';
+import type { EditorScope } from './editorScope';
 import { useFileDrop } from './useFileDrop';
 
 const pdf = new File([new Uint8Array([37, 80, 68, 70])], 'dropped.pdf', { type: 'application/pdf' });
 
 /** A cancelable drag event carrying `files` (jsdom has no DragEvent/DataTransfer). */
-function drag(type: string, files: File[] = [pdf], items?: unknown[]): Event {
+function drag(type: string, files: File[] = [pdf], items?: unknown[], target: EventTarget = window): Event {
   const event = new Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files, items, dropEffect: 'none' } });
   act(() => {
-    window.dispatchEvent(event);
+    target.dispatchEvent(event);
   });
   return event;
 }
 
 // Window listeners outlive a test unless its hook is unmounted.
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.body.replaceChildren();
+});
 
 describe('useFileDrop', () => {
   it('hands over a dropped file and reports the drag while enabled', () => {
@@ -52,6 +56,58 @@ describe('useFileDrop', () => {
       window.dispatchEvent(event);
     });
     expect(opened).toEqual([]);
+    expect(result.current).toBe(false);
+  });
+
+  it('takes only the drags over the editor when its scope says so, leaving the rest to the page', () => {
+    const editor = document.body.appendChild(document.createElement('div'));
+    const host = document.body.appendChild(document.createElement('div'));
+    const scope: EditorScope = {
+      ownsEvent: () => true,
+      takesDrop: (target) => target instanceof Node && editor.contains(target),
+      modalOpen: () => false,
+    };
+    const opened: File[] = [];
+    const { result } = renderHook(() => useFileDrop((file) => opened.push(file), true, scope));
+
+    // Over the host: no hint, the browser's default left alone, nothing opened.
+    drag('dragenter', [pdf], undefined, host);
+    expect(result.current).toBe(false);
+    expect(drag('dragover', [pdf], undefined, host).defaultPrevented).toBe(false);
+    expect(drag('drop', [pdf], undefined, host).defaultPrevented).toBe(false);
+    expect(opened).toEqual([]);
+
+    // Into the editor and out again: the hint follows.
+    drag('dragenter', [pdf], undefined, editor);
+    expect(result.current).toBe(true);
+    drag('dragenter', [pdf], undefined, host);
+    drag('dragleave', [pdf], undefined, editor);
+    expect(result.current).toBe(false);
+
+    // Dropped over the editor: opened.
+    drag('dragenter', [pdf], undefined, editor);
+    expect(drag('dragover', [pdf], undefined, editor).defaultPrevented).toBe(true);
+    expect(drag('drop', [pdf], undefined, editor).defaultPrevented).toBe(true);
+    expect(opened).toEqual([pdf]);
+    expect(result.current).toBe(false);
+  });
+
+  it('counts a drag leaving an element that was taken out of the page, so the hint goes', () => {
+    const editor = document.body.appendChild(document.createElement('div'));
+    const child = editor.appendChild(document.createElement('span'));
+    const scope: EditorScope = {
+      ownsEvent: () => true,
+      takesDrop: (target) => target instanceof Node && editor.contains(target),
+      modalOpen: () => false,
+    };
+    const { result } = renderHook(() => useFileDrop(() => {}, true, scope));
+    drag('dragenter', [pdf], undefined, child);
+    expect(result.current).toBe(true);
+    // Something under the drag takes the element out while its dragleave is
+    // on the way: the event still reaches the window, from a detached target.
+    child.addEventListener('dragleave', () => child.remove());
+    drag('dragleave', [pdf], undefined, child);
+    expect(child.isConnected).toBe(false);
     expect(result.current).toBe(false);
   });
 

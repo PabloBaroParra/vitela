@@ -15,6 +15,7 @@ import { OrganizeScreen } from '../organize/OrganizeScreen';
 import { DocumentViewer } from '../viewer/DocumentViewer';
 import { PasswordDialog } from './PasswordDialog';
 import { useDocument, type Activity } from './useDocument';
+import { EditorScopeContext, useEditorScope, type EventScope } from './editorScope';
 import { useFileDrop } from './useFileDrop';
 
 /** The screens of an open document. */
@@ -38,9 +39,17 @@ interface DocumentWorkspaceProps {
    * entrance animation.
    */
   readonly standIn?: ReactNode;
+  /**
+   * Which page events the editor takes. `'editor'` (the default, for a page
+   * the editor shares with others): keys only with focus in the editor (or
+   * after the user's last press or drop there), dropped PDFs only over it.
+   * `'window'` (a page that is all editor): every key and drop on the window.
+   * Either way only the editor's own dialogs hold its keys.
+   */
+  readonly eventScope?: EventScope;
 }
 
-export function DocumentWorkspace({ engine, intro, initialScreen = 'view', standIn }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({ engine, intro, initialScreen = 'view', standIn, eventScope }: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
@@ -51,7 +60,8 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
     setScreen(initialScreen);
   }
   const busy = activity.kind === 'opening' || activity.kind === 'password';
-  const dragging = useFileDrop(open, !busy && standIn === undefined);
+  const { rootRef, scope } = useEditorScope(eventScope);
+  const dragging = useFileDrop(open, !busy && standIn === undefined, scope);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document);
 
@@ -67,64 +77,66 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
 
   return (
     // `vitela` is the root class the editor's stylesheet is scoped to.
-    <div className="vitela workspace">
-      {document ? (
-        <div className="workspace__bar">
-          {picker}
-          <ActivityLine activity={activity} />
-          {activity.kind === 'idle' && (
-            <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
-          )}
-          <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
-          <SaveControls session={save} documentName={document.name} />
-        </div>
-      ) : (
-        intro(
-          standIn ?? (
-            <>
-              {picker}
-              <ActivityLine activity={activity} />
-            </>
-          ),
-        )
-      )}
-      {document && (
-        <MarkDirtyContext.Provider value={save.markDirty}>
-          {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
-          {screen === 'view' ? (
-            <DocumentViewer
-              key={document.generation}
-              engine={engine}
-              document={document}
-              onEdited={revise}
-              onStampImage={keepStampImage}
-            />
-          ) : (
-            <OrganizeScreen
-              key={document.generation}
-              engine={engine}
-              document={document}
-              onEdited={revise}
-              onSourcesNamed={nameSources}
-            />
-          )}
-        </MarkDirtyContext.Provider>
-      )}
-      {activity.kind === 'password' && (
-        <PasswordDialog
-          name={activity.name}
-          wrong={activity.wrong}
-          checking={activity.checking}
-          onSubmit={submitPassword}
-          onCancel={cancelPassword}
-        />
-      )}
-      {dragging && (
-        <div className="drop-hint" aria-hidden="true">
-          {/* Organize takes the dropped files in (see OrganizeScreen). */}
-          {document && screen === 'organize' ? 'Drop PDFs to add their pages' : 'Drop the PDF to open it'}
-        </div>
-      )}
+    <div ref={rootRef} className="vitela workspace">
+      <EditorScopeContext.Provider value={scope}>
+        {document ? (
+          <div className="workspace__bar">
+            {picker}
+            <ActivityLine activity={activity} />
+            {activity.kind === 'idle' && (
+              <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
+            )}
+            <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
+            <SaveControls session={save} documentName={document.name} />
+          </div>
+        ) : (
+          intro(
+            standIn ?? (
+              <>
+                {picker}
+                <ActivityLine activity={activity} />
+              </>
+            ),
+          )
+        )}
+        {document && (
+          <MarkDirtyContext.Provider value={save.markDirty}>
+            {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+            {screen === 'view' ? (
+              <DocumentViewer
+                key={document.generation}
+                engine={engine}
+                document={document}
+                onEdited={revise}
+                onStampImage={keepStampImage}
+              />
+            ) : (
+              <OrganizeScreen
+                key={document.generation}
+                engine={engine}
+                document={document}
+                onEdited={revise}
+                onSourcesNamed={nameSources}
+              />
+            )}
+          </MarkDirtyContext.Provider>
+        )}
+        {activity.kind === 'password' && (
+          <PasswordDialog
+            name={activity.name}
+            wrong={activity.wrong}
+            checking={activity.checking}
+            onSubmit={submitPassword}
+            onCancel={cancelPassword}
+          />
+        )}
+        {dragging && (
+          <div className="drop-hint" aria-hidden="true">
+            {/* Organize takes the dropped files in (see OrganizeScreen). */}
+            {document && screen === 'organize' ? 'Drop PDFs to add their pages' : 'Drop the PDF to open it'}
+          </div>
+        )}
+      </EditorScopeContext.Provider>
     </div>
   );
 }

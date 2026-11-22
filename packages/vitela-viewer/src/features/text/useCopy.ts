@@ -4,6 +4,7 @@
 // to copy. Container logic only, no markup.
 
 import { useCallback, useEffect, useState } from 'react';
+import { WHOLE_DOCUMENT, type EditorScope } from '../document/editorScope';
 
 export type CopyStatus = 'idle' | 'copied' | 'failed';
 
@@ -23,8 +24,8 @@ export function isCopyShortcut(event: KeyboardEvent, domSelection: Selection | n
   return true;
 }
 
-/** `text` is the selection to copy; `null` when nothing is selected. */
-export function useCopy(text: string | null) {
+/** `text` is the selection to copy; `null` when nothing is selected. Ctrl/⌘+C counts with focus in the editor (`scope`). */
+export function useCopy(text: string | null, scope: EditorScope = WHOLE_DOCUMENT) {
   // Tied to the text it is about: a new selection starts from idle.
   const [result, setResult] = useState<{ text: string; status: CopyStatus } | null>(null);
   const status: CopyStatus = result && result.text === text ? result.status : 'idle';
@@ -42,13 +43,13 @@ export function useCopy(text: string | null) {
   useEffect(() => {
     if (!text) return;
     const onKey = (event: KeyboardEvent) => {
-      if (!isCopyShortcut(event, window.getSelection())) return;
+      if (!scope.ownsEvent(event.target) || !isCopyShortcut(event, window.getSelection())) return;
       event.preventDefault();
       copy();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [text, copy]);
+  }, [text, copy, scope]);
 
   return { copy, status };
 }

@@ -5,13 +5,14 @@
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
 import { DraftDialog } from '../annotations/DraftDialog';
 import { DrawToolbar } from '../annotations/DrawToolbar';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import { useDrawing } from '../annotations/useDrawing';
 import { useStamps } from '../annotations/useStamps';
+import { EditorScopeContext } from '../document/editorScope';
 import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
@@ -80,7 +81,8 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   });
   const keyOf = useCallback((index: number) => shownKeys.current[index] ?? String(index), []);
   const { selection, input, clear: clearSelection } = useTextSelection(engine, document.handle, denyText, keyOf);
-  const copy = useCopy(textAllowed ? (selection?.text ?? null) : null);
+  const scope = useContext(EditorScopeContext);
+  const copy = useCopy(textAllowed ? (selection?.text ?? null) : null, scope);
 
   const markDirty = useMarkDirty();
   const { handle } = document;
@@ -91,7 +93,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     [onEdited, handle, markDirty],
   );
   const editing = useAnnotationEdits(engine, document, report);
-  useUndoKeys(editing.undo, editing.redo);
+  useUndoKeys(editing.undo, editing.redo, scope);
   // Read through a ref: a markup's end must see the selection shown then.
   const shownSelection = useRef(selection);
   useLayoutEffect(() => {
@@ -108,7 +110,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   const rotationOf = useCallback((index: number) => shownPages.current[index]?.rotationDegrees ?? 0, []);
   const keepStampImage = useCallback((id: number, href: string) => onStampImage(handle, id, href), [onStampImage, handle]);
   const stamps = useStamps(engine, handle, editing, keepStampImage);
-  const drawing = useDrawing(editing, rotationOf, stamps);
+  const drawing = useDrawing(editing, rotationOf, stamps, scope);
   const armed = drawing.tool === 'select' ? null : drawing.tool;
   useEffect(() => {
     if (armed) clearSelection();
