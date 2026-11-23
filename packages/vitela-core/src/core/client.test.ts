@@ -89,6 +89,29 @@ describe('EngineClient', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('terminates the worker: pending and later requests fail, and a ready still pending rejects', async () => {
+    const { port, sent } = fakePort();
+    let terminated = 0;
+    const client = new EngineClient({ ...port, terminate: () => void terminated++ });
+    const pending = client.renderPage(0, 0, 100);
+    client.terminate();
+    expect(terminated).toBe(1);
+    await expect(pending).rejects.toThrow('the engine was terminated');
+    await expect(client.ready).rejects.toThrow('the engine was terminated');
+    await expect(client.close(0)).rejects.toThrow('the engine was terminated');
+    expect(sent).toHaveLength(1);
+    // A second terminate does nothing more.
+    client.terminate();
+    expect(terminated).toBe(1);
+  });
+
+  it('terminating a port that cannot be terminated still stops the client', async () => {
+    const { port } = fakePort();
+    const client = new EngineClient(port);
+    client.terminate();
+    await expect(client.open(new Uint8Array([1]))).rejects.toThrow('the engine was terminated');
+  });
+
   it('ignores replies for ids it never sent', () => {
     const { port, reply } = fakePort();
     new EngineClient(port);

@@ -1,0 +1,29 @@
+{
+  "name": "vitela-embed-vite-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "A host page that installs the packed @vitela/core and @vitela/viewer tarballs (not workspace links) and embeds the editor, with React and without.",
+  "license": "MIT OR Apache-2.0",
+  "scripts": {
+    "setup": "node scripts/install-packed.mjs",
+    "dev": "vite --strictPort",
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --strictPort",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1",
+    "@types/node": "26.6.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.3.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
+  }
+}

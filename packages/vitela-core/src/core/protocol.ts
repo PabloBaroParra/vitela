@@ -128,4 +128,6 @@ export type WorkerMessage =
 export interface MessagePortLike<In, Out> {
   postMessage(message: Out, transfer?: Transferable[]): void;
   addEventListener(type: 'message', listener: (event: MessageEvent<In>) => void): void;
+  /** Stops the other end for good (a `Worker` has it; the worker's own scope does not). */
+  terminate?(): void;
 }

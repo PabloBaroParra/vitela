@@ -85,6 +85,12 @@ describe('SaveControls', () => {
     expect(await screen.findByText('Saved over a.pdf.')).toBeTruthy();
   });
 
+  it('says when the bytes went to the host page (onSave)', async () => {
+    renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery({ how: 'delivered', name: 'a.pdf' }));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText('Saved a.pdf.')).toBeTruthy();
+  });
+
   it('says plainly that it downloaded because the opened file could not be written', async () => {
     const outcome: SaveOutcome = { how: 'downloaded', name: 'a.pdf', fellBack: 'write' };
     renderControls(fakeEngine({ saveToBytes: async () => bytes }), delivery(outcome));

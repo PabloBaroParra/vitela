@@ -89,6 +89,9 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   every prepared source at once as one undo step (`ImportedDocument`: the
   edited document plus each source's block id); `discardImport` drops a
   source a pick abandoned.
+  `terminate()` stops the worker for good (every open document goes with it):
+  pending and later calls fail with "the engine was terminated", and so does
+  a `ready` still pending. Calling it again does nothing.
   Its constructor is public, but wrapping a port yourself is
   not a supported setup: the worker answers nothing until it receives the
   init message that `createEngine` sends.

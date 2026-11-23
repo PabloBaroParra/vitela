@@ -88,9 +88,11 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
           setActivity({ kind: 'confirmChangedOnDisk' });
           return;
         }
-        // Only writing over the opened file puts the edits in it, and not an edit made since.
+        // Only writing over the opened file (or handing the bytes to the host
+        // page) puts the edits where the document lives, and not an edit made since.
         accepted.current = undefined;
-        if (outcome.how === 'wrote' && edits.current === editsAtStart) setDirty(false);
+        const kept = outcome.how === 'wrote' || outcome.how === 'delivered';
+        if (kept && edits.current === editsAtStart) setDirty(false);
         setActivity({ kind: 'done', outcome });
       } catch (error) {
         if (errorKind(error) !== SIGNATURES_WOULD_BE_INVALIDATED) accepted.current = undefined;

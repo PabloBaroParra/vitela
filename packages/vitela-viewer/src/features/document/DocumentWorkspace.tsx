@@ -2,19 +2,20 @@
 // open document: the viewer, or Organize. What shows before a document is
 // open is the caller's: it gets the open action (picker plus activity) to place.
 
-import { useState, type ReactNode } from 'react';
+import { useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
 import { MarkDirtyContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
+import type { Delivery } from '../save/delivery';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
 import { ViewSwitch } from '../../ui/ViewSwitch';
 import { OrganizeScreen } from '../organize/OrganizeScreen';
 import { DocumentViewer } from '../viewer/DocumentViewer';
 import { PasswordDialog } from './PasswordDialog';
-import { useDocument, type Activity } from './useDocument';
+import { useDocument, type Activity, type PdfSource } from './useDocument';
 import { EditorScopeContext, useEditorScope, type EventScope } from './editorScope';
 import { useFileDrop } from './useFileDrop';
 
@@ -25,6 +26,14 @@ const SCREENS = [
   { value: 'view', label: 'View' },
   { value: 'organize', label: 'Organize' },
 ] as const;
+
+/** What a host can ask of the workspace, besides what its own controls offer. */
+export interface WorkspaceHandle {
+  /** Opens `source` as if the user had picked it (the editor shows how it went). */
+  open(source: PdfSource): void;
+  /** Saves the open document as the Save button does; nothing when none is open. */
+  save(): void;
+}
 
 interface DocumentWorkspaceProps {
   readonly engine: Engine;
@@ -47,9 +56,23 @@ interface DocumentWorkspaceProps {
    * Either way only the editor's own dialogs hold its keys.
    */
   readonly eventScope?: EventScope;
+  /** Whether the "Open PDF" picker is offered (default: yes). Dropping a PDF still opens it. */
+  readonly filePicker?: boolean;
+  /** Where a save goes. Default: over the opened file when the browser allows it, else a download. */
+  readonly delivery?: Delivery;
+  readonly ref?: Ref<WorkspaceHandle>;
 }
 
-export function DocumentWorkspace({ engine, intro, initialScreen = 'view', standIn, eventScope }: DocumentWorkspaceProps) {
+export function DocumentWorkspace({
+  engine,
+  intro,
+  initialScreen = 'view',
+  standIn,
+  eventScope,
+  filePicker = true,
+  delivery,
+  ref,
+}: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage } = useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
@@ -63,9 +86,10 @@ export function DocumentWorkspace({ engine, intro, initialScreen = 'view', stand
   const { rootRef, scope } = useEditorScope(eventScope);
   const dragging = useFileDrop(open, !busy && standIn === undefined, scope);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
-  const save = useSave(engine, document);
+  const save = useSave(engine, document, delivery);
+  useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
-  const picker = (
+  const picker = filePicker && (
     <FilePicker
       label="Open PDF"
       accept="application/pdf,.pdf"

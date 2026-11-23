@@ -10,6 +10,8 @@ export type FallbackReason = 'permission' | 'write' | 'unverified';
 export type SaveOutcome =
   /** Written over the file the document was opened from. */
   | { readonly how: 'wrote'; readonly name: string }
+  /** Handed to the page the editor is embedded in (its `onSave`), which now has the edits. */
+  | { readonly how: 'delivered'; readonly name: string }
   /** Downloaded as a new copy; the opened file is untouched. */
   | { readonly how: 'copied'; readonly name: string }
   /** Handed to the browser as a download; `fellBack` says why a file handle was not used. */
