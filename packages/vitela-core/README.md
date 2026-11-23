@@ -14,6 +14,9 @@ searches, selects text, and saves the document back to bytes.
 npm install @vitela/core
 ```
 
+Published from `npm-v*` tags of the Vitela repository
+([`npm-release.yml`](../../.github/workflows/npm-release.yml)), with provenance.
+
 ## Usage
 
 ```ts
