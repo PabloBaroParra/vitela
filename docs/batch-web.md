@@ -1296,7 +1296,7 @@ Hechos de partida (mapa de `apps/web`, 2026-11-21):
 | **T-245** ✓ | CSS acotado: tokens y reset bajo la clase raíz `.vitela` (nada en `:root`, `body` ni selectores sueltos), el editor ocupa su contenedor (`height: 100%`, no `100vh`), `.drop-hint` relativo a la raíz. La app sigue igual. | Playwright: página anfitriona de prueba con estilos agresivos propios (`button`, `body`, fuente) — los del editor no salen y los de la anfitriona no rompen el editor en lo medible. |
 | **T-246** ✓ | Eventos acotados: soltar archivos solo sobre el editor (opción para toda la ventana, que usa la app), atajos solo con el foco dentro del editor, `modalOpen()` mira solo los diálogos del editor. | Vitest de cada hook; Playwright en la anfitriona: soltar fuera no abre, Ctrl+Z fuera no deshace. |
 | **T-247** ✓ | API pública: componente React `<VitelaViewer>` (`source`: `File`/`Uint8Array`/URL; `engine` o `engineOptions`; `onSave(bytes, name)` como `Delivery`; ocultar el selector; pantalla inicial) y `mountViewer(element, options)` sin React para quien no lo use (`destroy`, `open`, `save`). React como `peerDependency`. README con el `vite.config` que necesita un consumidor (wasm/worker). | Vitest de la API; Playwright sobre un ejemplo consumidor (`examples/embed-vite`) que instala el paquete empaquetado (`npm pack`), abre desde URL, edita y recibe los bytes en `onSave`. |
-| **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
+| **T-248** | Publicación: workflow por tag que publica `@vitela/core` y `@vitela/viewer` con provenance, solo tras `web.yml` en verde. Workflow hecho, primera publicación pendiente (ver "T-248 — resultado"). **Pasos del usuario:** crear la organización `vitela` en npmjs.com y configurar la publicación de confianza (OIDC) de ambos paquetes para el workflow. | Ensayo con `npm publish --dry-run` en CI; primera versión publicada e instalada desde el registro en el ejemplo consumidor. |
 
 Riesgos abiertos (NO verificados):
 
@@ -1731,6 +1731,100 @@ Lo que condiciona T-248:
   entregan los bytes con el nombre del documento (README, "Not supported yet").
 - React sigue siendo `peerDependency` exacta (`19.3.1`); un consumidor con otra 19.x choca
   con ella al instalar (no probado). Relajarla a `^19` es decisión aparte.
+
+### T-248 — resultado
+
+**En curso: el código está, pero todavía no se ha publicado nada** (2026-11-23,
+`npm view @vitela/core` → E404). T-248 se marca ✓ cuando la primera versión esté en npm y el
+job `verify` la haya instalado desde el registro en verde.
+
+- **Tag `npm-v<semver>`**, con cadencia propia (como `web-deploy`): no casa con el `v*` de
+  `release.yml`. Los dos paquetes salen con la versión del tag. Publicar una versión es subir
+  `version` en los dos `package.json` y la dependencia exacta del viewer (más `apps/web` y el
+  lockfile) en un PR, y después el tag sobre `main`.
+- **`npm-release.yml`**: `version` (el tag está en `main`; `scripts/npm-release/check.mjs`
+  exige que tag, core, viewer y la dependencia del viewer sean la misma versión, sin
+  metadatos de build; prerelease → `next`, estable → `latest`) → `web` (todo `web.yml` sobre
+  ese commit) → `publish` → `verify`. `workflow_dispatch` es un ensayo: comprueba, prueba y
+  sube el artefacto, sin publicar, aunque se lance sobre un tag.
+- **Se empaqueta una vez y se publica lo probado.** `web.yml` gana `workflow_call` con
+  `upload-packages`: sube los dos tarballs de `examples/embed-vite/.packs`, los mismos que
+  instaló y probó el ejemplo, y `publish` publica esos ficheros sin reconstruir. `.packs` es
+  un directorio oculto, que `upload-artifact` ignora si no se pide
+  `include-hidden-files`.
+- **`npm publish --dry-run` en cada `web.yml`**, sobre esos tarballs. No necesita sesión (npm
+  solo avisa), ni genera procedencia. Lleva `--force` porque, sin él, npm rechaza una versión
+  ya publicada **también en el ensayo**: tras la primera publicación, todos los PR saldrían en
+  rojo hasta subir la versión.
+- **`scripts/npm-release/publish.mjs`** mira los dos paquetes en el registro antes de publicar
+  ninguno: ausente (E404) → publica con `--provenance`; mismo sha512 → lo salta (repetir los
+  jobs fallidos es seguro); otros bytes → falla; cualquier otro error de `npm view` → falla,
+  nunca cuenta como "no publicado". Una estable por debajo del `latest` actual se rechaza.
+  Tras un fallo a medias: **"Re-run failed jobs"**, no "Re-run all jobs" (volvería a
+  empaquetar, y si los bytes cambian se niega).
+- **Sin token de npm**: publicación de confianza (OIDC). npm comprueba el nombre del fichero
+  del workflow que arranca la ejecución, así que `npm publish` vive en `npm-release.yml` y
+  renombrarlo rompe la publicación.
+- **Ejemplo consumidor:** `npm run setup` sigue empaquetando; `npm run setup:registry --
+  <versión>` instala esa versión del registro (reintenta hasta cinco minutos si aún no se ha
+  propagado) y comprueba que viene de ahí. `verify` lo usa con el mismo typecheck y los
+  mismos 12 flujos.
+
+Gates (Windows 11, local):
+
+- `node --test scripts/npm-release/*.test.mjs examples/embed-vite/scripts/*.test.mjs`:
+  **29 pasan**, vistos en rojo antes de implementar. En CI corren en `web.yml`.
+- `actionlint` sobre los dos workflows: sin avisos.
+- `npm run setup` + typecheck en el ejemplo y `npm publish --dry-run` de los dos tarballs: verde.
+- `publish.mjs` con `npm view` real y `npm publish` simulado: contra npmjs.org (E404 → los dos
+  por publicar); contra un registro local, los dos ya publicados (salta), solo core (publica el
+  viewer) y otros bytes (falla); registro inaccesible (falla).
+- `setup:registry` contra ese registro local, con un 404 antes de aparecer: un reintento y
+  typecheck y Playwright del ejemplo, **12 pasan**.
+- **No comprobado:** los workflows no han corrido en GitHub; OIDC, la procedencia y la
+  publicación real solo se pueden ver en la primera.
+
+#### Pasos del usuario
+
+1. **Crear la organización `vitela`** en npmjs.com (plan gratuito, paquetes públicos), con 2FA
+   en la cuenta.
+2. **Crear cada paquete a mano, una vez.** El publicador de confianza solo se puede configurar
+   en un paquete que ya existe, así que se publica un `0.0.0` sin contenido desde un directorio
+   vacío (Git Bash; `npm login` antes):
+
+   ```bash
+   npm login
+   for name in core viewer; do
+     dir="$(mktemp -d)"
+     printf '{"name":"@vitela/%s","version":"0.0.0","description":"Placeholder: the first real version is 0.1.0.","license":"MIT OR Apache-2.0"}\n' "$name" > "$dir/package.json"
+     (cd "$dir" && npm publish --access public)
+   done
+   npm view @vitela/core version    # 0.0.0
+   npm view @vitela/viewer version  # 0.0.0
+   ```
+
+3. **Publicación de confianza**, solo cuando se vaya a hacer el paso 5 enseguida: una
+   configuración nueva caduca si no hay una primera publicación con éxito en **2 días**. Pide
+   2FA. Desde el 3 de septiembre de 2026 las configuraciones nuevas solo permiten la
+   publicación por etapas (`npm stage publish`), así que hay que permitir la directa. No se
+   pueden editar: si algo está mal o caduca, se borra y se crea otra.
+
+   ```bash
+   npx npm@^11.15 trust github @vitela/core --file npm-release.yml --repo PabloBaroParra/vitela --env npm --allow-publish
+   npx npm@^11.15 trust github @vitela/viewer --file npm-release.yml --repo PabloBaroParra/vitela --env npm --allow-publish
+   ```
+
+4. **GitHub, antes del paso 3:** crear el entorno `npm` (Settings → Environments), con
+   despliegue limitado a tags `npm-v*`; y en el ruleset `release-tags` añadir
+   `refs/tags/npm-v*` junto a `refs/tags/v*`, para que esos tags tampoco se puedan mover ni
+   borrar. Conviene lanzar aquí el ensayo: Actions → npm-release → Run workflow.
+5. **Publicar** (el tag, sobre `main` ya fusionado):
+
+   ```bash
+   git fetch origin main
+   git tag -a npm-v0.1.0 -m "npm 0.1.0" origin/main
+   git push origin refs/tags/npm-v0.1.0
+   ```
 
 ## Verificación
 

@@ -1,0 +1,153 @@
+name: npm-release
+
+# Publishes @vitela/core and @vitela/viewer to npm, both at the tag's version,
+# on their own cadence (like web-deploy): an `npm-v<semver>` tag on main, e.g.
+#
+#   git fetch origin main
+#   git tag -a npm-v0.1.0 -m "npm 0.1.0" origin/main
+#   git push origin refs/tags/npm-v0.1.0
+#
+# It does not match release.yml's `v*`, so neither release starts the other.
+#
+#   1. version: refuses a tag that is not on main, or whose version is not the
+#      one both packages (and the viewer's dependency on core) carry.
+#   2. web: the whole of web.yml on the tagged commit, which packs, tests and
+#      uploads the two tarballs.
+#   3. publish: those tarballs, unchanged, core first
+#      (scripts/npm-release/publish.mjs). Prereleases go to `next`, stable
+#      versions to `latest`. After a partial failure, "Re-run failed jobs": it
+#      skips what is already published with the same bytes. "Re-run all jobs"
+#      would pack again, and refuses if the bytes differ.
+#   4. verify: the example consumer, installed from the registry.
+#
+# workflow_dispatch is a rehearsal: check, gate and artifact on any ref, and
+# nothing published.
+#
+# No token is stored. npm trusts this repository, this workflow's file name and
+# the environment "npm" (trusted publishing over OIDC), so `npm publish` has to
+# run in a job of THIS file and renaming it breaks publishing. Setup, once:
+# docs/batch-web.md, "T-248 — resultado".
+on:
+  push:
+    tags: ["npm-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Check the release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      dist-tag: ${{ steps.check.outputs.dist-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Require the tag to be on main
+        if: github.event_name == 'push'
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "$GITHUB_REF_NAME does not point at a commit on main" >&2; exit 1; }
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      # A rehearsal has no release tag: the packages are checked against each other.
+      - name: Check the tag against the packages
+        id: check
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            result="$(node scripts/npm-release/check.mjs "$GITHUB_REF_NAME")"
+          else
+            result="$(node scripts/npm-release/check.mjs)"
+          fi
+          printf '%s\n' "$result" | tee -a "$GITHUB_OUTPUT"
+
+  web:
+    name: Web
+    needs: version
+    uses: ./.github/workflows/web.yml
+    with:
+      upload-packages: true
+
+  publish:
+    name: Publish to npm
+    # Not `ref_type == 'tag'`: a rehearsal can be dispatched on a tag.
+    if: github.event_name == 'push'
+    needs: [version, web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # trusted publishing and provenance
+    # One publish at a time across tags: each one compares itself with the
+    # registry's current `latest` before moving it.
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # No registry-url: it would write an .npmrc that expects a token.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Require an npm that supports trusted publishing
+        run: |
+          version="$(npm --version)"
+          printf '11.5.1\n%s\n' "$version" | sort -V -C \
+            || { echo "npm $version is older than 11.5.1" >&2; exit 1; }
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-packages
+          path: npm-packages
+      - name: Publish core, then viewer
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          DIST_TAG: ${{ needs.version.outputs.dist-tag }}
+        run: node scripts/npm-release/publish.mjs npm-packages "$VERSION" "$DIST_TAG"
+
+  verify:
+    name: Verify the published packages (example consumer)
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: examples/embed-vite
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install the published version from the registry
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          npm ci
+          npm run setup:registry -- "$VERSION"
+      - name: Type-check against the published declarations
+        run: npm run typecheck
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: Playwright (chromium, firefox, webkit; build and dev server)
+        run: npx playwright test
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-registry
+          path: |
+            examples/embed-vite/playwright-report
+            examples/embed-vite/test-results
+          retention-days: 7

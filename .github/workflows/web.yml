@@ -7,6 +7,9 @@ name: web
 # Playwright flows (Chromium, Firefox and WebKit) against the production build.
 # Last, examples/embed-vite installs both packages as `npm pack` tarballs (what
 # a consumer gets from npm) and runs its own flows, build and dev server.
+#
+# npm-release.yml calls this as its gate and publishes those same tarballs:
+# packed once here, tested here, uploaded here, never rebuilt.
 on:
   push:
     branches: [main]
@@ -14,6 +17,7 @@ on:
       - "apps/web/**"
       - "packages/**"
       - "examples/embed-vite/**"
+      - "scripts/npm-release/**"
       - package.json
       - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
@@ -23,11 +27,13 @@ on:
       - Cargo.lock
       - "tests/fixtures/**"
       - ".github/workflows/web.yml"
+      - ".github/workflows/npm-release.yml"
   pull_request:
     paths:
       - "apps/web/**"
       - "packages/**"
       - "examples/embed-vite/**"
+      - "scripts/npm-release/**"
       - package.json
       - package-lock.json
       # The worker's engine is core/pdf-wasm, built from the workspace.
@@ -37,6 +43,18 @@ on:
       - Cargo.lock
       - "tests/fixtures/**"
       - ".github/workflows/web.yml"
+      - ".github/workflows/npm-release.yml"
+  # npm-release.yml calls this on an npm-v* tag (and on its rehearsals); only
+  # then are the tested tarballs uploaded. `inputs` is empty on a push or a pull
+  # request, so the upload is skipped there. No concurrency group here: a called
+  # workflow runs under its caller's.
+  workflow_call:
+    inputs:
+      upload-packages:
+        description: Upload the two tested npm tarballs as the npm-packages artifact
+        required: false
+        default: false
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -104,6 +122,10 @@ jobs:
         run: npm ci
         working-directory: .
 
+      - name: npm release tooling (check, publish, registry retry)
+        working-directory: .
+        run: node --test scripts/npm-release/*.test.mjs examples/embed-vite/scripts/*.test.mjs
+
       - name: "@vitela/core: type-check, Vitest (includes the real-pdfium test), build"
         working-directory: packages/vitela-core
         run: |
@@ -143,6 +165,27 @@ jobs:
       - name: "Example consumer: Playwright (chromium, firefox, webkit; build and dev server)"
         working-directory: examples/embed-vite
         run: npx playwright test
+
+      # The tarballs just tested, through npm's publish path up to the upload.
+      # It needs no login (npm only warns). --force: without it npm refuses a
+      # version that is already published, even in a dry run, and every pull
+      # request between two releases has one. scripts/npm-release/publish.mjs
+      # decides about published versions, on a release.
+      - name: "npm publish --dry-run (the tested tarballs)"
+        working-directory: examples/embed-vite
+        run: |
+          for tarball in ./.packs/vitela-core-*.tgz ./.packs/vitela-viewer-*.tgz; do
+            npm publish "$tarball" --dry-run --force --tag dry-run
+          done
+      - name: Upload the tested npm packages for the release
+        if: inputs.upload-packages
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-packages
+          path: examples/embed-vite/.packs/*.tgz
+          # .packs is a hidden directory, which upload-artifact skips by default.
+          include-hidden-files: true
+          if-no-files-found: error
 
       - name: Upload the Playwright report
         if: failure()

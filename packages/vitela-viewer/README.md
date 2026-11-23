@@ -16,9 +16,12 @@ but the two packages still have to be installed.
 npm install @vitela/viewer react@19.3.1 react-dom@19.3.1
 ```
 
-`@vitela/core` comes with it. (Not published to npm yet; until then,
-[`examples/embed-vite`](../../examples/embed-vite) installs both packages
-from `npm pack` tarballs.)
+`@vitela/core` comes with it, at the same version. Both packages are published
+from `npm-v*` tags of the Vitela repository
+([`npm-release.yml`](../../.github/workflows/npm-release.yml)), with provenance.
+To try a build that is not on npm, see
+[`examples/embed-vite`](../../examples/embed-vite): it installs both packages
+from `npm pack` tarballs.
 
 ## Usage
 
