@@ -1,0 +1,7 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+# Written by `npm run setup`: the packed tarballs and the sample the pages open.
+.packs/
+public/sample.pdf

@@ -81,6 +81,10 @@ function outcomeText(outcome: SaveOutcome, dirty: boolean): string {
       return dirty
         ? `Saved over ${outcome.name}, but edits made while saving are not in it. Unsaved changes.`
         : `Saved over ${outcome.name}.`;
+    case 'delivered':
+      return dirty
+        ? `Saved ${outcome.name}, but edits made while saving are not in it. Unsaved changes.`
+        : `Saved ${outcome.name}.`;
     case 'copied':
       return dirty
         ? `Downloaded a copy as ${outcome.name}. The opened file was not changed and still has unsaved changes.`
