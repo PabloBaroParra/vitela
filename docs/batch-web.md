@@ -1803,7 +1803,13 @@ Gates (Windows 11, local):
    npm view @vitela/viewer version  # 0.0.0
    ```
 
-3. **Publicación de confianza**, solo cuando se vaya a hacer el paso 5 enseguida: una
+3. **GitHub:** crear el entorno `npm` (Settings → Environments), con despliegue limitado a
+   tags `npm-v*` y **un revisor obligatorio**: un tag ejecuta el `npm-release.yml` de su propio
+   commit, así que las comprobaciones del workflow no frenan a quien empuje un tag sobre un
+   commit que las quite; la aprobación del entorno sí. En el ruleset `release-tags`, añadir
+   `refs/tags/npm-v*` junto a `refs/tags/v*`, para que esos tags tampoco se puedan mover ni
+   borrar. Conviene lanzar aquí el ensayo: Actions → npm-release → Run workflow.
+4. **Publicación de confianza**, solo cuando se vaya a hacer el paso 5 enseguida: una
    configuración nueva caduca si no hay una primera publicación con éxito en **2 días**. Pide
    2FA. Desde el 3 de septiembre de 2026 las configuraciones nuevas solo permiten la
    publicación por etapas (`npm stage publish`), así que hay que permitir la directa. No se
@@ -1814,11 +1820,7 @@ Gates (Windows 11, local):
    npx npm@^11.15 trust github @vitela/viewer --file npm-release.yml --repo PabloBaroParra/vitela --env npm --allow-publish
    ```
 
-4. **GitHub, antes del paso 3:** crear el entorno `npm` (Settings → Environments), con
-   despliegue limitado a tags `npm-v*`; y en el ruleset `release-tags` añadir
-   `refs/tags/npm-v*` junto a `refs/tags/v*`, para que esos tags tampoco se puedan mover ni
-   borrar. Conviene lanzar aquí el ensayo: Actions → npm-release → Run workflow.
-5. **Publicar** (el tag, sobre `main` ya fusionado):
+5. **Publicar** (el tag, sobre `main` ya fusionado; después, aprobar el entorno `npm`):
 
    ```bash
    git fetch origin main
