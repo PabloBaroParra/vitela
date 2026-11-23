@@ -1646,7 +1646,7 @@ Ejemplo consumidor: `examples/embed-vite` (no es miembro del workspace npm). Su
 `.packs/` (su `prepack` limpia y construye `dist/`) y los instala con `npm install --no-save`
 **encima**, sin enlaces de workspace y sin referencias `file:` en `package.json` ni en el
 lockfile (su integridad cambiaría en cada build); `npm ls` muestra el `@vitela/core` del
-viewer como `deduped` sobre el tarball. Copia además `large/edit_reopen_10pg.pdf` a
+viewer como `deduped` sobre el tarball. Copia además `compress/vector_only.pdf` a
 `public/sample.pdf`. Dos páginas: `index.html` (`<VitelaViewer>` en `StrictMode`, abre
 `/sample.pdf`, guarda en `onSave` y puede reabrir los bytes guardados como `source`) y
 `vanilla.html` (`mountViewer` sin selector, con el handle en `window` para el test).
@@ -1657,9 +1657,9 @@ Flujos (`examples/embed-vite/e2e/embed.spec.ts`, 2 tests × 3 navegadores × 2 s
 12; proyectos `chromium-build` … `webkit-dev`, build + `vite preview` en el 4180 y
 `vite` dev en el 4181):
 
-- `<VitelaViewer>`: abre `sample.pdf` desde la URL (10 páginas), borra la primera en
+- `<VitelaViewer>`: abre `sample.pdf` desde la URL (3 páginas), borra la primera en
   Organize, Save → "Saved sample.pdf.", la anfitriona recibe `sample.pdf: N bytes, starts
-  %PDF-` y la marca de cambios desaparece; reabre los bytes y son 9 páginas. Sin errores de
+  %PDF-` y la marca de cambios desaparece; reabre los bytes y son 2 páginas. Sin errores de
   página.
 - `mountViewer`: lo mismo con `viewer.save()` y `viewer.open(bytes, 'saved.pdf')` desde el
   test, sin "Open PDF"; `viewer.destroy()` vacía el contenedor y el worker se cierra

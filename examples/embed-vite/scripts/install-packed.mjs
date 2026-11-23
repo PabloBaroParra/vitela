@@ -51,5 +51,5 @@ for (const pkg of ['packages/vitela-core', 'packages/vitela-viewer']) {
 npm(['install', '--no-save', '--no-audit', '--no-fund', ...tarballs], here('.'));
 
 mkdirSync(here('public'), { recursive: true });
-copyFileSync(repo('tests/fixtures/large/edit_reopen_10pg.pdf'), here('public/sample.pdf'));
+copyFileSync(repo('tests/fixtures/compress/vector_only.pdf'), here('public/sample.pdf'));
 console.log(`installed ${tarballs.join(', ')}; public/sample.pdf ready`);

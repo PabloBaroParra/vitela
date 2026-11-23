@@ -5,8 +5,8 @@
 
 import { expect, test, type Page } from '@playwright/test';
 
-/** The sample (public/sample.pdf, written by `npm run setup`) has ten pages. */
-const PAGES = 10;
+/** The sample (public/sample.pdf, written by `npm run setup`) has three pages. */
+const PAGES = 3;
 
 async function expectOpened(page: Page, name: string, pages: number): Promise<void> {
   await expect(page.getByText(`${name} — ${pages} pages`)).toBeVisible({ timeout: 30_000 });
