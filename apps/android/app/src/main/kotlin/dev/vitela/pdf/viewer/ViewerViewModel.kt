@@ -20,8 +20,15 @@ import dev.vitela.pdf.core.SigningCertificate
 import dev.vitela.pdf.home.NoRecentStore
 import dev.vitela.pdf.home.RecentDocument
 import dev.vitela.pdf.home.RecentStore
+import dev.vitela.pdf.recovery.Autosaving
+import dev.vitela.pdf.recovery.NoRecoveryStore
+import dev.vitela.pdf.recovery.RecoveryKey
+import dev.vitela.pdf.recovery.RecoveryOffer
+import dev.vitela.pdf.recovery.RecoveryOffering
+import dev.vitela.pdf.recovery.RecoveryStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -39,7 +46,9 @@ import kotlinx.coroutines.withContext
  * [signatures] keeps the drawn signature the user asked to be remembered;
  * the default remembers nothing. [recents] keeps Home's Recent list, with
  * [encodePreview] making each card's first-page PNG and [clock] stamping when
- * it was opened; the default store remembers nothing.
+ * it was opened; the default store remembers nothing. [recovery] keeps the
+ * crash-recovery copies, with [elapsed], a monotonic clock, timing its
+ * retries; the default keeps none.
  */
 class ViewerViewModel(
     private val core: PdfCore?,
@@ -49,6 +58,8 @@ class ViewerViewModel(
     recents: RecentStore = NoRecentStore,
     encodePreview: (RenderedPage) -> ByteArray? = { it.toPng() },
     private val clock: () -> Long = System::currentTimeMillis,
+    recovery: RecoveryStore = NoRecoveryStore,
+    elapsed: () -> Long = { System.nanoTime() / 1_000_000 },
 ) : ViewModel() {
     private val session = ViewerSession({ viewModelScope }, ViewerState(status = availabilityMessage(core), canOpen = core != null), compute, io)
     private val _state = session.state
@@ -97,7 +108,9 @@ class ViewerViewModel(
         annotations.selectImageStamp(png, SIGNATURE_STAMP_PROMPT, SIGNATURE_PLACED)
     }
     private val signing = Signing(session, { bytes, password -> openSigningCertificate(bytes, password) }, ::reopenSigned)
-    private val saving = DocumentSaving(session)
+    private val autosaving = Autosaving(session, recovery, clock, elapsed)
+    private val recoveryOffering = RecoveryOffering(core, session, recovery, ::installRecovered)
+    private val saving = DocumentSaving(session, autosaving::forget)
     private val recentRemembering = RecentRemembering(session, recents, encodePreview)
 
     /**
@@ -157,8 +170,9 @@ class ViewerViewModel(
                 // Detach before yielding: a final viewport callback must not
                 // schedule a new native render while this handle is closing.
                 session.document = null
+                autosaving.forget()
                 _state.value = current.copy(isLoading = true, pendingClose = null)
-                withContext(session.compute) { document.close() }
+                withContext(NonCancellable + session.compute) { document.close() }
                 sourceBytes = null
                 sourceTarget = null
                 sourceStartTool = null
@@ -201,8 +215,12 @@ class ViewerViewModel(
         }
     }
 
-    /** Makes [document] the open one. Called with the document lane held. */
-    private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?, startTool: DocumentStartTool? = null) {
+    /**
+     * Makes [document] the open one. Called with the document lane held.
+     * [takeOver] marks a recovered one: it opens unsaved, and hands over the
+     * entry that protects it.
+     */
+    private suspend fun install(displayName: String, document: PdfDocument, saveTarget: String?, startTool: DocumentStartTool? = null, takeOver: (() -> RecoveryKey)? = null) {
         sourceDiscardConfirmed = false
         sourceStartTool = null
         importing.abandon()
@@ -230,7 +248,9 @@ class ViewerViewModel(
             // Published only on success: a failed open leaves the
             // previous document in place, and its target with it.
             saveTarget = saveTarget,
+            isDirty = takeOver != null,
         )
+        autosaving.documentInstalled(displayName, takeOver?.invoke())
         annotations.refresh(document)
         reader.showFirstWindow(pageCount)
         if (pageCount > 0) when (startTool) {
@@ -241,6 +261,18 @@ class ViewerViewModel(
             DocumentStartTool.Compress -> openCompress()
             null -> Unit
         }
+    }
+
+    /**
+     * A recovered document has nowhere to write back to: its file may have
+     * changed since, and **Save** would overwrite it without asking. It is not
+     * a Recent entry either.
+     */
+    private suspend fun installRecovered(displayName: String, document: PdfDocument, takeOver: () -> RecoveryKey) {
+        sourceBytes = null
+        sourceTarget = null
+        sourceRecent = null
+        install(displayName, document, saveTarget = null, takeOver = takeOver)
     }
 
     /** Puts the document just installed first on Home's Recent list. Called with the document lane held. */
@@ -397,6 +429,17 @@ class ViewerViewModel(
     fun reportSaveFailure() = saving.reportSaveFailure()
     suspend fun inPlaceSave(): InPlaceSave? = saving.inPlaceSave()
     fun reportInPlaceSaveFailure(save: InPlaceSave) = saving.reportInPlaceSaveFailure(save)
+
+    // Autosave and crash recovery
+    /** Starts the autosave timer; only the app does, never a test that drains its scheduler. */
+    fun startAutosave() = autosaving.start()
+    /** The app left the screen. */
+    fun snapshotForRecovery() = autosaving.snapshotNow()
+    val recoveryOffer: StateFlow<RecoveryOffer?> get() = recoveryOffering.offer
+    fun offerRecovery() = recoveryOffering.look()
+    fun restoreRecovery() = recoveryOffering.restore()
+    fun discardRecovery() = recoveryOffering.discard()
+    fun keepRecoveryForLater() = recoveryOffering.keepForLater()
 
     // Document properties
     fun openMetadata() = metadata.open()
@@ -645,8 +688,10 @@ class ViewerViewModel(
     override fun onCleared() {
         selection.closeDrag()
         importing.abandon()
-        session.document?.close()
+        // No decision about unsaved work was made, so its entry stays.
+        autosaving.close(session.document)
         session.document = null
+        recoveryOffering.close()
         super.onCleared()
     }
 

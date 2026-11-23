@@ -215,6 +215,29 @@ leave the old file's tail behind a shorter save. SAF offers no atomic rename,
 so an interrupted write-back can leave the original incomplete — the same
 trade-off as any in-place save through a content provider.
 
+### Autosave and crash recovery
+
+Every 60 seconds, and whenever the app leaves the screen, unsaved work is
+written to `noBackupFilesDir/recovery`: the bytes a save would write plus a
+small sidecar, each moved into place atomically, one entry per `ViewerViewModel`.
+A revision already on disk is not written again, and a failing write backs off
+(up to 15 minutes; leaving the screen always tries). Saving, discarding or
+replacing the document deletes its entry; the activity merely going away keeps
+it. A document that is itself protected (encrypted), or that had pages added
+from one that is, is never written. Undo history is not recovered.
+
+Home offers what is left, newest first, as **Restore**, **Discard** or **Later**
+(ask again next launch). It never asks over a document, or before the file the
+launch was handed has opened, and never offers an entry another instance of the
+activity is using. A restored document opens unsaved under its own name, with no
+save target (its file may have changed, and Save overwrites without asking), and
+keeps protecting itself in the same entry. This shell refuses a save that breaks
+a signature; the sidecar records that the edits did, so a restored document is
+still refused, while Compress and Protect still warn. An entry is discarded when
+it is incomplete, its sidecar does not parse, it is not a PDF, or wants a password. Any other failure keeps it,
+because the core reports a parser refusal and a passing fault alike. The code is
+in `recovery/`.
+
 SAF code (reading, permission grants, writes) lives in
 `document/SafDocuments.kt`; the ViewModel only sees bytes and an opaque
 save-target string.

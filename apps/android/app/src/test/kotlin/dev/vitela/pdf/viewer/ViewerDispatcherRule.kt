@@ -4,6 +4,8 @@ import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.home.NoRecentStore
 import dev.vitela.pdf.home.RecentStore
+import dev.vitela.pdf.recovery.NoRecoveryStore
+import dev.vitela.pdf.recovery.RecoveryStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -42,5 +44,7 @@ class ViewerDispatcherRule : TestWatcher() {
         recents: RecentStore = NoRecentStore,
         encodePreview: (RenderedPage) -> ByteArray? = { null },
         clock: () -> Long = { 0L },
-    ) = ViewerViewModel(core, compute = work, io = work, signatures = signatures, recents = recents, encodePreview = encodePreview, clock = clock)
+        recovery: RecoveryStore = NoRecoveryStore,
+        elapsed: () -> Long = { 0L },
+    ) = ViewerViewModel(core, compute = work, io = work, signatures = signatures, recents = recents, encodePreview = encodePreview, clock = clock, recovery = recovery, elapsed = elapsed)
 }
