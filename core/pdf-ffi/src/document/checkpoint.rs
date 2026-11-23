@@ -31,6 +31,10 @@ impl pdf_save::CheckpointSession for DocumentState {
         self.original_bytes.as_deref()
     }
 
+    fn has_password(&self) -> bool {
+        self.render_password.is_some()
+    }
+
     fn has_imported_sources(&self) -> bool {
         !self.imported.is_empty()
     }

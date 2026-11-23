@@ -506,8 +506,12 @@ internal sealed record PdfCoreSearchRect(double XPt, double YPt, double WidthPt,
 internal sealed record PdfCoreSearchHit(uint PageIndex, string Text, IReadOnlyList<PdfCoreSearchRect> CharacterBounds);
 internal sealed record PdfCoreRect(double X, double Y, double Width, double Height);
 
-/// <summary>A copied clip as the core hands it over: a one-page PDF and the box it covered.</summary>
-internal sealed record PdfCoreContentClip(byte[] Pdf, PdfCoreRect Bbox);
+/// <summary>
+/// A copied clip as the core hands it over: a one-page PDF, the box it covered,
+/// and whether it came from an encrypted PDF, which a paste must hand back so
+/// the recovery copy of the target stays off disk.
+/// </summary>
+internal sealed record PdfCoreContentClip(byte[] Pdf, PdfCoreRect Bbox, bool FromEncrypted);
 internal sealed record PdfCoreColor(byte R, byte G, byte B);
 internal sealed record PdfCorePoint(double X, double Y);
 internal enum PdfCoreAnnotationKind { Highlight, Underline, Strikeout, Ink, Shape, TextNote, Stamp, FreeText }

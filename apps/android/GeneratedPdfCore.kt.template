@@ -1010,9 +1010,9 @@ private fun PathPaint.toFfi(): FfiPathPaint = when (this) {
     PathPaint.FillAndStroke -> FfiPathPaint.FILL_AND_STROKE
 }
 
-private fun FfiContentClip.toClip() = ContentClip(pdf, bbox.toRect())
+private fun FfiContentClip.toClip() = ContentClip(pdf, bbox.toRect(), fromEncrypted)
 
-private fun ContentClip.toFfi() = FfiContentClip(pdf, bounds.toFfi())
+private fun ContentClip.toFfi() = FfiContentClip(pdf, bounds.toFfi(), fromEncrypted)
 
 private fun ContentSelection.toFfi() = FfiContentSelection(
     blocks.flatMap { block -> block.runs.map { it.toFfi() } },

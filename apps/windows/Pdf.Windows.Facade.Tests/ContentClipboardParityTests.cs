@@ -56,10 +56,12 @@ internal static class ContentClipboardParityTests
     private static async Task APasteCarriesTheClipAndTheCornerAsync()
     {
         var (core, facade, session, selection) = await OpenAsync();
+        core.ClipFromEncrypted = true;
         var clip = (await facade.CopyContentSelectionAsync(session, selection)).Value!;
         var pasted = await facade.PasteContentAsync(session, 0, clip, 40, 500);
         Assert(pasted.IsSuccess && pasted.Value!.CanUndo && core.RefreshPreviewCalls == 1, "a paste refreshes and enters history");
         Assert(core.Pastes.Single() == (0u, clip.Source, 40.0, 500.0), "the paste carries the clip and the cursor's corner");
+        Assert(core.Pastes.Single().Clip.FromEncrypted, "the paste carries where the clip came from");
     }
 
     private static async Task ARefusedCopyKeepsTheCoreSentenceAsync()
@@ -111,6 +113,7 @@ sealed partial class FakeCore
 {
     public List<(string Kind, int Runs, int Images, int Paths)> ClipboardCalls { get; } = [];
     public List<(uint Page, PdfCoreContentClip Clip, double Left, double Top)> Pastes { get; } = [];
+    public bool ClipFromEncrypted { get; set; }
     public string? ClipboardRefusal { get; set; }
 
     public PdfCoreContentClip CopyContentSelection(IPdfCoreDocument document, PdfCoreContentSelectionEdit.Remove members, bool cut)
@@ -122,7 +125,7 @@ sealed partial class FakeCore
         var left = boxes.Min(box => box.X);
         var bottom = boxes.Min(box => box.Y);
         return new PdfCoreContentClip([1, 2, 3], new PdfCoreRect(left, bottom,
-            boxes.Max(box => box.X + box.Width) - left, boxes.Max(box => box.Y + box.Height) - bottom));
+            boxes.Max(box => box.X + box.Width) - left, boxes.Max(box => box.Y + box.Height) - bottom), ClipFromEncrypted);
     }
 
     public void PasteContent(IPdfCoreDocument document, uint pageIndex, PdfCoreContentClip clip, double left, double top)

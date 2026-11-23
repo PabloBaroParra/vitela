@@ -16,7 +16,7 @@ internal sealed partial class GeneratedPdfCore
             var clip = cut
                 ? PdfFfiMethods.CutContentSelection(handle, selection)
                 : PdfFfiMethods.CopyContentSelection(handle, selection);
-            return new PdfCoreContentClip(clip.Pdf, Rect(clip.Bbox));
+            return new PdfCoreContentClip(clip.Pdf, Rect(clip.Bbox), clip.FromEncrypted);
         }
         // Like a selection refusal: the core's sentence is one the reader can act on.
         catch (FfiException.UnsupportedOperation refusal)
@@ -31,7 +31,7 @@ internal sealed partial class GeneratedPdfCore
         try
         {
             PdfFfiMethods.PasteContent(((GeneratedDocument)document).Handle, pageIndex,
-                new FfiContentClip(clip.Pdf, Rect(clip.Bbox)), left, top);
+                new FfiContentClip(clip.Pdf, Rect(clip.Bbox), clip.FromEncrypted), left, top);
         }
         catch (FfiException.UnsupportedOperation refusal)
         {

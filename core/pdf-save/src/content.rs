@@ -695,6 +695,7 @@ mod tests {
             clip: pdf_document::ContentClip {
                 pdf: vec![1],
                 bbox: sample_image().bbox,
+                from_encrypted: false,
             },
             to: sample_image().bbox,
         };

@@ -3,6 +3,7 @@
 //! a timer, a window or a disk.
 
 use pdf_document::Document;
+use pdf_save::Checkpoints;
 
 use crate::app::state::{DocumentSession, ImportedSource, SaveBacking};
 
@@ -89,22 +90,25 @@ pub(crate) fn decide(observed: Observed, written: Option<Revision>, in_flight: b
 /// harm than leaving a decrypted copy of a protected file in
 /// `~/.local/state`.
 ///
-/// Encrypted means any of: the model carries a security context (the file had
-/// an `/Encrypt` dictionary, which includes the "opens without a prompt but
-/// restricts printing or copying" kind), a password was needed to open it,
-/// the parsed base was decrypted on load, or a page was imported from a PDF
-/// that was.
+/// What counts as encrypted is `pdf_save::checkpoint::holds_encrypted_content`'s
+/// rule, shared with the shells behind the FFI.
 pub(crate) fn holds_encrypted_content(
     document: &Document,
     backing: &SaveBacking,
     imported: &[ImportedSource],
+    checkpoints: &Checkpoints<SaveBacking>,
 ) -> bool {
-    document.security.is_some()
-        || backing.password.is_some()
-        || backing.base.as_lopdf().encryption_state.is_some()
-        || imported
-            .iter()
-            .any(|source| source.document.as_lopdf().encryption_state.is_some())
+    let sources: Vec<_> = imported
+        .iter()
+        .map(|source| (source.id, &source.document))
+        .collect();
+    pdf_save::checkpoint::holds_encrypted_content(
+        document,
+        &backing.base,
+        pdf_save::ImportedSources::new(&sources),
+        checkpoints,
+        backing.password.is_some(),
+    )
 }
 
 /// What a tick sees of `session`, read on the main thread.
@@ -129,7 +133,12 @@ pub(crate) fn observe(
         unsaved: session.unsaved_to_disk,
         // A session with nothing to serialize cannot leak anything either.
         encrypted: model.is_some_and(|(document, backing)| {
-            holds_encrypted_content(document, backing, &session.imported_sources)
+            holds_encrypted_content(
+                document,
+                backing,
+                &session.imported_sources,
+                &session.content_checkpoints,
+            )
         }),
         saveable: model.is_some(),
         editing_text: session.content_editor.is_some(),
@@ -139,7 +148,10 @@ pub(crate) fn observe(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::content_edit::checkpoint::Live;
+    use crate::app::content_edit::test_support::{copy, paste, record};
     use crate::app::test_fixtures::{checkpointable_session, model_session, one_password_security};
+    use pdf_document::PageId;
 
     const REVISION: Revision = Revision {
         session_id: 1,
@@ -266,6 +278,7 @@ mod tests {
             session.document_model.as_ref().unwrap(),
             session.save_backing.as_ref().unwrap(),
             &[],
+            &session.content_checkpoints,
         ));
     }
 
@@ -278,6 +291,7 @@ mod tests {
             session.document_model.as_ref().unwrap(),
             session.save_backing.as_ref().unwrap(),
             &[],
+            &session.content_checkpoints,
         ));
     }
 
@@ -290,7 +304,95 @@ mod tests {
             session.document_model.as_ref().unwrap(),
             session.save_backing.as_ref().unwrap(),
             &[],
+            &session.content_checkpoints,
         ));
+    }
+
+    /// The first page's runs as the reader sees them, pending edits included.
+    fn line(session: &DocumentSession) -> pdf_edit::Selection {
+        let runs = pdf_save::read_pending_page_content_of(
+            session.document_model.as_ref().unwrap(),
+            PageId(0),
+            &session.save_backing.as_ref().unwrap().base,
+            pdf_save::ImportedSources::none(),
+        )
+        .expect("the page reads")
+        .text_runs;
+        pdf_edit::Selection {
+            runs,
+            ..Default::default()
+        }
+    }
+
+    /// Copies `source`'s first page through the shell's own path.
+    fn copied(source: &mut DocumentSession) -> pdf_document::ContentClip {
+        let selection = line(source);
+        copy(source, &selection).expect("copies")
+    }
+
+    fn protected_session() -> DocumentSession {
+        let mut session = checkpointable_session(&["Secret"]);
+        session.save_backing.as_mut().unwrap().password = Some("fixture".to_owned());
+        session
+    }
+
+    fn pasted_into_plain(clip: pdf_document::ContentClip) -> DocumentSession {
+        let mut session = checkpointable_session(&["Hello"]);
+        paste(&mut session, PageId(0), clip, 50.0, 300.0).expect("pastes");
+        session
+    }
+
+    fn observed_encrypted(session: &DocumentSession) -> bool {
+        let Observed::Document { encrypted, .. } = observe(Some(session), 0, 0) else {
+            panic!("a session is a document");
+        };
+        encrypted
+    }
+
+    #[test]
+    fn a_paste_from_a_plain_document_does_not_count_as_encrypted() {
+        let clip = copied(&mut checkpointable_session(&["Other"]));
+
+        assert!(!observed_encrypted(&pasted_into_plain(clip)));
+    }
+
+    /// The clip is plain bytes by then: only its provenance says otherwise.
+    #[test]
+    fn a_paste_from_an_encrypted_document_counts_as_encrypted_through_undo_and_redo() {
+        let mut session = pasted_into_plain(copied(&mut protected_session()));
+        assert!(observed_encrypted(&session));
+
+        let mut live = Live::of(&mut session).unwrap();
+        assert!(pdf_save::checkpoint::undo(&mut live));
+        assert!(observed_encrypted(&session), "a redo can put it back");
+
+        let mut live = Live::of(&mut session).unwrap();
+        assert!(pdf_save::checkpoint::redo(&mut live));
+        assert!(observed_encrypted(&session));
+    }
+
+    /// Retyping the pasted run writes it into a new plain base and empties
+    /// the queue; a copy made from there carries the provenance on.
+    #[test]
+    fn a_paste_from_an_encrypted_document_survives_a_content_checkpoint() {
+        let mut session = pasted_into_plain(copied(&mut protected_session()));
+        let pasted = line(&session)
+            .runs
+            .into_iter()
+            .find(|run| pdf_edit::pending_log_index(run.id).is_some())
+            .expect("a pasted run");
+        record(
+            &mut session,
+            pdf_document::Command::ReplaceTextRunContent {
+                item: pasted,
+                after: "Set".to_owned(),
+            },
+        )
+        .expect("retypes through a checkpoint");
+        assert_eq!(session.content_checkpoints.generation(), 1);
+
+        assert!(observed_encrypted(&session));
+        assert!(observed_encrypted(&pasted_into_plain(copied(&mut session))));
     }
 
     #[test]

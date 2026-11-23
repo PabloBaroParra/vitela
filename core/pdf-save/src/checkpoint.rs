@@ -71,6 +71,8 @@ pub trait CheckpointSession {
     /// The bytes [`Self::base`] was parsed from; `None` for a document
     /// created in memory with nothing yet saved.
     fn original_bytes(&self) -> Option<&[u8]>;
+    /// Whether a password was typed to open this session's file.
+    fn has_password(&self) -> bool;
     /// Whether this session holds any imported PDF. One that does may not
     /// checkpoint, even after an undo took the imported pages back out: a
     /// redo would put them back.
@@ -144,6 +146,19 @@ impl<B> Checkpoints<B> {
     /// has anything to redo.
     pub fn can_redo(&self, live: &EditLog) -> bool {
         live.can_redo() || self.can_step_forward(live)
+    }
+
+    /// Whether `live`, the session's queue, or a queue kept behind or ahead
+    /// of it pastes content from an encrypted PDF. A checkpoint writes the
+    /// paste into a plain base, so the queue kept behind is what still says
+    /// so.
+    fn holds_encrypted_paste(&self, live: &EditLog) -> bool {
+        live.holds_encrypted_paste()
+            || self
+                .behind
+                .iter()
+                .chain(&self.ahead)
+                .any(|checkpoint| checkpoint.log.holds_encrypted_paste())
     }
 
     /// The command [`undo`] would undo, read without stepping — in the queue
@@ -351,16 +366,54 @@ pub fn edits_a_replaced_inline_image<S: CheckpointSession>(session: &S, command:
 ///
 /// Where the session may not checkpoint, or a member cannot be told apart in
 /// the written base, the refusal stands.
+///
+/// The clip says whether the session holds encrypted content at all
+/// ([`holds_encrypted_content`]), not whether these members came from it:
+/// once written into a base, pasted content is like any other on the page.
 pub fn copy_selection<S: CheckpointSession>(
     session: &S,
     sources: ImportedSources<'_, '_>,
     selection: &Selection,
 ) -> Result<ContentClip, RecordError> {
-    let copied = copy_selection_content(session.document(), session.base(), sources, selection);
-    if copied.is_ok() || !has_edited_member(session.document(), selection) {
-        return copied;
+    let mut copied = copy_selection_content(session.document(), session.base(), sources, selection);
+    if copied.is_err() && has_edited_member(session.document(), selection) {
+        copied = copy_from_written_queue(session, selection).unwrap_or(copied);
     }
-    copy_from_written_queue(session, selection).unwrap_or(copied)
+    copied.map(|clip| ContentClip {
+        from_encrypted: holds_encrypted_content(
+            session.document(),
+            session.base(),
+            sources,
+            session.checkpoints(),
+            session.has_password(),
+        ),
+        ..clip
+    })
+}
+
+/// Whether any part of a session came from an encrypted PDF, so its bytes
+/// must not be written anywhere the user never chose (crash recovery).
+///
+/// Any trace counts: a security context on the model (which includes the
+/// "opens without a prompt but restricts" kind), a password typed to open the
+/// file, a base decrypted on load, an imported PDF that was, or a paste of
+/// content copied from a session that held any of these — undone ones
+/// included, while a redo can bring them back.
+///
+/// Takes the session's parts rather than a [`CheckpointSession`], for a
+/// caller that cannot lend them mutably.
+pub fn holds_encrypted_content<B>(
+    document: &Document,
+    base: &LopdfDocument,
+    sources: ImportedSources<'_, '_>,
+    checkpoints: &Checkpoints<B>,
+    has_password: bool,
+) -> bool {
+    document.security.is_some()
+        || has_password
+        || base.as_lopdf().encryption_state.is_some()
+        || sources.any_encrypted()
+        || checkpoints.holds_encrypted_paste(&document.pending_edits)
 }
 
 /// [`copy_selection`]'s copy of edited members from the queue written in

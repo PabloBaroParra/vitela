@@ -40,7 +40,8 @@ extension UniFfiPdfCoreClient {
         let handle = try handle(of: document)
         do {
             let clip = try Vitela.copyContentSelection(handle: handle, selection: FfiContentSelection(selection))
-            return ContentClip(pdf: clip.pdf, bbox: PdfRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height))
+            return ContentClip(pdf: clip.pdf, bbox: PdfRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height),
+                               fromEncrypted: clip.fromEncrypted)
         } catch FfiError.UnsupportedOperation {
             throw EditFailure.notPermitted(ContentEditing.copyRefused)
         } catch let error as FfiError {
@@ -51,7 +52,8 @@ extension UniFfiPdfCoreClient {
 
 private extension FfiContentClip {
     init(_ clip: ContentClip) {
-        self.init(pdf: clip.pdf, bbox: FfiRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height))
+        self.init(pdf: clip.pdf, bbox: FfiRect(x: clip.bbox.x, y: clip.bbox.y, width: clip.bbox.width, height: clip.bbox.height),
+                  fromEncrypted: clip.fromEncrypted)
     }
 }
 

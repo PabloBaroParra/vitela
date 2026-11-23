@@ -9,6 +9,8 @@ import Foundation
 struct ContentClip: Equatable {
     let pdf: Data
     let bbox: PdfRect
+    /// Whether it came from an encrypted PDF; a paste hands it back to the core.
+    let fromEncrypted: Bool
 }
 
 extension ContentEditing {

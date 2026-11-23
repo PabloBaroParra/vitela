@@ -203,6 +203,11 @@ pub struct ContentClip {
     /// The union of the copied items' boxes, in those same coordinates — what
     /// a paste lines up with the cursor (its top-left corner is the anchor).
     pub bbox: Rect,
+    /// Whether the session the content was copied from held anything that
+    /// came from an encrypted PDF. `pdf` itself is plain bytes, so this is
+    /// the only trace left, and a session it is pasted into must not write
+    /// them to disk unasked (crash recovery).
+    pub from_encrypted: bool,
 }
 
 /// The parsed content of a single page: what a shell needs to hit-test and

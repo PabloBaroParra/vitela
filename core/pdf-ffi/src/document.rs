@@ -1186,19 +1186,21 @@ impl DocumentHandle {
     /// password the shell never stores to be restored. So any trace of
     /// encryption answers `true`: a security context on the model (which
     /// includes the "opens without a prompt but restricts" kind), a password
-    /// pdfium needs, a base that was decrypted on load, or an imported page
-    /// from a PDF that was. The FFI twin of the Linux shell's
-    /// `recovery::policy::holds_encrypted_content`.
+    /// pdfium needs, a base that was decrypted on load, an imported page
+    /// from a PDF that was, or content copied from one and pasted here. The
+    /// rule is `pdf_save::checkpoint::holds_encrypted_content`, shared with
+    /// the Linux shell.
     pub fn holds_encrypted_content(&self) -> bool {
         let state = self.lock();
-        state.document.security.is_some()
-            || state.render_password.is_some()
-            || state.base.as_lopdf().encryption_state.is_some()
-            || state
-                .imported
-                .pairs()
-                .iter()
-                .any(|(_, source)| source.as_lopdf().encryption_state.is_some())
+        state.with_imported_sources(|sources| {
+            pdf_save::checkpoint::holds_encrypted_content(
+                &state.document,
+                &state.base,
+                sources,
+                &state.checkpoints,
+                state.render_password.is_some(),
+            )
+        })
     }
 
     /// Whether an existing run has an unsaved movement. Retyping such a run

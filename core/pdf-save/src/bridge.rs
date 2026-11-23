@@ -128,6 +128,13 @@ impl<'s, 'd> ImportedSources<'s, 'd> {
             .map(|(_, document)| *document)
     }
 
+    /// Whether any imported PDF was decrypted on load.
+    pub(crate) fn any_encrypted(&self) -> bool {
+        self.sources
+            .iter()
+            .any(|(_, document)| document.as_lopdf().encryption_state.is_some())
+    }
+
     /// Whether the same [`ImportedDocumentId`] names more than one entry.
     fn has_duplicate_ids(&self) -> bool {
         let mut seen = HashSet::new();
