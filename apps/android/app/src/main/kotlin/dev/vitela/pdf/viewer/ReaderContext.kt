@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -23,6 +24,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -65,17 +68,36 @@ internal data class ContextActions(
     }
 }
 
-internal enum class ContextChip(val label: String) {
-    ReadNote("Read note"), EditText("Edit text"), CancelMove("Cancel move"), CancelInsert("Cancel insert"),
-    Grow("Grow"), Resize("Resize"), MoveTo("Move to"), Red("Red"), Gold("Gold"), Delete("Delete"),
+/** [label] is null only for the count chip, whose text depends on the selection. */
+internal enum class ContextChip(@StringRes val label: Int?) {
+    ReadNote(R.string.reader_selection_read_note),
+    EditText(R.string.reader_selection_edit_text),
+    CancelMove(R.string.reader_selection_cancel_move),
+    CancelInsert(R.string.reader_selection_cancel_insert),
+    Grow(R.string.reader_selection_grow),
+    Resize(R.string.reader_selection_resize),
+    MoveTo(R.string.reader_selection_move_to),
+    Red(R.string.reader_selection_red),
+    Gold(R.string.reader_selection_gold),
+    Delete(R.string.reader_selection_delete),
 
     /** The count of a multi-selection (B25 T-208): a label, not an action. Copy and Cut are its clipboard (T-209). */
-    Selected("Selected"), CopySelection("Copy"), CutSelection("Cut"), DeleteSelection("Delete"), ClearSelection("Clear"),
+    Selected(null),
+    CopySelection(R.string.reader_selection_copy),
+    CutSelection(R.string.reader_selection_cut),
+    DeleteSelection(R.string.reader_selection_delete),
+    ClearSelection(R.string.reader_selection_clear),
 }
 
+internal fun selectedCount(state: ViewerState): Int = state.contentEdit?.selection?.count ?: 0
+
 /** The text on [this] chip: the count chip reads "N selected", every other its fixed label. */
-internal fun ContextChip.labelFor(state: ViewerState): String =
-    if (this == ContextChip.Selected) "${state.contentEdit?.selection?.count ?: 0} selected" else label
+@Composable
+private fun ContextChip.text(state: ViewerState): String {
+    if (label != null) return stringResource(label)
+    val count = selectedCount(state)
+    return pluralStringResource(R.plurals.reader_selection_count, count, count)
+}
 
 private val RED_ANNOTATION_COLOR = AnnotationColor(220, 40, 40)
 
@@ -110,9 +132,9 @@ internal fun ContextChips(state: ViewerState, controls: AnnotationControls, acti
         chips.forEach { chip ->
             // The count is a label, not a button: tapping it would only look like it did something.
             if (chip == ContextChip.Selected) {
-                Text(chip.labelFor(state), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 4.dp))
+                Text(chip.text(state), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 4.dp))
             } else {
-                AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.labelFor(state)) })
+                AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.text(state)) })
             }
         }
     }
@@ -147,8 +169,10 @@ private fun Pill(description: String, enabled: Boolean, onClick: () -> Unit, con
 }
 
 @Composable
-internal fun PagePill(state: ViewerState, enabled: Boolean, onClick: () -> Unit) =
-    Pill(pageLabel(state), "Page ${pageLabel(state)}. Go to page", enabled, onClick)
+internal fun PagePill(state: ViewerState, enabled: Boolean, onClick: () -> Unit) {
+    val label = stringResource(R.string.reader_page_of, pageNumber(state), state.pageCount)
+    Pill(label, stringResource(R.string.reader_page_pill, label), enabled, onClick)
+}
 
 /**
  * Previous page / Next page on either side of the page counter (parity with
@@ -158,9 +182,9 @@ internal fun PagePill(state: ViewerState, enabled: Boolean, onClick: () -> Unit)
 internal fun PageStepper(state: ViewerState, onPrevious: () -> Unit, onNext: () -> Unit, onPageList: () -> Unit) {
     val enabled = pageNavigationEnabled(state)
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconPill(R.drawable.ic_shell_previous, "Previous page", enabled && previousPageTarget(state.pageIndex, state.pageCount) != null, onPrevious)
+        IconPill(R.drawable.ic_shell_previous, stringResource(R.string.reader_page_previous), enabled && previousPageTarget(state.pageIndex, state.pageCount) != null, onPrevious)
         PagePill(state, enabled, onPageList)
-        IconPill(R.drawable.ic_shell_next, "Next page", enabled && nextPageTarget(state.pageIndex, state.pageCount) != null, onNext)
+        IconPill(R.drawable.ic_shell_next, stringResource(R.string.reader_page_next), enabled && nextPageTarget(state.pageIndex, state.pageCount) != null, onNext)
     }
 }
 
@@ -169,15 +193,15 @@ internal fun ZoomPill(state: ViewerState, zoom: ZoomActions) {
     var open by remember { mutableStateOf(false) }
     val percentage = (state.zoomFactor * 100).toInt()
     Box {
-        Pill("$percentage%", "Zoom level: $percentage%", enabled = state.pageCount > 0) { open = true }
+        Pill("$percentage%", stringResource(R.string.reader_zoom_level, percentage), enabled = state.pageCount > 0) { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             @Composable
             fun item(label: String, enabled: Boolean, onClick: () -> Unit) =
                 DropdownMenuItem(text = { Text(label) }, enabled = enabled, onClick = { open = false; onClick() })
-            item("Zoom in", state.zoomFactor < MAX_ZOOM_FACTOR, zoom.onZoomIn)
-            item("Zoom out", state.zoomFactor > MIN_ZOOM_FACTOR, zoom.onZoomOut)
-            item("Fit width", state.zoomFactor != DEFAULT_ZOOM_FACTOR, zoom.onFitWidth)
-            item("Fit page", true, zoom.onFitPage)
+            item(stringResource(R.string.reader_zoom_in), state.zoomFactor < MAX_ZOOM_FACTOR, zoom.onZoomIn)
+            item(stringResource(R.string.reader_zoom_out), state.zoomFactor > MIN_ZOOM_FACTOR, zoom.onZoomOut)
+            item(stringResource(R.string.reader_zoom_fit_width), state.zoomFactor != DEFAULT_ZOOM_FACTOR, zoom.onFitWidth)
+            item(stringResource(R.string.reader_zoom_fit_page), true, zoom.onFitPage)
         }
     }
 }

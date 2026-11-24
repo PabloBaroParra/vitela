@@ -14,7 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /** What the floating bar over selected text does. */
 internal class SelectionActions(
@@ -45,13 +47,13 @@ internal fun SelectionToolbar(actions: SelectionActions, canMarkup: Boolean, mod
         tonalElevation = 2.dp,
     ) {
         Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp)) {
-            TextButton(onClick = actions.onCopy) { Text("Copy") }
+            TextButton(onClick = actions.onCopy) { Text(stringResource(R.string.reader_selection_copy)) }
             if (canMarkup) {
-                TextButton(onClick = { actions.onMarkup(AnnotationTool.Highlight) }) { Text("Highlight") }
-                TextButton(onClick = { actions.onMarkup(AnnotationTool.Underline) }) { Text("Underline") }
-                TextButton(onClick = { actions.onMarkup(AnnotationTool.Strikeout) }) { Text("Strikeout") }
+                TextButton(onClick = { actions.onMarkup(AnnotationTool.Highlight) }) { Text(stringResource(R.string.reader_tool_highlight)) }
+                TextButton(onClick = { actions.onMarkup(AnnotationTool.Underline) }) { Text(stringResource(R.string.reader_tool_underline)) }
+                TextButton(onClick = { actions.onMarkup(AnnotationTool.Strikeout) }) { Text(stringResource(R.string.reader_tool_strikeout)) }
             }
-            TextButton(onClick = actions.onShare) { Text("Share") }
+            TextButton(onClick = actions.onShare) { Text(stringResource(R.string.reader_selection_share)) }
         }
     }
 }

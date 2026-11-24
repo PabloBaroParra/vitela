@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationRect
@@ -7,6 +8,7 @@ import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.PathPaint
+import dev.vitela.pdf.resources.StringResources
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -18,6 +20,8 @@ class ReaderContextTest {
         val selected = state.annotations.lastOrNull { it.id == state.selectedAnnotationId }
         return contextChips(state, annotationControls(state.annotationEditingAllowed, selected, false, false))
     }
+
+    private fun label(chip: ContextChip) = StringResources.english.text(chip.label!!)
 
     @Test
     fun nothingSelectedShowsNoChips() {
@@ -57,14 +61,19 @@ class ReaderContextTest {
     }
 
     @Test
+    fun onlyTheCountChipHasNoFixedLabel() {
+        assertEquals(listOf(ContextChip.Selected), ContextChip.entries.filter { it.label == null })
+    }
+
+    @Test
     fun aSelectionOfSeveralItemsOffersItsCountCopyCutDeleteAndClear() {
         val selection = ContentSelection(0, images = listOf(ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1")), paths = listOf(ContentPath(40, 0, AnnotationRect(10.0, 80.0, 60.0, 0.0), PathPaint.Stroke)))
         val state = ViewerState(pageCount = 1, contentEdit = ContentEditState(selection = selection))
 
         assertEquals(listOf(ContextChip.Selected, ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection), chips(state))
-        assertEquals("2 selected", ContextChip.Selected.labelFor(state))
-        assertEquals("Delete", ContextChip.DeleteSelection.labelFor(state))
-        assertEquals("Copy", ContextChip.CopySelection.labelFor(state))
-        assertEquals("Cut", ContextChip.CutSelection.labelFor(state))
+        assertEquals("2 selected", StringResources.english.plural(R.plurals.reader_selection_count, "other", selectedCount(state)))
+        assertEquals("Delete", label(ContextChip.DeleteSelection))
+        assertEquals("Copy", label(ContextChip.CopySelection))
+        assertEquals("Cut", label(ContextChip.CutSelection))
     }
 }

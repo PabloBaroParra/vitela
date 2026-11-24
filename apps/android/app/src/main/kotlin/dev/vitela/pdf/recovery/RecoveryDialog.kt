@@ -6,6 +6,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import dev.vitela.pdf.R
 import java.time.ZoneId
 
 /** Asks about one entry. Dismissing it is not a decision, so it keeps the work like **Later**. */
@@ -13,18 +15,15 @@ import java.time.ZoneId
 fun RecoveryDialog(offer: RecoveryOffer, onRestore: () -> Unit, onDiscard: () -> Unit, onLater: () -> Unit) {
     AlertDialog(
         onDismissRequest = onLater,
-        title = { Text("Recover unsaved work?") },
+        title = { Text(stringResource(R.string.recovery_title)) },
         text = {
-            Text(
-                "Vitela closed while \"${offer.name}\" had unsaved changes. A copy saved ${savedAtText(offer.savedAt, ZoneId.systemDefault())} " +
-                    "can be restored as an unsaved document.\n\nUndo history is not recovered.",
-            )
+            Text(stringResource(R.string.recovery_detail, offer.name, savedAtText(offer.savedAt, ZoneId.systemDefault())))
         },
-        confirmButton = { Button(onClick = onRestore) { Text("Restore") } },
+        confirmButton = { Button(onClick = onRestore) { Text(stringResource(R.string.recovery_restore)) } },
         dismissButton = {
             Row {
-                TextButton(onClick = onDiscard) { Text("Discard") }
-                TextButton(onClick = onLater) { Text("Later") }
+                TextButton(onClick = onDiscard) { Text(stringResource(R.string.recovery_discard)) }
+                TextButton(onClick = onLater) { Text(stringResource(R.string.recovery_later)) }
             }
         },
     )

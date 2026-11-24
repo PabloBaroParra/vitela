@@ -1,5 +1,7 @@
 package dev.vitela.pdf.home
 
+import dev.vitela.pdf.R
+import dev.vitela.pdf.resources.StringResources
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -84,15 +86,28 @@ class RecentDocumentsTest {
         assertEquals(listOf("evening", "morning"), groups.first().second.map { it.uri })
     }
 
+    /** The card's line as HomeRecents joins it; [quantity] is the plural the framework would pick. */
+    private fun openedText(entry: RecentDocument, now: Long, quantity: String): String {
+        val strings = StringResources.english
+        val line = openedLine(entry, now, zone, Locale.GERMANY)
+        return "${strings.text(line.text, line.moment)} · ${strings.plural(R.plurals.home_recent_page_count, quantity, entry.pageCount)}"
+    }
+
     @Test
     fun theOpenedLineReadsLikeTheDesktopOne() {
         val today = LocalDate.of(2026, 9, 10)
         val now = at(today, 18)
 
         // German: a 24-hour clock and a numeric date, so no locale-data spacing quirks (CLDR's narrow no-break space before AM).
-        assertEquals("Opened today, 10:45 · 1 page", openedText(entry("a", at(today, 10, 45), pages = 1), now, zone, Locale.GERMANY))
-        assertEquals("Opened yesterday, 21:00 · 12 pages", openedText(entry("a", at(today.minusDays(1), 21), pages = 12), now, zone, Locale.GERMANY))
-        assertEquals("Opened 01.09.2026 · 0 pages", openedText(entry("a", at(LocalDate.of(2026, 9, 1), 8), pages = 0), now, zone, Locale.GERMANY))
+        assertEquals("Opened today, 10:45 · 1 page", openedText(entry("a", at(today, 10, 45), pages = 1), now, "one"))
+        assertEquals("Opened yesterday, 21:00 · 12 pages", openedText(entry("a", at(today.minusDays(1), 21), pages = 12), now, "other"))
+        assertEquals("Opened 01.09.2026 · 0 pages", openedText(entry("a", at(LocalDate.of(2026, 9, 1), 8), pages = 0), now, "other"))
+    }
+
+    @Test
+    fun theDayGroupsAreNamed() {
+        assertEquals(listOf("Today", "Yesterday", "Earlier"), RecentDay.entries.map { StringResources.english.text(it.chip) })
+        assertEquals(listOf("Hoy", "Ayer", "Anteriores"), RecentDay.entries.map { StringResources.spanish.text(it.chip) })
     }
 
     @Test

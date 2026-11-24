@@ -1,5 +1,7 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
+import dev.vitela.pdf.resources.StringResources
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -44,6 +46,12 @@ class ReaderModesTest {
     }
 
     @Test
+    fun theTabsAreReadEditAndSign() {
+        assertEquals(listOf("Read", "Edit", "Sign"), ReaderMode.entries.map { StringResources.english.text(it.label) })
+        assertEquals(listOf("Leer", "Editar", "Firmar"), ReaderMode.entries.map { StringResources.spanish.text(it.label) })
+    }
+
+    @Test
     fun theModeBarHidesWhileThePageGridIsOpen() {
         assertTrue(modeBarVisible(ViewerState(pageCount = 3)))
         assertFalse(modeBarVisible(ViewerState(pageCount = 3, organize = OrganizeState())))
@@ -54,6 +62,8 @@ class ReaderModesTest {
         assertTrue(showsHome(ViewerState()))
         assertFalse(showsHome(ViewerState(pageCount = 1)))
     }
+
+    private fun pageLabel(state: ViewerState) = StringResources.english.text(R.string.reader_page_of, pageNumber(state), state.pageCount)
 
     @Test
     fun thePagePillCountsFromOne() {

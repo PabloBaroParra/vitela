@@ -1,5 +1,7 @@
 package dev.vitela.pdf.home
 
+import androidx.annotation.StringRes
+import dev.vitela.pdf.R
 import java.io.File
 import java.io.IOException
 import java.net.URLDecoder
@@ -33,7 +35,11 @@ internal fun List<RecentDocument>.remembering(entry: RecentDocument): List<Recen
 internal fun List<RecentDocument>.without(uri: String): List<RecentDocument> = filter { it.uri != uri }
 
 /** Which day-group a document falls in, in the order the groups are stacked. */
-enum class RecentDay(val chip: String) { Today("Today"), Yesterday("Yesterday"), Earlier("Earlier") }
+enum class RecentDay(@StringRes val chip: Int) {
+    Today(R.string.home_recent_today),
+    Yesterday(R.string.home_recent_yesterday),
+    Earlier(R.string.home_recent_earlier),
+}
 
 /** Calendar days, not elapsed hours: 23:50 yesterday is "Yesterday" at 00:10 today, as on the desktop. */
 internal fun recentDay(openedAt: Long, now: Long, zone: ZoneId): RecentDay {
@@ -46,19 +52,18 @@ internal fun recentDay(openedAt: Long, now: Long, zone: ZoneId): RecentDay {
     }
 }
 
-/** The card's "Opened …" line, with the page count the desktop appends once a preview exists. */
-internal fun openedText(entry: RecentDocument, now: Long, zone: ZoneId, locale: Locale = Locale.getDefault()): String {
+/** A card's "Opened …" wording and the time or date that goes in it. */
+internal data class OpenedLine(@StringRes val text: Int, val moment: String)
+
+internal fun openedLine(entry: RecentDocument, now: Long, zone: ZoneId, locale: Locale = Locale.getDefault()): OpenedLine {
     val opened = Instant.ofEpochMilli(entry.openedAt).atZone(zone)
     val time = opened.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withLocale(locale))
-    val day = when (recentDay(entry.openedAt, now, zone)) {
-        RecentDay.Today -> "Opened today, $time"
-        RecentDay.Yesterday -> "Opened yesterday, $time"
-        RecentDay.Earlier -> "Opened ${opened.toLocalDate().format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))}"
+    return when (recentDay(entry.openedAt, now, zone)) {
+        RecentDay.Today -> OpenedLine(R.string.home_recent_opened_today, time)
+        RecentDay.Yesterday -> OpenedLine(R.string.home_recent_opened_yesterday, time)
+        RecentDay.Earlier -> OpenedLine(R.string.home_recent_opened_on, opened.toLocalDate().format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale)))
     }
-    return "$day · ${pageCountText(entry.pageCount)}"
 }
-
-internal fun pageCountText(pages: Int): String = if (pages == 1) "1 page" else "$pages pages"
 
 /** Today, Yesterday, Earlier — each with its documents newest first, empty groups left out. */
 internal fun groupedByDay(entries: List<RecentDocument>, now: Long, zone: ZoneId): List<Pair<RecentDay, List<RecentDocument>>> =

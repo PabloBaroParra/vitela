@@ -36,6 +36,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.BuildConfig
@@ -68,8 +69,8 @@ internal fun HomeScreen(
             ) {
                 Brand()
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Welcome to Vitela", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                    Text("Your fast, private PDF workspace.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.home_welcome_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.home_welcome_subtitle), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (tablet) {
                     Row(horizontalArrangement = Arrangement.spacedBy(28.dp)) {
@@ -126,15 +127,15 @@ private fun OpenCard(canOpen: Boolean, isLoading: Boolean, onOpen: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Icon(painterResource(R.drawable.ic_shell_files), contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(36.dp))
-        Text("Open a PDF", style = MaterialTheme.typography.titleMedium)
-        Text("Pick a file from this device or your cloud storage.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(stringResource(R.string.home_open_title), style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.home_open_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Box(contentAlignment = Alignment.Center) {
             if (isLoading) CircularProgressIndicator(modifier = Modifier.size(32.dp))
             else Button(
                 onClick = onOpen,
                 enabled = canOpen,
                 colors = ButtonDefaults.buttonColors(containerColor = Vitela.colors.accentFill, contentColor = Vitela.colors.onAccentFill),
-            ) { Text("Select file") }
+            ) { Text(stringResource(R.string.home_select_file)) }
         }
     }
 }
@@ -144,15 +145,15 @@ private fun SampleCard(canOpen: Boolean, onOpenSample: (String, String) -> Unit)
     var encryptedMenu by remember { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text("Quick actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.home_quick_actions), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             TextButton(onClick = { onOpenSample(SampleDocument.ASSET_NAME, SampleDocument.DISPLAY_NAME) }, enabled = canOpen) {
                 Icon(painterResource(R.drawable.ic_shell_sample), contentDescription = null, modifier = Modifier.size(18.dp))
-                Text("Open the sample", modifier = Modifier.padding(start = 10.dp))
+                Text(stringResource(R.string.home_open_sample), modifier = Modifier.padding(start = 10.dp))
             }
             Box {
                 TextButton(onClick = { encryptedMenu = true }, enabled = canOpen) {
                     Icon(painterResource(R.drawable.ic_shell_protect), contentDescription = null, modifier = Modifier.size(18.dp))
-                    Text("Open an encrypted sample", modifier = Modifier.padding(start = 10.dp))
+                    Text(stringResource(R.string.home_open_encrypted_sample), modifier = Modifier.padding(start = 10.dp))
                 }
                 DropdownMenu(expanded = encryptedMenu, onDismissRequest = { encryptedMenu = false }) {
                     DropdownMenuItem(

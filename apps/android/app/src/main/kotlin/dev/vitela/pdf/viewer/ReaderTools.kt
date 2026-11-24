@@ -17,6 +17,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
@@ -61,13 +62,13 @@ internal data class QuickToolActions(
 @Composable
 internal fun QuickTools(state: ViewerState, controls: AnnotationControls, actions: QuickToolActions, sidePanel: Boolean = false) {
     val accent = MaterialTheme.colorScheme.primary
-    ToolTray("Quick tools", sidePanel) {
-        ToolTile("Edit text", R.drawable.ic_shell_text, accent, actions.onEditText)
-        ToolTile("Highlight", R.drawable.ic_shell_highlight, ToolHue.Annotate, actions.onHighlight, enabled = controls.canCreate)
-        ToolTile("Sign", R.drawable.ic_shell_sign, ToolHue.Sign, actions.onSign, enabled = !state.signRunning)
-        ToolTile("Organize pages", R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
-        ToolTile("Compress", R.drawable.ic_shell_compress, ToolHue.Compress, actions.onCompress, enabled = !state.compressRunning)
-        ToolTile("Comments", R.drawable.ic_shell_comments, accent, actions.onComments)
+    ToolTray(stringResource(R.string.reader_tools_quick), sidePanel) {
+        ToolTile(stringResource(R.string.reader_tool_edit_text), R.drawable.ic_shell_text, accent, actions.onEditText)
+        ToolTile(stringResource(R.string.reader_tool_highlight), R.drawable.ic_shell_highlight, ToolHue.Annotate, actions.onHighlight, enabled = controls.canCreate)
+        ToolTile(stringResource(R.string.reader_tool_sign), R.drawable.ic_shell_sign, ToolHue.Sign, actions.onSign, enabled = !state.signRunning)
+        ToolTile(stringResource(R.string.reader_tool_organize), R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
+        ToolTile(stringResource(R.string.reader_tool_compress), R.drawable.ic_shell_compress, ToolHue.Compress, actions.onCompress, enabled = !state.compressRunning)
+        ToolTile(stringResource(R.string.reader_tool_comments), R.drawable.ic_shell_comments, accent, actions.onComments)
     }
 }
 
@@ -88,44 +89,44 @@ internal fun EditTools(state: ViewerState, controls: AnnotationControls, actions
     val accent = MaterialTheme.colorScheme.primary
     val armed = state.activeAnnotationTool
     val editing = state.contentEdit != null
-    ToolTray(if (editing) "Edit content" else "Edit", sidePanel) {
-        ToolTile("Undo", R.drawable.ic_shell_undo, accent, actions.onUndo, enabled = controls.canUndo || state.canUndoAnnotations)
-        ToolTile("Redo", R.drawable.ic_shell_redo, accent, actions.onRedo, enabled = controls.canRedo || state.canRedoAnnotations)
-        ToolTile("Edit text", R.drawable.ic_shell_text, accent, actions.contentEdit.onToggle, selected = editing)
+    ToolTray(stringResource(if (editing) R.string.reader_tools_edit_content else R.string.reader_tools_edit), sidePanel) {
+        ToolTile(stringResource(R.string.reader_tool_undo), R.drawable.ic_shell_undo, accent, actions.onUndo, enabled = controls.canUndo || state.canUndoAnnotations)
+        ToolTile(stringResource(R.string.reader_tool_redo), R.drawable.ic_shell_redo, accent, actions.onRedo, enabled = controls.canRedo || state.canRedoAnnotations)
+        ToolTile(stringResource(R.string.reader_tool_edit_text), R.drawable.ic_shell_text, accent, actions.contentEdit.onToggle, selected = editing)
         if (editing) {
-            ToolTile("Add text", R.drawable.ic_shell_new_file, accent, actions.contentEdit.onAddText, selected = state.contentEdit?.adding != null)
-            ToolTile("Add image", R.drawable.ic_shell_image, accent, actions.contentEdit.onAddImage)
+            ToolTile(stringResource(R.string.reader_tool_add_text), R.drawable.ic_shell_new_file, accent, actions.contentEdit.onAddText, selected = state.contentEdit?.adding != null)
+            ToolTile(stringResource(R.string.reader_tool_add_image), R.drawable.ic_shell_image, accent, actions.contentEdit.onAddImage)
             // Named apart from Paste, which stamps the system clipboard's picture: this puts down what Copy or Cut held.
-            ToolTile("Paste content", R.drawable.ic_shell_new_file, accent, actions.contentEdit.onPasteContent, enabled = state.contentEdit?.hasClip == true, selected = state.contentEdit?.adding == ContentAddition.Paste)
+            ToolTile(stringResource(R.string.reader_tool_paste_content), R.drawable.ic_shell_new_file, accent, actions.contentEdit.onPasteContent, enabled = state.contentEdit?.hasClip == true, selected = state.contentEdit?.adding == ContentAddition.Paste)
         }
         for ((tool, label, icon) in ANNOTATION_TOOLS) {
-            ToolTile(label, icon, ToolHue.Annotate, { actions.onTool(tool) }, enabled = controls.canCreate, selected = armed == tool && tool != AnnotationTool.Pointer)
+            ToolTile(stringResource(label), icon, ToolHue.Annotate, { actions.onTool(tool) }, enabled = controls.canCreate, selected = armed == tool && tool != AnnotationTool.Pointer)
         }
-        ToolTile("Stamp", R.drawable.ic_shell_image, ToolHue.Annotate, actions.onChooseStamp, enabled = controls.canCreate, selected = armed == AnnotationTool.Stamp)
-        ToolTile("Paste", R.drawable.ic_shell_image, ToolHue.Annotate, actions.onPasteStamp, enabled = controls.canCreate)
-        ToolTile("Organize pages", R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
+        ToolTile(stringResource(R.string.reader_tool_stamp), R.drawable.ic_shell_image, ToolHue.Annotate, actions.onChooseStamp, enabled = controls.canCreate, selected = armed == AnnotationTool.Stamp)
+        ToolTile(stringResource(R.string.reader_tool_paste), R.drawable.ic_shell_image, ToolHue.Annotate, actions.onPasteStamp, enabled = controls.canCreate)
+        ToolTile(stringResource(R.string.reader_tool_organize), R.drawable.ic_shell_organize, ToolHue.Organize, actions.onOrganize)
         // Page content, like Edit text: the permission is asked when it opens.
-        ToolTile("Watermark", R.drawable.ic_shell_text, accent, actions.onWatermark, enabled = state.pageCount > 0, selected = state.watermark != null)
+        ToolTile(stringResource(R.string.reader_tool_watermark), R.drawable.ic_shell_text, accent, actions.onWatermark, enabled = state.pageCount > 0, selected = state.watermark != null)
     }
 }
 
 private val ANNOTATION_TOOLS = listOf(
-    Triple(AnnotationTool.Pointer, "Select", R.drawable.ic_shell_select),
-    Triple(AnnotationTool.Highlight, "Highlight", R.drawable.ic_shell_highlight),
-    Triple(AnnotationTool.Underline, "Underline", R.drawable.ic_shell_underline),
-    Triple(AnnotationTool.Strikeout, "Strikeout", R.drawable.ic_shell_strikeout),
-    Triple(AnnotationTool.Ink, "Draw", R.drawable.ic_shell_ink),
-    Triple(AnnotationTool.Shape, "Shape", R.drawable.ic_shell_shape),
-    Triple(AnnotationTool.TextNote, "Note", R.drawable.ic_shell_comments),
-    Triple(AnnotationTool.FreeText, "Text box", R.drawable.ic_shell_text),
+    Triple(AnnotationTool.Pointer, R.string.reader_tool_select, R.drawable.ic_shell_select),
+    Triple(AnnotationTool.Highlight, R.string.reader_tool_highlight, R.drawable.ic_shell_highlight),
+    Triple(AnnotationTool.Underline, R.string.reader_tool_underline, R.drawable.ic_shell_underline),
+    Triple(AnnotationTool.Strikeout, R.string.reader_tool_strikeout, R.drawable.ic_shell_strikeout),
+    Triple(AnnotationTool.Ink, R.string.reader_tool_draw, R.drawable.ic_shell_ink),
+    Triple(AnnotationTool.Shape, R.string.reader_tool_shape, R.drawable.ic_shell_shape),
+    Triple(AnnotationTool.TextNote, R.string.reader_tool_note, R.drawable.ic_shell_comments),
+    Triple(AnnotationTool.FreeText, R.string.reader_tool_text_box, R.drawable.ic_shell_text),
 )
 
 /** Sign mode: fill the document's form, draw a signature onto a page, or sign it with a certificate. */
 @Composable
 internal fun SignTools(state: ViewerState, controls: AnnotationControls, onFormFields: () -> Unit, onDrawSignature: () -> Unit, onSign: () -> Unit, sidePanel: Boolean = false) {
-    ToolTray("Fill & sign", sidePanel) {
-        ToolTile("Fill forms", R.drawable.ic_shell_edit, MaterialTheme.colorScheme.primary, onFormFields, selected = state.formFields != null)
-        ToolTile("Draw signature", R.drawable.ic_shell_ink, ToolHue.Sign, onDrawSignature, enabled = controls.canCreate, selected = state.activeAnnotationTool == AnnotationTool.Stamp)
-        ToolTile("Sign with certificate", R.drawable.ic_shell_sign, ToolHue.Sign, onSign, enabled = !state.signRunning)
+    ToolTray(stringResource(R.string.reader_tools_sign), sidePanel) {
+        ToolTile(stringResource(R.string.reader_tool_fill_forms), R.drawable.ic_shell_edit, MaterialTheme.colorScheme.primary, onFormFields, selected = state.formFields != null)
+        ToolTile(stringResource(R.string.reader_tool_draw_signature), R.drawable.ic_shell_ink, ToolHue.Sign, onDrawSignature, enabled = controls.canCreate, selected = state.activeAnnotationTool == AnnotationTool.Stamp)
+        ToolTile(stringResource(R.string.reader_tool_sign_certificate), R.drawable.ic_shell_sign, ToolHue.Sign, onSign, enabled = !state.signRunning)
     }
 }
