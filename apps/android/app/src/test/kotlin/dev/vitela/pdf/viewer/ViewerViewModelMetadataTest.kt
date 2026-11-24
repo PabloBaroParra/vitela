@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -41,7 +42,7 @@ class ViewerViewModelMetadataTest {
 
         val editor = requireNotNull(viewModel.state.first { it.metadataEditor != null }.metadataEditor)
         assertFalse(editor.editingAllowed)
-        assertEquals("This document does not permit metadata changes.", editor.message)
+        assertEquals("This document does not permit metadata changes.", editor.message?.english())
     }
 
     @Test
@@ -98,7 +99,7 @@ class ViewerViewModelMetadataTest {
         viewModel.applyMetadata()
 
         val editor = requireNotNull(viewModel.state.first { it.metadataEditor?.message != null }.metadataEditor)
-        assertEquals("The document could not be processed.", editor.message)
+        assertEquals("The document could not be processed.", editor.message?.english())
         assertEquals(DocumentInfo(title = "Changed"), editor.draft)
         assertFalse(viewModel.state.value.isDirty)
     }
@@ -143,7 +144,7 @@ private class MetadataDocument(
     override fun documentInfo(): PdfCoreResult<DocumentInfo> = PdfCoreResult.Success(info)
     override fun metadataEditingAllowed(): Boolean = editingAllowed
     override fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> {
-        refusal?.let { return PdfCoreResult.Failure(dev.vitela.pdf.core.PdfCoreError.Failed(it)) }
+        refusal?.let { return PdfCoreResult.Failure(dev.vitela.pdf.core.PdfCoreError.Failed(UiText.Verbatim(it))) }
         applied += info
         this.info = info
         return PdfCoreResult.Success(Unit)

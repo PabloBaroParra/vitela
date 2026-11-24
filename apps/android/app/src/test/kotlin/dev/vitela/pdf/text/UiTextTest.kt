@@ -88,7 +88,7 @@ class UiTextTest {
 
     @Test
     fun theCoresOwnSentenceIsKeptAndThePasswordOneIsTranslated() {
-        assertEquals("boom", userMessage(PdfCoreError.Failed("boom")).spanish())
+        assertEquals("boom", userMessage(PdfCoreError.Failed(UiText.Verbatim("boom"))).spanish())
         assertEquals("Este documento requiere una contraseña.", userMessage(PdfCoreError.WrongPassword).spanish())
     }
 

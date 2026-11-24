@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /**
  * Asks for a text box's text, or for the new text of one already placed.
@@ -34,7 +35,7 @@ internal fun FreeTextDialog(draft: FreeTextDraft, documentId: Long, onConfirm: (
                 onValueChange = { text = it },
                 label = { Text("Text") },
                 isError = draft.error != null,
-                supportingText = draft.error?.let { message -> { Text(message) } },
+                supportingText = draft.error?.let { message -> { Text(message.resolve()) } },
                 minLines = 3,
                 maxLines = 8,
                 modifier = Modifier.heightIn(min = 120.dp),

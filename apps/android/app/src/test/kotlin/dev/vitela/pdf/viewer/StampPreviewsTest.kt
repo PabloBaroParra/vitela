@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -159,7 +160,7 @@ private class StampingDocument(
     override fun annotations() = PdfCoreResult.Success(AnnotationSnapshot(stamps.toList(), true, stamps.isNotEmpty(), false))
 
     override fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> {
-        if (refuse) return PdfCoreResult.Failure(PdfCoreError.Failed("Refused."))
+        if (refuse) return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("Refused.")))
         stamps += Annotation(nextId++, pageIndex, AnnotationKind.Stamp, rect, null)
         return PdfCoreResult.Success(Unit)
     }

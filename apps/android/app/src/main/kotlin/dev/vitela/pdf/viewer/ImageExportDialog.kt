@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.ImageExportFormat
+import dev.vitela.pdf.text.resolve
 
 /** Export images: which pages, PNG or JPEG, and at what resolution. It stays open on a refused choice and says why. */
 @Composable
@@ -39,7 +40,7 @@ internal fun ImageExportDialog(
         text = {
             // Scrolls so the last field stays reachable above the keyboard.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                editor.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.message?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 Text("Pages", style = MaterialTheme.typography.labelLarge)
                 Choice("All pages", draft.pages == ImageExportPages.All, enabled) { onChange(draft.copy(pages = ImageExportPages.All)) }
                 Choice("Current page", draft.pages == ImageExportPages.Current, enabled) { onChange(draft.copy(pages = ImageExportPages.Current)) }

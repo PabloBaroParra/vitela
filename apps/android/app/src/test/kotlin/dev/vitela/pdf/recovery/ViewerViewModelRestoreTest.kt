@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.home.RecentDocument
 import dev.vitela.pdf.home.RecentStore
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import dev.vitela.pdf.viewer.AnnotationTool
 import dev.vitela.pdf.viewer.ViewerDispatcherRule
@@ -321,7 +322,7 @@ class ViewerViewModelRestoreTest {
     @Test
     fun aCoreFailureThatMayPassKeepsTheEntry() = runTest {
         crashed()
-        core.failure = PdfCoreError.Failed("PDFium is unavailable.")
+        core.failure = PdfCoreError.Failed(UiText.Verbatim("PDFium is unavailable."))
         offer()
         restore()
         assertEquals(2, files().size)

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The core's failures -->
+    <string name="error_core_security_handler">Este documento usa una protección con contraseña que esta aplicación no admite.</string>
+    <string name="error_core_document_changed">El documento ha cambiado. Inténtalo de nuevo.</string>
+    <string name="error_core_not_an_image">Este archivo no es una imagen PNG o JPEG.</string>
+    <string name="error_core_request_failed">No se pudo completar la acción solicitada.</string>
+    <string name="error_core_signatures_invalidated">Guardar rompería la firma de este documento, así que no se guardó.</string>
+    <string name="error_core_unsupported">Este documento o esta acción no son compatibles.</string>
+    <string name="error_core_font_gap">La fuente de este texto no puede mostrar «%1$s». Prueba con otros caracteres.</string>
+    <string name="error_core_pdfium_unavailable">PDFium no está disponible. Este paquete debe incluir bibliotecas PDFium compatibles suministradas aparte.</string>
+    <string name="error_core_page_not_rendered">No se pudo mostrar esta página.</string>
+    <string name="error_core_io">No se pudo leer o escribir el archivo.</string>
+    <string name="error_core_generic">No se pudo procesar el documento.</string>
+    <string name="error_core_not_packaged">El soporte nativo de PDF no está incluido.</string>
+    <string name="error_core_preview_failed">No se pudo volver a dibujar la página con los cambios. Siguen pendientes de guardar.</string>
+
+    <!-- What a PDF core does not offer -->
+    <string name="error_unavailable_annotations">Las anotaciones no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_organize">La organización de páginas no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_import">La adición de PDF no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_documents_view">La vista Documentos no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_preview">La vista previa de los cambios no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_fields">Los campos de formulario no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_form_create">La creación de campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_move">El movimiento de campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_resize">El cambio de tamaño de los campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_delete">La eliminación de campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_rename">El cambio de nombre de los campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_form_style">El cambio de estilo de los campos de formulario no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_content">La edición del contenido de las páginas no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_watermarks">Las marcas de agua no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_picture_watermarks">Las marcas de agua con imagen no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_text_selection">La selección de texto no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_image_stamps">Los sellos de imagen no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_properties">Las propiedades del documento no están disponibles en este núcleo PDF.</string>
+    <string name="error_unavailable_image_export">La exportación de imágenes no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_extract">La extracción de páginas no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_split">La división no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_compression">La compresión no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_protection">La protección con contraseña no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_signing">La firma no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_saving">El guardado no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_autosave">El guardado automático no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_printing">La impresión no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_both_passwords">La apertura con ambas contraseñas no está disponible en este núcleo PDF.</string>
+
+    <!-- Annotations -->
+    <string name="error_annotation_size_invalid">Las dimensiones de la anotación deben ser finitas y mayores que cero.</string>
+    <string name="error_annotation_position_invalid">Las coordenadas de la anotación deben ser números finitos.</string>
+
+    <!-- Text selection -->
+    <string name="error_text_selection_forbidden">Este documento no permite seleccionar ni copiar su texto.</string>
+
+    <!-- Edit content: text, images, shapes and insertions -->
+    <string name="error_content_read_forbidden">Este documento no permite leer su texto.</string>
+    <string name="error_content_text_not_edited">Este texto no se puede editar.</string>
+    <string name="error_content_text_not_moved">Este texto no se puede mover.</string>
+    <string name="error_content_text_not_deleted">Este texto no se puede eliminar.</string>
+    <string name="error_content_text_not_added">Este texto no se puede añadir aquí.</string>
+    <string name="error_content_text_empty">Escribe una sola línea de texto que no esté vacía.</string>
+    <string name="error_content_text_size_invalid">El tamaño del texto debe estar entre 1 y 72 pt.</string>
+    <string name="error_content_helvetica_gap">Helvetica no puede mostrar «%1$s». Prueba con otros caracteres.</string>
+    <string name="error_content_image_not_resized">No se puede cambiar el tamaño de esta imagen.</string>
+    <string name="error_content_image_not_moved">Esta imagen no se puede mover.</string>
+    <string name="error_content_image_not_deleted">Esta imagen no se puede eliminar.</string>
+    <string name="error_content_image_not_replaced">Esta imagen no se puede reemplazar. Guarda primero si ya tiene un cambio pendiente.</string>
+    <string name="error_content_image_not_added">Esta imagen no se puede añadir aquí.</string>
+    <string name="error_content_image_size_invalid">Las dimensiones de la imagen deben ser finitas y mayores que cero.</string>
+    <string name="error_content_shape_not_resized">No se puede cambiar el tamaño de esta forma.</string>
+    <string name="error_content_shape_not_moved">Esta forma no se puede mover.</string>
+    <string name="error_content_shape_not_deleted">Esta forma no se puede eliminar.</string>
+    <string name="error_content_shape_size_invalid">Las dimensiones de la forma deben ser finitas y mayores que cero.</string>
+
+    <!-- Edit content: selection and clipboard -->
+    <string name="error_selection_not_moved">Estos elementos no se pueden mover.</string>
+    <string name="error_selection_not_deleted">Estos elementos no se pueden eliminar.</string>
+    <string name="error_clipboard_not_copied">Estos elementos no se pueden copiar.</string>
+    <string name="error_clipboard_not_cut">Estos elementos no se pueden cortar.</string>
+    <string name="error_clipboard_not_pasted">Este contenido no se puede pegar aquí.</string>
+    <string name="error_clipboard_copy_forbidden">Este documento no permite copiar su contenido.</string>
+
+    <!-- Watermark -->
+    <string name="error_watermark_font_gap">La fuente de la marca de agua no puede mostrar «%1$s». Usa letras latinas, cifras y signos de puntuación.</string>
+    <string name="error_watermark_not_added">Esta marca de agua no se puede añadir a estas páginas.</string>
+    <string name="error_watermark_picture_unreadable">No se pudo leer ese archivo como una imagen PNG o JPEG. Elige otro.</string>
+    <string name="error_watermark_text_missing">Escribe el texto que se estampará en las páginas.</string>
+    <string name="error_watermark_picture_missing">Elige una imagen PNG o JPEG para estamparla en las páginas.</string>
+    <string name="error_watermark_no_pages">Este documento no tiene páginas que estampar.</string>
+    <string name="error_watermark_range_missing">Escribe qué páginas quieres estampar, por ejemplo 1-3,7.</string>
+
+    <!-- Form fields -->
+    <string name="error_form_value_refused">Ese valor no es válido para este campo.</string>
+    <string name="error_form_create_forbidden">Este documento no permite crear campos de formulario.</string>
+    <string name="error_form_create_refused">Este campo no se puede colocar ahí.</string>
+    <string name="error_form_move_forbidden">Este documento no permite mover campos de formulario.</string>
+    <string name="error_form_move_refused">Este campo no se puede mover ahí.</string>
+    <string name="error_form_resize_forbidden">Este documento no permite cambiar el tamaño de los campos de formulario.</string>
+    <string name="error_form_resize_refused">Este campo no puede tener ese tamaño.</string>
+    <string name="error_form_delete_forbidden">Este documento no permite eliminar campos de formulario.</string>
+    <string name="error_form_delete_refused">Este campo no se puede eliminar.</string>
+    <string name="error_form_rename_forbidden">Este documento no permite cambiar el nombre de los campos de formulario.</string>
+    <string name="error_form_rename_refused">Otro campo ya usa ese nombre.</string>
+    <string name="error_form_style_forbidden">Este documento no permite cambiar el estilo de los campos de formulario.</string>
+    <string name="error_form_style_refused">Este campo no admite ese estilo.</string>
+
+    <!-- Organize pages -->
+    <string name="error_organize_forbidden">Este documento no permite reordenar, girar ni quitar sus páginas.</string>
+
+    <!-- Document properties -->
+    <string name="error_metadata_read_only">Este documento no permite cambiar sus metadatos.</string>
+
+    <!-- Export images -->
+    <string name="error_export_forbidden">Este documento no permite extraer sus páginas como imágenes.</string>
+    <string name="error_export_dpi_range">Elige una resolución entre %1$s y %2$s DPI.</string>
+    <string name="error_export_no_pages">Este documento no tiene páginas que exportar.</string>
+    <string name="error_export_page_too_large">La página %1$s es demasiado grande para exportarla a %2$s DPI. Elige una resolución más baja.</string>
+    <string name="error_export_not_rendered">No se pudo generar a %1$s DPI. Elige una resolución más baja.</string>
+
+    <!-- Extract pages -->
+    <string name="error_extract_forbidden">Este documento no permite extraer sus páginas.</string>
+    <string name="error_extract_no_rewrite">Extraer páginas reescribe todo el archivo, y el cifrado de este documento o las credenciales disponibles no lo permiten.</string>
+    <string name="error_extract_no_pages">Este documento no tiene páginas que extraer.</string>
+    <string name="error_extract_range_missing">Escribe qué páginas quieres extraer, por ejemplo 1-3,7.</string>
+    <string name="error_extract_failed">No se pudieron extraer estas páginas: %1$s.</string>
+
+    <!-- Split -->
+    <string name="error_split_no_rewrite">Dividir páginas reescribe todo el archivo, y el cifrado de este documento o las credenciales disponibles no lo permiten.</string>
+
+    <!-- Compress: each refusal as a sentence, and as a clause of status_compress_refusals -->
+    <string name="error_compress_protected">La protección con contraseña de este documento no permite reescribirlo, así que no se puede comprimir.</string>
+    <string name="error_compress_protected_clause">la protección con contraseña de este documento no permite reescribirlo, así que no se puede comprimir</string>
+    <string name="error_compress_signed">Comprimir reescribe el archivo y su firma dejaría de ser válida.</string>
+    <string name="error_compress_signed_clause">comprimir reescribe el archivo y su firma dejaría de ser válida</string>
+
+    <!-- Protect -->
+    <string name="error_protect_forbidden">Este documento no permite cambiar su protección.</string>
+    <string name="error_protect_open_missing">Introduce la contraseña que pedirá el documento al abrirlo.</string>
+    <string name="error_protect_permissions_missing">Introduce la contraseña de permisos.</string>
+    <string name="error_protect_same_passwords">Las dos contraseñas deben ser distintas.</string>
+
+    <!-- Sign with a certificate -->
+    <string name="error_sign_unsaved">Guarda los cambios antes de firmar este documento.</string>
+    <string name="error_sign_certificate_locked">No se pudo abrir el certificado. Comprueba su contraseña y que el archivo sea un certificado .pfx o .p12.</string>
+    <string name="error_sign_no_identity">Este archivo de certificado no contiene ninguna identidad que pueda firmar.</string>
+    <string name="error_sign_signature_invalidated">Guardar los cambios rompería la firma que ya tiene este documento, así que no se ha firmado.</string>
+</resources>

@@ -3,6 +3,8 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -165,7 +167,7 @@ class ViewerViewModelContentEditTest {
     @Test
     fun aRefusedRetypeKeepsTheEditorOpenWithTheReason() = runTest {
         val refusal = "This text's font cannot show \"é\". Try different characters."
-        val viewModel = openedWith(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = openedWith(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.openContentEdit()
         viewModel.tapContent(0, onHello, reach = 0.0)
         advanceUntilIdle()
@@ -174,7 +176,7 @@ class ViewerViewModelContentEditTest {
 
         val editor = viewModel.state.value.contentEdit?.editor
         assertNotNull("the reader fixes it by typing something else, not by finding the run again", editor)
-        assertEquals(refusal, editor!!.error)
+        assertEquals(refusal, editor!!.error?.english())
         assertEquals("Olé", editor.text)
         assertFalse(viewModel.state.value.isDirty)
     }

@@ -15,7 +15,7 @@ import java.util.Locale
  */
 data class CompressEditor(
     val preset: CompressPreset = DEFAULT_COMPRESS_PRESET,
-    val refusal: String? = null,
+    val refusal: UiText? = null,
     val signaturesWillBreak: Boolean = false,
 )
 
@@ -64,9 +64,6 @@ internal fun compressNoGainSummary(copy: CompressedCopy): UiText =
 internal fun compressWrittenSummary(copy: CompressedCopy): UiText =
     UiText.Resource(R.string.status_compress_written, humanSize(copy.beforeBytes), humanSize(copy.afterBytes), percentSmaller(copy).toString())
 
-/** The core's clause as a sentence the dialog can show on its own. */
-internal fun compressRefusalSentence(clause: String): String = "${clause.replaceFirstChar { it.uppercaseChar() }}."
-
 internal fun compressedFileName(title: String): String = "${documentStem(title)}-compressed.pdf"
 
 /**
@@ -75,4 +72,4 @@ internal fun compressedFileName(title: String): String = "${documentStem(title)}
  * must still reach the reader.
  */
 private fun UiText.withRefusals(copy: CompressedCopy): UiText =
-    if (copy.refusals.isEmpty()) this else UiText.Sentences(this, UiText.Resource(R.string.status_compress_refusals, copy.refusals.joinToString("; ")))
+    if (copy.refusals.isEmpty()) this else UiText.Sentences(this, UiText.Resource(R.string.status_compress_refusals, UiText.Clauses(copy.refusals)))

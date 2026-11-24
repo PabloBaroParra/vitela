@@ -69,7 +69,7 @@ class ViewerViewModelPageSplitTest {
 
         assertFalse(viewModel.planPageSplit())
         val editor = requireNotNull(viewModel.state.value.pageSplit)
-        assertEquals("\"nope\" is not a page number.", editor.message)
+        assertEquals("\"nope\" is not a page number.", editor.message?.english())
         assertEquals("nope", editor.cuts)
     }
 

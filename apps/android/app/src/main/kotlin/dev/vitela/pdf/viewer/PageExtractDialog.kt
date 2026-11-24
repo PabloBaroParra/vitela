@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /** Extract pages: which pages go into the new PDF. It stays open on a refused range and says why. */
 @Composable
@@ -25,7 +26,7 @@ internal fun PageExtractDialog(
         title = { Text("Extract pages to a new PDF") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                editor.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.message?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 OutlinedTextField(
                     value = editor.range,
                     onValueChange = onChange,

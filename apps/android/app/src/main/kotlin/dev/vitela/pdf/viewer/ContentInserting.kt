@@ -95,7 +95,7 @@ internal class ContentInserting(
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
                         if (now.inserter !== inserter) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(inserter = inserter.copy(text = text, size = size, error = dialogMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = now.copy(inserter = inserter.copy(text = text, size = size, error = userMessage(result.error))))
                     }
                 }
             }

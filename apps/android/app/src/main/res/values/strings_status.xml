@@ -124,6 +124,8 @@
         <item quantity="one">Pasted %1$s item — drag inside the dashed box to place them.</item>
         <item quantity="other">Pasted %1$s items — drag inside the dashed box to place them.</item>
     </plurals>
+
+    <!-- Watermark -->
     <plurals name="status_watermark_added">
         <item quantity="one">Watermark added to %1$s page.</item>
         <item quantity="other">Watermark added to %1$s pages.</item>

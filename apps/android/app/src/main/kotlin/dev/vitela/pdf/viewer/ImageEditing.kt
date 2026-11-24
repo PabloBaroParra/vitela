@@ -67,7 +67,7 @@ internal class ImageEditing(
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
                         if (now.resizer?.image != image) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = dialogMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = userMessage(result.error))))
                     }
                 }
             }

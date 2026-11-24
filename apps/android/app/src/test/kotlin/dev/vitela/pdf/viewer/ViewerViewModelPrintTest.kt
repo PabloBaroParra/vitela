@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -60,7 +61,7 @@ class ViewerViewModelPrintTest {
 
     @Test
     fun aSnapshotThatFailsReportsWhy() = runTest {
-        val core = PrintCore(snapshotError = PdfCoreError.Failed("boom"))
+        val core = PrintCore(snapshotError = PdfCoreError.Failed(UiText.Verbatim("boom")))
         val viewModel = dispatchers.viewModel(core)
         viewModel.open("a.pdf", byteArrayOf(1))
         viewModel.state.first { it.canPrint }

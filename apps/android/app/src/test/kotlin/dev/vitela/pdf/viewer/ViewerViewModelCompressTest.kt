@@ -9,6 +9,8 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.core.coreSentence
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -42,7 +44,7 @@ class ViewerViewModelCompressTest {
         viewModel.openCompress()
 
         val editor = requireNotNull(viewModel.state.first { it.compress != null }.compress)
-        assertEquals("This document cannot be rewritten.", editor.refusal)
+        assertEquals("This document cannot be rewritten.", editor.refusal?.english())
         viewModel.selectCompressPreset(CompressPreset.Small)
         assertEquals(CompressPreset.Balanced, viewModel.state.value.compress?.preset)
         assertNull(viewModel.compress())
@@ -77,7 +79,7 @@ class ViewerViewModelCompressTest {
         viewModel.openCompress()
 
         val editor = requireNotNull(viewModel.state.first { it.compress != null }.compress)
-        assertEquals("The document could not be processed.", editor.refusal)
+        assertEquals("The document could not be processed.", editor.refusal?.english())
     }
 
     @Test
@@ -234,11 +236,11 @@ private class CompressDocument(
     override val pageSizes = List(pageCount) { PageSize(612.0, 792.0) }
     override fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage> = PdfCoreResult.Success(RenderedPage(1, 1, 4, ByteArray(4)))
     override fun search(query: String): PdfCoreResult<List<SearchHit>> = PdfCoreResult.Success(emptyList())
-    override fun compressionRefusal(): String? = refusal
+    override fun compressionRefusal(): UiText? = refusal?.let(::coreSentence)
     override fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> =
-        signatureQueryFailure?.let { PdfCoreResult.Failure(PdfCoreError.Failed(it)) } ?: PdfCoreResult.Success(signed)
+        signatureQueryFailure?.let { PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) } ?: PdfCoreResult.Success(signed)
     override fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> {
-        runFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        runFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         runs += preset
         acknowledgements += signaturesAcknowledged
         val reduced = after < before

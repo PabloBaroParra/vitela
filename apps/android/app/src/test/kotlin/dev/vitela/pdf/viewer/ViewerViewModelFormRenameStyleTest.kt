@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.FieldFont
 import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -165,7 +166,7 @@ class ViewerViewModelFormRenameStyleTest {
 
     @Test
     fun aRefusedRenameSaysWhyAndKeepsTheName() = runTest {
-        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("That name is already used by another field."))
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed(UiText.Verbatim("That name is already used by another field.")))
         val viewModel = openedWithPanel(document)
         viewModel.renameFormField(viewModel.state.value.documentId, 1, "Full name")
         advanceUntilIdle()

@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -248,7 +249,7 @@ class ViewerViewModelContentSelectionTest {
     @Test
     fun aRefusedMoveSaysWhyAndKeepsTheSelection() = runTest {
         val reason = "This text cannot be moved."
-        val document = RetypableDocument(refusal = PdfCoreError.Failed(reason))
+        val document = RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(reason)))
         val viewModel = opened(document)
         viewModel.pressContent(0, onImage, reach = 0.0)
         advanceUntilIdle()
@@ -286,7 +287,7 @@ class ViewerViewModelContentSelectionTest {
     @Test
     fun aRefusedDeleteSaysWhyAndKeepsTheSelection() = runTest {
         val reason = "This document does not permit content changes."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(reason)))
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(reason))))
         viewModel.pressContent(0, onImage, reach = 0.0)
         advanceUntilIdle()
         viewModel.deleteContentSelection()

@@ -54,7 +54,7 @@ class ViewerViewModelImageExportTest {
 
         assertFalse(viewModel.planImageExport())
         val editor = requireNotNull(viewModel.state.value.imageExport)
-        assertEquals("\"nope\" is not a page number.", editor.message)
+        assertEquals("\"nope\" is not a page number.", editor.message?.english())
         assertEquals("nope", editor.draft.customRange)
     }
 

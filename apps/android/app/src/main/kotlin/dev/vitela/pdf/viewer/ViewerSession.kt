@@ -49,14 +49,7 @@ internal class ViewerSession(
 
 internal fun userMessage(error: PdfCoreError): UiText = when (error) {
     PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> UiText.Resource(R.string.status_open_password_required)
-    // The core's or the adapter's own sentence, not translated yet.
-    is PdfCoreError.Failed -> UiText.Verbatim(error.message)
-}
-
-/** [userMessage] for the dialogs whose messages are not translated yet. */
-internal fun dialogMessage(error: PdfCoreError): String = when (error) {
-    PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "This document requires a password."
-    is PdfCoreError.Failed -> error.message
+    is PdfCoreError.Failed -> error.text
 }
 
 /** The open file's name without its `.pdf`, for a derived file's suggested name; "Document" when there is none. */

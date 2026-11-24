@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What failed or was refused, in the status line and in the dialogs. Numbers are passed as %s, not %d, as in strings.xml. -->
+<resources>
+    <!-- The core's failures -->
+    <string name="error_core_security_handler">This document uses a password protection this app does not support.</string>
+    <string name="error_core_document_changed">The document changed. Please try again.</string>
+    <string name="error_core_not_an_image">This file is not a PNG or JPEG image.</string>
+    <string name="error_core_request_failed">The requested action could not be completed.</string>
+    <string name="error_core_signatures_invalidated">Saving would invalidate this document\'s signature, so it was not saved.</string>
+    <string name="error_core_unsupported">This document or action is not supported.</string>
+    <string name="error_core_font_gap">This text\'s font cannot show \"%1$s\". Try different characters.</string>
+    <string name="error_core_pdfium_unavailable">PDFium is unavailable. This package must include externally supplied compatible PDFium libraries.</string>
+    <string name="error_core_page_not_rendered">This page could not be rendered.</string>
+    <string name="error_core_io">The file could not be read or written.</string>
+    <string name="error_core_generic">The document could not be processed.</string>
+    <string name="error_core_not_packaged">Native PDF support is not packaged.</string>
+    <string name="error_core_preview_failed">The page could not be redrawn with your changes. They are still pending save.</string>
+
+    <!-- What a PDF core does not offer -->
+    <string name="error_unavailable_annotations">Annotations are unavailable in this PDF core.</string>
+    <string name="error_unavailable_organize">Organizing pages is unavailable in this PDF core.</string>
+    <string name="error_unavailable_import">Adding PDFs is unavailable in this PDF core.</string>
+    <string name="error_unavailable_documents_view">The Documents view is unavailable in this PDF core.</string>
+    <string name="error_unavailable_preview">Previewing edits is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_fields">Form fields are unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_create">Creating form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_move">Moving form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_resize">Resizing form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_delete">Deleting form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_rename">Renaming form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_form_style">Styling form fields is unavailable in this PDF core.</string>
+    <string name="error_unavailable_content">Editing page content is unavailable in this PDF core.</string>
+    <string name="error_unavailable_watermarks">Watermarks are unavailable in this PDF core.</string>
+    <string name="error_unavailable_picture_watermarks">Picture watermarks are unavailable in this PDF core.</string>
+    <string name="error_unavailable_text_selection">Text selection is unavailable in this PDF core.</string>
+    <string name="error_unavailable_image_stamps">Image stamps are unavailable in this PDF core.</string>
+    <string name="error_unavailable_properties">Document properties are unavailable in this PDF core.</string>
+    <string name="error_unavailable_image_export">Image export is unavailable in this PDF core.</string>
+    <string name="error_unavailable_extract">Extracting pages is unavailable in this PDF core.</string>
+    <string name="error_unavailable_split">Splitting is unavailable in this PDF core.</string>
+    <string name="error_unavailable_compression">Compression is unavailable in this PDF core.</string>
+    <string name="error_unavailable_protection">Password protection is unavailable in this PDF core.</string>
+    <string name="error_unavailable_signing">Signing is unavailable in this PDF core.</string>
+    <string name="error_unavailable_saving">Saving is unavailable in this PDF core.</string>
+    <string name="error_unavailable_autosave">Autosave is unavailable in this PDF core.</string>
+    <string name="error_unavailable_printing">Printing is unavailable in this PDF core.</string>
+    <string name="error_unavailable_both_passwords">Opening with both passwords is unavailable in this PDF core.</string>
+
+    <!-- Annotations -->
+    <string name="error_annotation_size_invalid">Annotation dimensions must be finite and greater than zero.</string>
+    <string name="error_annotation_position_invalid">Annotation coordinates must be finite numbers.</string>
+
+    <!-- Text selection -->
+    <string name="error_text_selection_forbidden">This document does not allow its text to be selected or copied.</string>
+
+    <!-- Edit content: text, images, shapes and insertions -->
+    <string name="error_content_read_forbidden">This document does not allow its text to be read.</string>
+    <string name="error_content_text_not_edited">This text cannot be edited.</string>
+    <string name="error_content_text_not_moved">This text cannot be moved.</string>
+    <string name="error_content_text_not_deleted">This text cannot be deleted.</string>
+    <string name="error_content_text_not_added">This text cannot be added here.</string>
+    <string name="error_content_text_empty">Enter a nonempty single line of text.</string>
+    <string name="error_content_text_size_invalid">Text size must be between 1 and 72 pt.</string>
+    <string name="error_content_helvetica_gap">Helvetica cannot show \"%1$s\". Try different characters.</string>
+    <string name="error_content_image_not_resized">This image cannot be resized.</string>
+    <string name="error_content_image_not_moved">This image cannot be moved.</string>
+    <string name="error_content_image_not_deleted">This image cannot be deleted.</string>
+    <string name="error_content_image_not_replaced">This image cannot be replaced. Save first if it already has a pending edit.</string>
+    <string name="error_content_image_not_added">This image cannot be added here.</string>
+    <string name="error_content_image_size_invalid">Image dimensions must be finite and greater than zero.</string>
+    <string name="error_content_shape_not_resized">This shape cannot be resized.</string>
+    <string name="error_content_shape_not_moved">This shape cannot be moved.</string>
+    <string name="error_content_shape_not_deleted">This shape cannot be deleted.</string>
+    <string name="error_content_shape_size_invalid">Shape dimensions must be finite and greater than zero.</string>
+
+    <!-- Edit content: selection and clipboard -->
+    <string name="error_selection_not_moved">These items cannot be moved.</string>
+    <string name="error_selection_not_deleted">These items cannot be deleted.</string>
+    <string name="error_clipboard_not_copied">These items cannot be copied.</string>
+    <string name="error_clipboard_not_cut">These items cannot be cut.</string>
+    <string name="error_clipboard_not_pasted">This content cannot be pasted here.</string>
+    <string name="error_clipboard_copy_forbidden">This document does not permit copying content.</string>
+
+    <!-- Watermark -->
+    <string name="error_watermark_font_gap">The watermark font cannot show “%1$s”. Use Latin letters, digits and punctuation.</string>
+    <string name="error_watermark_not_added">This watermark cannot be added to these pages.</string>
+    <string name="error_watermark_picture_unreadable">That file could not be read as a PNG or JPEG picture. Choose another one.</string>
+    <string name="error_watermark_text_missing">Type the text to stamp on the pages.</string>
+    <string name="error_watermark_picture_missing">Choose a PNG or JPEG picture to stamp on the pages.</string>
+    <string name="error_watermark_no_pages">This document has no pages to stamp.</string>
+    <string name="error_watermark_range_missing">Type which pages to stamp, for example 1-3,7.</string>
+
+    <!-- Form fields -->
+    <string name="error_form_value_refused">That value does not fit this field.</string>
+    <string name="error_form_create_forbidden">This document does not permit creating form fields.</string>
+    <string name="error_form_create_refused">This field cannot be placed there.</string>
+    <string name="error_form_move_forbidden">This document does not permit moving form fields.</string>
+    <string name="error_form_move_refused">This field cannot be moved there.</string>
+    <string name="error_form_resize_forbidden">This document does not permit resizing form fields.</string>
+    <string name="error_form_resize_refused">This field cannot be that size.</string>
+    <string name="error_form_delete_forbidden">This document does not permit deleting form fields.</string>
+    <string name="error_form_delete_refused">This field cannot be deleted.</string>
+    <string name="error_form_rename_forbidden">This document does not permit renaming form fields.</string>
+    <string name="error_form_rename_refused">Another field already uses that name.</string>
+    <string name="error_form_style_forbidden">This document does not permit styling form fields.</string>
+    <string name="error_form_style_refused">This field cannot take that style.</string>
+
+    <!-- Organize pages -->
+    <string name="error_organize_forbidden">This document does not allow its pages to be rearranged, rotated or removed.</string>
+
+    <!-- Document properties -->
+    <string name="error_metadata_read_only">This document does not permit metadata changes.</string>
+
+    <!-- Export images -->
+    <string name="error_export_forbidden">This document does not permit extracting its pages as images.</string>
+    <string name="error_export_dpi_range">Choose a resolution between %1$s and %2$s DPI.</string>
+    <string name="error_export_no_pages">This document has no pages to export.</string>
+    <string name="error_export_page_too_large">Page %1$s is too large to export at %2$s DPI. Choose a lower resolution.</string>
+    <string name="error_export_not_rendered">It could not be rendered at %1$s DPI. Choose a lower resolution.</string>
+
+    <!-- Extract pages -->
+    <string name="error_extract_forbidden">This document does not permit extracting its pages.</string>
+    <string name="error_extract_no_rewrite">Extracting pages rewrites the whole file, which this document\'s encryption or available credentials do not allow.</string>
+    <string name="error_extract_no_pages">This document has no pages to extract.</string>
+    <string name="error_extract_range_missing">Type which pages to extract, for example 1-3,7.</string>
+    <string name="error_extract_failed">These pages could not be extracted: %1$s.</string>
+
+    <!-- Split -->
+    <string name="error_split_no_rewrite">Splitting pages rewrites the whole file, which this document\'s encryption or available credentials do not allow.</string>
+
+    <!-- Compress: each refusal as a sentence, and as a clause of status_compress_refusals -->
+    <string name="error_compress_protected">This document\'s password protection does not allow it to be rewritten, so it cannot be compressed.</string>
+    <string name="error_compress_protected_clause">this document\'s password protection does not allow it to be rewritten, so it cannot be compressed</string>
+    <string name="error_compress_signed">Compressing rewrites the file and would stop its signature from verifying.</string>
+    <string name="error_compress_signed_clause">compressing rewrites the file and would stop its signature from verifying</string>
+
+    <!-- Protect -->
+    <string name="error_protect_forbidden">This document does not permit protection changes.</string>
+    <string name="error_protect_open_missing">Enter the password the document will ask for when it is opened.</string>
+    <string name="error_protect_permissions_missing">Enter the permissions password.</string>
+    <string name="error_protect_same_passwords">The two passwords must be different.</string>
+
+    <!-- Sign with a certificate -->
+    <string name="error_sign_unsaved">Save your changes before signing this document.</string>
+    <string name="error_sign_certificate_locked">The certificate could not be opened. Check its password, and that the file is a .pfx or .p12 certificate.</string>
+    <string name="error_sign_no_identity">This certificate file holds no identity that can sign.</string>
+    <string name="error_sign_signature_invalidated">Saving your changes would invalidate this document\'s existing signature, so it was not signed.</string>
+</resources>

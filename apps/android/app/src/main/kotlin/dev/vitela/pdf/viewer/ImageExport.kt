@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PdfCoreError
@@ -25,7 +26,7 @@ data class ImageExportDraft(
 data class ImageExportEditor(
     val draft: ImageExportDraft,
     val exportAllowed: Boolean,
-    val message: String? = null,
+    val message: UiText? = null,
 )
 
 /** One file an export writes: the page, and the name the core gave it. */
@@ -47,7 +48,7 @@ internal const val MIN_EXPORT_DPI = 72
 internal const val MAX_EXPORT_DPI = 400
 internal const val DEFAULT_EXPORT_DPI = 150
 
-internal const val IMAGE_EXPORT_NOT_ALLOWED = "This document does not permit extracting its pages as images."
+internal val IMAGE_EXPORT_NOT_ALLOWED: UiText = UiText.Resource(R.string.error_export_forbidden)
 
 /**
  * Checks every choice in [draft] against [document] and returns the files an
@@ -67,11 +68,11 @@ internal fun planImageExport(
     // typed that is not a number in range is refused, never rounded into one.
     val dpi = if (draft.dpi.isBlank()) DEFAULT_EXPORT_DPI else draft.dpi.trim().toIntOrNull()
     if (dpi == null || dpi !in MIN_EXPORT_DPI..MAX_EXPORT_DPI) {
-        return refusal("Choose a resolution between $MIN_EXPORT_DPI and $MAX_EXPORT_DPI DPI.")
+        return refusal(R.string.error_export_dpi_range, MIN_EXPORT_DPI, MAX_EXPORT_DPI)
     }
-    if (!document.imageExportAllowed()) return refusal(IMAGE_EXPORT_NOT_ALLOWED)
+    if (!document.imageExportAllowed()) return refusal(R.string.error_export_forbidden)
     val total = document.pageCount
-    if (total == 0) return refusal("This document has no pages to export.")
+    if (total == 0) return refusal(R.string.error_export_no_pages)
 
     val pages = when (draft.pages) {
         ImageExportPages.All -> List(total) { it }
@@ -87,7 +88,7 @@ internal fun planImageExport(
     when (val oversized = document.firstPageTooLargeToExport(pages, dpi)) {
         is PdfCoreResult.Failure -> return oversized
         is PdfCoreResult.Success -> oversized.value?.let {
-            return refusal("Page ${it + 1} is too large to export at $dpi DPI. Choose a lower resolution.")
+            return refusal(R.string.error_export_page_too_large, it + 1, dpi)
         }
     }
 
@@ -100,7 +101,7 @@ internal fun planImageExport(
     return PdfCoreResult.Success(ImageExportPlan(files, dpi, draft.format))
 }
 
-private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))
+private fun refusal(@StringRes id: Int, vararg args: Any) = PdfCoreResult.Failure(PdfCoreError.Failed(id, *args))
 
 internal fun imageExportSummary(count: Int, format: ImageExportFormat): UiText =
     UiText.Plural(R.plurals.status_export_done, count, count, format.label)

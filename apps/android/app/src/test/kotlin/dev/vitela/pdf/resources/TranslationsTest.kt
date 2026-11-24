@@ -12,7 +12,7 @@ class TranslationsTest {
     @Test
     fun spanishHasExactlyTheEnglishNames() {
         assertTrue(english.strings.isNotEmpty())
-        assertEquals(listOf("strings.xml", "strings_status.xml"), english.files)
+        assertEquals(listOf("strings.xml", "strings_errors.xml", "strings_status.xml"), english.files)
         assertEquals(english.files, spanish.files)
         assertEquals(english.strings.keys, spanish.strings.keys)
         assertEquals(english.plurals.keys, spanish.plurals.keys)

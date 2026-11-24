@@ -297,7 +297,7 @@ class ViewerViewModel(
      * the single password the prompt asks for.
      */
     private suspend fun reopenProtected(displayName: String, bytes: ByteArray, openPassword: String, permissionsPassword: String, saveTarget: String?): PdfCoreError? {
-        val availableCore = core ?: return PdfCoreError.Failed("Native PDF support is not packaged.")
+        val availableCore = core ?: return PdfCoreError.Failed(R.string.error_core_not_packaged)
         return when (val result = withContext(session.compute) { availableCore.openWithPasswords(bytes, openPassword, permissionsPassword) }) {
             is PdfCoreResult.Failure -> result.error
             is PdfCoreResult.Success -> {
@@ -311,7 +311,7 @@ class ViewerViewModel(
     }
 
     private fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> =
-        core?.openSigningCertificate(bytes, password) ?: PdfCoreResult.Failure(PdfCoreError.Failed("Native PDF support is not packaged."))
+        core?.openSigningCertificate(bytes, password) ?: PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_not_packaged))
 
     /**
      * Sign's reopen: the file just written. No dirty check — signing refused
@@ -319,7 +319,7 @@ class ViewerViewModel(
      * which is never retained here: the prompt retries against these bytes.
      */
     private suspend fun reopenSigned(displayName: String, bytes: ByteArray, saveTarget: String?): PdfCoreError? {
-        val availableCore = core ?: return PdfCoreError.Failed("Native PDF support is not packaged.")
+        val availableCore = core ?: return PdfCoreError.Failed(R.string.error_core_not_packaged)
         return when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, null) }) {
             is PdfCoreResult.Success -> {
                 sourceBytes = bytes

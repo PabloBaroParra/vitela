@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
@@ -112,17 +113,17 @@ internal const val WATERMARK_DEFAULT_TEXT = "DRAFT"
  */
 internal fun planWatermark(document: PdfDocument, draft: WatermarkDraft, currentPage: Int): PdfCoreResult<List<Int>> {
     when (draft.kind) {
-        WatermarkKind.Text -> if (draft.text.isBlank()) return refusal("Type the text to stamp on the pages.")
-        WatermarkKind.Picture -> if (draft.picture == null) return refusal("Choose a PNG or JPEG picture to stamp on the pages.")
+        WatermarkKind.Text -> if (draft.text.isBlank()) return refusal(R.string.error_watermark_text_missing)
+        WatermarkKind.Picture -> if (draft.picture == null) return refusal(R.string.error_watermark_picture_missing)
     }
     val total = document.pageCount
-    if (total == 0) return refusal("This document has no pages to stamp.")
+    if (total == 0) return refusal(R.string.error_watermark_no_pages)
     return when (draft.pages) {
         WatermarkPages.All -> PdfCoreResult.Success((0 until total).toList())
         // Clamped: the position readout can sit one past the end right after a deletion.
         WatermarkPages.Current -> PdfCoreResult.Success(listOf(currentPage.coerceIn(0, total - 1)))
         WatermarkPages.Custom ->
-            if (draft.range.isBlank()) refusal("Type which pages to stamp, for example 1-3,7.")
+            if (draft.range.isBlank()) refusal(R.string.error_watermark_range_missing)
             else document.parsePageSelection(draft.range)
     }
 }
@@ -130,4 +131,4 @@ internal fun planWatermark(document: PdfDocument, draft: WatermarkDraft, current
 /** What the status line says once the stamp is recorded. */
 internal fun watermarkSummary(count: Int): UiText = UiText.Plural(R.plurals.status_watermark_added, count, count)
 
-private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))
+private fun refusal(@StringRes id: Int) = PdfCoreResult.Failure(PdfCoreError.Failed(id))

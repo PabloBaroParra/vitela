@@ -44,12 +44,12 @@ internal class Compressing(private val session: ViewerSession) {
                 if (session.document !== openDocument) return@withLock
                 val editor = withContext(session.compute) {
                     val refusal = openDocument.compressionRefusal()
-                    if (refusal != null) return@withContext CompressEditor(refusal = compressRefusalSentence(refusal))
+                    if (refusal != null) return@withContext CompressEditor(refusal = refusal)
                     // A failed query refuses rather than guessing "unsigned": a
                     // guess could write a copy whose signature silently broke.
                     when (val signed = openDocument.compressedSaveWillInvalidateSignatures()) {
                         is PdfCoreResult.Success -> CompressEditor(signaturesWillBreak = signed.value)
-                        is PdfCoreResult.Failure -> CompressEditor(refusal = dialogMessage(signed.error))
+                        is PdfCoreResult.Failure -> CompressEditor(refusal = userMessage(signed.error))
                     }
                 }
                 state.value = state.value.copy(compress = editor)

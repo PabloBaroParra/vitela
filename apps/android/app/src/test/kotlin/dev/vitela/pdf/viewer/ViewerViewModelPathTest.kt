@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -106,12 +107,12 @@ class ViewerViewModelPathTest {
     @Test
     fun aRefusedResizeKeepsTheDialogAndSaysWhy() = runTest {
         val refusal = "This shape cannot be resized."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)), onBox)
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))), onBox)
         viewModel.resizePath(viewModel.state.value.documentId, "60", "10")
         advanceUntilIdle()
 
         val shaper = viewModel.state.value.contentEdit?.shaper
-        assertEquals(refusal, shaper?.error)
+        assertEquals(refusal, shaper?.error?.english())
         assertEquals("60", shaper?.width)
         assertFalse(viewModel.state.value.isDirty)
     }
@@ -215,7 +216,7 @@ class ViewerViewModelPathTest {
     @Test
     fun aRefusedDeleteSaysWhyAndKeepsThePath() = runTest {
         val refusal = "This shape cannot be deleted."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)), onRule)
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))), onRule)
         viewModel.deletePath(viewModel.state.value.documentId)
         advanceUntilIdle()
 

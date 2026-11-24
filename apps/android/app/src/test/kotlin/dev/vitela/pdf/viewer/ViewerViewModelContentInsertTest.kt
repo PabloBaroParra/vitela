@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -115,11 +116,11 @@ class ViewerViewModelContentInsertTest {
     @Test
     fun aRefusedInsertKeepsTheDialogWithTheReason() = runTest {
         val refusal = "Helvetica cannot show \"語\". Try different characters."
-        val viewModel = placedText(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = placedText(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.insertText(viewModel.state.value.documentId, "語", "14")
         advanceUntilIdle()
 
-        assertEquals(TextInserter(0, clear, "語", "14", refusal), viewModel.state.value.contentEdit?.inserter)
+        assertEquals(TextInserter(0, clear, "語", "14", UiText.Verbatim(refusal)), viewModel.state.value.contentEdit?.inserter)
         assertFalse(viewModel.state.value.isDirty)
     }
 
@@ -191,7 +192,7 @@ class ViewerViewModelContentInsertTest {
     @Test
     fun anImageTheCoreCannotReadIsReportedAndDisarmed() = runTest {
         val refusal = "This image cannot be inserted."
-        val viewModel = editing(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = editing(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.armImageInsert(png)
         viewModel.tapContent(0, clear, reach = 0.0)
         advanceUntilIdle()

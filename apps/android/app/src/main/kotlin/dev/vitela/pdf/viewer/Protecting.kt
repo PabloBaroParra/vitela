@@ -56,7 +56,7 @@ internal class Protecting(private val session: ViewerSession, private val reopen
                     // guess could write a copy whose signature silently broke.
                     when (val signed = openDocument.protectionWillInvalidateSignatures()) {
                         is PdfCoreResult.Success -> ProtectEditor(signaturesWillBreak = signed.value)
-                        is PdfCoreResult.Failure -> ProtectEditor(refusal = dialogMessage(signed.error))
+                        is PdfCoreResult.Failure -> ProtectEditor(refusal = userMessage(signed.error))
                     }
                 }
                 state.value = state.value.copy(protect = editor)

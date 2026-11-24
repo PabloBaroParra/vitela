@@ -1,5 +1,9 @@
 package dev.vitela.pdf.core
 
+import androidx.annotation.StringRes
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
+
 data class RenderedPage(val width: Int, val height: Int, val stride: Int, val rgba: ByteArray)
 
 data class SearchHit(val pageIndex: Int, val text: String, val characterBounds: List<TextRect> = emptyList())
@@ -71,13 +75,20 @@ class RecoverySnapshot(val bytes: ByteArray, val breaksSignatures: Boolean)
 sealed interface PdfCoreError {
     data object PasswordRequired : PdfCoreError
     data object WrongPassword : PdfCoreError
-    data class Failed(val message: String) : PdfCoreError
+
+    /** [text] is what the reader is told: a resource where the sentence is the app's, verbatim where it is the core's. */
+    data class Failed(val text: UiText) : PdfCoreError {
+        constructor(@StringRes id: Int, vararg args: Any) : this(UiText.Resource(id, args.toList()))
+    }
 }
 
 sealed interface PdfCoreResult<out T> {
     data class Success<T>(val value: T) : PdfCoreResult<T>
     data class Failure(val error: PdfCoreError) : PdfCoreResult<Nothing>
 }
+
+/** The answer of a core that does not offer what it was asked. */
+private fun unavailable(@StringRes id: Int) = PdfCoreResult.Failure(PdfCoreError.Failed(id))
 
 interface PdfDocument : AutoCloseable {
     val pageCount: Int
@@ -93,17 +104,17 @@ interface PdfDocument : AutoCloseable {
 
     fun renderPage(pageIndex: Int, dpi: Int): PdfCoreResult<RenderedPage>
     fun search(query: String): PdfCoreResult<List<SearchHit>>
-    fun annotations(): PdfCoreResult<AnnotationSnapshot> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
-    fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
-    fun undoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
-    fun redoAnnotations(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Annotations are unavailable in this PDF core."))
+    fun annotations(): PdfCoreResult<AnnotationSnapshot> = unavailable(R.string.error_unavailable_annotations)
+    fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_annotations)
+    fun undoAnnotations(): PdfCoreResult<Boolean> = unavailable(R.string.error_unavailable_annotations)
+    fun redoAnnotations(): PdfCoreResult<Boolean> = unavailable(R.string.error_unavailable_annotations)
     /**
      * Queues one undoable change to the page layout, persisted by the next
      * [saveToBytes]. The core owns the permission question (the assembly bit,
      * and whether the file survives the rewrite a reorder forces); a refusal
      * comes back as the sentence to show.
      */
-    fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Organizing pages is unavailable in this PDF core."))
+    fun applyPageEdit(edit: PageEdit): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_organize)
     /**
      * Adds every page of every source in [sources] — each from
      * [PdfCore.prepareImport] — in that order, at [index]
@@ -112,23 +123,23 @@ interface PdfDocument : AutoCloseable {
      * a refusal leaves the document and every source as they were.
      */
     fun importPrepared(sources: List<PreparedImport>, index: Int): PdfCoreResult<BatchImportReport> =
-        PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
+        unavailable(R.string.error_unavailable_import)
     /**
      * The pages grouped into one block per contiguous run from the same PDF,
      * in page order. Positions, like every page index here: read again after
      * any edit.
      */
     fun documentBlocks(): PdfCoreResult<List<DocumentBlock>> =
-        PdfCoreResult.Failure(PdfCoreError.Failed("The Documents view is unavailable in this PDF core."))
+        unavailable(R.string.error_unavailable_documents_view)
     /**
      * Rebuilds what [renderPage] draws from the pending edits. Rendering reads
      * a preview taken at open, not the live model, so an edit the page itself
      * shows — a moved, turned or removed page — stays invisible until this
      * runs. Annotations are left out: the shell draws those itself.
      */
-    fun refreshPreview(): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Previewing edits is unavailable in this PDF core."))
+    fun refreshPreview(): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_preview)
     /** Every AcroForm field the document holds, in the file's own order. Read-only, so available however restricted the document is. */
-    fun formFields(): PdfCoreResult<List<FormField>> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
+    fun formFields(): PdfCoreResult<List<FormField>> = unavailable(R.string.error_unavailable_form_fields)
     /**
      * Whether the document lets its fields be filled in: `/P` bit 6, the
      * annotation bit — weaker than the one that lets fields be created or changed.
@@ -138,7 +149,7 @@ interface PdfDocument : AutoCloseable {
      * Queues one undoable change to what field [fieldId] holds; persisted by
      * the next [saveToBytes]. The page shows it only after [refreshPreview].
      */
-    fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Form fields are unavailable in this PDF core."))
+    fun setFormFieldValue(fieldId: Long, value: FormFieldValue): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_fields)
     /**
      * Whether the document lets fields be created or changed: the stronger form
      * permission, asked of the core as one question rather than composed here
@@ -149,17 +160,17 @@ interface PdfDocument : AutoCloseable {
      * Queues one undoable new field of [kind] at [rect] on page [pageIndex]; the
      * core picks its id and a unique name. The page shows it only after [refreshPreview].
      */
-    fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Creating form fields is unavailable in this PDF core."))
+    fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_create)
     /** Queues one undoable move of field [fieldId] to [to], on the page it is on. */
-    fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Moving form fields is unavailable in this PDF core."))
+    fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_move)
     /** Queues one undoable resize of field [fieldId] to [to], on the page it is on; the same rect as a move, a different intent. */
-    fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Resizing form fields is unavailable in this PDF core."))
+    fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_resize)
     /** Queues one undoable removal of field [fieldId] and its widgets; undo brings it back whole. */
-    fun removeFormField(fieldId: Long): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Deleting form fields is unavailable in this PDF core."))
+    fun removeFormField(fieldId: Long): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_delete)
     /** Queues one undoable rename of field [fieldId]; the core trims [name] and refuses an empty or taken one. */
-    fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Renaming form fields is unavailable in this PDF core."))
+    fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_rename)
     /** Queues one undoable change of field [fieldId]'s font, size and text color to [style]. */
-    fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Styling form fields is unavailable in this PDF core."))
+    fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_form_style)
     /** Whether the document's security context lets a page's own content be rewritten — not the annotation permission. */
     fun contentEditingAllowed(): Boolean = false
     /**
@@ -174,7 +185,7 @@ interface PdfDocument : AutoCloseable {
      */
     fun contentEditsCanCheckpoint(): Boolean = false
     /** The text runs (and the blocks they group into), images and paths page [pageIndex] paints, pending edits included; refused when the document forbids text extraction. */
-    fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun pageContent(pageIndex: Int): PdfCoreResult<PageContent> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable retype of [block]: its first run shows all of [text]
      * and the others are removed, so the whole line is one step. A block whose
@@ -184,92 +195,92 @@ interface PdfDocument : AutoCloseable {
      * [contentEditsCanCheckpoint], else refused until a save. The page
      * shows it only after [refreshPreview]; the failure names a character the font cannot show.
      */
-    fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable move of every run of [block] by ([dx], [dy]) points,
      * its text, font and size kept. Moved again before a save it stays one
      * step. The page shows it only after [refreshPreview].
      */
-    fun moveTextBlock(block: ContentTextBlock, dx: Double, dy: Double): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun moveTextBlock(block: ContentTextBlock, dx: Double, dy: Double): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable removal of every run of [block] from its page —
      * content editing, not a secure redaction. The page shows it only after [refreshPreview].
      */
-    fun removeTextBlock(block: ContentTextBlock): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun removeTextBlock(block: ContentTextBlock): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable change to the box [image] fills, to [to]; the image
      * is stretched to it. The page shows it only after [refreshPreview].
      */
-    fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun resizeImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable move of [image] to [to], the same size somewhere
      * else on its page. The page shows it only after [refreshPreview].
      */
-    fun moveImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun moveImage(image: ContentImage, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable removal of [image] from its page. The core keeps
      * what an undo needs to put it back. The page shows it only after [refreshPreview].
      */
-    fun removeImage(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun removeImage(image: ContentImage): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable move of [path] to [to]: its box's origin goes to
      * [to]'s, its size kept — so a flat rule stays flat. The page shows it
      * only after [refreshPreview].
      */
-    fun movePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun movePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable reshape of [path] to the box [to]: its coordinates
      * are rewritten, its line width kept, and a flat axis is never scaled. The
      * page shows it only after [refreshPreview].
      */
-    fun resizePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun resizePath(path: ContentPath, to: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable removal of [path] from its page. The page shows it
      * only after [refreshPreview].
      */
-    fun removePath(path: ContentPath): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun removePath(path: ContentPath): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable move of every member of [selection] by ([dx], [dy])
      * points in PDF space — the new corner minus the old — whatever mix of
      * blocks, images and paths it holds. Dragged again before a save it stays
      * one step. The page shows it only after [refreshPreview].
      */
-    fun moveContentSelection(selection: ContentSelection, dx: Double, dy: Double): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun moveContentSelection(selection: ContentSelection, dx: Double, dy: Double): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable removal of every member of [selection] from its page.
      * The page shows it only after [refreshPreview].
      */
-    fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun removeContentSelection(selection: ContentSelection): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Copies every member of [selection] into a clip, changing nothing in the
      * document. Refused for a member with an unsaved edit — the clip is read
      * from the file — and for a document that does not permit copying.
      */
-    fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = unavailable(R.string.error_unavailable_content)
     /**
      * Copies [selection] and queues one undoable removal of it, so the cut is
      * one undo step. The page shows it only after [refreshPreview].
      */
-    fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable paste of [clip] onto page [pageIndex], the top-left
      * corner of the clip's box at ([left], [top]) in PDF points. The page shows
      * it only after [refreshPreview]; until a save its items are read back like
      * any other, and dragging all of them moves the paste itself.
      */
-    fun pasteContent(pageIndex: Int, clip: ContentClip, left: Double, top: Double): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun pasteContent(pageIndex: Int, clip: ContentClip, left: Double, top: Double): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Checks that [image]'s original can be recovered for an undo, before a
      * picker opens; refused for an image with a pending edit or an encoding
      * that cannot round-trip without loss.
      */
-    fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable replacement of [image]'s picture with [imageBytes],
      * a PNG or JPEG stretched to the box it fills. The page shows it only
      * after [refreshPreview].
      */
-    fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun replaceImage(image: ContentImage, imageBytes: ByteArray): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable new line of [text] on page [pageIndex], in a
      * standard font of its own. [bounds]' height is the font size and its
@@ -277,15 +288,15 @@ interface PdfDocument : AutoCloseable {
      * shows it only after [refreshPreview]; the failure names a character the
      * font cannot show.
      */
-    fun insertTextRun(pageIndex: Int, text: String, bounds: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun insertTextRun(pageIndex: Int, text: String, bounds: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
      * Queues one undoable new image on page [pageIndex], painted as page
      * content filling [bounds] — place it with [stampPlacement]. The page
      * shows it only after [refreshPreview].
      */
-    fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Editing page content is unavailable in this PDF core."))
+    fun insertImage(pageIndex: Int, imageBytes: ByteArray, bounds: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /** The core's starting look for a new watermark, so every shell's first stamp is the same. */
-    fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = PdfCoreResult.Failure(PdfCoreError.Failed("Watermarks are unavailable in this PDF core."))
+    fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = unavailable(R.string.error_unavailable_watermarks)
     /**
      * Queues one undoable stamp of [text] drawn as [look] on every page in
      * [pages] (zero-based positions), as page content — the content-editing
@@ -293,40 +304,40 @@ interface PdfDocument : AutoCloseable {
      * every character before anything is queued. The pages show it only
      * after [refreshPreview].
      */
-    fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Watermarks are unavailable in this PDF core."))
+    fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_watermarks)
     /** The core's starting look for a picture watermark: upright, half the page, faded, behind the content. */
-    fun defaultPictureWatermarkLook(): PdfCoreResult<PictureWatermarkLook> = PdfCoreResult.Failure(PdfCoreError.Failed("Picture watermarks are unavailable in this PDF core."))
+    fun defaultPictureWatermarkLook(): PdfCoreResult<PictureWatermarkLook> = unavailable(R.string.error_unavailable_picture_watermarks)
     /**
      * Queues one undoable stamp of the PNG or JPEG [image], untouched, drawn
      * as [look] on every page in [pages] — one image object in the file
      * however many pages carry it. Bytes that do not decode are refused before
      * anything is queued. The pages show it only after [refreshPreview].
      */
-    fun addImageWatermark(pages: List<Int>, image: ByteArray, look: PictureWatermarkLook): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Picture watermarks are unavailable in this PDF core."))
+    fun addImageWatermark(pages: List<Int>, image: ByteArray, look: PictureWatermarkLook): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_picture_watermarks)
     /** A page's characters for drag-select; refused when the document forbids text extraction. */
-    fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = PdfCoreResult.Failure(PdfCoreError.Failed("Text selection is unavailable in this PDF core."))
+    fun pageCharacters(pageIndex: Int): PdfCoreResult<PageCharacters> = unavailable(R.string.error_unavailable_text_selection)
     /** Core-owned, aspect-ratio-preserving placement policy for an image stamp or an inserted image; [anchor] is its top-left corner. */
-    fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
+    fun stampPlacement(imageBytes: ByteArray, anchor: AnnotationPoint): PdfCoreResult<AnnotationRect> = unavailable(R.string.error_unavailable_image_stamps)
     /** Inserts an image-backed stamp using a placement returned by [stampPlacement]. */
-    fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Image stamps are unavailable in this PDF core."))
+    fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, rect: AnnotationRect): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_image_stamps)
 
     /** The `/Info` dict as it will be saved: the last queued change, else the file's own. */
-    fun documentInfo(): PdfCoreResult<DocumentInfo> = PdfCoreResult.Failure(PdfCoreError.Failed("Document properties are unavailable in this PDF core."))
+    fun documentInfo(): PdfCoreResult<DocumentInfo> = unavailable(R.string.error_unavailable_properties)
     /** Whether the document's security context lets its properties be changed. */
     fun metadataEditingAllowed(): Boolean = false
     /** Queues one undoable `/Info` change; persisted by the next [saveToBytes]. */
-    fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> = PdfCoreResult.Failure(PdfCoreError.Failed("Document properties are unavailable in this PDF core."))
+    fun setDocumentInfo(info: DocumentInfo): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_properties)
 
     /** Whether the document's `/P` bits let its pages leave as images (the extraction bit). */
     fun imageExportAllowed(): Boolean = false
     /** Reads a one-based selection such as `"1-3,7"` into ascending zero-based pages; the failure is the core's sentence for the typist. */
-    fun parsePageSelection(input: String): PdfCoreResult<List<Int>> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    fun parsePageSelection(input: String): PdfCoreResult<List<Int>> = unavailable(R.string.error_unavailable_image_export)
     /** The file name page [pageIndex] is exported under, named after [displayName]; always one path component. */
-    fun pageImageFileName(displayName: String, pageIndex: Int, format: ImageExportFormat): PdfCoreResult<String> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    fun pageImageFileName(displayName: String, pageIndex: Int, format: ImageExportFormat): PdfCoreResult<String> = unavailable(R.string.error_unavailable_image_export)
     /** The first of [pages] whose whole-page raster at [dpi] is over the render ceiling, or null when all fit. */
-    fun firstPageTooLargeToExport(pages: List<Int>, dpi: Int): PdfCoreResult<Int?> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    fun firstPageTooLargeToExport(pages: List<Int>, dpi: Int): PdfCoreResult<Int?> = unavailable(R.string.error_unavailable_image_export)
     /** One page rendered at [dpi] and encoded: the bytes of the file to write. */
-    fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Image export is unavailable in this PDF core."))
+    fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = unavailable(R.string.error_unavailable_image_export)
 
     /** Whether the document's `/P` bits let its pages leave for a new PDF — the extraction bit, not the assembly one. */
     fun pageExtractionAllowed(): Boolean = false
@@ -335,58 +346,57 @@ interface PdfDocument : AutoCloseable {
     /** Whether the source carries a signature, which the extracted copy cannot keep valid. */
     fun extractSourceIsSigned(): Boolean = false
     /** The bytes of a new PDF holding only [pages] (ascending, zero-based); the open document is untouched. */
-    fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Extracting pages is unavailable in this PDF core."))
+    fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> = unavailable(R.string.error_unavailable_extract)
 
     /**
      * The parts that cutting after each typed page (one-based, `"3,7"`) makes,
      * named after [displayName]. The failure is the core's sentence, including
      * a blank field and a one-page document.
      */
-    fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> = PdfCoreResult.Failure(PdfCoreError.Failed("Splitting is unavailable in this PDF core."))
+    fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> = unavailable(R.string.error_unavailable_split)
 
     /**
-     * Why this document cannot be compressed at all, as the core's lower-case
-     * clause, or null when it can. Cheap: it reads the protection, it saves nothing.
+     * Why this document cannot be compressed at all, as a sentence, or null
+     * when it can. Cheap: it reads the protection, it saves nothing.
      */
-    fun compressionRefusal(): String? = "compression is unavailable in this PDF core"
+    fun compressionRefusal(): UiText? = UiText.Resource(R.string.error_unavailable_compression)
     /**
      * Whether a compressed save breaks a signature the file carries. Not the
      * ordinary save's question: compressing rewrites a signed file even when
      * nothing was edited.
      */
-    fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Compression is unavailable in this PDF core."))
+    fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> = unavailable(R.string.error_unavailable_compression)
     /**
      * Saves the session and compresses the result. Not an edit: no undo step,
      * pending edits untouched. [signaturesAcknowledged] is the user's yes to
      * [compressedSaveWillInvalidateSignatures]; without it a signed file is refused.
      */
-    fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> = PdfCoreResult.Failure(PdfCoreError.Failed("Compression is unavailable in this PDF core."))
+    fun saveCompressed(preset: CompressPreset, signaturesAcknowledged: Boolean): PdfCoreResult<CompressedCopy> = unavailable(R.string.error_unavailable_compression)
 
     /** Whether the document's security context lets its password protection be changed. */
     fun protectionChangeAllowed(): Boolean = false
     /** Whether applying new password protection breaks a signature the file carries. */
-    fun protectionWillInvalidateSignatures(): PdfCoreResult<Boolean> = PdfCoreResult.Failure(PdfCoreError.Failed("Password protection is unavailable in this PDF core."))
+    fun protectionWillInvalidateSignatures(): PdfCoreResult<Boolean> = unavailable(R.string.error_unavailable_protection)
     /**
      * The session saved with new AES-128 protection under both passwords, which
      * must differ. Not an edit: the open document's own security is untouched.
      * [signaturesAcknowledged] is the user's yes to [protectionWillInvalidateSignatures].
      */
-    fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Password protection is unavailable in this PDF core."))
+    fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> = unavailable(R.string.error_unavailable_protection)
 
     /**
-     * Why this document cannot be signed, as the core's lower-case clause, or
-     * null when it can. Cheap: it reads the protection, it signs nothing.
+     * Why this document cannot be signed, as a sentence, or null when it can. Cheap: it reads the protection, it signs nothing.
      */
-    fun signingRefusal(): String? = "signing is unavailable in this PDF core"
+    fun signingRefusal(): UiText? = UiText.Resource(R.string.error_unavailable_signing)
     /**
      * The document signed as [identityId] from [certificate]: the file as
      * opened when nothing is applied, the session as it would save otherwise.
      * Not an edit: the open document is untouched.
      */
-    fun sign(certificate: SigningCertificate, identityId: String): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Signing is unavailable in this PDF core."))
+    fun sign(certificate: SigningCertificate, identityId: String): PdfCoreResult<ByteArray> = unavailable(R.string.error_unavailable_signing)
 
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
-    fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
+    fun saveToBytes(): PdfCoreResult<ByteArray> = unavailable(R.string.error_unavailable_saving)
 
     /**
      * Whether any part of this session came from an encrypted PDF, its added
@@ -401,7 +411,7 @@ interface PdfDocument : AutoCloseable {
      * user's file — but is reported, unknown counting as broken. Ask
      * [holdsEncryptedContent] first.
      */
-    fun recoverySnapshot(): PdfCoreResult<RecoverySnapshot> = PdfCoreResult.Failure(PdfCoreError.Failed("Autosave is unavailable in this PDF core."))
+    fun recoverySnapshot(): PdfCoreResult<RecoverySnapshot> = unavailable(R.string.error_unavailable_autosave)
 
     /**
      * This document as a save would write it right now, annotations included,
@@ -411,7 +421,7 @@ interface PdfDocument : AutoCloseable {
      * so an encrypted document needs none from the shell. The caller owns
      * and closes it.
      */
-    fun outputSnapshot(): PdfCoreResult<PdfDocument> = PdfCoreResult.Failure(PdfCoreError.Failed("Printing is unavailable in this PDF core."))
+    fun outputSnapshot(): PdfCoreResult<PdfDocument> = unavailable(R.string.error_unavailable_printing)
 }
 
 interface PdfCore {
@@ -422,14 +432,14 @@ interface PdfCore {
      * alone cannot re-apply both roles on its next rewrite.
      */
     fun openWithPasswords(bytes: ByteArray, openPassword: String, permissionsPassword: String): PdfCoreResult<PdfDocument> =
-        PdfCoreResult.Failure(PdfCoreError.Failed("Opening with both passwords is unavailable in this PDF core."))
+        unavailable(R.string.error_unavailable_both_passwords)
     /**
      * Unlocks the `.pfx`/`.p12` file in [bytes]. A wrong password and a file
      * that is not PKCS#12 fail alike, as [PdfCoreError.WrongPassword]: the
      * format cannot tell them apart.
      */
     fun openSigningCertificate(bytes: ByteArray, password: String): PdfCoreResult<SigningCertificate> =
-        PdfCoreResult.Failure(PdfCoreError.Failed("Signing is unavailable in this PDF core."))
+        unavailable(R.string.error_unavailable_signing)
     /**
      * Opens the PDF in [bytes] as an import source and checks every page can
      * come in — the first of the two import phases; nothing open changes until
@@ -439,7 +449,7 @@ interface PdfCore {
      * and must close it.
      */
     fun prepareImport(bytes: ByteArray, password: String?): PdfCoreResult<PreparedImport> =
-        PdfCoreResult.Failure(PdfCoreError.Failed("Adding PDFs is unavailable in this PDF core."))
+        unavailable(R.string.error_unavailable_import)
 }
 
 /** Implemented by generated packaging sources when native bindings are present. */

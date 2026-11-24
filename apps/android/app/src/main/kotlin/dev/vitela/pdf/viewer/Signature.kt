@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.SigningIdentity
+import dev.vitela.pdf.text.UiText
 
 /**
  * The open Sign dialog, one step at a time: why the document cannot be signed
@@ -12,25 +14,22 @@ import dev.vitela.pdf.core.SigningIdentity
  * holds a secret.
  */
 data class SignEditor(
-    val refusal: String? = null,
+    val refusal: UiText? = null,
     val certificateName: String? = null,
     val identities: List<SigningIdentity> = emptyList(),
     val selectedIdentityId: String? = null,
-    val error: String? = null,
+    val error: UiText? = null,
     /** True while the password is being checked, so a second tap cannot unlock twice. */
     val unlocking: Boolean = false,
 )
 
 // The first sentence is the Linux shell's (`app::sign`), so the same refusal
 // reads the same on both.
-internal const val SAVE_BEFORE_SIGNING = "Save your changes before signing this document."
-internal const val CERTIFICATE_LOCKED = "The certificate could not be opened. Check its password, and that the file is a .pfx or .p12 certificate."
-internal const val CERTIFICATE_CANNOT_SIGN = "This certificate file holds no identity that can sign."
+internal val SAVE_BEFORE_SIGNING: UiText = UiText.Resource(R.string.error_sign_unsaved)
+internal val CERTIFICATE_LOCKED: UiText = UiText.Resource(R.string.error_sign_certificate_locked)
+internal val CERTIFICATE_CANNOT_SIGN: UiText = UiText.Resource(R.string.error_sign_no_identity)
 
 /** What the certificate picker offers: PKCS#12 by its MIME types, and anything, since many providers label a .pfx as a plain binary. */
 internal val CERTIFICATE_MIME_TYPES = arrayOf("application/x-pkcs12", "application/pkcs12", "application/octet-stream", "*/*")
 
 internal fun signedFileName(title: String): String = "${documentStem(title)}-signed.pdf"
-
-/** The core's lower-case refusal clause as the sentence the dialog shows. */
-internal fun signRefusalSentence(clause: String): String = "${clause.replaceFirstChar { it.uppercaseChar() }}."

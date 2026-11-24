@@ -10,6 +10,7 @@ import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
+import dev.vitela.pdf.text.UiText
 
 /**
  * A document that takes watermarks like the core: each accepted stamp is one
@@ -49,7 +50,7 @@ internal class WatermarkDocument(
     override fun defaultWatermarkLook(): PdfCoreResult<WatermarkLook> = PdfCoreResult.Success(look)
 
     override fun addWatermark(pages: List<Int>, text: String, look: WatermarkLook): PdfCoreResult<Unit> {
-        refusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        refusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         stamps += Triple(pages, text, look)
         return PdfCoreResult.Success(Unit)
     }
@@ -57,14 +58,14 @@ internal class WatermarkDocument(
     override fun defaultPictureWatermarkLook(): PdfCoreResult<PictureWatermarkLook> = PdfCoreResult.Success(pictureLook)
 
     override fun addImageWatermark(pages: List<Int>, image: ByteArray, look: PictureWatermarkLook): PdfCoreResult<Unit> {
-        refusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        refusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         pictureStamps += Triple(pages, image, look)
         return PdfCoreResult.Success(Unit)
     }
 
     override fun parsePageSelection(input: String): PdfCoreResult<List<Int>> {
-        val pages = input.split(',').map { it.trim().toIntOrNull() ?: return PdfCoreResult.Failure(PdfCoreError.Failed("Type pages like 1-3,7.")) }
-        pages.firstOrNull { it !in 1..pageCount }?.let { return PdfCoreResult.Failure(PdfCoreError.Failed("There is no page $it.")) }
+        val pages = input.split(',').map { it.trim().toIntOrNull() ?: return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("Type pages like 1-3,7."))) }
+        pages.firstOrNull { it !in 1..pageCount }?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("There is no page $it."))) }
         return PdfCoreResult.Success(pages.map { it - 1 }.distinct().sorted())
     }
 

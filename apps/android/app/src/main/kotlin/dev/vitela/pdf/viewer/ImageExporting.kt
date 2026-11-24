@@ -69,7 +69,7 @@ internal class ImageExporting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.imageExport ?: return@withLock false
-                    state.value = state.value.copy(imageExport = latest.copy(message = dialogMessage(result.error)))
+                    state.value = state.value.copy(imageExport = latest.copy(message = userMessage(result.error)))
                     false
                 }
             }

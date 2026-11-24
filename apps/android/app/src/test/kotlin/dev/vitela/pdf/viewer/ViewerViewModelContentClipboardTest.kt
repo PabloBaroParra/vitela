@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -58,7 +59,7 @@ class ViewerViewModelContentClipboardTest {
 
     @Test
     fun aRefusedCopyHoldsNoClipAndShowsTheReason() = runTest {
-        val viewModel = selecting(RetypableDocument(refusal = PdfCoreError.Failed("Save the document before copying content you have edited.")), onHello)
+        val viewModel = selecting(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim("Save the document before copying content you have edited."))), onHello)
         viewModel.copyContentSelection()
         advanceUntilIdle()
 
@@ -99,7 +100,7 @@ class ViewerViewModelContentClipboardTest {
 
     @Test
     fun aRefusedCutGivesTheSelectionBackAndHoldsNoClip() = runTest {
-        val viewModel = selecting(RetypableDocument(refusal = PdfCoreError.Failed("Undo the paste to take it back, or save the document before deleting it.")), onHello)
+        val viewModel = selecting(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim("Undo the paste to take it back, or save the document before deleting it."))), onHello)
         viewModel.cutContentSelection()
         advanceUntilIdle()
 
@@ -207,7 +208,7 @@ class ViewerViewModelContentClipboardTest {
 
     @Test
     fun aRefusedPasteShowsTheReasonAndSelectsNothing() = runTest {
-        val document = RetypableDocument(pasteRefusal = PdfCoreError.Failed("This document does not permit content changes."))
+        val document = RetypableDocument(pasteRefusal = PdfCoreError.Failed(UiText.Verbatim("This document does not permit content changes.")))
         val viewModel = selecting(document, onHello)
         viewModel.copyContentSelection()
         advanceUntilIdle()

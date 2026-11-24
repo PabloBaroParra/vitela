@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -204,12 +205,12 @@ class ViewerViewModelTextBlockTest {
     @Test
     fun aRefusalToSaveFirstIsSaidOnTheEditor() = runTest {
         val refusal = "This text has an unsaved edit — save the document before editing it again."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.retypeTextBlock(viewModel.state.value.documentId, "Four")
         advanceUntilIdle()
 
         val editor = viewModel.state.value.contentEdit?.editor
-        assertEquals(refusal, editor?.error)
+        assertEquals(refusal, editor?.error?.english())
         assertEquals("Four", editor?.text)
         assertFalse(viewModel.state.value.isDirty)
     }
@@ -217,7 +218,7 @@ class ViewerViewModelTextBlockTest {
     @Test
     fun aRefusedMoveOfALineSaysWhy() = runTest {
         val refusal = "This text has an unsaved edit — save the document before editing it again."
-        val viewModel = armed(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = armed(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.tapContent(1, clear, reach = 0.0)
         advanceUntilIdle()
 

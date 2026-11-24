@@ -2,6 +2,8 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.CompressedCopy
+import dev.vitela.pdf.core.coreSentence
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -59,13 +61,13 @@ class CompressionTest {
     fun aRefusalTheShellDidNotAskAboutStillReachesTheReader() {
         assertEquals(
             "Nothing to gain: this document compresses to the same 40 kB an uncompressed save writes, so no file was written. Not everything could be done: one; two.",
-            compressNoGainSummary(copy(before = 40_000, after = 40_000, refusals = listOf("one", "two"))).english(),
+            compressNoGainSummary(copy(before = 40_000, after = 40_000, refusals = listOf(UiText.Verbatim("one"), UiText.Verbatim("two")))).english(),
         )
     }
 
     @Test
     fun aCoreClauseBecomesASentence() {
-        assertEquals("This cannot be compressed.", compressRefusalSentence("this cannot be compressed"))
+        assertEquals("This cannot be compressed.", coreSentence("this cannot be compressed").english())
     }
 
     @Test
@@ -75,6 +77,6 @@ class CompressionTest {
         assertEquals("Document-compressed.pdf", compressedFileName(" "))
     }
 
-    private fun copy(before: Long, after: Long, refusals: List<String> = emptyList()) =
+    private fun copy(before: Long, after: Long, refusals: List<UiText> = emptyList()) =
         CompressedCopy(ByteArray(0), before, after, (before - after).coerceAtLeast(0), after < before, refusals)
 }

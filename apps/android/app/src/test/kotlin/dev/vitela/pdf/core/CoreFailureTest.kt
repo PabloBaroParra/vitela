@@ -1,11 +1,12 @@
 package dev.vitela.pdf.core
 
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CoreFailureTest {
     private fun message(failure: CoreFailure, detail: String = ""): String =
-        (failure.toPdfCoreError(detail) as PdfCoreError.Failed).message
+        (failure.toPdfCoreError(detail) as PdfCoreError.Failed).text.english()
 
     @Test
     fun passwordFailuresKeepTheirOwnErrors() {
@@ -21,7 +22,7 @@ class CoreFailureTest {
     @Test
     fun aMissingPdfiumLibraryIsStillNamed() {
         val detail = "failed to load pdfium library at \"libpdfium.so\": not found. Set PDFIUM_DYNAMIC_LIB_PATH"
-        assertEquals(PDFIUM_UNAVAILABLE, message(CoreFailure.RenderFailed, detail))
+        assertEquals(PDFIUM_UNAVAILABLE.english(), message(CoreFailure.RenderFailed, detail))
     }
 
     @Test
@@ -41,7 +42,7 @@ class CoreFailureTest {
     fun theRemainingKindsAreNamedApart() {
         assertEquals("This document uses a password protection this app does not support.", message(CoreFailure.UnsupportedSecurityHandler))
         assertEquals("This document or action is not supported.", message(CoreFailure.UnsupportedOperation))
-        assertEquals(NOT_AN_IMAGE, message(CoreFailure.InvalidImage))
+        assertEquals(NOT_AN_IMAGE.english(), message(CoreFailure.InvalidImage))
         assertEquals("The requested action could not be completed.", message(CoreFailure.InvalidSaveRequest))
         assertEquals("Saving would invalidate this document's signature, so it was not saved.", message(CoreFailure.SignaturesWouldBeInvalidated))
         assertEquals("The file could not be read or written.", message(CoreFailure.Io))
@@ -49,7 +50,7 @@ class CoreFailureTest {
 
     @Test
     fun onlyAnUnmodelledFailureFallsBackToTheGenericSentence() {
-        assertEquals(GENERIC_FAILURE, message(CoreFailure.Internal, "internal error: lopdf parse"))
-        assertEquals(GENERIC_FAILURE, message(CoreFailure.Unexpected))
+        assertEquals(GENERIC_FAILURE.english(), message(CoreFailure.Internal, "internal error: lopdf parse"))
+        assertEquals(GENERIC_FAILURE.english(), message(CoreFailure.Unexpected))
     }
 }

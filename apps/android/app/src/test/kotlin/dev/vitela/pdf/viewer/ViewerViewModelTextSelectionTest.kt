@@ -14,6 +14,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.TextRect
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -88,7 +89,7 @@ class ViewerViewModelTextSelectionTest {
 
     @Test
     fun aRefusedExtractionExplainsItselfAndSelectsNothing() = runTest {
-        val viewModel = opened(SelectableDocument(refusal = PdfCoreError.Failed("Text extraction is not permitted.")))
+        val viewModel = opened(SelectableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim("Text extraction is not permitted."))))
 
         viewModel.beginTextSelection(0, AnnotationPoint(10.0, 705.0))
         viewModel.extendTextSelection(AnnotationPoint(40.0, 705.0))

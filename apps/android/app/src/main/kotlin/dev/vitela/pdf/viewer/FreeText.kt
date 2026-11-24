@@ -44,7 +44,7 @@ sealed interface FreeTextTarget {
 data class FreeTextDraft(
     val pageIndex: Int,
     val target: FreeTextTarget,
-    val error: String? = null,
+    val error: UiText? = null,
     val busy: Boolean = false,
 )
 

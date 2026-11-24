@@ -81,6 +81,6 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
     /** Only the message changes: whatever was typed while the apply waited stays. */
     private fun refuse(error: PdfCoreError) {
         val editor = state.value.metadataEditor ?: return
-        state.value = state.value.copy(metadataEditor = editor.copy(message = dialogMessage(error)))
+        state.value = state.value.copy(metadataEditor = editor.copy(message = userMessage(error)))
     }
 }

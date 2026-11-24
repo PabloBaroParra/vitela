@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -90,7 +91,7 @@ class ViewerViewModelFormAuthoringTest {
 
     @Test
     fun aRefusedPlacementSaysWhyAndLeavesTheDocumentClean() = runTest {
-        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("This document does not permit creating form fields."))
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed(UiText.Verbatim("This document does not permit creating form fields.")))
         val viewModel = openedWithPanel(document)
         viewModel.armFormField(FormFieldTap.Place(NewFormField.Text))
         viewModel.tapFormField(0, AnnotationPoint(50.0, 50.0))
@@ -267,7 +268,7 @@ class ViewerViewModelFormAuthoringTest {
 
     @Test
     fun aRefusedResizeSaysWhyAndLeavesTheDocumentClean() = runTest {
-        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("This document does not permit resizing form fields."))
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed(UiText.Verbatim("This document does not permit resizing form fields.")))
         val viewModel = openedWithPanel(document)
         viewModel.resizeFormField(viewModel.state.value.documentId, 1, 80.0, 30.0)
         advanceUntilIdle()
@@ -327,7 +328,7 @@ class ViewerViewModelFormAuthoringTest {
 
     @Test
     fun aRefusedDeleteSaysWhyAndKeepsTheRow() = runTest {
-        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed("This document does not permit deleting form fields."))
+        val document = FillableDocument(authoringRefusal = PdfCoreError.Failed(UiText.Verbatim("This document does not permit deleting form fields.")))
         val viewModel = openedWithPanel(document)
         viewModel.deleteFormField(viewModel.state.value.documentId, 1)
         advanceUntilIdle()

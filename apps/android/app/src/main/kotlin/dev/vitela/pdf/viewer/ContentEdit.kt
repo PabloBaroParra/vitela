@@ -105,7 +105,7 @@ data class TextInserter(
     val at: AnnotationPoint,
     val text: String = "",
     val size: String = pointsText(DEFAULT_INSERTED_TEXT_SIZE),
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 /**
@@ -119,7 +119,7 @@ data class TextInserter(
 data class TextBlockEditor(
     val block: ContentTextBlock,
     val text: String = block.text,
-    val error: String? = null,
+    val error: UiText? = null,
     val canCheckpoint: Boolean = false,
 )
 
@@ -132,7 +132,7 @@ data class ImageResizer(
     val image: ContentImage,
     val width: String = pointsText(image.bounds.width),
     val height: String = pointsText(image.bounds.height),
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 /** What a tap in the mode landed on. */
@@ -152,7 +152,7 @@ internal val TEXT_DELETED: UiText = UiText.Resource(R.string.status_content_text
 internal val TEXT_MOVED: UiText = UiText.Resource(R.string.status_content_text_moved)
 internal val TEXT_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_text_position_unchanged)
 internal val IMAGE_RESIZED: UiText = UiText.Resource(R.string.status_content_image_resized)
-internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and greater than zero."
+internal val IMAGE_SIZE_INVALID: UiText = UiText.Resource(R.string.error_content_image_size_invalid)
 internal val IMAGE_MOVED: UiText = UiText.Resource(R.string.status_content_image_moved)
 internal val IMAGE_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_image_position_unchanged)
 internal val MOVE_CANCELLED: UiText = UiText.Resource(R.string.status_content_move_cancelled)
@@ -164,8 +164,8 @@ internal val TEXT_INSERT_PROMPT: UiText = UiText.Resource(R.string.status_conten
 internal val IMAGE_INSERT_PROMPT: UiText = UiText.Resource(R.string.status_content_image_insert_prompt)
 internal val INSERT_CANCELLED: UiText = UiText.Resource(R.string.status_content_insert_cancelled)
 internal val TEXT_INSERTED: UiText = UiText.Resource(R.string.status_content_text_inserted)
-internal const val TEXT_INSERT_EMPTY = "Enter a nonempty single line of text."
-internal const val TEXT_SIZE_INVALID = "Text size must be between 1 and 72 pt."
+internal val TEXT_INSERT_EMPTY: UiText = UiText.Resource(R.string.error_content_text_empty)
+internal val TEXT_SIZE_INVALID: UiText = UiText.Resource(R.string.error_content_text_size_invalid)
 internal val IMAGE_INSERTED: UiText = UiText.Resource(R.string.status_content_image_inserted)
 
 /** The size a new line starts at, in points; the Windows shell's default. */

@@ -12,6 +12,8 @@ import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SigningCertificate
 import dev.vitela.pdf.core.SigningIdentity
+import dev.vitela.pdf.core.coreSentence
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -40,7 +42,7 @@ class ViewerViewModelSignTest {
         val viewModel = openedWith(SignDocument(refusal = "this document does not permit adding a signature"))
         viewModel.openSign()
 
-        assertEquals("This document does not permit adding a signature.", viewModel.state.first { it.sign != null }.sign?.refusal)
+        assertEquals("This document does not permit adding a signature.", viewModel.state.first { it.sign != null }.sign?.refusal?.english())
         viewModel.chooseSigningCertificate("id.pfx", byteArrayOf(1))
         assertNull(viewModel.state.value.sign?.certificateName)
     }
@@ -104,14 +106,14 @@ class ViewerViewModelSignTest {
     @Test
     fun aFileThatCannotSignSaysWhyInsteadOfAskingForThePassword() = runTest {
         val reason = "This certificate file uses an encryption scheme that is not supported."
-        val viewModel = openedWith(SignCore(SignDocument(), certificateFailure = PdfCoreError.Failed(reason)))
+        val viewModel = openedWith(SignCore(SignDocument(), certificateFailure = PdfCoreError.Failed(UiText.Verbatim(reason))))
         viewModel.openSign()
         viewModel.state.first { it.sign != null }
         viewModel.chooseSigningCertificate("legacy.p12", byteArrayOf(7))
         viewModel.unlockSigningCertificate("secret")
 
         val editor = requireNotNull(viewModel.state.first { it.sign?.error != null }.sign)
-        assertEquals(reason, editor.error)
+        assertEquals(reason, editor.error?.english())
         assertTrue(editor.identities.isEmpty())
     }
 
@@ -278,9 +280,9 @@ private class SignDocument(
     override fun search(query: String): PdfCoreResult<List<SearchHit>> = PdfCoreResult.Success(emptyList())
     override fun annotations(): PdfCoreResult<AnnotationSnapshot> = PdfCoreResult.Success(AnnotationSnapshot(emptyList(), editingAllowed = true, canUndo = false, canRedo = false))
     override fun applyAnnotationEdit(edit: AnnotationEdit): PdfCoreResult<Unit> = PdfCoreResult.Success(Unit)
-    override fun signingRefusal(): String? = refusal
+    override fun signingRefusal(): UiText? = refusal?.let(::coreSentence)
     override fun sign(certificate: SigningCertificate, identityId: String): PdfCoreResult<ByteArray> {
-        signFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        signFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         signatures += identityId
         return PdfCoreResult.Success(byteArrayOf(5, 5))
     }

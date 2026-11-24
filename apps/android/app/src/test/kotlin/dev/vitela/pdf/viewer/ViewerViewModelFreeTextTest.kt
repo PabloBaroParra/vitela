@@ -13,6 +13,7 @@ import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.toPdfCoreError
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -142,7 +143,7 @@ class ViewerViewModelFreeTextTest {
         advanceUntilIdle()
 
         val draft = requireNotNull(viewModel.state.value.freeText)
-        assertEquals("This text's font cannot show \"日\". Try different characters.", draft.error)
+        assertEquals("This text's font cannot show \"日\". Try different characters.", draft.error?.english())
         assertFalse(draft.busy)
         assertTrue(document.edits.isEmpty())
         assertFalse(viewModel.state.value.isDirty)
@@ -247,7 +248,7 @@ class ViewerViewModelFreeTextTest {
         viewModel.confirmFreeText(viewModel.state.value.documentId, "uno 日")
         advanceUntilIdle()
 
-        assertEquals("This text's font cannot show \"日\". Try different characters.", viewModel.state.value.freeText?.error)
+        assertEquals("This text's font cannot show \"日\". Try different characters.", viewModel.state.value.freeText?.error?.english())
         assertTrue(document.edits.isEmpty())
     }
 

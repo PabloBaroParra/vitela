@@ -21,12 +21,12 @@ data class PathShaper(
     val path: ContentPath,
     val width: String = pointsText(path.bounds.width),
     val height: String = pointsText(path.bounds.height),
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 // Wording follows the Windows shell's: a path is a "shape" to the reader.
 internal val PATH_RESIZED: UiText = UiText.Resource(R.string.status_content_shape_resized)
-internal const val PATH_SIZE_INVALID = "Shape dimensions must be finite and greater than zero."
+internal val PATH_SIZE_INVALID: UiText = UiText.Resource(R.string.error_content_shape_size_invalid)
 internal val PATH_MOVED: UiText = UiText.Resource(R.string.status_content_shape_moved)
 internal val PATH_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_shape_position_unchanged)
 internal val PATH_DELETED: UiText = UiText.Resource(R.string.status_content_shape_deleted)
