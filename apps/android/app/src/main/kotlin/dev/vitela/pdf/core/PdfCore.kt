@@ -65,6 +65,9 @@ data class PictureWatermarkLook(val scale: Double, val opacity: Double, val rota
 /** A bytes snapshot paired with the document revision it represents. */
 data class SaveSnapshot(val bytes: ByteArray, val documentId: Long, val revision: Long)
 
+/** The bytes of a crash-recovery copy, and whether they break a signature the file carries — what a save would have refused over. */
+class RecoverySnapshot(val bytes: ByteArray, val breaksSignatures: Boolean)
+
 sealed interface PdfCoreError {
     data object PasswordRequired : PdfCoreError
     data object WrongPassword : PdfCoreError
@@ -384,6 +387,21 @@ interface PdfDocument : AutoCloseable {
 
     /** Recomputes a full PDF snapshot including every applied annotation edit. */
     fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Failure(PdfCoreError.Failed("Saving is unavailable in this PDF core."))
+
+    /**
+     * Whether any part of this session came from an encrypted PDF, its added
+     * pages included: what must never be written where the user did not choose.
+     * True for a core that cannot tell.
+     */
+    fun holdsEncryptedContent(): Boolean = true
+
+    /**
+     * The bytes a save would write, for a crash-recovery copy. Unlike
+     * [saveToBytes] a broken signature does not refuse it — the copy is not the
+     * user's file — but is reported, unknown counting as broken. Ask
+     * [holdsEncryptedContent] first.
+     */
+    fun recoverySnapshot(): PdfCoreResult<RecoverySnapshot> = PdfCoreResult.Failure(PdfCoreError.Failed("Autosave is unavailable in this PDF core."))
 
     /**
      * This document as a save would write it right now, annotations included,

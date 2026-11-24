@@ -10,9 +10,10 @@ import kotlinx.coroutines.withContext
 /**
  * Serializes the open document for Save, Save copy, and Print. The shell
  * writes the bytes (or rasterizes the print copy); this owns the snapshot and whether a finished write
- * still belongs to the document on screen.
+ * still belongs to the document on screen. [onSaved] hears of each write that
+ * left nothing unsaved.
  */
-internal class DocumentSaving(private val session: ViewerSession) {
+internal class DocumentSaving(private val session: ViewerSession, private val onSaved: () -> Unit) {
     private val state = session.state
 
     /**
@@ -52,6 +53,7 @@ internal class DocumentSaving(private val session: ViewerSession) {
             session.documentLane.withLock {
                 if (state.value.matches(snapshot)) {
                     state.value = state.value.copy(isDirty = false, status = "Saved.")
+                    onSaved()
                 }
             }
         }

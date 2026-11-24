@@ -1,6 +1,6 @@
 # Vitela privacy policy
 
-_Last updated: 7 October 2026_
+_Last updated: 23 November 2026_
 
 This policy covers **Vitela for Windows**, distributed through the Microsoft
 Store, and **Vitela for Android**, distributed through Google Play.
@@ -16,7 +16,8 @@ permissions at all, including internet access.
 ## What the app reads
 
 - **The documents you open.** They are read and edited only on your device,
-  and they are written only where you choose to save them. On Android, you
+  and they are written only where you choose to save them, apart from the
+  recovery copies of unsaved work described below. On Android, you
   choose them through the system file picker, "Open with", the share sheet
   or drag and drop, and Vitela can reach only the files you pick.
 - **Your signing certificate**, only when you use **Sign**.
@@ -58,6 +59,19 @@ permissions at all, including internet access.
   is excluded from cloud backups and from device-to-device transfers, so it
   never leaves the phone. You can forget it from the app at any time, and it
   is removed when you uninstall the app.
+- **Recovery copies of unsaved work.** While a document has unsaved changes,
+  Vitela keeps a copy of it on your device, with its name and the time, so the
+  work can be offered back if the app ends before you save. The copy is
+  deleted once you save, discard or close the document. Otherwise it is kept
+  and offered the next time, until you discard it, or restore it and then save
+  or close that document. A copy that turns out to be unreadable may be
+  discarded. No copy is made of a document that is itself protected by a
+  password or restrictions, or that had pages added from one that is.
+  - On Windows, the copies are in a local folder whose access Vitela limits to
+    your Windows user, and they also record where the document came from.
+  - On Android, the copies are in the app's private storage. They are excluded
+    from cloud backups and from device-to-device transfers, and are removed
+    when you uninstall the app.
 
 Passwords and PINs you type are kept in memory only while they are needed,
 for example while a protected document is open. They are never written to

@@ -35,6 +35,8 @@ import dev.vitela.pdf.document.SafExport
 import dev.vitela.pdf.document.openablePdfUri
 import dev.vitela.pdf.home.RecentActions
 import dev.vitela.pdf.print.PdfPrintDocumentAdapter
+import dev.vitela.pdf.recovery.RecoveryDialog
+import dev.vitela.pdf.recovery.recoveryOfferVisible
 import dev.vitela.pdf.sample.SampleDocument
 import dev.vitela.pdf.ui.theme.VitelaTheme
 import dev.vitela.pdf.viewer.CERTIFICATE_MIME_TYPES
@@ -79,20 +81,27 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun VitelaApp(
     incoming: Uri?,
-    viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create(), LocalContext.current.filesDir)),
+    viewModel: ViewerViewModel = viewModel(factory = ViewerViewModelFactory(PdfCoreProvider.create(), LocalContext.current.filesDir, LocalContext.current.noBackupFilesDir)),
 ) {
     val state by viewModel.state.collectAsState()
     val recents by viewModel.recentDocuments.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    LaunchedEffect(viewModel) { viewModel.loadRecents() }
+    LaunchedEffect(viewModel) {
+        viewModel.loadRecents()
+        viewModel.startAutosave()
+    }
     // Whenever Home shows, drop the cards whose document is gone — deleted, or its grant revoked — as the desktop drops missing files.
     // Also on every return to the app: a file deleted from the file manager meanwhile changes neither key otherwise.
     val homeShowing = showsHome(state)
     var resumes by remember { mutableIntStateOf(0) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_RESUME) resumes++ }
+    DisposableEffect(lifecycle, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) resumes++
+            // From here on the system may kill the process.
+            if (event == Lifecycle.Event.ON_STOP) viewModel.snapshotForRecovery()
+        }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
@@ -104,13 +113,19 @@ private fun VitelaApp(
             withContext(Dispatchers.IO) { SafDocuments.forget(context.contentResolver, entry.uri) }
         }
     }
+    // What the launch was handed goes first: recovery is only offered once it is open, or failed to.
+    var incomingSettled by remember { mutableStateOf(incoming == null) }
     if (incoming != null) {
         LaunchedEffect(incoming) {
             // Same path as the picker: Save writes back only when the sender granted a persistable write.
             val opened = withContext(Dispatchers.IO) { SafDocuments.open(context.contentResolver, incoming) }
             if (opened == null) viewModel.reportReadFailure() else viewModel.open(opened.displayName, opened.bytes, saveTarget = opened.saveTarget, recent = opened.recent)
+            incomingSettled = true
         }
     }
+    val recoveryOffer by viewModel.recoveryOffer.collectAsState()
+    val recoveryWelcome = incomingSettled && recoveryOfferVisible(state)
+    LaunchedEffect(recoveryWelcome, resumes) { if (recoveryWelcome) viewModel.offerRecovery() }
     var pickedTool by rememberSaveable { mutableStateOf<DocumentStartTool?>(null) }
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -515,4 +530,7 @@ private fun VitelaApp(
         },
         fileDrop = rememberFileDropActions(viewModel, scope),
     )
+    recoveryOffer?.takeIf { recoveryWelcome }?.let { offer ->
+        RecoveryDialog(offer, onRestore = viewModel::restoreRecovery, onDiscard = viewModel::discardRecovery, onLater = viewModel::keepRecoveryForLater)
+    }
 }

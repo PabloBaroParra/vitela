@@ -5,18 +5,24 @@ import androidx.lifecycle.ViewModelProvider
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.home.FileRecentStore
 import dev.vitela.pdf.home.RECENTS_DIRECTORY_NAME
+import dev.vitela.pdf.recovery.FileRecoveryStore
+import dev.vitela.pdf.recovery.RECOVERY_DIRECTORY_NAME
 import dev.vitela.pdf.viewer.FileSignatureStore
 import dev.vitela.pdf.viewer.SIGNATURE_FILE_NAME
 import dev.vitela.pdf.viewer.ViewerViewModel
 import java.io.File
 
-/** [filesDir] is the app's private files directory, where a remembered signature and Home's Recent list are kept. */
-class ViewerViewModelFactory(private val core: PdfCore?, private val filesDir: File) : ViewModelProvider.Factory {
+/**
+ * [filesDir] is the app's private files directory, where a remembered signature and Home's Recent list are kept;
+ * [noBackupFilesDir] the one that never leaves the phone, where crash-recovery copies are.
+ */
+class ViewerViewModelFactory(private val core: PdfCore?, private val filesDir: File, private val noBackupFilesDir: File) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T =
         ViewerViewModel(
             core,
             signatures = FileSignatureStore(File(filesDir, SIGNATURE_FILE_NAME)),
             recents = FileRecentStore(File(filesDir, RECENTS_DIRECTORY_NAME)),
+            recovery = FileRecoveryStore(File(noBackupFilesDir, RECOVERY_DIRECTORY_NAME)),
         ) as T
 }
