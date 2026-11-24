@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -42,7 +43,7 @@ class ViewerViewModelContentClipboardTest {
 
         val state = viewModel.state.value
         assertEquals(1, document.copies.size)
-        assertEquals(copiedMessage("Copied", 2) + CONTENT_COPIED_HINT, state.status)
+        assertEquals(copiedMessage(2), state.status)
         assertTrue(state.contentEdit?.hasClip == true)
         assertEquals("the selection stays, so it can be cut or deleted next", 2, state.contentEdit?.selection?.count)
         assertFalse("a copy is not an edit", state.isDirty)
@@ -51,8 +52,8 @@ class ViewerViewModelContentClipboardTest {
 
     @Test
     fun copyingOneItemSaysItem() {
-        assertEquals("Copied 1 item.", copiedMessage("Copied", 1))
-        assertEquals("Cut 3 items.", copiedMessage("Cut", 3))
+        assertEquals("Copied 1 item. Open Paste content, then tap where it should go.", copiedMessage(1).english())
+        assertEquals("Cut 3 items. Open Paste content, then tap where it should go.", cutMessage(3).english())
     }
 
     @Test
@@ -61,7 +62,7 @@ class ViewerViewModelContentClipboardTest {
         viewModel.copyContentSelection()
         advanceUntilIdle()
 
-        assertEquals("Save the document before copying content you have edited.", viewModel.state.value.status)
+        assertEquals("Save the document before copying content you have edited.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.contentEdit?.hasClip == true)
         assertEquals(1, viewModel.state.value.contentEdit?.selection?.count)
     }
@@ -75,7 +76,7 @@ class ViewerViewModelContentClipboardTest {
 
         val state = viewModel.state.value
         assertEquals(1, document.cuts.size)
-        assertEquals(copiedMessage("Cut", 2) + CONTENT_COPIED_HINT, state.status)
+        assertEquals(cutMessage(2), state.status)
         assertTrue(state.contentEdit?.hasClip == true)
         assertNull("what was cut is no longer there to select", state.contentEdit?.selection)
         assertTrue(state.isDirty)
@@ -102,7 +103,7 @@ class ViewerViewModelContentClipboardTest {
         viewModel.cutContentSelection()
         advanceUntilIdle()
 
-        assertEquals("Undo the paste to take it back, or save the document before deleting it.", viewModel.state.value.status)
+        assertEquals("Undo the paste to take it back, or save the document before deleting it.", viewModel.state.value.status.english())
         assertEquals(1, viewModel.state.value.contentEdit?.selection?.count)
         assertFalse(viewModel.state.value.contentEdit?.hasClip == true)
         assertFalse(viewModel.state.value.isDirty)
@@ -214,7 +215,7 @@ class ViewerViewModelContentClipboardTest {
         viewModel.tapContent(1, clear, reach = 0.0)
         advanceUntilIdle()
 
-        assertEquals("This document does not permit content changes.", viewModel.state.value.status)
+        assertEquals("This document does not permit content changes.", viewModel.state.value.status.english())
         assertNull(viewModel.state.value.contentEdit?.adding)
         assertNull(viewModel.state.value.contentEdit?.selection)
         assertFalse(viewModel.state.value.isDirty)

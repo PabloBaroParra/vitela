@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.AnnotationSnapshot
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -90,7 +91,7 @@ class StampPreviewsTest {
 
         place(viewModel, byteArrayOf(1))
 
-        assertEquals("Refused.", viewModel.state.value.status)
+        assertEquals("Refused.", viewModel.state.value.status.english())
     }
 
     @Test

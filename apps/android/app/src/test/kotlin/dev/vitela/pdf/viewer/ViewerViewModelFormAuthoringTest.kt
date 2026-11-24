@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -96,7 +97,7 @@ class ViewerViewModelFormAuthoringTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("This document does not permit creating form fields.", state.status)
+        assertEquals("This document does not permit creating form fields.", state.status.english())
         assertFalse(state.isDirty)
         assertEquals(3, state.formFields!!.fields.size)
     }
@@ -127,7 +128,7 @@ class ViewerViewModelFormAuthoringTest {
         advanceUntilIdle()
 
         assertTrue(document.moves.isEmpty())
-        assertEquals("Tap page 1 to move Name.", viewModel.state.value.status)
+        assertEquals("Tap page 1 to move Name.", viewModel.state.value.status.english())
         assertEquals("still armed: the reader can tap the right page", FormFieldTap.Move(1, 0), viewModel.state.value.formFields!!.armed)
     }
 
@@ -272,7 +273,7 @@ class ViewerViewModelFormAuthoringTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("This document does not permit resizing form fields.", state.status)
+        assertEquals("This document does not permit resizing form fields.", state.status.english())
         assertFalse(state.isDirty)
         assertEquals(AnnotationRect(10.0, 150.0, 60.0, 20.0), state.formFields!!.fields.first { it.id == 1L }.rect)
     }
@@ -332,7 +333,7 @@ class ViewerViewModelFormAuthoringTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("This document does not permit deleting form fields.", state.status)
+        assertEquals("This document does not permit deleting form fields.", state.status.english())
         assertFalse(state.isDirty)
         assertTrue(state.formFields!!.fields.any { it.id == 1L })
     }

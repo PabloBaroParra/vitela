@@ -7,6 +7,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SplitPart
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -51,10 +52,10 @@ class PageSplitTest {
 
     @Test
     fun theSummaryCountsPartsAndWarnsAboutASignedSource() {
-        assertEquals("Split into 3 PDFs.", pageSplitSummary(3, sourceIsSigned = false))
+        assertEquals("Split into 3 PDFs.", pageSplitSummary(3, sourceIsSigned = false).english())
         assertEquals(
             "Split into 2 PDFs. The original document is signed, so the signature in each part no longer verifies.",
-            pageSplitSummary(2, sourceIsSigned = true),
+            pageSplitSummary(2, sourceIsSigned = true).english(),
         )
     }
 

@@ -68,7 +68,7 @@ internal class PathEditing(
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
                         if (now.shaper?.path != path) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(shaper = shaper.copy(width = width, height = height, error = userMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = now.copy(shaper = shaper.copy(width = width, height = height, error = dialogMessage(result.error))))
                     }
                 }
             }

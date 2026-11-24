@@ -1,10 +1,12 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.PreparedImport
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -58,7 +60,7 @@ internal class PageImporting(
         if (organize.busy || sources.isEmpty()) return
         abandon()
         queue.addAll(sources)
-        state.value = state.value.copy(organize = organize.copy(busy = true, importPassword = null, importWarnings = emptyList()), status = "Checking the selected PDFs...")
+        state.value = state.value.copy(organize = organize.copy(busy = true, importPassword = null, importWarnings = emptyList()), status = UiText.Resource(R.string.status_import_checking))
         prepare(availableCore, openDocument, generation, password = null)
     }
 
@@ -74,7 +76,7 @@ internal class PageImporting(
     /** Gives up on the whole pick: nothing was added yet, and nothing will be. */
     fun cancelPassword() {
         val prompt = state.value.organize?.importPassword ?: return
-        finish("Password entry cancelled for ${prompt.name}. No PDF was added.")
+        finish(UiText.Resource(R.string.status_import_password_cancelled, prompt.name))
     }
 
     /** The reader accepted what the pages will lose: the whole pick goes in. */
@@ -87,7 +89,7 @@ internal class PageImporting(
     /** The reader declined what the pages would lose: nothing goes in. */
     fun dismissWarnings() {
         if (state.value.organize?.importWarnings.isNullOrEmpty()) return
-        finish("PDF import cancelled.")
+        finish(UiText.Resource(R.string.status_import_cancelled))
     }
 
     /**
@@ -128,12 +130,12 @@ internal class PageImporting(
                         val organize = state.value.organize ?: return@launch
                         state.value = state.value.copy(
                             organize = organize.copy(importPassword = ImportPasswordPrompt(source.name, wrong = attempt != null)),
-                            status = "Waiting for the password for ${source.name}.",
+                            status = UiText.Resource(R.string.status_import_password_waiting, source.name),
                         )
                         return@launch
                     }
                     else -> {
-                        finish("${source.name} could not be added: ${userMessage((result as PdfCoreResult.Failure).error)} No PDF was added.")
+                        finish(UiText.Resource(R.string.status_import_failed, source.name, userMessage((result as PdfCoreResult.Failure).error)))
                         return@launch
                     }
                 }
@@ -141,7 +143,7 @@ internal class PageImporting(
             val warnings = prepared.flatMap { (source, ready) -> ready.warnings.map { "${source.name}: $it" } }
             val organize = state.value.organize ?: return@launch
             if (warnings.isEmpty()) add(openDocument, pick)
-            else state.value = state.value.copy(organize = organize.copy(importWarnings = warnings), status = "Some content will change on the way in.")
+            else state.value = state.value.copy(organize = organize.copy(importWarnings = warnings), status = UiText.Resource(R.string.status_import_warning))
         }
     }
 
@@ -158,7 +160,7 @@ internal class PageImporting(
                 val batch = prepared.toList()
                 prepared.clear()
                 val organize = state.value.organize ?: return@withLock
-                state.value = state.value.copy(organize = organize.copy(importWarnings = emptyList()), status = "Adding the selected PDFs...")
+                state.value = state.value.copy(organize = organize.copy(importWarnings = emptyList()), status = UiText.Resource(R.string.status_import_adding))
                 val result = try {
                     withContext(session.compute) { openDocument.importPrepared(batch.map { it.second }, openDocument.pageCount) }
                 } finally {
@@ -178,7 +180,7 @@ internal class PageImporting(
                         annotations.refresh(openDocument)
                         val summary = importSummary(result.value.pageCount, batch.size)
                         // The re-read left its reason in the status; the summary must not bury it.
-                        finish(if (shown) summary else "$summary ${state.value.status}")
+                        finish(if (shown) summary else UiText.Sentences(summary, state.value.status))
                     }
                 }
             }
@@ -189,7 +191,7 @@ internal class PageImporting(
         pick == generation && session.document === openDocument && state.value.organize != null
 
     /** Ends the pick with [status], letting go of whatever was prepared. */
-    private fun finish(status: String) {
+    private fun finish(status: UiText) {
         abandon()
         val organize = state.value.organize
         state.value = state.value.copy(
@@ -202,7 +204,5 @@ internal class PageImporting(
 private fun PdfCoreError.asksForPassword(): Boolean = this == PdfCoreError.PasswordRequired || this == PdfCoreError.WrongPassword
 
 /** The status a finished import leaves: what went in. */
-internal fun importSummary(pages: Int, files: Int): String =
-    "Added ${count(pages, "page")} from ${count(files, "PDF")}. Changes are pending save."
-
-private fun count(n: Int, noun: String): String = if (n == 1) "1 $noun" else "$n ${noun}s"
+internal fun importSummary(pages: Int, files: Int): UiText =
+    UiText.Plural(R.plurals.status_import_done, pages, pages, UiText.Plural(R.plurals.status_import_files, files, files))

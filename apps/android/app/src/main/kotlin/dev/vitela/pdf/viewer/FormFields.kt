@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FormField
@@ -7,6 +8,7 @@ import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.UiText
 
 /**
  * The open Form fields panel: one row per field of the document, built from
@@ -36,38 +38,47 @@ sealed interface FormFieldTap {
 
 // Wording is the Windows shell's.
 internal const val FORM_NO_CHOICE = "(none)"
-internal const val FORM_FILLED = "Field filled in. Save to keep the change."
-internal const val FORM_NO_FIELDS = "This document has no form fields."
-internal const val FORM_NO_FIELDS_ADD = "This document has no form fields yet. Add one below."
-internal const val FORM_FILL_FORBIDDEN = "This document does not permit filling in its form."
-internal const val FIELD_MOVED = "Field moved. Save to keep the change."
-internal const val FIELD_RESIZED = "Field resized. Save to keep the change."
-internal const val FIELD_DELETED = "Field deleted. Save to keep the change, or undo to bring it back."
-internal const val FIELD_SIZE_INVALID = "Enter finite, positive field dimensions."
-internal const val FIELD_RENAMED = "Field renamed. Save to keep the change."
-internal const val FIELD_RESTYLED = "Field style changed. Save to keep the change."
-internal const val FIELD_NAME_EMPTY = "Enter a field name."
-internal const val FIELD_FONT_SIZE_INVALID = "Enter a font size between 1 and 72 pt."
+internal val FORM_FILLED: UiText = UiText.Resource(R.string.status_form_filled)
+internal val FORM_NO_FIELDS: UiText = UiText.Resource(R.string.status_form_none)
+internal val FORM_NO_FIELDS_ADD: UiText = UiText.Resource(R.string.status_form_none_add)
+internal val FORM_FILL_FORBIDDEN: UiText = UiText.Resource(R.string.status_form_fill_forbidden)
+internal val FIELD_MOVED: UiText = UiText.Resource(R.string.status_form_moved)
+internal val FIELD_RESIZED: UiText = UiText.Resource(R.string.status_form_resized)
+internal val FIELD_DELETED: UiText = UiText.Resource(R.string.status_form_deleted)
+internal val FIELD_SIZE_INVALID: UiText = UiText.Resource(R.string.status_form_size_invalid)
+internal val FIELD_RENAMED: UiText = UiText.Resource(R.string.status_form_renamed)
+internal val FIELD_RESTYLED: UiText = UiText.Resource(R.string.status_form_restyled)
+internal val FIELD_NAME_EMPTY: UiText = UiText.Resource(R.string.status_form_name_empty)
+internal val FIELD_FONT_SIZE_INVALID: UiText = UiText.Resource(R.string.status_form_font_size_invalid)
 
 /** The font sizes a field may be given, in points: the Windows shell's bounds. */
 internal val FIELD_FONT_SIZES = 1.0..72.0
 
-private val NewFormField.label: String get() = when (this) {
-    NewFormField.Text -> "text field"
-    NewFormField.Checkbox -> "checkbox"
-    NewFormField.RadioGroup -> "radio group"
-    NewFormField.Dropdown -> "dropdown"
-}
+internal fun fieldPlacementPrompt(kind: NewFormField): UiText = UiText.Resource(
+    when (kind) {
+        NewFormField.Text -> R.string.status_form_place_text
+        NewFormField.Checkbox -> R.string.status_form_place_checkbox
+        NewFormField.RadioGroup -> R.string.status_form_place_radio_group
+        NewFormField.Dropdown -> R.string.status_form_place_dropdown
+    },
+)
 
-internal fun fieldPlacementPrompt(kind: NewFormField) = "Tap a page to place a ${kind.label}."
-internal fun fieldPlacedStatus(kind: NewFormField) = "${kind.label.replaceFirstChar(Char::uppercase)} placed. Save to keep the change."
-internal fun fieldWrongPage(field: FormField) = "Tap page ${field.pageIndex + 1} to move ${field.name}."
-internal fun fieldNameTaken(name: String) = "\"$name\" is already used by another field."
+internal fun fieldPlacedStatus(kind: NewFormField): UiText = UiText.Resource(
+    when (kind) {
+        NewFormField.Text -> R.string.status_form_placed_text
+        NewFormField.Checkbox -> R.string.status_form_placed_checkbox
+        NewFormField.RadioGroup -> R.string.status_form_placed_radio_group
+        NewFormField.Dropdown -> R.string.status_form_placed_dropdown
+    },
+)
+
+internal fun fieldWrongPage(field: FormField): UiText = UiText.Resource(R.string.status_form_wrong_page, field.pageIndex + 1, field.name)
+internal fun fieldNameTaken(name: String): UiText = UiText.Resource(R.string.status_form_name_taken, name)
 
 /** The line the panel shows above its rows, or null when the rows speak for themselves. */
-internal fun formFieldsNotice(panel: FormFieldsState): String? = when (val armed = panel.armed) {
+internal fun formFieldsNotice(panel: FormFieldsState): UiText? = when (val armed = panel.armed) {
     is FormFieldTap.Place -> fieldPlacementPrompt(armed.kind)
-    is FormFieldTap.Move -> panel.fields.firstOrNull { it.id == armed.fieldId }?.let { "Tap page ${it.pageIndex + 1} where ${it.name} should go." }
+    is FormFieldTap.Move -> panel.fields.firstOrNull { it.id == armed.fieldId }?.let { UiText.Resource(R.string.status_form_move_prompt, it.pageIndex + 1, it.name) }
     null -> when {
         !panel.loaded -> null
         panel.fields.isEmpty() -> if (panel.authoringAllowed) FORM_NO_FIELDS_ADD else FORM_NO_FIELDS

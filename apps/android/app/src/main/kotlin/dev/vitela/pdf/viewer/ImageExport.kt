@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 
 /** Which pages an export covers. */
 enum class ImageExportPages { All, Current, Custom }
@@ -100,5 +102,5 @@ internal fun planImageExport(
 
 private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))
 
-internal fun imageExportSummary(count: Int, format: ImageExportFormat): String =
-    "Exported $count ${if (count == 1) "page" else "pages"} as ${format.label}."
+internal fun imageExportSummary(count: Int, format: ImageExportFormat): UiText =
+    UiText.Plural(R.plurals.status_export_done, count, count, format.label)

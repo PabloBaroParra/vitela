@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -133,7 +134,7 @@ class ViewerViewModelFormFillTest {
 
         val state = viewModel.state.value
         assertEquals(FormFieldValue.Text("Ada"), state.formFields?.fields?.first { it.id == 1L }?.value)
-        assertEquals("That value does not fit this field.", state.status)
+        assertEquals("That value does not fit this field.", state.status.english())
         assertFalse(state.isDirty)
     }
 

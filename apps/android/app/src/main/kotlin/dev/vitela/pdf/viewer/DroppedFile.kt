@@ -1,11 +1,14 @@
 package dev.vitela.pdf.viewer
 
-internal const val IMAGE_DROPPED_PLACED = "Dropped image placed."
-internal const val DROP_NOT_ANNOTATABLE = "This document does not allow annotation edits."
-internal const val DROP_UNSUPPORTED = "Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp."
-internal const val DROP_UNREADABLE = "The dropped file could not be read."
-internal const val DROP_IMAGE_OFF_PAGE = "Drop the image onto a page to place it as a stamp."
-internal const val DROP_IMAGE_WITHOUT_DOCUMENT = "Open a PDF first, then drop an image onto a page to stamp it."
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
+
+internal val IMAGE_DROPPED_PLACED: UiText = UiText.Resource(R.string.status_drop_image_placed)
+internal val DROP_NOT_ANNOTATABLE: UiText = UiText.Resource(R.string.status_drop_not_annotatable)
+internal val DROP_UNSUPPORTED: UiText = UiText.Resource(R.string.status_drop_unsupported)
+internal val DROP_UNREADABLE: UiText = UiText.Resource(R.string.status_drop_unreadable)
+internal val DROP_IMAGE_OFF_PAGE: UiText = UiText.Resource(R.string.status_drop_image_off_page)
+internal val DROP_IMAGE_WITHOUT_DOCUMENT: UiText = UiText.Resource(R.string.status_drop_image_without_document)
 
 private const val PDF_MIME = "application/pdf"
 

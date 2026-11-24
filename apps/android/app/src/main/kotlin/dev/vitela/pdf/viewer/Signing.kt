@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SigningCertificate
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -123,7 +125,7 @@ internal class Signing(
         if (state.value.signRunning) return null
         certificate = null
         pending = SignRequest(openDocument, unlocked, identityId)
-        state.value = state.value.copy(sign = null, status = "Choose where to write the signed PDF.")
+        state.value = state.value.copy(sign = null, status = UiText.Resource(R.string.status_sign_choose))
         return signedFileName(state.value.title)
     }
 
@@ -131,7 +133,7 @@ internal class Signing(
     fun cancel() {
         pending?.certificate?.close()
         pending = null
-        state.value = state.value.copy(status = "Signing cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_sign_cancelled))
     }
 
     fun dismiss() {
@@ -150,21 +152,21 @@ internal class Signing(
         try {
             session.documentLane.withLock {
                 if (session.document !== request.document || state.value.isDirty) {
-                    state.value = state.value.copy(status = "The document changed before it could be signed. No file was written.")
+                    state.value = state.value.copy(status = UiText.Resource(R.string.status_sign_document_changed))
                     return
                 }
-                state.value = state.value.copy(signRunning = true, status = "Signing PDF...")
+                state.value = state.value.copy(signRunning = true, status = UiText.Resource(R.string.status_sign_busy))
                 try {
                     val bytes = when (val result = withContext(session.compute) { request.document.sign(request.certificate, request.identityId) }) {
                         is PdfCoreResult.Failure -> return report(userMessage(result.error))
                         is PdfCoreResult.Success -> result.value
                     }
-                    if (!withContext(session.io) { write(bytes) }) return report("Could not write the signed PDF.")
+                    if (!withContext(session.io) { write(bytes) }) return report(UiText.Resource(R.string.status_sign_write_failed))
                     report(
                         when (val failure = reopen(displayName, bytes, saveTarget)) {
-                            null -> "Signed PDF saved and reopened."
-                            PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "Signed PDF saved. Enter its password to reopen it."
-                            else -> "The signed PDF was written, but it could not be reopened. ${userMessage(failure)}"
+                            null -> UiText.Resource(R.string.status_sign_done)
+                            PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> UiText.Resource(R.string.status_sign_password)
+                            else -> UiText.Sentences(UiText.Resource(R.string.status_sign_not_reopened), userMessage(failure))
                         },
                     )
                 } finally {
@@ -183,7 +185,7 @@ internal class Signing(
         certificate = null
     }
 
-    private fun report(status: String) {
+    private fun report(status: UiText) {
         state.value = state.value.copy(status = status)
     }
 

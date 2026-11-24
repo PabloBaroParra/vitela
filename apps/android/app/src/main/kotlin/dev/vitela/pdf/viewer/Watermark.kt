@@ -1,11 +1,13 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.PictureWatermarkLook
 import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
+import dev.vitela.pdf.text.UiText
 
 /** Which pages the Add watermark dialog stamps. */
 enum class WatermarkPages { All, Current, Custom }
@@ -78,7 +80,7 @@ data class WatermarkDefaults(val text: WatermarkLook, val picture: PictureWaterm
  * when it opened — what "Current page" means. [message] is why the last Add
  * was refused; the draft is kept so nothing typed is lost.
  */
-data class WatermarkEditor(val draft: WatermarkDraft, val defaults: WatermarkDefaults, val currentPage: Int, val message: String? = null) {
+data class WatermarkEditor(val draft: WatermarkDraft, val defaults: WatermarkDefaults, val currentPage: Int, val message: UiText? = null) {
     fun switchedTo(kind: WatermarkKind) = draft.switchedTo(kind, defaults)
 }
 
@@ -126,6 +128,6 @@ internal fun planWatermark(document: PdfDocument, draft: WatermarkDraft, current
 }
 
 /** What the status line says once the stamp is recorded. */
-internal fun watermarkSummary(count: Int) = "Watermark added to $count ${if (count == 1) "page" else "pages"}."
+internal fun watermarkSummary(count: Int): UiText = UiText.Plural(R.plurals.status_watermark_added, count, count)
 
 private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))

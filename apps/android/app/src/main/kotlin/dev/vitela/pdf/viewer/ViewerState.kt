@@ -1,13 +1,16 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.ui.graphics.ImageBitmap
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.SaveSnapshot
+import dev.vitela.pdf.text.UiText
 
 data class ViewerState(
-    val title: String = "No document open",
+    /** The open document's name; empty while there is none, when Home shows and nothing reads it. */
+    val title: String = "",
     val pageCount: Int = 0,
     /** The page filling most of the viewport — what the page counter reports. */
     val pageIndex: Int = 0,
@@ -37,10 +40,10 @@ data class ViewerState(
     val searchQuery: String = "",
     val searchHits: List<SearchHit> = emptyList(),
     val searchIndex: Int = 0,
-    val status: String = "Select a PDF to begin.",
+    val status: UiText = UiText.Resource(R.string.status_open_select),
     val isLoading: Boolean = false,
     val needsPassword: Boolean = false,
-    val passwordMessage: String? = null,
+    val passwordMessage: UiText? = null,
     val canPrint: Boolean = false,
     /**
      * Whether a document can be opened at all — false when the native PDF

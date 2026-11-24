@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
@@ -60,7 +61,7 @@ class ViewerViewModelOrganizeTest {
         val state = viewModel.state.value
         assertEquals(listOf(1, 0, 2, 3), state.pageSizes.map { it.widthPt.toInt() - 100 })
         assertEquals(4, state.pageCount)
-        assertEquals("Page moved. Changes are pending save.", state.status)
+        assertEquals("Page moved. Changes are pending save.", state.status.english())
         assertFalse(state.organize?.busy ?: true)
     }
 
@@ -114,7 +115,7 @@ class ViewerViewModelOrganizeTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals(failure, state.status)
+        assertEquals(failure, state.status.english())
         assertTrue("the edit itself was queued", state.isDirty)
     }
 
@@ -143,7 +144,7 @@ class ViewerViewModelOrganizeTest {
 
         assertEquals(listOf<PageEdit>(PageEdit.Rotate(1, 90)), document.edits)
         assertEquals(PageSize(200.0, 101.0), viewModel.state.value.pageSizes[1])
-        assertEquals("Page rotated. Changes are pending save.", viewModel.state.value.status)
+        assertEquals("Page rotated. Changes are pending save.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -159,7 +160,7 @@ class ViewerViewModelOrganizeTest {
         assertEquals(2, state.pageCount)
         assertEquals(2, state.pageSizes.size)
         assertEquals(1, state.pageIndex)
-        assertEquals("Page deleted. Changes are pending save.", state.status)
+        assertEquals("Page deleted. Changes are pending save.", state.status.english())
     }
 
     @Test
@@ -174,7 +175,7 @@ class ViewerViewModelOrganizeTest {
         val state = viewModel.state.value
         assertEquals(4, state.pageCount)
         assertEquals(listOf(0, 3, 1, 2), state.pageSizes.map { it.widthPt.toInt() - 100 })
-        assertEquals("Blank page added. Changes are pending save.", state.status)
+        assertEquals("Blank page added. Changes are pending save.", state.status.english())
         assertTrue(state.isDirty)
         assertTrue(state.canUndoAnnotations)
     }
@@ -242,7 +243,7 @@ class ViewerViewModelOrganizeTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals(refusal, state.status)
+        assertEquals(refusal, state.status.english())
         assertFalse(state.isDirty)
         assertEquals(before.revision, state.revision)
         assertEquals(before.pageSizes, state.pageSizes)

@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -91,7 +92,7 @@ class ViewerViewModelPageExtractTest {
         assertEquals(listOf(listOf<Byte>(1, 2)), writes)
         assertEquals(listOf(listOf(1, 2)), document.extracted)
         val state = viewModel.state.value
-        assertEquals("Extracted 2 pages to a new PDF.", state.status)
+        assertEquals("Extracted 2 pages to a new PDF.", state.status.english())
         assertFalse(state.isDirty)
     }
 
@@ -118,7 +119,7 @@ class ViewerViewModelPageExtractTest {
         viewModel.extractPages { writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("The document could not be processed.", viewModel.state.value.status)
+        assertEquals("The document could not be processed.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -130,7 +131,7 @@ class ViewerViewModelPageExtractTest {
         viewModel.planPageExtract()
         viewModel.extractPages { false }
 
-        assertEquals("Could not write the extracted PDF.", viewModel.state.value.status)
+        assertEquals("Could not write the extracted PDF.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -145,7 +146,7 @@ class ViewerViewModelPageExtractTest {
         viewModel.extractPages { writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("Extract cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Extract cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -179,7 +180,7 @@ class ViewerViewModelPageExtractTest {
 
         assertEquals(0, writes)
         assertEquals(emptyList<List<Int>>(), first.extracted)
-        assertEquals("The document changed. Extract cancelled.", viewModel.state.value.status)
+        assertEquals("The document changed. Extract cancelled.", viewModel.state.value.status.english())
     }
 
     @Test

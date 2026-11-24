@@ -49,7 +49,7 @@ internal class TextBlockEditing(
                     is PdfCoreResult.Failure -> {
                         val mode = state.value.contentEdit ?: return@withLock
                         if (mode.editor?.block != editor.block) return@withLock
-                        state.value = state.value.copy(contentEdit = mode.copy(editor = editor.copy(text = text, error = userMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = mode.copy(editor = editor.copy(text = text, error = dialogMessage(result.error))))
                     }
                 }
             }

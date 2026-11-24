@@ -7,15 +7,18 @@ import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
 
 /**
- * One `strings.xml`, read straight from the sources: a JVM test has no
- * Resources to ask. Entries are unescaped the way aapt2 does for the escapes
+ * Every `strings*.xml` of one qualifier, read straight from the sources: a
+ * JVM test has no Resources to ask. Entries are unescaped the way aapt2 does for the escapes
  * the app uses.
  */
 internal class StringResources(qualifier: String) {
-    private val root: Element = DocumentBuilderFactory.newInstance().newDocumentBuilder()
-        .parse(File("src/main/res/$qualifier/strings.xml")).documentElement
+    /** The file names, so a language can be held to having the same ones. */
+    val files: List<String> = File("src/main/res/$qualifier").list().orEmpty().filter { it.startsWith("strings") && it.endsWith(".xml") }.sorted()
 
-    private val children = (0 until root.childNodes.length).map { root.childNodes.item(it) }.filterIsInstance<Element>()
+    private val children = files.flatMap { file ->
+        val root = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(File("src/main/res/$qualifier/$file")).documentElement
+        (0 until root.childNodes.length).map { root.childNodes.item(it) }.filterIsInstance<Element>()
+    }
 
     val strings: Map<String, String> = children.filter { it.tagName == "string" }.associate { it.name to unescape(it.textContent) }
 
@@ -27,6 +30,16 @@ internal class StringResources(qualifier: String) {
 
     /** Every `name`, duplicates included. */
     val names: List<String> = children.map { it.name }
+
+    /** The entry [id] names, a string or a plural. */
+    fun name(id: Int): String = (R.string::class.java.fields + R.plurals::class.java.fields).single { it.getInt(null) == id }.name
+
+    /** How many arguments the entry [id] takes: its highest placeholder, in any of a plural's forms. */
+    fun argumentCount(id: Int): Int {
+        val name = name(id)
+        val texts = strings[name]?.let(::listOf) ?: plurals.getValue(name).values
+        return texts.flatMap { text -> Regex("""%(\d+)\$""").findAll(text).map { it.groupValues[1].toInt() } }.maxOrNull() ?: 0
+    }
 
     fun text(id: Int, vararg args: Any): String = format(strings.getValue(nameOf(R.string::class.java, id)), args)
 

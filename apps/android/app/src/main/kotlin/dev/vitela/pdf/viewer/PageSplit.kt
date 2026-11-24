@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SplitPart
+import dev.vitela.pdf.text.UiText
 
 /** The open Split dialog: the typed [cuts], whether the file lets pages leave, and the reason for the last refusal. */
 data class PageSplitEditor(
@@ -46,7 +48,7 @@ internal fun planPageSplit(document: PdfDocument, title: String, cuts: String): 
 }
 
 /** The Windows summary without its destination: a SAF folder has no path to show. */
-internal fun pageSplitSummary(count: Int, sourceIsSigned: Boolean): String {
-    val summary = "Split into $count PDFs."
-    return if (sourceIsSigned) "$summary The original document is signed, so the signature in each part no longer verifies." else summary
+internal fun pageSplitSummary(count: Int, sourceIsSigned: Boolean): UiText {
+    val summary = UiText.Resource(R.string.status_split_done, count)
+    return if (sourceIsSigned) UiText.Sentences(summary, UiText.Resource(R.string.status_split_signed)) else summary
 }

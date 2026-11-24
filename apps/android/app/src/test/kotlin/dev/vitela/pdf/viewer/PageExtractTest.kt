@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -67,11 +68,11 @@ class PageExtractTest {
 
     @Test
     fun theSummaryCountsPagesAndWarnsAboutASignedSource() {
-        assertEquals("Extracted 1 page to a new PDF.", pageExtractSummary(1, sourceIsSigned = false))
-        assertEquals("Extracted 3 pages to a new PDF.", pageExtractSummary(3, sourceIsSigned = false))
+        assertEquals("Extracted 1 page to a new PDF.", pageExtractSummary(1, sourceIsSigned = false).english())
+        assertEquals("Extracted 3 pages to a new PDF.", pageExtractSummary(3, sourceIsSigned = false).english())
         assertEquals(
             "Extracted 2 pages to a new PDF. The original document is signed, so the extracted PDF's signature no longer verifies.",
-            pageExtractSummary(2, sourceIsSigned = true),
+            pageExtractSummary(2, sourceIsSigned = true).english(),
         )
     }
 

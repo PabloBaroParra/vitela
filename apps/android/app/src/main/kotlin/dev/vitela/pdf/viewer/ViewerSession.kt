@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.ContentClip
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,7 +47,14 @@ internal class ViewerSession(
     val documentLane = Mutex()
 }
 
-internal fun userMessage(error: PdfCoreError): String = when (error) {
+internal fun userMessage(error: PdfCoreError): UiText = when (error) {
+    PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> UiText.Resource(R.string.status_open_password_required)
+    // The core's or the adapter's own sentence, not translated yet.
+    is PdfCoreError.Failed -> UiText.Verbatim(error.message)
+}
+
+/** [userMessage] for the dialogs whose messages are not translated yet. */
+internal fun dialogMessage(error: PdfCoreError): String = when (error) {
     PdfCoreError.PasswordRequired, PdfCoreError.WrongPassword -> "This document requires a password."
     is PdfCoreError.Failed -> error.message
 }

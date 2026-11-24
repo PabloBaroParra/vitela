@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 
 /** The open Extract pages dialog: the typed [range], whether the file lets pages leave, and the reason for the last refusal. */
 data class PageExtractEditor(
@@ -53,7 +55,7 @@ internal fun extractFileName(title: String): String = "${documentStem(title)}-ex
  * The Windows summary without its destination: a SAF document has no path to
  * show, only whatever name the provider settled on.
  */
-internal fun pageExtractSummary(count: Int, sourceIsSigned: Boolean): String {
-    val summary = "Extracted $count ${if (count == 1) "page" else "pages"} to a new PDF."
-    return if (sourceIsSigned) "$summary The original document is signed, so the extracted PDF's signature no longer verifies." else summary
+internal fun pageExtractSummary(count: Int, sourceIsSigned: Boolean): UiText {
+    val summary = UiText.Plural(R.plurals.status_extract_done, count, count)
+    return if (sourceIsSigned) UiText.Sentences(summary, UiText.Resource(R.string.status_extract_signed)) else summary
 }

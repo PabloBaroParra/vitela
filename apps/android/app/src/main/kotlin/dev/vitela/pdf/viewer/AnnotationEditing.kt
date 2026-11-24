@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationEdit
@@ -8,11 +9,12 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-internal const val IMAGE_STAMP_PLACED = "Image stamp placed. Save to keep it."
+internal val IMAGE_STAMP_PLACED: UiText = UiText.Resource(R.string.status_stamp_placed)
 
 /**
  * The annotation toolbar and its gestures, plus undo/redo of the shared edit
@@ -64,7 +66,7 @@ internal class AnnotationEditing(
         state.value = current.copy(
             selectedAnnotationId = target.id,
             annotationReveal = annotationReveal(target),
-            status = "Annotation $position of ${current.annotations.size}.",
+            status = UiText.Resource(R.string.status_annotation_position, position, current.annotations.size),
         )
     }
 
@@ -97,7 +99,7 @@ internal class AnnotationEditing(
         if (!state.value.annotationEditingAllowed || tool == AnnotationTool.Pointer || (tool == AnnotationTool.Ink && points.size < 2)) return
         if (tool == AnnotationTool.Stamp) {
             val image = stampBytes ?: run {
-                state.value = state.value.copy(status = "Choose an image before placing a stamp.")
+                state.value = state.value.copy(status = UiText.Resource(R.string.status_stamp_missing_image))
                 return
             }
             insertImageStamp(pageIndex, image, origin, stampPlaced)
@@ -206,7 +208,7 @@ internal class AnnotationEditing(
         }
     }
 
-    private fun commitFreeText(draft: FreeTextDraft, edit: AnnotationEdit, done: String) {
+    private fun commitFreeText(draft: FreeTextDraft, edit: AnnotationEdit, done: UiText) {
         val openDocument = session.document ?: return
         state.value = state.value.copy(freeText = draft.copy(busy = true, error = null))
         session.scope.launch {
@@ -217,13 +219,13 @@ internal class AnnotationEditing(
                         state.value = state.value.copy(freeText = null, isDirty = true, revision = state.value.revision + 1, status = done)
                         refresh(openDocument)
                     }
-                    is PdfCoreResult.Failure -> state.value = state.value.copy(freeText = draft.copy(busy = false, error = userMessage(result.error)))
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(freeText = draft.copy(busy = false, error = dialogMessage(result.error)))
                 }
             }
         }
     }
 
-    fun selectImageStamp(bytes: ByteArray, prompt: String = "Tap a page to place the image stamp.", placed: String = IMAGE_STAMP_PLACED) {
+    fun selectImageStamp(bytes: ByteArray, prompt: UiText = UiText.Resource(R.string.status_stamp_prompt), placed: UiText = IMAGE_STAMP_PLACED) {
         if (!state.value.annotationEditingAllowed) return
         stampBytes = bytes
         stampPlaced = placed
@@ -386,7 +388,7 @@ internal class AnnotationEditing(
     private fun applyEdit(edit: AnnotationEdit) = applyEdits(listOf(edit))
 
     /** [done], when given, is the status line once every edit landed; a refusal reports itself instead. */
-    private fun applyEdits(edits: List<AnnotationEdit>, done: String? = null) {
+    private fun applyEdits(edits: List<AnnotationEdit>, done: UiText? = null) {
         val openDocument = session.document ?: return
         if (!state.value.annotationEditingAllowed || edits.isEmpty()) return
         session.scope.launch {
@@ -433,7 +435,7 @@ internal class AnnotationEditing(
         }
     }
 
-    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint, placed: String) {
+    private fun insertImageStamp(pageIndex: Int, imageBytes: ByteArray, anchor: AnnotationPoint, placed: UiText) {
         val openDocument = session.document ?: return
         session.scope.launch {
             session.documentLane.withLock {

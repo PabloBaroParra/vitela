@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status line. Numbers are passed as %s, not %d, as in strings.xml. -->
+<resources>
+    <!-- Documents: opening, closing and passwords -->
+    <string name="status_open_select">Select a PDF to begin.</string>
+    <string name="status_open_unavailable">Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries.</string>
+    <string name="status_open_busy">Opening PDF...</string>
+    <string name="status_open_unreadable">Could not read the selected PDF.</string>
+    <string name="status_open_password_cancelled">Password entry cancelled.</string>
+    <string name="status_open_password_wrong">The password is incorrect. Try again.</string>
+    <string name="status_open_password_required">This document requires a password.</string>
+    <string name="status_open_recent_removed">%1$s is no longer available and was removed from Recent.</string>
+    <string name="status_open_recent_failed">Could not open %1$s.</string>
+
+    <!-- Crash recovery and autosave -->
+    <string name="status_recovery_busy">Restoring PDF...</string>
+    <string name="status_recovery_kept">Your recovered work is kept for the next time Vitela starts.</string>
+    <string name="status_recovery_restored">Recovered unsaved work. Save a copy to keep it.</string>
+    <string name="status_recovery_restored_signed">Recovered unsaved work. Saving it would break its signature and is refused. Use Protect to keep it in a new file.</string>
+    <string name="status_recovery_discarded">The recovered copy could not be opened and was discarded.</string>
+    <string name="status_recovery_unreadable">The recovered copy could not be opened. It is kept for the next time Vitela starts.</string>
+    <string name="status_recovery_autosave_unavailable">Autosave is unavailable, so a crash would lose your unsaved changes. Save to keep them.</string>
+
+    <!-- Saving and document properties -->
+    <string name="status_save_done">Saved.</string>
+    <string name="status_save_failed">Could not save the PDF.</string>
+    <string name="status_save_in_place_failed">Could not save to the original file. Use Save copy instead.</string>
+    <string name="status_metadata_updated">Document properties updated. Changes are pending save.</string>
+
+    <!-- Reader: page window and search -->
+    <string name="status_page_none">No pages.</string>
+    <string name="status_page_single">Page %1$s of %2$s.</string>
+    <string name="status_page_range">Pages %1$s-%2$s of %3$s.</string>
+    <string name="status_search_busy">Searching...</string>
+    <string name="status_search_none">No matches.</string>
+    <string name="status_search_match">Match %1$s of %2$s.</string>
+
+    <!-- Annotations -->
+    <string name="status_annotation_position">Annotation %1$s of %2$s.</string>
+    <string name="status_annotation_resized">Annotation resized. Save to keep the change.</string>
+    <string name="status_annotation_size_unchanged">Annotation dimensions unchanged.</string>
+    <string name="status_annotation_changed_resize">The annotation changed while the dialog was open. Nothing was resized.</string>
+    <string name="status_annotation_moved">Annotation moved. Save to keep the change.</string>
+    <string name="status_annotation_position_unchanged">Annotation position unchanged.</string>
+    <string name="status_annotation_changed_move">The annotation changed while the dialog was open. Nothing was moved.</string>
+    <string name="status_annotation_note_cancelled">Note placement canceled.</string>
+    <string name="status_annotation_text_box_added">Text box added. Save to keep it.</string>
+    <string name="status_annotation_text_box_edited">Text updated. Save to keep the change.</string>
+    <string name="status_annotation_text_box_unchanged">Text unchanged.</string>
+    <string name="status_annotation_text_box_cancelled">Text box canceled.</string>
+    <string name="status_annotation_text_box_changed">The text box changed while the dialog was open. Nothing was changed.</string>
+
+    <!-- Stamps, drawn signature, clipboard image and drops -->
+    <string name="status_stamp_missing_image">Choose an image before placing a stamp.</string>
+    <string name="status_stamp_prompt">Tap a page to place the image stamp.</string>
+    <string name="status_stamp_placed">Image stamp placed. Save to keep it.</string>
+    <string name="status_stamp_paste_prompt">Tap a page to place the pasted image.</string>
+    <string name="status_stamp_clipboard_no_image">Clipboard does not contain a bitmap image.</string>
+    <string name="status_stamp_clipboard_unreadable">The clipboard image could not be read.</string>
+    <string name="status_signature_prompt">Tap a page to place your signature.</string>
+    <string name="status_signature_placed">Signature placed. Save to keep it.</string>
+    <string name="status_signature_unrenderable">The signature could not be turned into an image.</string>
+    <string name="status_signature_not_remembered">Your signature could not be remembered. Tap a page to place it.</string>
+    <string name="status_signature_forgotten">Your saved signature was deleted from this phone.</string>
+    <string name="status_drop_image_placed">Dropped image placed.</string>
+    <string name="status_drop_not_annotatable">This document does not allow annotation edits.</string>
+    <string name="status_drop_unsupported">Vitela opens PDF files. Drop a PNG or JPEG onto a page to add it as a stamp.</string>
+    <string name="status_drop_unreadable">The dropped file could not be read.</string>
+    <string name="status_drop_image_off_page">Drop the image onto a page to place it as a stamp.</string>
+    <string name="status_drop_image_without_document">Open a PDF first, then drop an image onto a page to stamp it.</string>
+
+    <!-- Edit content: text, images, shapes and insertions -->
+    <string name="status_content_armed">Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it.</string>
+    <string name="status_content_off">Content editing off.</string>
+    <string name="status_content_missed">Nothing to edit there. Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it.</string>
+    <string name="status_content_forbidden">This document does not permit content changes.</string>
+    <string name="status_content_move_cancelled">Move cancelled.</string>
+    <string name="status_content_text_updated">Text updated. Save to keep the change.</string>
+    <string name="status_content_text_deleted">Text deleted. Save to keep the change.</string>
+    <string name="status_content_text_moved">Text moved. Save to keep the change.</string>
+    <string name="status_content_text_position_unchanged">Text position unchanged.</string>
+    <string name="status_content_text_move_prompt">Drag the text, or tap page %1$s where its top-left corner should go.</string>
+    <string name="status_content_text_insert_prompt">Tap the page where the new text\'s top-left corner should go.</string>
+    <string name="status_content_text_inserted">Text inserted. Save to keep the change.</string>
+    <string name="status_content_image_resized">Image resized. Save to keep the change.</string>
+    <string name="status_content_image_moved">Image moved. Save to keep the change.</string>
+    <string name="status_content_image_position_unchanged">Image position unchanged.</string>
+    <string name="status_content_image_move_prompt">Drag the image, or tap page %1$s where its top-left corner should go.</string>
+    <string name="status_content_image_deleted">Image deleted. Save to keep the change.</string>
+    <string name="status_content_image_replaced">Image replaced. Save to keep the change.</string>
+    <string name="status_content_image_replace_cancelled">Replace cancelled.</string>
+    <string name="status_content_image_unreadable">The selected image could not be read.</string>
+    <string name="status_content_image_insert_prompt">Tap the page where the image\'s top-left corner should go.</string>
+    <string name="status_content_image_inserted">Image inserted. Save to keep the change.</string>
+    <string name="status_content_insert_cancelled">Insert cancelled.</string>
+    <string name="status_content_shape_resized">Shape resized. Save to keep the change.</string>
+    <string name="status_content_shape_moved">Shape moved. Save to keep the change.</string>
+    <string name="status_content_shape_position_unchanged">Shape position unchanged.</string>
+    <string name="status_content_shape_move_prompt">Drag the shape, or tap page %1$s where its top-left corner should go.</string>
+    <string name="status_content_shape_deleted">Shape deleted. Save to keep the change.</string>
+
+    <!-- Edit content: selection and clipboard -->
+    <string name="status_selection_empty">Nothing there to select.</string>
+    <string name="status_selection_cleared">Selection cleared.</string>
+    <string name="status_selection_moved">Selection moved. Save to keep the change.</string>
+    <string name="status_selection_deleted">Selection deleted. Save to keep the change.</string>
+    <string name="status_selection_position_unchanged">Selection position unchanged.</string>
+    <plurals name="status_selection_count">
+        <item quantity="one">%1$s item selected — drag inside the dashed box to move them, Delete removes them, tap an item to add or remove it.</item>
+        <item quantity="other">%1$s items selected — drag inside the dashed box to move them, Delete removes them, tap an item to add or remove it.</item>
+    </plurals>
+    <string name="status_clipboard_paste_prompt">Tap the page where the pasted content\'s top-left corner should go.</string>
+    <string name="status_clipboard_paste_cancelled">Paste cancelled.</string>
+    <string name="status_clipboard_pasted">Pasted. Save to keep the change.</string>
+    <plurals name="status_clipboard_copied">
+        <item quantity="one">Copied %1$s item. Open Paste content, then tap where it should go.</item>
+        <item quantity="other">Copied %1$s items. Open Paste content, then tap where it should go.</item>
+    </plurals>
+    <plurals name="status_clipboard_cut">
+        <item quantity="one">Cut %1$s item. Open Paste content, then tap where it should go.</item>
+        <item quantity="other">Cut %1$s items. Open Paste content, then tap where it should go.</item>
+    </plurals>
+    <plurals name="status_clipboard_pasted_count">
+        <item quantity="one">Pasted %1$s item — drag inside the dashed box to place them.</item>
+        <item quantity="other">Pasted %1$s items — drag inside the dashed box to place them.</item>
+    </plurals>
+    <plurals name="status_watermark_added">
+        <item quantity="one">Watermark added to %1$s page.</item>
+        <item quantity="other">Watermark added to %1$s pages.</item>
+    </plurals>
+
+    <!-- Form fields -->
+    <string name="status_form_filled">Field filled in. Save to keep the change.</string>
+    <string name="status_form_none">This document has no form fields.</string>
+    <string name="status_form_none_add">This document has no form fields yet. Add one below.</string>
+    <string name="status_form_fill_forbidden">This document does not permit filling in its form.</string>
+    <string name="status_form_moved">Field moved. Save to keep the change.</string>
+    <string name="status_form_resized">Field resized. Save to keep the change.</string>
+    <string name="status_form_deleted">Field deleted. Save to keep the change, or undo to bring it back.</string>
+    <string name="status_form_size_invalid">Enter finite, positive field dimensions.</string>
+    <string name="status_form_renamed">Field renamed. Save to keep the change.</string>
+    <string name="status_form_restyled">Field style changed. Save to keep the change.</string>
+    <string name="status_form_name_empty">Enter a field name.</string>
+    <string name="status_form_font_size_invalid">Enter a font size between 1 and 72 pt.</string>
+    <string name="status_form_place_text">Tap a page to place a text field.</string>
+    <string name="status_form_place_checkbox">Tap a page to place a checkbox.</string>
+    <string name="status_form_place_radio_group">Tap a page to place a radio group.</string>
+    <string name="status_form_place_dropdown">Tap a page to place a dropdown.</string>
+    <string name="status_form_placed_text">Text field placed. Save to keep the change.</string>
+    <string name="status_form_placed_checkbox">Checkbox placed. Save to keep the change.</string>
+    <string name="status_form_placed_radio_group">Radio group placed. Save to keep the change.</string>
+    <string name="status_form_placed_dropdown">Dropdown placed. Save to keep the change.</string>
+    <string name="status_form_move_prompt">Tap page %1$s where %2$s should go.</string>
+    <string name="status_form_wrong_page">Tap page %1$s to move %2$s.</string>
+    <string name="status_form_name_taken">\"%1$s\" is already used by another field.</string>
+
+    <!-- Organize pages -->
+    <string name="status_organize_hint">Move, turn, delete or add pages. Each change is one undo step.</string>
+    <string name="status_organize_last_page">A document needs at least one page.</string>
+    <string name="status_organize_no_such_page">That page is no longer in the document.</string>
+    <string name="status_organize_quarter_turns">Pages turn a quarter at a time.</string>
+    <string name="status_organize_nothing_to_do">The page is already there.</string>
+    <plurals name="status_organize_moved">
+        <item quantity="one">Page moved. Changes are pending save.</item>
+        <item quantity="other">%1$s pages moved. Changes are pending save.</item>
+    </plurals>
+    <plurals name="status_organize_rotated">
+        <item quantity="one">Page rotated. Changes are pending save.</item>
+        <item quantity="other">%1$s pages rotated. Changes are pending save.</item>
+    </plurals>
+    <plurals name="status_organize_deleted">
+        <item quantity="one">Page deleted. Changes are pending save.</item>
+        <item quantity="other">%1$s pages deleted. Changes are pending save.</item>
+    </plurals>
+    <string name="status_organize_blank_added">Blank page added. Changes are pending save.</string>
+
+    <!-- Add PDFs -->
+    <string name="status_import_checking">Checking the selected PDFs...</string>
+    <string name="status_import_password_waiting">Waiting for the password for %1$s.</string>
+    <string name="status_import_password_cancelled">Password entry cancelled for %1$s. No PDF was added.</string>
+    <string name="status_import_cancelled">PDF import cancelled.</string>
+    <string name="status_import_failed">%1$s could not be added: %2$s No PDF was added.</string>
+    <string name="status_import_warning">Some content will change on the way in.</string>
+    <string name="status_import_adding">Adding the selected PDFs...</string>
+    <!-- %2$s is status_import_files, plural by its own count. -->
+    <plurals name="status_import_done">
+        <item quantity="one">Added %1$s page from %2$s. Changes are pending save.</item>
+        <item quantity="other">Added %1$s pages from %2$s. Changes are pending save.</item>
+    </plurals>
+    <plurals name="status_import_files">
+        <item quantity="one">%1$s PDF</item>
+        <item quantity="other">%1$s PDFs</item>
+    </plurals>
+
+    <!-- Export images -->
+    <string name="status_export_cancelled">Export cancelled. No file was written.</string>
+    <string name="status_export_preparing">Preparing the export...</string>
+    <string name="status_export_document_changed">The document changed. Export cancelled.</string>
+    <string name="status_export_failed">Could not export: %1$s No file was written.</string>
+    <string name="status_export_busy">Exporting page %1$s (%2$s of %3$s)...</string>
+    <string name="status_export_page_failed">Page %1$s could not be exported: %2$s %3$s written.</string>
+    <string name="status_export_write_failed">Could not write %1$s. %2$s written.</string>
+    <plurals name="status_export_done">
+        <item quantity="one">Exported %1$s page as %2$s.</item>
+        <item quantity="other">Exported %1$s pages as %2$s.</item>
+    </plurals>
+
+    <!-- Extract pages -->
+    <string name="status_extract_cancelled">Extract cancelled. No file was written.</string>
+    <plurals name="status_extract_busy">
+        <item quantity="one">Extracting %1$s page...</item>
+        <item quantity="other">Extracting %1$s pages...</item>
+    </plurals>
+    <string name="status_extract_document_changed">The document changed. Extract cancelled.</string>
+    <string name="status_extract_write_failed">Could not write the extracted PDF.</string>
+    <plurals name="status_extract_done">
+        <item quantity="one">Extracted %1$s page to a new PDF.</item>
+        <item quantity="other">Extracted %1$s pages to a new PDF.</item>
+    </plurals>
+    <string name="status_extract_signed">The original document is signed, so the extracted PDF\'s signature no longer verifies.</string>
+
+    <!-- Split -->
+    <string name="status_split_cancelled">Split cancelled. No file was written.</string>
+    <string name="status_split_busy">Writing part %1$s of %2$s...</string>
+    <plurals name="status_split_document_changed">
+        <item quantity="one">The document changed. Split stopped after %1$s written.</item>
+        <item quantity="other">The document changed. Split stopped after %1$s written.</item>
+    </plurals>
+    <plurals name="status_split_failed">
+        <item quantity="one">Split stopped after %1$s written: %2$s</item>
+        <item quantity="other">Split stopped after %1$s written: %2$s</item>
+    </plurals>
+    <plurals name="status_split_write_failed">
+        <item quantity="one">Split stopped after %1$s written: could not write %2$s.</item>
+        <item quantity="other">Split stopped after %1$s written: could not write %2$s.</item>
+    </plurals>
+    <string name="status_split_done">Split into %1$s PDFs.</string>
+    <string name="status_split_signed">The original document is signed, so the signature in each part no longer verifies.</string>
+
+    <!-- Compress -->
+    <string name="status_compress_busy">Compressing PDF...</string>
+    <string name="status_compress_cancelled">Compression cancelled. No file was written.</string>
+    <string name="status_compress_writing">Writing the compressed PDF...</string>
+    <string name="status_compress_write_failed">Could not write the compressed PDF.</string>
+    <string name="status_compress_reduced">%1$s uncompressed → %2$s compressed (%3$s%% smaller). Choose where to write it.</string>
+    <string name="status_compress_no_gain">Nothing to gain: this document compresses to the same %1$s an uncompressed save writes, so no file was written.</string>
+    <string name="status_compress_written">Compressed PDF written (%1$s → %2$s, %3$s%% smaller).</string>
+    <string name="status_compress_refusals">Not everything could be done: %1$s.</string>
+    <!-- Whole megabytes and their tenth: the decimal separator is the translation's own. -->
+    <string name="status_compress_size_megabytes">%1$s.%2$s MB</string>
+    <string name="status_compress_size_kilobytes">%1$s kB</string>
+    <plurals name="status_compress_size_bytes">
+        <item quantity="one">%1$s byte</item>
+        <item quantity="other">%1$s bytes</item>
+    </plurals>
+
+    <!-- Protect -->
+    <string name="status_protect_choose">Choose where to write the protected PDF.</string>
+    <string name="status_protect_cancelled">Protection cancelled. No file was written.</string>
+    <string name="status_protect_document_changed">The document changed before it could be protected. No file was written.</string>
+    <string name="status_protect_busy">Protecting PDF...</string>
+    <string name="status_protect_write_failed">Could not write the protected PDF.</string>
+    <string name="status_protect_done">Protected PDF saved and reopened.</string>
+    <string name="status_protect_not_reopened">The protected PDF was written, but it could not be reopened.</string>
+
+    <!-- Sign with a certificate -->
+    <string name="status_sign_choose">Choose where to write the signed PDF.</string>
+    <string name="status_sign_cancelled">Signing cancelled. No file was written.</string>
+    <string name="status_sign_document_changed">The document changed before it could be signed. No file was written.</string>
+    <string name="status_sign_busy">Signing PDF...</string>
+    <string name="status_sign_write_failed">Could not write the signed PDF.</string>
+    <string name="status_sign_done">Signed PDF saved and reopened.</string>
+    <string name="status_sign_password">Signed PDF saved. Enter its password to reopen it.</string>
+    <string name="status_sign_not_reopened">The signed PDF was written, but it could not be reopened.</string>
+</resources>

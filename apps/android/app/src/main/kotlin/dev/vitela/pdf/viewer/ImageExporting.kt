@@ -1,7 +1,9 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -67,7 +69,7 @@ internal class ImageExporting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.imageExport ?: return@withLock false
-                    state.value = state.value.copy(imageExport = latest.copy(message = userMessage(result.error)))
+                    state.value = state.value.copy(imageExport = latest.copy(message = dialogMessage(result.error)))
                     false
                 }
             }
@@ -77,7 +79,7 @@ internal class ImageExporting(private val session: ViewerSession) {
     /** The picker was dismissed: nothing is written and the plan is dropped. */
     fun cancel() {
         pending = null
-        state.value = state.value.copy(status = "Export cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_export_cancelled))
     }
 
     /**
@@ -98,7 +100,7 @@ internal class ImageExporting(private val session: ViewerSession) {
         pending = null
         if (state.value.imageExportRunning) return
         val plan = export.plan
-        state.value = state.value.copy(imageExportRunning = true, status = "Preparing the export...")
+        state.value = state.value.copy(imageExportRunning = true, status = UiText.Resource(R.string.status_export_preparing))
         var snapshot: PdfDocument? = null
         var written = 0
         try {
@@ -108,22 +110,22 @@ internal class ImageExporting(private val session: ViewerSession) {
                 withContext(session.compute) { openDocument.outputSnapshot() }
             }
             val source = when (taken) {
-                null -> return finish("The document changed. Export cancelled.")
-                is PdfCoreResult.Failure -> return finish("Could not export: ${userMessage(taken.error)} No file was written.")
+                null -> return finish(UiText.Resource(R.string.status_export_document_changed))
+                is PdfCoreResult.Failure -> return finish(UiText.Resource(R.string.status_export_failed, userMessage(taken.error)))
                 is PdfCoreResult.Success -> taken.value
             }
             snapshot = source
             for (file in plan.files) {
-                if (state.value.documentId != export.documentId) return finish("The document changed. Export cancelled.")
-                state.value = state.value.copy(status = "Exporting page ${file.pageIndex + 1} (${written + 1} of ${plan.files.size})...")
+                if (state.value.documentId != export.documentId) return finish(UiText.Resource(R.string.status_export_document_changed))
+                state.value = state.value.copy(status = UiText.Resource(R.string.status_export_busy, file.pageIndex + 1, written + 1, plan.files.size))
                 val rendered = withContext(session.compute) { source.exportPageImage(file.pageIndex, plan.dpi, plan.format) }
                 val image = when (rendered) {
                     is PdfCoreResult.Failure ->
-                        return finish("Page ${file.pageIndex + 1} could not be exported: ${userMessage(rendered.error)} $written written.")
+                        return finish(UiText.Resource(R.string.status_export_page_failed, file.pageIndex + 1, userMessage(rendered.error), written))
                     is PdfCoreResult.Success -> rendered.value
                 }
                 if (!withContext(session.io) { write(file.fileName, plan.format.mimeType, image) }) {
-                    return finish("Could not write ${file.fileName}. $written written.")
+                    return finish(UiText.Resource(R.string.status_export_write_failed, file.fileName, written))
                 }
                 written++
             }
@@ -135,7 +137,7 @@ internal class ImageExporting(private val session: ViewerSession) {
         }
     }
 
-    private fun finish(status: String) {
+    private fun finish(status: UiText) {
         state.value = state.value.copy(imageExportRunning = false, status = status)
     }
 

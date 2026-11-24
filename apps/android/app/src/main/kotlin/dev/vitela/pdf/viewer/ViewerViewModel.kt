@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
@@ -26,6 +27,7 @@ import dev.vitela.pdf.recovery.RecoveryKey
 import dev.vitela.pdf.recovery.RecoveryOffer
 import dev.vitela.pdf.recovery.RecoveryOffering
 import dev.vitela.pdf.recovery.RecoveryStore
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -179,7 +181,7 @@ class ViewerViewModel(
                 sourceRecent = null
                 sourceDiscardConfirmed = false
                 pendingReplacement = null
-                _state.value = ViewerState(canOpen = core != null, status = "Select a PDF to begin.")
+                _state.value = ViewerState(canOpen = core != null, status = UiText.Resource(R.string.status_open_select))
             }
         }
     }
@@ -202,7 +204,7 @@ class ViewerViewModel(
             sourceStartTool = startTool
             sourceRecent = recent
             sourceDiscardConfirmed = discardUnsaved
-            _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = "Opening PDF...")
+            _state.value = _state.value.copy(title = displayName, isLoading = true, needsPassword = false, passwordMessage = null, status = UiText.Resource(R.string.status_open_busy))
             when (val result = withContext(session.compute) { availableCore.openFromBytes(bytes, password) }) {
                 is PdfCoreResult.Success -> {
                     install(displayName, result.value, saveTarget, startTool)
@@ -360,12 +362,12 @@ class ViewerViewModel(
             isLoading = false,
             needsPassword = false,
             passwordMessage = null,
-            status = "Password entry cancelled.",
+            status = UiText.Resource(R.string.status_open_password_cancelled),
         )
     }
 
     fun reportReadFailure() {
-        _state.value = _state.value.copy(status = "Could not read the selected PDF.")
+        _state.value = _state.value.copy(status = UiText.Resource(R.string.status_open_unreadable))
     }
 
     // Home's Recent list
@@ -377,7 +379,7 @@ class ViewerViewModel(
     /** A Recent card whose document could not be read: its file is gone, or its provider is unreachable. */
     fun reportRecentUnavailable(displayName: String, removed: Boolean) {
         _state.value = _state.value.copy(
-            status = if (removed) "$displayName is no longer available and was removed from Recent." else "Could not open $displayName.",
+            status = if (removed) UiText.Resource(R.string.status_open_recent_removed, displayName) else UiText.Resource(R.string.status_open_recent_failed, displayName),
         )
     }
 
@@ -386,7 +388,7 @@ class ViewerViewModel(
         viewModelScope.launch {
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
-                _state.value = _state.value.copy(searchQuery = query, status = "Searching...")
+                _state.value = _state.value.copy(searchQuery = query, status = UiText.Resource(R.string.status_search_busy))
                 when (val result = withContext(session.compute) { openDocument.search(query) }) {
                     is PdfCoreResult.Success -> {
                         val hit = result.value.firstOrNull()
@@ -394,7 +396,7 @@ class ViewerViewModel(
                             searchHits = result.value,
                             searchIndex = 0,
                             scrollTarget = hit?.pageIndex,
-                            status = if (result.value.isEmpty()) "No matches." else "Match 1 of ${result.value.size}.",
+                            status = if (result.value.isEmpty()) UiText.Resource(R.string.status_search_none) else UiText.Resource(R.string.status_search_match, 1, result.value.size),
                         )
                     }
                     is PdfCoreResult.Failure -> _state.value = _state.value.copy(status = userMessage(result.error))
@@ -407,7 +409,7 @@ class ViewerViewModel(
         val hits = _state.value.searchHits
         val index = nextSearchIndex(_state.value.searchIndex, hits.size, delta)
         val hit = hits.getOrNull(index) ?: return
-        _state.value = _state.value.copy(searchIndex = index, scrollTarget = hit.pageIndex, status = "Match ${index + 1} of ${hits.size}.")
+        _state.value = _state.value.copy(searchIndex = index, scrollTarget = hit.pageIndex, status = UiText.Resource(R.string.status_search_match, index + 1, hits.size))
     }
 
     // Reader
@@ -606,7 +608,7 @@ class ViewerViewModel(
     /** Replaces the prepared image's picture with the picked file's [bytes]. */
     fun replaceImage(bytes: ByteArray) = contentEditing.images.replace(bytes)
     /** The picker was dismissed or its file unreadable; [status] says which. */
-    fun cancelImageReplacement(status: String) = contentEditing.images.cancelReplace(status)
+    fun cancelImageReplacement(status: UiText) = contentEditing.images.cancelReplace(status)
     /** Arms the next page tap to place a new line of text. */
     fun armTextInsert() = contentEditing.inserts.armText()
     /** Arms the next page tap to place the chosen image [bytes]. */
@@ -638,13 +640,13 @@ class ViewerViewModel(
     fun closeNoteReading() = annotations.closeNoteReading()
     fun selectImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes)
     fun pasteImageStamp(bytes: ByteArray) = annotations.selectImageStamp(bytes, PASTE_STAMP_PROMPT)
-    fun refusePaste(reason: String = CLIPBOARD_HAS_NO_IMAGE) {
+    fun refusePaste(reason: UiText = CLIPBOARD_HAS_NO_IMAGE) {
         _state.value = _state.value.copy(status = reason)
     }
 
     /** A file dropped from another app (T-092): an image on a page stamps there. */
     fun dropImageStamp(pageIndex: Int, point: AnnotationPoint, bytes: ByteArray) = annotations.dropImageStamp(pageIndex, point, bytes)
-    fun refuseDrop(reason: String) {
+    fun refuseDrop(reason: UiText) {
         _state.value = _state.value.copy(status = reason)
     }
 
@@ -682,7 +684,7 @@ class ViewerViewModel(
 
     private fun handleOpenFailure(error: PdfCoreError) {
         if (error !is PdfCoreError.PasswordRequired && error !is PdfCoreError.WrongPassword) sourceStartTool = null
-        _state.value = _state.value.copy(isLoading = false, needsPassword = error is PdfCoreError.PasswordRequired || error is PdfCoreError.WrongPassword, passwordMessage = if (error is PdfCoreError.WrongPassword) "The password is incorrect. Try again." else null, status = userMessage(error))
+        _state.value = _state.value.copy(isLoading = false, needsPassword = error is PdfCoreError.PasswordRequired || error is PdfCoreError.WrongPassword, passwordMessage = if (error is PdfCoreError.WrongPassword) UiText.Resource(R.string.status_open_password_wrong) else null, status = userMessage(error))
     }
 
     override fun onCleared() {
@@ -698,4 +700,4 @@ class ViewerViewModel(
     private data class PendingReplacement(val displayName: String, val bytes: ByteArray, val password: String?, val saveTarget: String?, val startTool: DocumentStartTool?, val recent: String?)
 }
 
-private fun availabilityMessage(core: PdfCore?): String = if (core == null) "Native PDF support is not packaged. Build with scripts/package-android.sh and externally supplied PDFium libraries." else "Select a PDF to begin."
+private fun availabilityMessage(core: PdfCore?): UiText = if (core == null) UiText.Resource(R.string.status_open_unavailable) else UiText.Resource(R.string.status_open_select)

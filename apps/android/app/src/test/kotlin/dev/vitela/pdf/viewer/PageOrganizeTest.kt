@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -106,10 +107,10 @@ class PageOrganizeTest {
 
     @Test
     fun theStatusNamesTheEditAndSaysItIsPending() {
-        assertEquals("Page moved. Changes are pending save.", organizeStatus(PageEdit.Move(0, 1)))
-        assertEquals("Page rotated. Changes are pending save.", organizeStatus(PageEdit.Rotate(0, 90)))
-        assertEquals("Page deleted. Changes are pending save.", organizeStatus(PageEdit.Remove(0)))
-        assertEquals("Blank page added. Changes are pending save.", organizeStatus(PageEdit.InsertBlank(0)))
+        assertEquals("Page moved. Changes are pending save.", organizeStatus(PageEdit.Move(0, 1)).english())
+        assertEquals("Page rotated. Changes are pending save.", organizeStatus(PageEdit.Rotate(0, 90)).english())
+        assertEquals("Page deleted. Changes are pending save.", organizeStatus(PageEdit.Remove(0)).english())
+        assertEquals("Blank page added. Changes are pending save.", organizeStatus(PageEdit.InsertBlank(0)).english())
     }
 
     @Test

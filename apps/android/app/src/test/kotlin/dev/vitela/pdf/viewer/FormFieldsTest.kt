@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.NewFormField
 import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -108,8 +109,8 @@ class FormFieldsTest {
     @Test
     fun theArmedTapIsAnnouncedAboveTheRows() {
         val panel = FormFieldsState(listOf(field), fillAllowed = true, authoringAllowed = true, loaded = true)
-        assertEquals("Tap a page to place a checkbox.", formFieldsNotice(panel.copy(armed = FormFieldTap.Place(NewFormField.Checkbox))))
-        assertEquals("Tap page 1 where Name should go.", formFieldsNotice(panel.copy(armed = FormFieldTap.Move(1, 0))))
+        assertEquals("Tap a page to place a checkbox.", formFieldsNotice(panel.copy(armed = FormFieldTap.Place(NewFormField.Checkbox)))?.english())
+        assertEquals("Tap page 1 where Name should go.", formFieldsNotice(panel.copy(armed = FormFieldTap.Move(1, 0)))?.english())
     }
 
     @Test

@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentFontKind
@@ -7,6 +8,7 @@ import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
+import dev.vitela.pdf.text.UiText
 import kotlin.math.max
 
 /**
@@ -141,39 +143,39 @@ sealed interface ContentTarget {
 }
 
 // Wording follows the Windows shell's where it has one.
-internal const val CONTENT_EDIT_ARMED = "Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
-internal const val CONTENT_EDIT_OFF = "Content editing off."
-internal const val CONTENT_EDIT_MISSED = "Nothing to edit there. Tap a line of text to retype, move or delete it, an image to resize, move, replace or delete it, or a line or box to resize, move or delete it."
-internal const val CONTENT_EDIT_FORBIDDEN = "This document does not permit content changes."
-internal const val TEXT_UPDATED = "Text updated. Save to keep the change."
-internal const val TEXT_DELETED = "Text deleted. Save to keep the change."
-internal const val TEXT_MOVED = "Text moved. Save to keep the change."
-internal const val TEXT_POSITION_UNCHANGED = "Text position unchanged."
-internal const val IMAGE_RESIZED = "Image resized. Save to keep the change."
+internal val CONTENT_EDIT_ARMED: UiText = UiText.Resource(R.string.status_content_armed)
+internal val CONTENT_EDIT_OFF: UiText = UiText.Resource(R.string.status_content_off)
+internal val CONTENT_EDIT_MISSED: UiText = UiText.Resource(R.string.status_content_missed)
+internal val CONTENT_EDIT_FORBIDDEN: UiText = UiText.Resource(R.string.status_content_forbidden)
+internal val TEXT_UPDATED: UiText = UiText.Resource(R.string.status_content_text_updated)
+internal val TEXT_DELETED: UiText = UiText.Resource(R.string.status_content_text_deleted)
+internal val TEXT_MOVED: UiText = UiText.Resource(R.string.status_content_text_moved)
+internal val TEXT_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_text_position_unchanged)
+internal val IMAGE_RESIZED: UiText = UiText.Resource(R.string.status_content_image_resized)
 internal const val IMAGE_SIZE_INVALID = "Image dimensions must be finite and greater than zero."
-internal const val IMAGE_MOVED = "Image moved. Save to keep the change."
-internal const val IMAGE_POSITION_UNCHANGED = "Image position unchanged."
-internal const val MOVE_CANCELLED = "Move cancelled."
-internal const val IMAGE_DELETED = "Image deleted. Save to keep the change."
-internal const val IMAGE_REPLACED = "Image replaced. Save to keep the change."
-internal const val IMAGE_REPLACE_CANCELLED = "Replace cancelled."
-internal const val IMAGE_UNREADABLE = "The selected image could not be read."
-internal const val TEXT_INSERT_PROMPT = "Tap the page where the new text's top-left corner should go."
-internal const val IMAGE_INSERT_PROMPT = "Tap the page where the image's top-left corner should go."
-internal const val INSERT_CANCELLED = "Insert cancelled."
-internal const val TEXT_INSERTED = "Text inserted. Save to keep the change."
+internal val IMAGE_MOVED: UiText = UiText.Resource(R.string.status_content_image_moved)
+internal val IMAGE_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_image_position_unchanged)
+internal val MOVE_CANCELLED: UiText = UiText.Resource(R.string.status_content_move_cancelled)
+internal val IMAGE_DELETED: UiText = UiText.Resource(R.string.status_content_image_deleted)
+internal val IMAGE_REPLACED: UiText = UiText.Resource(R.string.status_content_image_replaced)
+internal val IMAGE_REPLACE_CANCELLED: UiText = UiText.Resource(R.string.status_content_image_replace_cancelled)
+internal val IMAGE_UNREADABLE: UiText = UiText.Resource(R.string.status_content_image_unreadable)
+internal val TEXT_INSERT_PROMPT: UiText = UiText.Resource(R.string.status_content_text_insert_prompt)
+internal val IMAGE_INSERT_PROMPT: UiText = UiText.Resource(R.string.status_content_image_insert_prompt)
+internal val INSERT_CANCELLED: UiText = UiText.Resource(R.string.status_content_insert_cancelled)
+internal val TEXT_INSERTED: UiText = UiText.Resource(R.string.status_content_text_inserted)
 internal const val TEXT_INSERT_EMPTY = "Enter a nonempty single line of text."
 internal const val TEXT_SIZE_INVALID = "Text size must be between 1 and 72 pt."
-internal const val IMAGE_INSERTED = "Image inserted. Save to keep the change."
+internal val IMAGE_INSERTED: UiText = UiText.Resource(R.string.status_content_image_inserted)
 
 /** The size a new line starts at, in points; the Windows shell's default. */
 internal const val DEFAULT_INSERTED_TEXT_SIZE = 14.0
 
 /** What an armed move asks for; the image stays on its own page. */
-internal fun imageMovePrompt(pageIndex: Int) = "Drag the image, or tap page ${pageIndex + 1} where its top-left corner should go."
+internal fun imageMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.status_content_image_move_prompt, pageIndex + 1)
 
 /** What an armed text move asks for; the block stays on its own page. */
-internal fun textMovePrompt(pageIndex: Int) = "Drag the text, or tap page ${pageIndex + 1} where its top-left corner should go."
+internal fun textMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.status_content_text_move_prompt, pageIndex + 1)
 internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
 
 /**

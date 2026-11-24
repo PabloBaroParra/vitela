@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -154,7 +155,7 @@ internal class FormAuthoring(
      * Sends one field edit. Disarmed first — one tap, one edit — so a second
      * tap before the core answers places nothing.
      */
-    private fun commit(openDocument: PdfDocument, done: String, edit: PdfDocument.() -> PdfCoreResult<Unit>) {
+    private fun commit(openDocument: PdfDocument, done: UiText, edit: PdfDocument.() -> PdfCoreResult<Unit>) {
         disarm()
         session.scope.launch {
             session.documentLane.withLock {

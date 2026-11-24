@@ -1,8 +1,10 @@
 package dev.vitela.pdf.recovery
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RecoverySnapshot
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.viewer.ViewerSession
 import java.io.IOException
 import kotlinx.coroutines.CoroutineStart
@@ -13,7 +15,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-internal const val AUTOSAVE_UNAVAILABLE = "Autosave is unavailable, so a crash would lose your unsaved changes. Save to keep them."
+internal val AUTOSAVE_UNAVAILABLE: UiText = UiText.Resource(R.string.status_recovery_autosave_unavailable)
 
 /**
  * Keeps a recovery copy of the open document's unsaved work in this viewer's

@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -71,7 +72,7 @@ class ViewerViewModelTextDeleteTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals(refusal, state.status)
+        assertEquals(refusal, state.status.english())
         assertFalse(state.isDirty)
         assertEquals(listOf(10L, 11L), state.contentEdit?.blocks?.get(0)?.map { it.id })
     }

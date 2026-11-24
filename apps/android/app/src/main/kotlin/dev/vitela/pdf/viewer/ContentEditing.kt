@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -182,7 +183,7 @@ internal class ContentEditing(
      * read so far are read again and what the mode holds is dropped ([catchUp]),
      * before [settled] runs — so a [settled] that looks at the selection finds none.
      */
-    suspend fun landed(document: PdfDocument, pageIndex: Int, status: String, spend: () -> Unit = {}, settled: () -> Unit = {}) {
+    suspend fun landed(document: PdfDocument, pageIndex: Int, status: UiText, spend: () -> Unit = {}, settled: () -> Unit = {}) {
         layout.markRedrawn()
         state.value = state.value.copy(isDirty = true, revision = state.value.revision + 1)
         spend()

@@ -7,6 +7,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -71,7 +72,7 @@ class ViewerViewModelProtectTest {
 
         assertEquals("a-protected.pdf", viewModel.confirmProtect("user", "owner"))
         assertNull(viewModel.state.value.protect)
-        assertEquals("Choose where to write the protected PDF.", viewModel.state.value.status)
+        assertEquals("Choose where to write the protected PDF.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -98,7 +99,7 @@ class ViewerViewModelProtectTest {
         assertEquals("content://target", state.saveTarget)
         assertFalse(state.isDirty)
         assertFalse(state.protectRunning)
-        assertEquals("Protected PDF saved and reopened.", state.status)
+        assertEquals("Protected PDF saved and reopened.", state.status.english())
     }
 
     @Test
@@ -135,7 +136,7 @@ class ViewerViewModelProtectTest {
         viewModel.writeProtected("a-protected.pdf", null) { writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("Saving would invalidate this document's signature, so it was not saved.", viewModel.state.value.status)
+        assertEquals("Saving would invalidate this document's signature, so it was not saved.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.protectRunning)
     }
 
@@ -151,7 +152,7 @@ class ViewerViewModelProtectTest {
         viewModel.confirmProtect("user", "owner")
         viewModel.writeProtected("a-protected.pdf", null) { false }
 
-        assertEquals("Could not write the protected PDF.", viewModel.state.value.status)
+        assertEquals("Could not write the protected PDF.", viewModel.state.value.status.english())
         assertEquals("a.pdf", viewModel.state.value.title)
         assertEquals(emptyList<Triple<List<Byte>, String, String>>(), core.reopenings)
         assertFalse(document.closed)
@@ -168,7 +169,7 @@ class ViewerViewModelProtectTest {
         viewModel.confirmProtect("user", "owner")
         viewModel.writeProtected("a-protected.pdf", null) { true }
 
-        assertEquals("The protected PDF was written, but it could not be reopened. This document requires a password.", viewModel.state.value.status)
+        assertEquals("The protected PDF was written, but it could not be reopened. This document requires a password.", viewModel.state.value.status.english())
         assertEquals("a.pdf", viewModel.state.value.title)
     }
 
@@ -185,7 +186,7 @@ class ViewerViewModelProtectTest {
 
         assertEquals(0, writes)
         assertEquals(emptyList<Pair<String, String>>(), document.protections)
-        assertEquals("Protection cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Protection cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test

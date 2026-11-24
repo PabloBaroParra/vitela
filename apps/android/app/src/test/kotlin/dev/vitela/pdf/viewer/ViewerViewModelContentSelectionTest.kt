@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -254,7 +255,7 @@ class ViewerViewModelContentSelectionTest {
         viewModel.moveContentSelection(0, dx = 5.0, dy = 0.0)
         advanceUntilIdle()
 
-        assertEquals(reason, viewModel.state.value.status)
+        assertEquals(reason, viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.isDirty)
         assertEquals(listOf(30L), viewModel.selection()?.images?.map { it.id })
     }
@@ -291,7 +292,7 @@ class ViewerViewModelContentSelectionTest {
         viewModel.deleteContentSelection()
         advanceUntilIdle()
 
-        assertEquals(reason, viewModel.state.value.status)
+        assertEquals(reason, viewModel.state.value.status.english())
         assertEquals(1, viewModel.selection()?.count)
     }
 

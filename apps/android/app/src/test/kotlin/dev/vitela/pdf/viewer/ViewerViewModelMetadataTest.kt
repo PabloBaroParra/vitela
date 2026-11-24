@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -58,7 +59,7 @@ class ViewerViewModelMetadataTest {
         assertEquals(listOf(DocumentInfo(title = "Final report", author = null)), document.applied)
         assertTrue(state.isDirty)
         assertEquals(1L, state.revision)
-        assertEquals("Document properties updated. Changes are pending save.", state.status)
+        assertEquals("Document properties updated. Changes are pending save.", state.status.english())
     }
 
     @Test

@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SaveSnapshot
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -52,7 +54,7 @@ internal class DocumentSaving(private val session: ViewerSession, private val on
         session.scope.launch {
             session.documentLane.withLock {
                 if (state.value.matches(snapshot)) {
-                    state.value = state.value.copy(isDirty = false, status = "Saved.")
+                    state.value = state.value.copy(isDirty = false, status = UiText.Resource(R.string.status_save_done))
                     onSaved()
                 }
             }
@@ -60,7 +62,7 @@ internal class DocumentSaving(private val session: ViewerSession, private val on
     }
 
     fun reportSaveFailure() {
-        state.value = state.value.copy(status = "Could not save the PDF.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_save_failed))
     }
 
     /** A snapshot for **Save**, or null when the open document has nowhere writable to go back to. */
@@ -91,6 +93,6 @@ internal class DocumentSaving(private val session: ViewerSession, private val on
             reportSaveFailure()
             return
         }
-        state.value = current.copy(saveTarget = null, status = "Could not save to the original file. Use Save copy instead.")
+        state.value = current.copy(saveTarget = null, status = UiText.Resource(R.string.status_save_in_place_failed))
     }
 }

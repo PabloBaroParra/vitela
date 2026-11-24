@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -64,7 +66,7 @@ internal class PageExtracting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.pageExtract ?: return@withLock null
-                    state.value = state.value.copy(pageExtract = latest.copy(message = userMessage(result.error)))
+                    state.value = state.value.copy(pageExtract = latest.copy(message = dialogMessage(result.error)))
                     null
                 }
             }
@@ -74,7 +76,7 @@ internal class PageExtracting(private val session: ViewerSession) {
     /** The picker was dismissed: nothing is written and the plan is dropped. */
     fun cancel() {
         pending = null
-        state.value = state.value.copy(status = "Extract cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_extract_cancelled))
     }
 
     /** Asks the core for the extracted PDF and hands it to [write]. The plan is spent either way. */
@@ -83,22 +85,22 @@ internal class PageExtracting(private val session: ViewerSession) {
         pending = null
         val plan = extract.plan
         val count = plan.pages.size
-        state.value = state.value.copy(status = "Extracting $count ${if (count == 1) "page" else "pages"}...")
+        state.value = state.value.copy(status = UiText.Plural(R.plurals.status_extract_busy, count, count))
         val result = session.documentLane.withLock {
             val openDocument = session.document
             if (openDocument == null || state.value.documentId != extract.documentId) return@withLock null
             withContext(session.compute) { openDocument.extractPages(plan.pages) }
         }
         val bytes = when (result) {
-            null -> return report("The document changed. Extract cancelled.")
+            null -> return report(UiText.Resource(R.string.status_extract_document_changed))
             is PdfCoreResult.Failure -> return report(userMessage(result.error))
             is PdfCoreResult.Success -> result.value
         }
-        if (!withContext(session.io) { write(bytes) }) return report("Could not write the extracted PDF.")
+        if (!withContext(session.io) { write(bytes) }) return report(UiText.Resource(R.string.status_extract_write_failed))
         report(pageExtractSummary(count, plan.sourceIsSigned))
     }
 
-    private fun report(status: String) {
+    private fun report(status: UiText) {
         state.value = state.value.copy(status = status)
     }
 

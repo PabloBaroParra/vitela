@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -66,7 +67,7 @@ class ViewerViewModelPrintTest {
 
         assertNull(viewModel.printDocument())
 
-        assertEquals("boom", viewModel.state.value.status)
+        assertEquals("boom", viewModel.state.value.status.english())
         assertFalse("the live document must stay open", core.opened.single().closed)
     }
 
@@ -80,7 +81,7 @@ class ViewerViewModelPrintTest {
 
         assertNull(viewModel.printDocument())
 
-        assertEquals("Printing is unavailable in this PDF core.", viewModel.state.value.status)
+        assertEquals("Printing is unavailable in this PDF core.", viewModel.state.value.status.english())
         assertEquals(1, core.opened.size)
     }
 

@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
@@ -94,7 +95,7 @@ class ViewerViewModelSaveTest {
         val state = viewModel.state.value
         assertNull(state.saveTarget)
         assertEquals(true, state.isDirty)
-        assertEquals("Could not save to the original file. Use Save copy instead.", state.status)
+        assertEquals("Could not save to the original file. Use Save copy instead.", state.status.english())
     }
 
     @Test

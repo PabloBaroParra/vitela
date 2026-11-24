@@ -7,6 +7,8 @@ import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SaveSnapshot
+import dev.vitela.pdf.text.UiText
+import dev.vitela.pdf.text.english
 import dev.vitela.pdf.viewer.AnnotationTool
 import dev.vitela.pdf.viewer.ViewerDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -323,12 +325,12 @@ class ViewerViewModelAutosaveTest {
         viewer.startAutosave()
         tick()
         assertEquals(1, store.writes)
-        assertTrue(viewer.state.value.status, viewer.state.value.status.startsWith("Autosave is unavailable"))
+        assertTrue(viewer.state.value.status.english(), viewer.state.value.status.english().startsWith("Autosave is unavailable"))
 
-        viewer.refuseDrop("something else")
+        viewer.refuseDrop(UiText.Verbatim("something else"))
         tick()
         assertEquals(2, store.writes)
-        assertEquals("something else", viewer.state.value.status)
+        assertEquals("something else", viewer.state.value.status.english())
         // Two failures in a row wait two minutes.
         tick()
         assertEquals(2, store.writes)

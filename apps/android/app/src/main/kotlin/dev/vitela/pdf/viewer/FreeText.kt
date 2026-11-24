@@ -1,11 +1,13 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FreeTextLine
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.UiText
 
 /** A new text box's size, in points, before it is clamped to the page. */
 internal const val FREE_TEXT_WIDTH_PT = 200.0
@@ -19,11 +21,11 @@ internal const val FREE_TEXT_HEIGHT_PT = 50.0
 internal const val FREE_TEXT_MIN_WIDTH_PT = 16.0
 internal const val FREE_TEXT_MIN_HEIGHT_PT = 17.8
 
-internal const val FREE_TEXT_ADDED = "Text box added. Save to keep it."
-internal const val FREE_TEXT_EDITED = "Text updated. Save to keep the change."
-internal const val FREE_TEXT_UNCHANGED = "Text unchanged."
-internal const val FREE_TEXT_CANCELED = "Text box canceled."
-internal const val ANNOTATION_CHANGED_UNDER_EDITOR = "The text box changed while the dialog was open. Nothing was changed."
+internal val FREE_TEXT_ADDED: UiText = UiText.Resource(R.string.status_annotation_text_box_added)
+internal val FREE_TEXT_EDITED: UiText = UiText.Resource(R.string.status_annotation_text_box_edited)
+internal val FREE_TEXT_UNCHANGED: UiText = UiText.Resource(R.string.status_annotation_text_box_unchanged)
+internal val FREE_TEXT_CANCELED: UiText = UiText.Resource(R.string.status_annotation_text_box_cancelled)
+internal val ANNOTATION_CHANGED_UNDER_EDITOR: UiText = UiText.Resource(R.string.status_annotation_text_box_changed)
 
 /** What the text dialog is for: a box about to be placed, or the text of one already there. */
 sealed interface FreeTextTarget {

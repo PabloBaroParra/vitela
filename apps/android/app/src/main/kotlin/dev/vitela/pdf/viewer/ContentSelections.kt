@@ -1,26 +1,27 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
+import dev.vitela.pdf.text.UiText
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 // Wording follows the Windows and Linux shells'; a touch screen has no SHIFT or Esc, so the hint names taps instead.
-private const val SELECTION_HINT = "drag inside the dashed box to move them, Delete removes them, tap an item to add or remove it."
-internal const val SELECTION_EMPTY = "Nothing there to select."
-internal const val SELECTION_CLEARED = "Selection cleared."
-internal const val SELECTION_MOVED = "Selection moved. Save to keep the change."
-internal const val SELECTION_DELETED = "Selection deleted. Save to keep the change."
-internal const val SELECTION_POSITION_UNCHANGED = "Selection position unchanged."
+internal val SELECTION_EMPTY: UiText = UiText.Resource(R.string.status_selection_empty)
+internal val SELECTION_CLEARED: UiText = UiText.Resource(R.string.status_selection_cleared)
+internal val SELECTION_MOVED: UiText = UiText.Resource(R.string.status_selection_moved)
+internal val SELECTION_DELETED: UiText = UiText.Resource(R.string.status_selection_deleted)
+internal val SELECTION_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_selection_position_unchanged)
 
 /** What the status line says once [count] items are selected. */
-internal fun selectedMessage(count: Int) = "$count ${if (count == 1) "item" else "items"} selected — $SELECTION_HINT"
+internal fun selectedMessage(count: Int): UiText = UiText.Plural(R.plurals.status_selection_count, count, count)
 
 /** The box a marquee dragged from [from] to [to] covers, whichever corner it started at. */
 internal fun marqueeRect(from: AnnotationPoint, to: AnnotationPoint) =

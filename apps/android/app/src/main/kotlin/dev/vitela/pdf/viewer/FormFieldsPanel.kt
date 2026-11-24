@@ -47,6 +47,7 @@ import dev.vitela.pdf.core.FormField
 import dev.vitela.pdf.core.FormFieldKind
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.NewFormField
+import dev.vitela.pdf.text.resolve
 
 /** What the Form fields panel can ask of the ViewModel; one value so the screen's parameter list stays short. */
 internal class FormFieldActions(
@@ -98,7 +99,7 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
                 // while the panel is there to take it.
                 TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text("Close") }
             }
-            formFieldsNotice(panel)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            formFieldsNotice(panel)?.let { Text(it.resolve(), style = MaterialTheme.typography.bodyMedium) }
             if (panel.authoringAllowed) PlaceFieldChips(panel.armed, actions.onArm)
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Keyed by document too: a row's remembered draft must not survive into another file's field of the same id.

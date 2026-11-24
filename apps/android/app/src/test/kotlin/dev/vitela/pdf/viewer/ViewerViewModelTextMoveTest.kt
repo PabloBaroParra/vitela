@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -116,7 +117,7 @@ class ViewerViewModelTextMoveTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals(refusal, state.status)
+        assertEquals(refusal, state.status.english())
         assertNull(state.contentEdit?.movingBlock)
         assertFalse(state.isDirty)
     }

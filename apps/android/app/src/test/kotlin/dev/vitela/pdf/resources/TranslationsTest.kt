@@ -12,6 +12,8 @@ class TranslationsTest {
     @Test
     fun spanishHasExactlyTheEnglishNames() {
         assertTrue(english.strings.isNotEmpty())
+        assertEquals(listOf("strings.xml", "strings_status.xml"), english.files)
+        assertEquals(english.files, spanish.files)
         assertEquals(english.strings.keys, spanish.strings.keys)
         assertEquals(english.plurals.keys, spanish.plurals.keys)
     }
@@ -41,7 +43,12 @@ class TranslationsTest {
         english.strings.forEach { (name, text) -> assertEquals(name, placeholders(text), placeholders(spanish.strings.getValue(name))) }
         english.plurals.forEach { (name, items) ->
             val expected = placeholders(items.getValue("other"))
-            (items.values + spanish.plurals.getValue(name).values).forEach { assertEquals(name, expected, placeholders(it)) }
+            // The `one` form may leave the number out ("Page moved."), in both languages or in neither.
+            val one = placeholders(items.getValue("one"))
+            assertTrue(name, one == expected || one == expected - "%1\$s")
+            listOf(items, spanish.plurals.getValue(name)).forEach { forms ->
+                forms.forEach { (quantity, text) -> assertEquals(name, if (quantity == "one") one else expected, placeholders(text)) }
+            }
         }
     }
 

@@ -5,12 +5,14 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
 import java.io.ByteArrayOutputStream
 import kotlin.math.ceil
 
-internal const val SIGNATURE_STAMP_PROMPT = "Tap a page to place your signature."
-internal const val SIGNATURE_PLACED = "Signature placed. Save to keep it."
-internal const val SIGNATURE_UNRENDERABLE = "The signature could not be turned into an image."
+internal val SIGNATURE_STAMP_PROMPT: UiText = UiText.Resource(R.string.status_signature_prompt)
+internal val SIGNATURE_PLACED: UiText = UiText.Resource(R.string.status_signature_placed)
+internal val SIGNATURE_UNRENDERABLE: UiText = UiText.Resource(R.string.status_signature_unrenderable)
 
 /** Longest side of the PNG: the core places a stamp at most 144 pt long, so this is already ~600 DPI. */
 internal const val SIGNATURE_MAX_SIDE_PX = 1200
