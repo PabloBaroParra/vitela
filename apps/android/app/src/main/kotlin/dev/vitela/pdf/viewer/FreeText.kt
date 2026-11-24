@@ -105,9 +105,12 @@ internal fun freeTextDrawing(annotation: Annotation, placement: PagePlacement): 
 /** **Add** / **Save** stays disabled while the text is blank, and while the core is still answering. */
 internal fun freeTextConfirmEnabled(text: String, busy: Boolean): Boolean = text.isNotBlank() && !busy
 
-internal fun freeTextDialogTitle(draft: FreeTextDraft): String =
-    (if (draft.target is FreeTextTarget.Place) "Add text box" else "Edit text") + " — page ${draft.pageIndex + 1}"
+internal fun freeTextDialogTitle(draft: FreeTextDraft): UiText = UiText.Resource(
+    if (draft.target is FreeTextTarget.Place) R.string.text_box_add_title else R.string.text_box_edit_title,
+    draft.pageIndex + 1,
+)
 
-internal fun freeTextConfirmLabel(draft: FreeTextDraft): String = if (draft.target is FreeTextTarget.Place) "Add" else "Save"
+internal fun freeTextConfirmLabel(draft: FreeTextDraft): UiText =
+    UiText.Resource(if (draft.target is FreeTextTarget.Place) R.string.dialog_add else R.string.dialog_save)
 
 internal fun freeTextInitialText(draft: FreeTextDraft): String = (draft.target as? FreeTextTarget.Retype)?.contents.orEmpty()

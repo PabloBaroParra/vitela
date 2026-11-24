@@ -16,8 +16,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.text.resolve
 
@@ -36,11 +38,11 @@ internal fun CompressDialog(
     val enabled = editor.refusal == null
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Compress PDF") },
+        title = { Text(stringResource(R.string.compress_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 editor.refusal?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                Text("Writes a smaller copy. The open document stays as it is.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.compress_detail), style = MaterialTheme.typography.bodyMedium)
                 CompressPreset.entries.forEach { preset ->
                     val (name, description) = describePreset(preset)
                     Row(
@@ -49,14 +51,14 @@ internal fun CompressDialog(
                     ) {
                         RadioButton(selected = editor.preset == preset, onClick = null, enabled = enabled)
                         Column(modifier = Modifier.padding(start = 8.dp)) {
-                            Text(name, style = MaterialTheme.typography.labelLarge)
-                            Text(description, style = MaterialTheme.typography.bodySmall)
+                            Text(name.resolve(), style = MaterialTheme.typography.labelLarge)
+                            Text(description.resolve(), style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
                 if (editor.signaturesWillBreak) {
                     Text(
-                        "This document is signed. Compressing rewrites the file, so the compressed copy's digital signature will no longer verify.",
+                        stringResource(R.string.compress_signed),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -64,8 +66,8 @@ internal fun CompressDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onCompress, enabled = enabled) { Text(if (editor.signaturesWillBreak) "Compress anyway" else "Compress") }
+            Button(onClick = onCompress, enabled = enabled) { Text(if (editor.signaturesWillBreak) stringResource(R.string.compress_anyway) else stringResource(R.string.compress_confirm)) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

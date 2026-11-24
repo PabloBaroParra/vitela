@@ -14,9 +14,9 @@ class CompressionTest {
     fun everyPresetIsDescribedWithBalancedAsTheDefaultOffer() {
         assertEquals(listOf(CompressPreset.Lossless, CompressPreset.Balanced, CompressPreset.Small), CompressPreset.entries)
         assertEquals(CompressPreset.Balanced, DEFAULT_COMPRESS_PRESET)
-        assertEquals("Lossless", describePreset(CompressPreset.Lossless).first)
-        assertEquals("Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.", describePreset(CompressPreset.Balanced).second)
-        assertEquals("Small", describePreset(CompressPreset.Small).first)
+        assertEquals("Lossless", describePreset(CompressPreset.Lossless).first.english())
+        assertEquals("Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.", describePreset(CompressPreset.Balanced).second.english())
+        assertEquals("Small", describePreset(CompressPreset.Small).first.english())
     }
 
     @Test

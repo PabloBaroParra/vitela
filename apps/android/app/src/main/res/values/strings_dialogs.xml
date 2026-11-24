@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dialogs, the form fields panel and printing. Numbers are passed as %s, not %d, as in strings.xml. -->
+<resources>
+    <!-- Shared by the dialogs -->
+    <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_close">Close</string>
+    <string name="dialog_add">Add</string>
+    <string name="dialog_save">Save</string>
+    <string name="dialog_delete">Delete</string>
+    <string name="dialog_move">Move</string>
+    <string name="dialog_resize">Resize</string>
+    <string name="dialog_use">Use</string>
+    <string name="dialog_open">Open</string>
+    <string name="dialog_width">Width (pt)</string>
+    <string name="dialog_height">Height (pt)</string>
+    <string name="dialog_size">Size (pt)</string>
+    <string name="dialog_text">Text</string>
+    <string name="dialog_pages">Pages</string>
+    <string name="dialog_pages_all">All pages</string>
+    <string name="dialog_pages_current">Current page</string>
+    <string name="dialog_pages_custom">Custom range</string>
+    <string name="dialog_pages_example">e.g. 1-3,7</string>
+
+    <!-- Discarding unsaved changes -->
+    <string name="discard_title">Discard unsaved changes?</string>
+    <string name="discard_close_detail">Closing this PDF will discard your unsaved changes and return to Home.</string>
+    <string name="discard_close">Discard and close</string>
+    <string name="discard_open_detail">Open %1$s and discard the current unsaved changes?</string>
+    <string name="discard_open">Discard and open</string>
+    <string name="discard_keep_editing">Keep editing</string>
+
+    <!-- Passwords -->
+    <string name="password_title">Password required</string>
+    <string name="password_label">Password</string>
+    <string name="password_show">Show</string>
+    <string name="password_hide">Hide</string>
+
+    <!-- Comments, notes and text boxes -->
+    <string name="comments_title">Comments</string>
+    <string name="comments_empty">No comments in this document.</string>
+    <string name="note_add_title">Add note — page %1$s</string>
+    <string name="note_read_title">Note — page %1$s</string>
+    <string name="note_text">Note text</string>
+    <string name="text_box_add_title">Add text box — page %1$s</string>
+    <string name="text_box_edit_title">Edit text — page %1$s</string>
+
+    <!-- Annotation size and position -->
+    <string name="annotation_resize_title">Resize annotation — page %1$s</string>
+    <string name="annotation_resize_help">The annotation keeps its bottom-left corner. Width and height are independent; stamps stretch to fit.</string>
+    <string name="annotation_move_title">Move annotation — page %1$s</string>
+    <string name="annotation_move_help">Position the annotation\'s bottom-left bounds in unrotated PDF space. X increases rightward; Y increases upward. Size stays unchanged.</string>
+
+    <!-- Edit content: the help names the buttons, so it uses their words -->
+    <string name="content_text_title">Edit text</string>
+    <string name="content_text_retype">Retype</string>
+    <string name="content_text_font_substituted">This text\'s font cannot be kept. What you type will use a standard font.</string>
+    <string name="content_text_help_move">Move lets you drag this text, or tap where it should go, keeping its font and size.</string>
+    <string name="content_text_help_save">Moving a line you already retyped, or retyping one you already moved, needs a save first.</string>
+    <string name="content_text_help_delete">Delete takes it off the page; Undo puts it back. It is not a secure redaction.</string>
+    <string name="content_image_title">Edit image</string>
+    <string name="content_image_replace">Replace</string>
+    <string name="content_image_help">The image keeps its top-left corner and is stretched to the size you enter. Move lets you drag it, or tap where it should go, keeping its size. Replace swaps its picture for a PNG or JPEG, stretched to the same box; save first if the image already has a pending edit. Delete takes it off the page; Undo puts it back.</string>
+    <string name="content_shape_title">Edit shape</string>
+    <string name="content_shape_help">The shape keeps its top-left corner and its line width, and is stretched to the size you enter; the text inside it is not touched. A line has no height to change. Move lets you drag it, or tap where it should go, keeping its size. Delete takes it off the page; Undo puts it back.</string>
+    <string name="content_insert_title">Add text — page %1$s</string>
+    <string name="content_insert_help">Adds one line of Helvetica text as page content, its top-left corner where you tapped. Some characters cannot be shown in this font.</string>
+    <string name="content_insert">Insert</string>
+
+    <!-- Watermark -->
+    <string name="watermark_title">Add watermark</string>
+    <string name="watermark_kind">Watermark</string>
+    <string name="watermark_kind_text">Text</string>
+    <string name="watermark_kind_picture">Picture</string>
+    <string name="watermark_choose_picture">Choose picture…</string>
+    <string name="watermark_choose_another">Choose another picture…</string>
+    <string name="watermark_no_picture">No picture chosen. PNG or JPEG.</string>
+    <string name="watermark_picture_chosen">Picture chosen (%1$s KB).</string>
+    <string name="watermark_size_points">Size: %1$s pt</string>
+    <string name="watermark_size_percent">Size: %1$s%% of the page</string>
+    <string name="watermark_opacity">Opacity: %1$s%%</string>
+    <string name="watermark_angle">Angle: %1$s°</string>
+    <string name="watermark_placement">Placement</string>
+    <string name="watermark_over">Over the page content</string>
+    <string name="watermark_behind">Behind the page content</string>
+
+    <!-- Document properties -->
+    <string name="metadata_title">Document properties</string>
+    <string name="metadata_field_title">Title</string>
+    <string name="metadata_field_author">Author</string>
+    <string name="metadata_field_subject">Subject</string>
+    <string name="metadata_field_keywords">Keywords</string>
+    <string name="metadata_field_creator">Creator</string>
+    <string name="metadata_field_producer">Producer</string>
+    <string name="metadata_apply">Apply</string>
+
+    <!-- Export images -->
+    <string name="export_title">Export pages as images</string>
+    <string name="export_format">Format</string>
+    <string name="export_resolution">Resolution (%1$s-%2$s DPI)</string>
+    <string name="export_confirm">Export</string>
+
+    <!-- Extract pages -->
+    <string name="extract_title">Extract pages to a new PDF</string>
+    <string name="extract_confirm">Extract</string>
+
+    <!-- Split -->
+    <string name="split_title">Split PDF</string>
+    <string name="split_after">Split after page</string>
+    <string name="split_example">e.g. 3,7</string>
+    <string name="split_detail">This document has %1$s pages. Each cut starts a new file.</string>
+    <string name="split_confirm">Split</string>
+
+    <!-- Compress -->
+    <string name="compress_title">Compress PDF</string>
+    <string name="compress_detail">Writes a smaller copy. The open document stays as it is.</string>
+    <string name="compress_lossless">Lossless</string>
+    <string name="compress_lossless_detail">Repack the file only. Every page renders exactly as it does now.</string>
+    <string name="compress_balanced">Balanced</string>
+    <string name="compress_balanced_detail">Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk.</string>
+    <string name="compress_small">Small</string>
+    <string name="compress_small_detail">Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that.</string>
+    <string name="compress_signed">This document is signed. Compressing rewrites the file, so the compressed copy\'s digital signature will no longer verify.</string>
+    <string name="compress_confirm">Compress</string>
+    <string name="compress_anyway">Compress anyway</string>
+
+    <!-- Protect -->
+    <string name="protect_title">Protect with a password</string>
+    <string name="protect_open_password">Password to open the document</string>
+    <string name="protect_permissions_password">Permissions password</string>
+    <string name="protect_detail">Use different passwords. The permissions password controls changes after the document is opened.</string>
+    <string name="protect_signed">This document is signed. Applying password protection rewrites the file, so its existing digital signature will no longer verify.</string>
+    <string name="protect_confirm">Protect</string>
+    <string name="protect_anyway">Protect anyway</string>
+
+    <!-- Sign with a certificate -->
+    <string name="sign_title">Sign</string>
+    <string name="sign_detail">Adds an invisible digital signature from a .pfx or .p12 certificate file. The signed PDF is saved as a new file.</string>
+    <string name="sign_choose_certificate">Choose certificate…</string>
+    <string name="sign_certificate">Certificate: %1$s</string>
+    <string name="sign_certificate_password">Certificate password</string>
+    <string name="sign_identity">Sign as</string>
+    <string name="sign_confirm">Sign</string>
+    <string name="sign_unlock">Unlock</string>
+    <string name="sign_unlocking">Unlocking…</string>
+
+    <!-- Drawn signature -->
+    <string name="signature_draw_title">Draw your signature</string>
+    <string name="signature_remember">Remember on this phone</string>
+    <string name="signature_clear">Clear</string>
+    <string name="signature_saved_title">Your signature</string>
+    <string name="signature_saved_image">Your saved signature</string>
+    <string name="signature_saved_unshowable">This saved signature can no longer be shown.</string>
+    <string name="signature_draw_new">Draw new</string>
+
+    <!-- Form fields panel -->
+    <string name="form_title">Form fields</string>
+    <string name="form_kind_text">Text field</string>
+    <string name="form_kind_checkbox">Checkbox</string>
+    <string name="form_kind_radio_group">Radio group</string>
+    <string name="form_kind_dropdown">Dropdown</string>
+    <string name="form_no_choice">(none)</string>
+    <string name="form_field_name">Field name</string>
+    <string name="form_color_black">Black</string>
+    <string name="form_color_blue">Blue</string>
+    <string name="form_color_red">Red</string>
+    <string name="form_color_green">Green</string>
+
+    <!-- A color that is none of the above. Keep it short: its button shares a row with the size box -->
+    <string name="form_color_custom">Custom</string>
+
+    <!-- Printing, shown by the system print screen -->
+    <string name="print_not_ready">The print layout is not ready.</string>
+    <string name="print_not_rendered">Could not render the PDF for printing.</string>
+</resources>

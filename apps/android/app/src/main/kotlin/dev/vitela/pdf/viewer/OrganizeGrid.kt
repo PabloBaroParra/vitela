@@ -34,9 +34,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentBlock
 
 /** What the Organize grid can ask of the ViewModel; one value so the screen's parameter list stays short. */
@@ -66,8 +68,8 @@ internal class OrganizeActions(
 internal fun OrganizeGrid(state: ViewerState, organize: OrganizeState, actions: OrganizeActions, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(selected = organize.view == OrganizeView.Pages, onClick = { actions.onShow(OrganizeView.Pages) }, label = { Text("Pages") })
-            FilterChip(selected = organize.view == OrganizeView.Documents, onClick = { actions.onShow(OrganizeView.Documents) }, label = { Text("Documents") })
+            FilterChip(selected = organize.view == OrganizeView.Pages, onClick = { actions.onShow(OrganizeView.Pages) }, label = { Text(stringResource(R.string.organize_view_pages)) })
+            FilterChip(selected = organize.view == OrganizeView.Documents, onClick = { actions.onShow(OrganizeView.Documents) }, label = { Text(stringResource(R.string.organize_view_documents)) })
         }
         when (organize.view) {
             OrganizeView.Pages -> OrganizePageGrid(state, organize, actions, Modifier.weight(1f))
@@ -103,9 +105,9 @@ private fun OrganizePageGrid(state: ViewerState, organize: OrganizeState, action
                 modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.surface).padding(6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                InsertBlankButton(state.pageCount, "Add a blank page at the end", !organize.busy, actions.onInsertBlank)
-                Text("Add page", style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = actions.onAddPdfs, enabled = !organize.busy) { Text("Add PDFs") }
+                InsertBlankButton(state.pageCount, stringResource(R.string.organize_page_append), !organize.busy, actions.onInsertBlank)
+                Text(stringResource(R.string.organize_add_page), style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = actions.onAddPdfs, enabled = !organize.busy) { Text(stringResource(R.string.organize_add_pdfs)) }
             }
         }
     }
@@ -130,21 +132,21 @@ private fun OrganizeCard(index: Int, pageCount: Int, aspectRatio: Float, organiz
             contentAlignment = Alignment.Center,
         ) {
             if (thumbnail != null) {
-                Image(bitmap = thumbnail, contentDescription = "Page $number", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                Image(bitmap = thumbnail, contentDescription = stringResource(R.string.reader_page_item, number), modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
             } else {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
             }
         }
         Text("$number", style = MaterialTheme.typography.labelLarge)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CardButton("↺", "Rotate page $number left", idle) { actions.onRotate(index, -90) }
-            CardButton("↻", "Rotate page $number right", idle) { actions.onRotate(index, 90) }
-            CardButton("✕", "Delete page $number", idle && pageCount > 1) { actions.onDelete(index) }
+            CardButton("↺", stringResource(R.string.organize_page_rotate_left, number), idle) { actions.onRotate(index, -90) }
+            CardButton("↻", stringResource(R.string.organize_page_rotate_right, number), idle) { actions.onRotate(index, 90) }
+            CardButton("✕", stringResource(R.string.organize_page_delete, number), idle && pageCount > 1) { actions.onDelete(index) }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            CardButton("◀", "Move page $number earlier", idle && index > 0) { actions.onMove(index, -1) }
-            CardButton("▶", "Move page $number later", idle && index < pageCount - 1) { actions.onMove(index, 1) }
-            InsertBlankButton(index, "Insert a blank page before page $number", idle, actions.onInsertBlank)
+            CardButton("◀", stringResource(R.string.organize_page_move_earlier, number), idle && index > 0) { actions.onMove(index, -1) }
+            CardButton("▶", stringResource(R.string.organize_page_move_later, number), idle && index < pageCount - 1) { actions.onMove(index, 1) }
+            InsertBlankButton(index, stringResource(R.string.organize_page_insert_before, number), idle, actions.onInsertBlank)
         }
     }
 }
@@ -156,8 +158,8 @@ private fun InsertBlankButton(index: Int, description: String, enabled: Boolean,
     Box {
         CardButton("+", description, enabled) { expanded = true }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(text = { Text("Portrait A4") }, onClick = { expanded = false; onInsert(index, false) })
-            DropdownMenuItem(text = { Text("Landscape A4") }, onClick = { expanded = false; onInsert(index, true) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.organize_portrait)) }, onClick = { expanded = false; onInsert(index, false) })
+            DropdownMenuItem(text = { Text(stringResource(R.string.organize_landscape)) }, onClick = { expanded = false; onInsert(index, true) })
         }
     }
 }

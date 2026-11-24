@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.text.english
+import dev.vitela.pdf.text.spanish
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -19,16 +20,23 @@ class OrganizeDocumentsTest {
     fun aCardIsNamedAfterItsSourceAndItsPart() {
         val names = mapOf(7L to "added.pdf")
 
-        assertEquals("report.pdf — Part 1", blockTitle(base1, "report.pdf", names))
-        assertEquals("added.pdf", blockTitle(added, "report.pdf", names))
-        assertEquals("Blank pages", blockTitle(DocumentBlock(BlockSource.Blank, null, 0, 1), "report.pdf", names))
-        assertEquals("Imported PDF", blockTitle(DocumentBlock(BlockSource.Imported(9), null, 0, 1), "report.pdf", names))
+        assertEquals("report.pdf — Part 1", blockTitle(base1, "report.pdf", names).english())
+        assertEquals("added.pdf", blockTitle(added, "report.pdf", names).english())
+        assertEquals("Blank pages", blockTitle(DocumentBlock(BlockSource.Blank, null, 0, 1), "report.pdf", names).english())
+        assertEquals("Imported PDF", blockTitle(DocumentBlock(BlockSource.Imported(9), null, 0, 1), "report.pdf", names).english())
     }
 
     @Test
     fun aCardSaysHowBigTheBlockIsAndWhereItSits() {
-        assertEquals("3 pages · 3–5", blockMeta(added))
-        assertEquals("1 page · 6", blockMeta(base2))
+        assertEquals("3 pages · 3–5", blockMeta(added).english())
+        assertEquals("1 page · 6", blockMeta(base2).english())
+    }
+
+    @Test
+    fun aCardIsWordedInSpanish() {
+        assertEquals("Páginas en blanco — Parte 2", blockTitle(DocumentBlock(BlockSource.Blank, 2, 0, 1), "report.pdf", emptyMap()).spanish())
+        assertEquals("3 páginas · 3–5", blockMeta(added).spanish())
+        assertEquals("1 página · 6", blockMeta(base2).spanish())
     }
 
     @Test

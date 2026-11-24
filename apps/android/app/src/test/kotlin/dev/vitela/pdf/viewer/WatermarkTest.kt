@@ -117,8 +117,8 @@ class WatermarkTest {
 
     @Test
     fun aChosenPictureSaysHowBigItIs() {
-        assertEquals("Picture chosen (1 KB).", WatermarkPicture(ByteArray(10)).summary)
-        assertEquals("Picture chosen (3 KB).", WatermarkPicture(ByteArray(3 * 1024 + 5)).summary)
+        assertEquals("Picture chosen (1 KB).", WatermarkPicture(ByteArray(10)).summary.english())
+        assertEquals("Picture chosen (3 KB).", WatermarkPicture(ByteArray(3 * 1024 + 5)).summary.english())
     }
 
     @Test

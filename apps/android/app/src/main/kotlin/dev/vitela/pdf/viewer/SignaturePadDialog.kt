@@ -31,7 +31,9 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /** What the Sign tab and the pad hand back; the activity turns strokes into a PNG off the main thread. */
 internal data class DrawnSignatureActions(
@@ -62,7 +64,7 @@ internal fun SignaturePadDialog(documentId: Long, onUse: (Long, List<List<PadPoi
     val strokeWidth = with(LocalDensity.current) { SIGNATURE_STROKE.toPx() }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Draw your signature") },
+        title = { Text(stringResource(R.string.signature_draw_title)) },
         text = {
             Column {
                 Canvas(
@@ -92,17 +94,17 @@ internal fun SignaturePadDialog(documentId: Long, onUse: (Long, List<List<PadPoi
                 }
                 Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = remember, onCheckedChange = { remember = it })
-                    Text("Remember on this phone")
+                    Text(stringResource(R.string.signature_remember))
                 }
             }
         },
         confirmButton = {
-            Button(onClick = { onUse(documentId, strokes.toList(), strokeWidth, remember) }, enabled = hasSignatureInk(strokes)) { Text("Use") }
+            Button(onClick = { onUse(documentId, strokes.toList(), strokeWidth, remember) }, enabled = hasSignatureInk(strokes)) { Text(stringResource(R.string.dialog_use)) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = { strokes.clear() }, enabled = strokes.isNotEmpty()) { Text("Clear") }
-                TextButton(onClick = onCancel) { Text("Cancel") }
+                TextButton(onClick = { strokes.clear() }, enabled = strokes.isNotEmpty()) { Text(stringResource(R.string.signature_clear)) }
+                TextButton(onClick = onCancel) { Text(stringResource(R.string.dialog_cancel)) }
             }
         },
     )

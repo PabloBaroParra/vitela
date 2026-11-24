@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Organize pages: both views and the import dialogs. Numbers are passed as %s, not %d, as in strings.xml. -->
+<resources>
+    <!-- Views -->
+    <string name="organize_view_pages">Pages</string>
+    <string name="organize_view_documents">Documents</string>
+
+    <!-- Page cards: the names a screen reader gives their buttons -->
+    <string name="organize_page_rotate_left">Rotate page %1$s left</string>
+    <string name="organize_page_rotate_right">Rotate page %1$s right</string>
+    <string name="organize_page_delete">Delete page %1$s</string>
+    <string name="organize_page_move_earlier">Move page %1$s earlier</string>
+    <string name="organize_page_move_later">Move page %1$s later</string>
+    <string name="organize_page_insert_before">Insert a blank page before page %1$s</string>
+    <string name="organize_page_append">Add a blank page at the end</string>
+    <string name="organize_add_page">Add page</string>
+    <string name="organize_add_pdfs">Add PDFs</string>
+    <string name="organize_portrait">Portrait A4</string>
+    <string name="organize_landscape">Landscape A4</string>
+
+    <!-- Document cards; their button names take the title of the card -->
+    <string name="organize_block_blank">Blank pages</string>
+    <string name="organize_block_imported">Imported PDF</string>
+    <string name="organize_block_part">%1$s — Part %2$s</string>
+    <plurals name="organize_block_meta">
+        <item quantity="one">%1$s page · %2$s</item>
+        <item quantity="other">%1$s pages · %2$s</item>
+    </plurals>
+    <string name="organize_block_move_up">Move %1$s up</string>
+    <string name="organize_block_move_down">Move %1$s down</string>
+    <string name="organize_block_rotate_left">Rotate %1$s left</string>
+    <string name="organize_block_rotate_right">Rotate %1$s right</string>
+    <string name="organize_block_delete">Delete %1$s</string>
+
+    <!-- Adding PDFs -->
+    <string name="import_warning_title">Some content will change on the way in</string>
+    <string name="import_warning_detail">No pages have been added yet. Import anyway to add every selected PDF as one undo step.</string>
+    <string name="import_anyway">Import anyway</string>
+    <string name="import_password_prompt">%1$s is protected with a password.</string>
+    <string name="import_password_wrong">That password does not open %1$s.</string>
+</resources>

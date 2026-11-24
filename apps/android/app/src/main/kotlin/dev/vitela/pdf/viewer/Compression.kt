@@ -28,10 +28,10 @@ internal val DEFAULT_COMPRESS_PRESET = CompressPreset.Balanced
 // session, not the file on disk once anything was edited. Nothing predicts a
 // saving — the core cannot answer that without running.
 
-internal fun describePreset(preset: CompressPreset): Pair<String, String> = when (preset) {
-    CompressPreset.Lossless -> "Lossless" to "Repack the file only. Every page renders exactly as it does now."
-    CompressPreset.Balanced -> "Balanced" to "Also bring images down to 150 DPI. Visibly unchanged on screen, materially smaller on disk."
-    CompressPreset.Small -> "Small" to "Also bring images down to 96 DPI. For when the file has to fit through something and the pixels matter less than that."
+internal fun describePreset(preset: CompressPreset): Pair<UiText, UiText> = when (preset) {
+    CompressPreset.Lossless -> UiText.Resource(R.string.compress_lossless) to UiText.Resource(R.string.compress_lossless_detail)
+    CompressPreset.Balanced -> UiText.Resource(R.string.compress_balanced) to UiText.Resource(R.string.compress_balanced_detail)
+    CompressPreset.Small -> UiText.Resource(R.string.compress_small) to UiText.Resource(R.string.compress_small_detail)
 }
 
 /** Powers of ten, the way the other shells count. */

@@ -37,7 +37,7 @@ sealed interface FormFieldTap {
 }
 
 // Wording is the Windows shell's.
-internal const val FORM_NO_CHOICE = "(none)"
+internal val FORM_NO_CHOICE: UiText = UiText.Resource(R.string.form_no_choice)
 internal val FORM_FILLED: UiText = UiText.Resource(R.string.status_form_filled)
 internal val FORM_NO_FIELDS: UiText = UiText.Resource(R.string.status_form_none)
 internal val FORM_NO_FIELDS_ADD: UiText = UiText.Resource(R.string.status_form_none_add)
@@ -141,8 +141,8 @@ private fun cornerAt(tap: AnnotationPoint, width: Double, height: Double, page: 
  * a file another tool wrote — shows as no choice rather than as an entry the
  * menu does not have.
  */
-internal fun choiceLabel(options: List<String>, choice: String?): String =
-    choice?.takeIf { it in options } ?: FORM_NO_CHOICE
+internal fun choiceLabel(options: List<String>, choice: String?): UiText =
+    choice?.takeIf { it in options }?.let(UiText::Verbatim) ?: FORM_NO_CHOICE
 
 /** An editable dropdown is typed into; clearing it chooses nothing. */
 internal fun editableChoice(text: String): FormFieldValue.Choice = FormFieldValue.Choice(text.ifEmpty { null })

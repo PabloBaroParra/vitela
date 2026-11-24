@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Views -->
+    <string name="organize_view_pages">Páginas</string>
+    <string name="organize_view_documents">Documentos</string>
+
+    <!-- Page cards: the names a screen reader gives their buttons -->
+    <string name="organize_page_rotate_left">Girar la página %1$s a la izquierda</string>
+    <string name="organize_page_rotate_right">Girar la página %1$s a la derecha</string>
+    <string name="organize_page_delete">Eliminar la página %1$s</string>
+    <string name="organize_page_move_earlier">Adelantar la página %1$s</string>
+    <string name="organize_page_move_later">Retrasar la página %1$s</string>
+    <string name="organize_page_insert_before">Insertar una página en blanco antes de la página %1$s</string>
+    <string name="organize_page_append">Añadir una página en blanco al final</string>
+    <string name="organize_add_page">Añadir página</string>
+    <string name="organize_add_pdfs">Añadir PDF</string>
+    <string name="organize_portrait">A4 vertical</string>
+    <string name="organize_landscape">A4 horizontal</string>
+
+    <!-- Document cards; their button names take the title of the card -->
+    <string name="organize_block_blank">Páginas en blanco</string>
+    <string name="organize_block_imported">PDF importado</string>
+    <string name="organize_block_part">%1$s — Parte %2$s</string>
+    <plurals name="organize_block_meta">
+        <item quantity="one">%1$s página · %2$s</item>
+        <item quantity="many">%1$s páginas · %2$s</item>
+        <item quantity="other">%1$s páginas · %2$s</item>
+    </plurals>
+    <string name="organize_block_move_up">Subir: %1$s</string>
+    <string name="organize_block_move_down">Bajar: %1$s</string>
+    <string name="organize_block_rotate_left">Girar a la izquierda: %1$s</string>
+    <string name="organize_block_rotate_right">Girar a la derecha: %1$s</string>
+    <string name="organize_block_delete">Eliminar: %1$s</string>
+
+    <!-- Adding PDFs -->
+    <string name="import_warning_title">Parte del contenido cambiará al añadirlo</string>
+    <string name="import_warning_detail">Aún no se ha añadido ninguna página. Elige Importar de todos modos para añadir todos los PDF seleccionados en un solo paso de deshacer.</string>
+    <string name="import_anyway">Importar de todos modos</string>
+    <string name="import_password_prompt">%1$s está protegido con contraseña.</string>
+    <string name="import_password_wrong">Esa contraseña no abre %1$s.</string>
+</resources>

@@ -18,10 +18,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.resolve
 
 /** What Edit content asks of the ViewModel, bundled like [FormFieldActions]. */
@@ -86,10 +89,13 @@ internal class ContentEditActions(
  * document the core cannot checkpoint — one with imported pages, signatures or
  * encryption; elsewhere it writes the earlier edit into memory and carries on.
  */
-internal fun textDialogHelp(canCheckpoint: Boolean): String =
-    "Move lets you drag this text, or tap where it should go, keeping its font and size. " +
-        (if (canCheckpoint) "" else "Moving a line you already retyped, or retyping one you already moved, needs a save first. ") +
-        "Delete takes it off the page; Undo puts it back. It is not a secure redaction."
+internal fun textDialogHelp(canCheckpoint: Boolean): UiText = UiText.Sentences(
+    listOfNotNull(
+        UiText.Resource(R.string.content_text_help_move),
+        if (canCheckpoint) null else UiText.Resource(R.string.content_text_help_save),
+        UiText.Resource(R.string.content_text_help_delete),
+    ),
+)
 
 /**
  * The retype dialog: the text of the whole line — the block of runs the tap
@@ -105,11 +111,11 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
     var text by remember(editor) { mutableStateOf(editor.text) }
     AlertDialog(
         onDismissRequest = actions.onDismiss,
-        title = { Text("Edit text") },
+        title = { Text(stringResource(R.string.content_text_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED, style = MaterialTheme.typography.bodySmall)
-                Text(textDialogHelp(editor.canCheckpoint), style = MaterialTheme.typography.bodySmall)
+                if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED.resolve(), style = MaterialTheme.typography.bodySmall)
+                Text(textDialogHelp(editor.canCheckpoint).resolve(), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
@@ -119,13 +125,13 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
                 )
             }
         },
-        confirmButton = { Button(onClick = { actions.onRetype(documentId, text) }) { Text("Retype") } },
+        confirmButton = { Button(onClick = { actions.onRetype(documentId, text) }) { Text(stringResource(R.string.content_text_retype)) } },
         dismissButton = {
             // Three actions beside Retype do not fit one row on a narrow phone.
             FlowRow(horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { actions.onDeleteText(documentId) }) { Text("Delete") }
-                TextButton(onClick = { actions.onMoveText(documentId) }) { Text("Move") }
-                TextButton(onClick = actions.onDismiss) { Text("Cancel") }
+                TextButton(onClick = { actions.onDeleteText(documentId) }) { Text(stringResource(R.string.dialog_delete)) }
+                TextButton(onClick = { actions.onMoveText(documentId) }) { Text(stringResource(R.string.dialog_move)) }
+                TextButton(onClick = actions.onDismiss) { Text(stringResource(R.string.dialog_cancel)) }
             }
         },
     )
@@ -146,25 +152,25 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
     var height by remember(resizer) { mutableStateOf(resizer.height) }
     AlertDialog(
         onDismissRequest = actions.onDismissResizer,
-        title = { Text("Edit image") },
+        title = { Text(stringResource(R.string.content_image_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The image keeps its top-left corner and is stretched to the size you enter. Move lets you drag it, or tap where it should go, keeping its size. Replace swaps its picture for a PNG or JPEG, stretched to the same box; save first if the image already has a pending edit. Delete takes it off the page; Undo puts it back.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.content_image_help), style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
-                    PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
+                    PointsField(stringResource(R.string.dialog_width), width, { width = it }, resizer.error != null, Modifier.weight(1f))
+                    PointsField(stringResource(R.string.dialog_height), height, { height = it }, resizer.error != null, Modifier.weight(1f))
                 }
                 resizer.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text("Resize") } },
+        confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text(stringResource(R.string.dialog_resize)) } },
         dismissButton = {
             // Four actions beside Resize do not fit one row on a phone.
             FlowRow(horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = { actions.onDelete(documentId) }) { Text("Delete") }
-                TextButton(onClick = { actions.onReplace(documentId) }) { Text("Replace") }
-                TextButton(onClick = { actions.onMove(documentId) }) { Text("Move") }
-                TextButton(onClick = actions.onDismissResizer) { Text("Cancel") }
+                TextButton(onClick = { actions.onDelete(documentId) }) { Text(stringResource(R.string.dialog_delete)) }
+                TextButton(onClick = { actions.onReplace(documentId) }) { Text(stringResource(R.string.content_image_replace)) }
+                TextButton(onClick = { actions.onMove(documentId) }) { Text(stringResource(R.string.dialog_move)) }
+                TextButton(onClick = actions.onDismissResizer) { Text(stringResource(R.string.dialog_cancel)) }
             }
         },
     )
@@ -181,23 +187,23 @@ internal fun TextInserterDialog(inserter: TextInserter, documentId: Long, action
     var size by remember(inserter) { mutableStateOf(inserter.size) }
     AlertDialog(
         onDismissRequest = actions.onDismissInserter,
-        title = { Text("Add text — page ${inserter.pageIndex + 1}") },
+        title = { Text(stringResource(R.string.content_insert_title, inserter.pageIndex + 1)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Adds one line of Helvetica text as page content, its top-left corner where you tapped. Some characters cannot be shown in this font.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.content_insert_help), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Text") },
+                    label = { Text(stringResource(R.string.dialog_text)) },
                     singleLine = true,
                     isError = inserter.error != null,
                 )
-                PointsField("Size (pt)", size, { size = it }, inserter.error != null, Modifier)
+                PointsField(stringResource(R.string.dialog_size), size, { size = it }, inserter.error != null, Modifier)
                 inserter.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { Button(onClick = { actions.onInsertText(documentId, text, size) }) { Text("Insert") } },
-        dismissButton = { TextButton(onClick = actions.onDismissInserter) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { actions.onInsertText(documentId, text, size) }) { Text(stringResource(R.string.content_insert)) } },
+        dismissButton = { TextButton(onClick = actions.onDismissInserter) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }
 

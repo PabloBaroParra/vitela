@@ -36,10 +36,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FieldTextStyle
@@ -91,13 +93,13 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
         Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Form fields",
+                    stringResource(R.string.form_title),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f).focusRequester(parking).focusable(),
                 )
                 // Focus leaves first, so a field still being typed in commits
                 // while the panel is there to take it.
-                TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text("Close") }
+                TextButton(onClick = { focusManager.clearFocus(); actions.onToggle() }) { Text(stringResource(R.string.dialog_close)) }
             }
             formFieldsNotice(panel)?.let { Text(it.resolve(), style = MaterialTheme.typography.bodyMedium) }
             if (panel.authoringAllowed) PlaceFieldChips(panel.armed, actions.onArm)
@@ -110,9 +112,9 @@ internal fun FormFieldsPanel(panel: FormFieldsState, documentId: Long, actions: 
                             if (panel.authoringAllowed) {
                                 val move = FormFieldTap.Move(field.id, field.pageIndex)
                                 val moving = panel.armed == move
-                                TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) "Cancel" else "Move") }
+                                TextButton(onClick = { actions.onArm(if (moving) null else move) }) { Text(if (moving) stringResource(R.string.dialog_cancel) else stringResource(R.string.dialog_move)) }
                                 // No confirmation: Undo brings the field back, as with a deleted image.
-                                TextButton(onClick = { actions.onDelete(documentId, field.id) }) { Text("Delete") }
+                                TextButton(onClick = { actions.onDelete(documentId, field.id) }) { Text(stringResource(R.string.dialog_delete)) }
                             }
                         }
                         if (panel.authoringAllowed) {
@@ -149,8 +151,8 @@ private fun FieldSizeRow(rect: AnnotationRect, resize: (Double, Double) -> Unit)
             focused = it.hasFocus
         },
     ) {
-        SizeBox("Width (pt)", width, { width = it }, Modifier.weight(1f))
-        SizeBox("Height (pt)", height, { height = it }, Modifier.weight(1f))
+        SizeBox(stringResource(R.string.dialog_width), width, { width = it }, Modifier.weight(1f))
+        SizeBox(stringResource(R.string.dialog_height), height, { height = it }, Modifier.weight(1f))
     }
 }
 
@@ -173,10 +175,10 @@ private fun SizeBox(label: String, value: String, onValueChange: (String) -> Uni
 private fun PlaceFieldChips(armed: FormFieldTap?, onArm: (FormFieldTap?) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
         listOf(
-            NewFormField.Text to "Text field",
-            NewFormField.Checkbox to "Checkbox",
-            NewFormField.RadioGroup to "Radio group",
-            NewFormField.Dropdown to "Dropdown",
+            NewFormField.Text to stringResource(R.string.form_kind_text),
+            NewFormField.Checkbox to stringResource(R.string.form_kind_checkbox),
+            NewFormField.RadioGroup to stringResource(R.string.form_kind_radio_group),
+            NewFormField.Dropdown to stringResource(R.string.form_kind_dropdown),
         ).forEach { (kind, label) ->
             val place = FormFieldTap.Place(kind)
             val selected = armed == place
@@ -270,14 +272,14 @@ private fun ChoiceMenu(field: FormField, options: List<String>, enabled: Boolean
         Text(field.name, style = MaterialTheme.typography.labelLarge)
         Box {
             OutlinedButton(onClick = { expanded = true }, enabled = enabled) {
-                Text(choiceLabel(options, (field.value as? FormFieldValue.Choice)?.option))
+                Text(choiceLabel(options, (field.value as? FormFieldValue.Choice)?.option).resolve())
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 // "Nothing chosen" is an entry the reader can pick, not a state
                 // reachable only by never touching the menu.
                 (listOf<String?>(null) + options).forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option ?: FORM_NO_CHOICE) },
+                        text = { Text(option ?: FORM_NO_CHOICE.resolve()) },
                         onClick = {
                             expanded = false
                             fill(field.id, FormFieldValue.Choice(option))

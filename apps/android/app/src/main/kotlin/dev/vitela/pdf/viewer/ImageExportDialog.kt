@@ -18,9 +18,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.text.resolve
 
@@ -36,24 +38,24 @@ internal fun ImageExportDialog(
     val enabled = editor.exportAllowed
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Export pages as images") },
+        title = { Text(stringResource(R.string.export_title)) },
         text = {
             // Scrolls so the last field stays reachable above the keyboard.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 editor.message?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                Text("Pages", style = MaterialTheme.typography.labelLarge)
-                Choice("All pages", draft.pages == ImageExportPages.All, enabled) { onChange(draft.copy(pages = ImageExportPages.All)) }
-                Choice("Current page", draft.pages == ImageExportPages.Current, enabled) { onChange(draft.copy(pages = ImageExportPages.Current)) }
-                Choice("Custom range", draft.pages == ImageExportPages.Custom, enabled) { onChange(draft.copy(pages = ImageExportPages.Custom)) }
+                Text(stringResource(R.string.dialog_pages), style = MaterialTheme.typography.labelLarge)
+                Choice(stringResource(R.string.dialog_pages_all), draft.pages == ImageExportPages.All, enabled) { onChange(draft.copy(pages = ImageExportPages.All)) }
+                Choice(stringResource(R.string.dialog_pages_current), draft.pages == ImageExportPages.Current, enabled) { onChange(draft.copy(pages = ImageExportPages.Current)) }
+                Choice(stringResource(R.string.dialog_pages_custom), draft.pages == ImageExportPages.Custom, enabled) { onChange(draft.copy(pages = ImageExportPages.Custom)) }
                 OutlinedTextField(
                     value = draft.customRange,
                     // Typing a range means a range: no need to pick the choice first.
                     onValueChange = { onChange(draft.copy(pages = ImageExportPages.Custom, customRange = it)) },
-                    label = { Text("e.g. 1-3,7") },
+                    label = { Text(stringResource(R.string.dialog_pages_example)) },
                     enabled = enabled,
                     singleLine = true,
                 )
-                Text("Format", style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.export_format), style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     ImageExportFormat.entries.forEach { format ->
                         Choice(format.label, draft.format == format, enabled) { onChange(draft.copy(format = format)) }
@@ -62,15 +64,15 @@ internal fun ImageExportDialog(
                 OutlinedTextField(
                     value = draft.dpi,
                     onValueChange = { text -> onChange(draft.copy(dpi = text.filter(Char::isDigit).take(3))) },
-                    label = { Text("Resolution ($MIN_EXPORT_DPI-$MAX_EXPORT_DPI DPI)") },
+                    label = { Text(stringResource(R.string.export_resolution, MIN_EXPORT_DPI, MAX_EXPORT_DPI)) },
                     enabled = enabled,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 )
             }
         },
-        confirmButton = { Button(onClick = onExport, enabled = enabled) { Text("Export") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { Button(onClick = onExport, enabled = enabled) { Text(stringResource(R.string.export_confirm)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }
 

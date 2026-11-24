@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
+import dev.vitela.pdf.text.UiText
 
 /*
  * The Documents view of Organize: one card per run of pages from the same PDF,
@@ -15,19 +17,20 @@ import dev.vitela.pdf.core.PageEdit
  */
 
 /** "report.pdf" or "report.pdf — Part 2": what the card is called. Names are the shell's, the core only knows ids. */
-internal fun blockTitle(block: DocumentBlock, baseName: String, importedNames: Map<Long, String>): String {
+internal fun blockTitle(block: DocumentBlock, baseName: String, importedNames: Map<Long, String>): UiText {
     val name = when (val source = block.source) {
-        BlockSource.Base -> baseName
-        BlockSource.Blank -> "Blank pages"
-        is BlockSource.Imported -> importedNames[source.id] ?: "Imported PDF"
+        BlockSource.Base -> UiText.Verbatim(baseName)
+        BlockSource.Blank -> UiText.Resource(R.string.organize_block_blank)
+        is BlockSource.Imported -> importedNames[source.id]?.let(UiText::Verbatim) ?: UiText.Resource(R.string.organize_block_imported)
     }
-    return block.part?.let { "$name — Part $it" } ?: name
+    return block.part?.let { UiText.Resource(R.string.organize_block_part, name, it) } ?: name
 }
 
 /** "7 pages · 3–9": how big the block is and where it sits now. */
-internal fun blockMeta(block: DocumentBlock): String {
+internal fun blockMeta(block: DocumentBlock): UiText {
     val first = block.start + 1
-    return if (block.count == 1) "1 page · $first" else "${block.count} pages · $first–${block.start + block.count}"
+    val span = if (block.count == 1) "$first" else "$first–${block.start + block.count}"
+    return UiText.Plural(R.plurals.organize_block_meta, block.count, block.count, span)
 }
 
 /**

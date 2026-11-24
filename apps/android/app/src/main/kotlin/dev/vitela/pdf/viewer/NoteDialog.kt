@@ -12,7 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /**
  * Asks for a Note's text after its rectangle was chosen. Multi-line; **Add**
@@ -25,19 +27,19 @@ internal fun NoteDialog(placement: NotePlacement, documentId: Long, onAdd: (Long
     var text by remember(placement) { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Add note — page ${placement.pageIndex + 1}") },
+        title = { Text(stringResource(R.string.note_add_title, placement.pageIndex + 1)) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Note text") },
+                label = { Text(stringResource(R.string.note_text)) },
                 minLines = 4,
                 maxLines = 10,
                 modifier = Modifier.heightIn(min = 120.dp),
             )
         },
-        confirmButton = { Button(onClick = { onAdd(documentId, text) }, enabled = text.isNotBlank()) { Text("Add") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { onAdd(documentId, text) }, enabled = text.isNotBlank()) { Text(stringResource(R.string.dialog_add)) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }
 
@@ -49,18 +51,18 @@ internal fun NoteDialog(placement: NotePlacement, documentId: Long, onAdd: (Long
 internal fun NoteReadingDialog(reading: NoteReading, onClose: () -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Note — page ${reading.pageIndex + 1}") },
+        title = { Text(stringResource(R.string.note_read_title, reading.pageIndex + 1)) },
         text = {
             OutlinedTextField(
                 value = reading.contents,
                 onValueChange = {},
                 readOnly = true,
-                label = { Text(listOfNotNull(reading.author, reading.date).joinToString(" · ").ifEmpty { "Note text" }) },
+                label = { Text(listOfNotNull(reading.author, reading.date).joinToString(" · ").ifEmpty { stringResource(R.string.note_text) }) },
                 minLines = 4,
                 maxLines = 10,
                 modifier = Modifier.heightIn(min = 120.dp),
             )
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.dialog_close)) } },
     )
 }

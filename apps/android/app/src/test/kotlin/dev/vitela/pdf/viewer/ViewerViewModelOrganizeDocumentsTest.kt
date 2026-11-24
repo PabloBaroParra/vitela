@@ -45,7 +45,7 @@ class ViewerViewModelOrganizeDocumentsTest {
         val state = viewModel.state.value
         val blocks = state.organize!!.blocks
         assertEquals(2, blocks.size)
-        assertEquals(listOf("a.pdf", "added.pdf"), blocks.map { blockTitle(it, state.title, state.importedSourceNames) })
+        assertEquals(listOf("a.pdf", "added.pdf"), blocks.map { blockTitle(it, state.title, state.importedSourceNames).english() })
     }
 
     @Test

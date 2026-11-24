@@ -131,6 +131,9 @@
     <string name="reader_zoom_out">Zoom out</string>
     <string name="reader_zoom_fit_width">Fit width</string>
     <string name="reader_zoom_fit_page">Fit page</string>
+    <string name="reader_layout_title">Page layout</string>
+    <string name="reader_layout_single">One page</string>
+    <string name="reader_layout_spread">Two pages</string>
 
     <!-- Recovery dialog -->
     <string name="recovery_title">Recover unsaved work?</string>

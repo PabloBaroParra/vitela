@@ -176,7 +176,7 @@ internal fun imageMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.
 
 /** What an armed text move asks for; the block stays on its own page. */
 internal fun textMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.status_content_text_move_prompt, pageIndex + 1)
-internal const val FONT_SUBSTITUTED = "This text's font cannot be kept. What you type will use a standard font."
+internal val FONT_SUBSTITUTED: UiText = UiText.Resource(R.string.content_text_font_substituted)
 
 /**
  * The core cannot re-encode a composite (CID) font, so a retype of a block whose

@@ -23,7 +23,7 @@ enum class WatermarkKind { Text, Picture }
  */
 class WatermarkPicture(val bytes: ByteArray) {
     /** What the dialog says under Choose picture. */
-    val summary get() = "Picture chosen (${maxOf(1, bytes.size / 1024)} KB)."
+    val summary: UiText get() = UiText.Resource(R.string.watermark_picture_chosen, maxOf(1, bytes.size / 1024))
 }
 
 /**
