@@ -187,5 +187,7 @@ test('a PDF that forbids annotations keeps markup off and says why', async ({ pa
   await expect(pageSlot(page, 1).locator('.drawing-layer')).toHaveCount(0);
   await button(page, 'Highlight').click({ force: true });
   await expect(page.locator('.annotation-layer [data-annotation-id]')).toHaveCount(0);
+  // Nothing to select or edit (T-240).
+  await expect(page.locator('.annotation-target')).toHaveCount(0);
   await expect(page.getByText('Unsaved changes.')).toHaveCount(0);
 });

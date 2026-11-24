@@ -257,6 +257,23 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   (`freeTextFrame`: turned with the page, like the saved appearance); a stamp
   without a kept image keeps the dashed placeholder box. `InvalidImage`,
   "not allowed" and "another step was running" show in the viewer's notice.
+- **Editing an annotation** (T-240): in Select, a press on one of the session's
+  annotations selects it (`AnnotationEditLayer`: an invisible button per
+  annotation over the text layer, inert everywhere else, so a press beside
+  them still selects text and lets go). Drag moves it, its corner handles
+  resize it (a stamp in proportion; ink cannot be resized), and the floating
+  `Annotation` toolbar has Move to…, Resize…, Edit text… (text boxes), the
+  palette (markup, shapes, ink) and Delete. From the keyboard: Tab reaches it,
+  Enter selects, arrows move by 1 pt (Shift 12), Alt+arrows resize, Delete
+  removes, Escape lets go; on a focused handle the arrows move that corner.
+  The keys belong to the selected annotation's own elements, so the arrows
+  still scroll otherwise. Every change is one undo step through
+  `useAnnotationEdits.change`, which queues and builds each edit from the
+  annotation as the previous step left it (`editBuilds.ts`); a change that
+  changes nothing records nothing, and a drag is dropped, with a notice, if the
+  annotation or its page changed under it. Dialog lengths are points from the
+  top-left corner of the page as drawn. A focused control that goes away hands
+  the focus to the pages (`useKeepFocus`).
 
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text
