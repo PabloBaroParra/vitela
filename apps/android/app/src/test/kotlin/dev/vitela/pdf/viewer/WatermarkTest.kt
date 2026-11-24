@@ -35,23 +35,23 @@ class WatermarkTest {
 
     @Test
     fun aBadCustomRangeSurfacesTheCoresOwnSentence() {
-        assertEquals(refusal("There is no page 9."), planWatermark(document, draft(pages = WatermarkPages.Custom, range = "9"), 0))
+        assertEquals("There is no page 9.", refused(planWatermark(document, draft(pages = WatermarkPages.Custom, range = "9"), 0)))
     }
 
     @Test
     fun aBlankCustomRangeAsksForOneInWords() {
-        assertEquals(refusal("Type which pages to stamp, for example 1-3,7."), planWatermark(document, draft(pages = WatermarkPages.Custom, range = "  "), 0))
+        assertEquals("Type which pages to stamp, for example 1-3,7.", refused(planWatermark(document, draft(pages = WatermarkPages.Custom, range = "  "), 0)))
     }
 
     @Test
     fun blankTextIsRefusedBeforeThePagesAreRead() {
-        assertEquals(refusal("Type the text to stamp on the pages."), planWatermark(document, draft(text = "   ", pages = WatermarkPages.Custom, range = "9"), 0))
+        assertEquals("Type the text to stamp on the pages.", refused(planWatermark(document, draft(text = "   ", pages = WatermarkPages.Custom, range = "9"), 0)))
     }
 
     @Test
     fun aDocumentWithNoPagesIsRefusedWhateverTheChoice() {
         for (pages in WatermarkPages.entries) {
-            assertEquals(refusal("This document has no pages to stamp."), planWatermark(WatermarkDocument(pageCount = 0), draft(pages = pages, range = "1"), 0))
+            assertEquals("This document has no pages to stamp.", refused(planWatermark(WatermarkDocument(pageCount = 0), draft(pages = pages, range = "1"), 0)))
         }
     }
 
@@ -106,7 +106,7 @@ class WatermarkTest {
     @Test
     fun aPictureWithNothingChosenIsRefusedBeforeThePagesAreRead() {
         val draft = draft(pages = WatermarkPages.Custom, range = "9").switchedTo(WatermarkKind.Picture, defaults)
-        assertEquals(refusal("Choose a PNG or JPEG picture to stamp on the pages."), planWatermark(document, draft, 0))
+        assertEquals("Choose a PNG or JPEG picture to stamp on the pages.", refused(planWatermark(document, draft, 0)))
     }
 
     @Test
@@ -141,5 +141,5 @@ class WatermarkTest {
     private fun draft(text: String = "DRAFT", pages: WatermarkPages = WatermarkPages.All, range: String = "") =
         defaults.draft().copy(text = text, pages = pages, range = range)
 
-    private fun refusal(message: String) = PdfCoreResult.Failure(PdfCoreError.Failed(message))
+    private fun refused(result: PdfCoreResult<List<Int>>): String = ((result as PdfCoreResult.Failure).error as PdfCoreError.Failed).text.english()
 }

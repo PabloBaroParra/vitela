@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -124,7 +125,7 @@ class ViewerViewModelStartToolTest {
 
 private class StartToolCore(private val editingAllowed: Boolean = true) : PdfCore {
     override fun openFromBytes(bytes: ByteArray, password: String?): PdfCoreResult<PdfDocument> = when {
-        bytes.contentEquals(byteArrayOf(3)) -> PdfCoreResult.Failure(PdfCoreError.Failed("Invalid PDF"))
+        bytes.contentEquals(byteArrayOf(3)) -> PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("Invalid PDF")))
         bytes.contentEquals(byteArrayOf(2)) && password == null -> PdfCoreResult.Failure(PdfCoreError.PasswordRequired)
         bytes.contentEquals(byteArrayOf(2)) && password != "secret" -> PdfCoreResult.Failure(PdfCoreError.WrongPassword)
         else -> PdfCoreResult.Success(StartToolDocument(editingAllowed))

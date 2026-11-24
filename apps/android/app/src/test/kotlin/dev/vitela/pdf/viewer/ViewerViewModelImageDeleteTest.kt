@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -67,7 +68,7 @@ class ViewerViewModelImageDeleteTest {
     @Test
     fun aRefusedDeleteSaysWhyAndKeepsTheImage() = runTest {
         val refusal = "This image cannot be deleted."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.deleteImage(viewModel.state.value.documentId)
         advanceUntilIdle()
 

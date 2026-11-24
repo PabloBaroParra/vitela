@@ -1,9 +1,12 @@
 package dev.vitela.pdf.generated
 
 import android.util.Log
+import androidx.annotation.StringRes
 import java.util.UUID
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CoreFailure
 import dev.vitela.pdf.core.NOT_AN_IMAGE
+import dev.vitela.pdf.core.coreSentence
 import dev.vitela.pdf.core.toPdfCoreError
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
@@ -58,6 +61,7 @@ import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.TextRect
 import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
@@ -163,7 +167,7 @@ private class GeneratedPdfCore : PdfCore {
     } catch (error: FfiException.UnsupportedOperation) {
         // The file opened but cannot sign; `detail` is the core's clause saying
         // why, a lower-case clause like an import refusal's.
-        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(coreSentence(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -174,7 +178,7 @@ private class GeneratedPdfCore : PdfCore {
     override fun prepareImport(bytes: ByteArray, password: String?): PdfCoreResult<PreparedImport> = try {
         PdfCoreResult.Success(GeneratedPreparedImport(ffiPrepareImport(bytes, password)))
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(coreSentence(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -241,7 +245,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, edit.toFfi())
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its pages to be rearranged, rotated or removed."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_organize_forbidden))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -255,7 +259,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         val report = ffiImportPrepared(handle, sources.map { (it as GeneratedPreparedImport).prepared }, index.toUInt())
         PdfCoreResult.Success(BatchImportReport(report.pageCount.toInt(), report.sourceIds.map { it.toLong() }))
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercase() }.trimEnd('.')}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(coreSentence(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -279,7 +283,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiRefreshPreview(handle)
         PdfCoreResult.Success(Unit)
     } catch (error: Throwable) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("The page could not be redrawn with your changes. They are still pending save."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_preview_failed))
     }
 
     override fun undoAnnotations(): PdfCoreResult<Boolean> = try {
@@ -300,7 +304,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         // The core's only refusal here is the document's /P bit forbidding
         // text extraction; the generic "could not be processed" would read
         // as a broken file.
-        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be selected or copied."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_text_selection_forbidden))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -320,11 +324,11 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.SetFieldValue(fieldId.toULong(), value.toFfi()))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.FormFieldNotFound) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_document_changed))
     } catch (error: FfiException.UnsupportedOperation) {
         // Either the /P bit or `pdf_form` refusing the value for the field's
         // kind; the core's own sentence is a developer's, not a reader's.
-        val sentence = if (handle.annotationEditingAllowed()) "That value does not fit this field." else "This document does not permit filling in its form."
+        val sentence = if (handle.annotationEditingAllowed()) R.string.error_form_value_refused else R.string.status_form_fill_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -336,7 +340,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun formAuthoringAllowed(): Boolean = handle.formFieldEditingAllowed()
 
     override fun addFormField(pageIndex: Int, kind: NewFormField, rect: AnnotationRect): PdfCoreResult<Unit> =
-        authorField("This document does not permit creating form fields.", "This field cannot be placed there.") {
+        authorField(R.string.error_form_create_forbidden, R.string.error_form_create_refused) {
             val page = pageIndex.toUInt()
             val at = rect.toFfi()
             when (kind) {
@@ -349,39 +353,39 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         }
 
     override fun moveFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> =
-        authorField("This document does not permit moving form fields.", "This field cannot be moved there.") {
+        authorField(R.string.error_form_move_forbidden, R.string.error_form_move_refused) {
             FfiEditCommand.MoveFormField(fieldId.toULong(), to.toFfi())
         }
 
     override fun resizeFormField(fieldId: Long, to: AnnotationRect): PdfCoreResult<Unit> =
-        authorField("This document does not permit resizing form fields.", "This field cannot be that size.") {
+        authorField(R.string.error_form_resize_forbidden, R.string.error_form_resize_refused) {
             FfiEditCommand.ResizeFormField(fieldId.toULong(), to.toFfi())
         }
 
     override fun removeFormField(fieldId: Long): PdfCoreResult<Unit> =
-        authorField("This document does not permit deleting form fields.", "This field cannot be deleted.") {
+        authorField(R.string.error_form_delete_forbidden, R.string.error_form_delete_refused) {
             FfiEditCommand.RemoveFormField(fieldId.toULong())
         }
 
     // The panel refuses an empty or taken name first; a refusal here is the
     // core seeing a name the panel's list did not.
     override fun renameFormField(fieldId: Long, name: String): PdfCoreResult<Unit> =
-        authorField("This document does not permit renaming form fields.", "Another field already uses that name.") {
+        authorField(R.string.error_form_rename_forbidden, R.string.error_form_rename_refused) {
             FfiEditCommand.RenameFormField(fieldId.toULong(), name)
         }
 
     override fun restyleFormField(fieldId: Long, style: FieldTextStyle): PdfCoreResult<Unit> =
-        authorField("This document does not permit styling form fields.", "This field cannot take that style.") {
+        authorField(R.string.error_form_style_forbidden, R.string.error_form_style_refused) {
             FfiEditCommand.RestyleFormField(fieldId.toULong(), style.toFfi())
         }
 
-    private fun authorField(forbidden: String, refused: String, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
+    private fun authorField(@StringRes forbidden: Int, @StringRes refused: Int, command: () -> FfiEditCommand): PdfCoreResult<Unit> = try {
         ffiApplyEdit(handle, command())
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.FormFieldNotFound) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_document_changed))
     } catch (error: FfiException.PageIndexOutOfBounds) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("The document changed. Please try again."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_document_changed))
     } catch (error: FfiException.UnsupportedOperation) {
         // Either the /P bits or `pdf_form` refusing the rect; the core's own
         // sentence is a developer's, not a reader's.
@@ -404,7 +408,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         )
     } catch (error: FfiException.UnsupportedOperation) {
         // The only refusal here is the /P bit forbidding text extraction.
-        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not allow its text to be read."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_content_read_forbidden))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -421,9 +425,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.EncodingGap) {
         // Named, with the character in it: the one failure the reader can
         // clear themselves, by typing something else. The Windows wording.
-        PdfCoreResult.Failure(PdfCoreError.Failed("This text's font cannot show \"${error.character}\". Try different characters."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_core_font_gap, error.character))
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "edited")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, R.string.error_content_text_not_edited)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -434,7 +438,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
         // Also a run painted by the `"` operator, whose spacing a move would drop.
-        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "moved")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, R.string.error_content_text_not_moved)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -444,17 +448,17 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiRemoveTextBlock(handle, block.runs.map { it.toFfi() })
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, "deleted")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, R.string.error_content_text_not_deleted)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
     // The core's sentences are a developer's, except the one that tells the reader
     // to save first (a block with an unsaved edit of another kind): that one is kept.
-    private fun textBlockRefusal(detail: String, verb: String): String = when {
-        !handle.contentEditingAllowed() -> "This document does not permit content changes."
-        "save the document" in detail -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
-        else -> "This text cannot be $verb."
+    private fun textBlockRefusal(detail: String, @StringRes otherwise: Int): UiText = when {
+        !handle.contentEditingAllowed() -> UiText.Resource(R.string.status_content_forbidden)
+        "save the document" in detail -> coreSentence(detail)
+        else -> UiText.Resource(otherwise)
     }
 
     // The core stretches the image to `to`; the viewer picks the box, keeping its top-left corner.
@@ -464,7 +468,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.UnsupportedOperation) {
         // The /P bit, a document that cannot be rewritten whole, or `pdf_edit`
         // declining this image; the core's own sentence is a developer's.
-        val sentence = if (handle.contentEditingAllowed()) "This image cannot be resized." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_image_not_resized else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -475,7 +479,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.MoveImage(image.toFfi(), to.toFfi()))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This image cannot be moved." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_image_not_moved else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -486,7 +490,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.RemoveImage(image.toFfi(), null))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This image cannot be deleted." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_image_not_deleted else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -497,7 +501,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.ResizePath(path.toFfi(), to.toFfi()))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be resized." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_shape_not_resized else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -508,7 +512,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.MovePath(path.toFfi(), to.toFfi()))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be moved." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_shape_not_moved else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -518,7 +522,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.RemovePath(path.toFfi()))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This shape cannot be deleted." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_shape_not_deleted else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -531,7 +535,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiMoveContentSelection(handle, selection.toFfi(), dx, dy)
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, "moved")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, R.string.error_selection_not_moved)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -540,7 +544,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiRemoveContentSelection(handle, selection.toFfi())
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, "deleted")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(selectionRefusal(error.detail, R.string.error_selection_not_deleted)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -549,7 +553,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun copyContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = try {
         PdfCoreResult.Success(ffiCopyContentSelection(handle, selection.toFfi()).toClip())
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "These items cannot be copied.")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, R.string.error_clipboard_not_copied)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -557,7 +561,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun cutContentSelection(selection: ContentSelection): PdfCoreResult<ContentClip> = try {
         PdfCoreResult.Success(ffiCutContentSelection(handle, selection.toFfi()).toClip())
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "These items cannot be cut.")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, R.string.error_clipboard_not_cut)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -566,7 +570,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiPasteContent(handle, pageIndex.toUInt(), clip.toFfi(), left, top)
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, "This content cannot be pasted here.")))
+        PdfCoreResult.Failure(PdfCoreError.Failed(clipboardRefusal(error.detail, R.string.error_clipboard_not_pasted, pasting = true)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -574,18 +578,19 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     // The core's sentences are a developer's. Kept are the ones that tell the reader what to do — save first for a
     // member with an unsaved edit, and undo the paste for a fresh paste that cannot be cut — and a permission is
     // named for what it forbids: copying, or changing the content (a paste and a cut are both changes).
-    private fun clipboardRefusal(detail: String, otherwise: String): String = when {
-        "not permitted" in detail -> if (!handle.contentEditingAllowed() || "paste" in otherwise) "This document does not permit content changes." else "This document does not permit copying content."
-        "save the document" in detail.lowercase() || "undo the paste" in detail.lowercase() -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
-        else -> otherwise
+    private fun clipboardRefusal(detail: String, @StringRes otherwise: Int, pasting: Boolean = false): UiText = when {
+        "not permitted" in detail ->
+            UiText.Resource(if (!handle.contentEditingAllowed() || pasting) R.string.status_content_forbidden else R.string.error_clipboard_copy_forbidden)
+        "save the document" in detail.lowercase() || "undo the paste" in detail.lowercase() -> coreSentence(detail)
+        else -> UiText.Resource(otherwise)
     }
 
     // The core's sentences are a developer's, except the one that tells the reader to save first (a member
     // with an unsaved edit of another kind) and the one about unsaved pasted content, which are kept.
-    private fun selectionRefusal(detail: String, verb: String): String = when {
-        !handle.contentEditingAllowed() -> "This document does not permit content changes."
-        "save the document" in detail -> detail.replaceFirstChar { it.uppercase() }.trimEnd('.') + "."
-        else -> "These items cannot be $verb."
+    private fun selectionRefusal(detail: String, @StringRes otherwise: Int): UiText = when {
+        !handle.contentEditingAllowed() -> UiText.Resource(R.string.status_content_forbidden)
+        "save the document" in detail -> coreSentence(detail)
+        else -> UiText.Resource(otherwise)
     }
 
     // The core refuses an image with a pending edit. Every encoding is
@@ -615,11 +620,12 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     }
 
     // The core's sentences are a developer's; this one names what the reader can do.
-    private fun imageReplacementRefusal(): String =
+    @StringRes
+    private fun imageReplacementRefusal(): Int =
         if (handle.contentEditingAllowed()) {
-            "This image cannot be replaced. Save first if it already has a pending edit."
+            R.string.error_content_image_not_replaced
         } else {
-            "This document does not permit content changes."
+            R.string.status_content_forbidden
         }
 
     // A new line gets a Helvetica resource of its own. The core reuses a font
@@ -634,9 +640,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         ffiApplyEdit(handle, FfiEditCommand.InsertTextRun(FfiContentTextRun(0u, pageIndex.toUInt(), bounds.toFfi(), fontName, FfiFontKind.STANDARD14, text)))
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.EncodingGap) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("Helvetica cannot show \"${error.character}\". Try different characters."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_content_helvetica_gap, error.character))
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This text cannot be added here." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_text_not_added else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -659,9 +665,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.EncodingGap) {
         // The core's own message names a PDF font resource, which means
         // nothing to someone typing "DRAFT". The GTK shell's wording.
-        PdfCoreResult.Failure(PdfCoreError.Failed("The watermark font cannot show “${error.character}”. Use Latin letters, digits and punctuation."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_watermark_font_gap, error.character))
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This watermark cannot be added to these pages." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_watermark_not_added else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -682,9 +688,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.InvalidImage) {
         // The core's own sentence is about "the image"; here the reader
         // picked a file. The Windows shell's wording.
-        PdfCoreResult.Failure(PdfCoreError.Failed("That file could not be read as a PNG or JPEG picture. Choose another one."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_watermark_picture_unreadable))
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This watermark cannot be added to these pages." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_watermark_not_added else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -699,7 +705,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.InvalidImage) {
         PdfCoreResult.Failure(PdfCoreError.Failed(NOT_AN_IMAGE))
     } catch (error: FfiException.UnsupportedOperation) {
-        val sentence = if (handle.contentEditingAllowed()) "This image cannot be added here." else "This document does not permit content changes."
+        val sentence = if (handle.contentEditingAllowed()) R.string.error_content_image_not_added else R.string.status_content_forbidden
         PdfCoreResult.Failure(PdfCoreError.Failed(sentence))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
@@ -741,7 +747,7 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Success(ffiParsePageSelection(input, pageCount.toUInt()).map { it.toInt() })
     } catch (error: FfiException.InvalidPageSelection) {
         // The core's own sentence, written for the person who typed the range.
-        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
+        PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -761,11 +767,11 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     override fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> = try {
         PdfCoreResult.Success(ffiExportPageImage(handle, pageIndex.toUInt(), dpi.toUInt(), format.toFfi()))
     } catch (error: FfiException.UnsupportedOperation) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("This document does not permit extracting its pages as images."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_export_forbidden))
     } catch (error: FfiException.RenderFailed) {
         // PDFium already drew this document's pages, so a render failure here
         // is the raster ceiling at this DPI, not a missing library.
-        PdfCoreResult.Failure(PdfCoreError.Failed("It could not be rendered at $dpi DPI. Choose a lower resolution."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_export_not_rendered, dpi))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -782,9 +788,9 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
     } catch (error: FfiException.UnsupportedOperation) {
         // Both gates are asked in the plan, so this is the prune itself refusing;
         // its detail is a lower-case clause, not a sentence of its own.
-        PdfCoreResult.Failure(PdfCoreError.Failed("These pages could not be extracted: ${error.detail}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_extract_failed, error.detail))
     } catch (error: FfiException.InvalidPageSelection) {
-        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
+        PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -795,13 +801,13 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         )
     } catch (error: FfiException.InvalidPageSelection) {
         // The core's own sentence: a blank field, a one-page file, a bad cut.
-        PdfCoreResult.Failure(PdfCoreError.Failed(error.detail))
+        PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    override fun compressionRefusal(): String? =
-        ffiCompressionRefusal(handle, FfiSaveIntent.DEFAULT)?.toClause()
+    override fun compressionRefusal(): UiText? =
+        ffiCompressionRefusal(handle, FfiSaveIntent.DEFAULT)?.toSentence()
 
     override fun compressedSaveWillInvalidateSignatures(): PdfCoreResult<Boolean> = try {
         PdfCoreResult.Success(ffiCompressedSaveWillInvalidateSignatures(handle, FfiSaveIntent.DEFAULT))
@@ -841,21 +847,21 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Success(ffiProtectToBytes(handle, openPassword, permissionsPassword, acknowledgement))
     } catch (error: FfiException.InvalidSaveRequest) {
         // The core's own clause (a missing password, or two that match) as a sentence.
-        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercaseChar() }}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(coreSentence(error.detail)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    override fun signingRefusal(): String? = ffiSigningRefusal(handle)
+    override fun signingRefusal(): UiText? = ffiSigningRefusal(handle)?.let(::coreSentence)
 
     override fun sign(certificate: SigningCertificate, identityId: String): PdfCoreResult<ByteArray> = try {
         val unlocked = (certificate as GeneratedSigningCertificate).certificate
         PdfCoreResult.Success(ffiSignToBytes(handle, unlocked, identityId))
     } catch (error: FfiException.UnsupportedOperation) {
         // The core's own clause: a refused document, or an identity that cannot sign.
-        PdfCoreResult.Failure(PdfCoreError.Failed("${error.detail.replaceFirstChar { it.uppercaseChar() }}."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(coreSentence(error.detail)))
     } catch (error: FfiException.SignaturesWouldBeInvalidated) {
-        PdfCoreResult.Failure(PdfCoreError.Failed("Saving your changes would invalidate this document's existing signature, so it was not signed."))
+        PdfCoreResult.Failure(PdfCoreError.Failed(R.string.error_sign_signature_invalidated))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
@@ -1072,12 +1078,18 @@ private fun CompressPreset.toFfi(): FfiCompressPreset = when (this) {
     CompressPreset.Small -> FfiCompressPreset.SMALL
 }
 
-// The two modelled refusals cross without text, so their wording is restated
-// here from `pdf_compress::Refusal`'s Display — verbatim the Windows adapter's.
-private fun FfiCompressRefusal.toClause(): String = when (this) {
-    is FfiCompressRefusal.EncryptedDocumentNotRewritable -> "this document's password protection does not allow it to be rewritten, so it cannot be compressed"
-    is FfiCompressRefusal.SignaturesWouldBeInvalidated -> "compressing rewrites the file and would stop its signature from verifying"
-    is FfiCompressRefusal.Other -> detail
+// The two modelled refusals cross without text, so their wording is the app's,
+// after `pdf_compress::Refusal`'s Display — verbatim the Windows adapter's in English.
+private fun FfiCompressRefusal.toClause(): UiText = when (this) {
+    is FfiCompressRefusal.EncryptedDocumentNotRewritable -> UiText.Resource(R.string.error_compress_protected_clause)
+    is FfiCompressRefusal.SignaturesWouldBeInvalidated -> UiText.Resource(R.string.error_compress_signed_clause)
+    is FfiCompressRefusal.Other -> UiText.Verbatim(detail)
+}
+
+private fun FfiCompressRefusal.toSentence(): UiText = when (this) {
+    is FfiCompressRefusal.EncryptedDocumentNotRewritable -> UiText.Resource(R.string.error_compress_protected)
+    is FfiCompressRefusal.SignaturesWouldBeInvalidated -> UiText.Resource(R.string.error_compress_signed)
+    is FfiCompressRefusal.Other -> coreSentence(detail)
 }
 
 private fun FfiWatermarkLayer.toLayer(): WatermarkLayer = when (this) {

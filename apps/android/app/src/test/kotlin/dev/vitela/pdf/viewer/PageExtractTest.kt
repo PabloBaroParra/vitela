@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -30,14 +31,14 @@ class PageExtractTest {
     @Test
     fun theExtractionBitIsAskedBeforeTheRange() {
         val document = ExtractDocument(extractionAllowed = false)
-        assertEquals(PAGE_EXTRACT_NOT_ALLOWED, refused(document, "1-2"))
+        assertEquals(PAGE_EXTRACT_NOT_ALLOWED.english(), refused(document, "1-2"))
         assertEquals(emptyList<String>(), document.parsed)
     }
 
     @Test
     fun aDocumentThatCannotBeRewrittenIsRefusedBeforeTheRange() {
         val document = ExtractDocument(rewriteAllowed = false)
-        assertEquals(PAGE_EXTRACT_NO_REWRITE, refused(document, "1-2"))
+        assertEquals(PAGE_EXTRACT_NO_REWRITE.english(), refused(document, "1-2"))
         assertEquals(emptyList<String>(), document.parsed)
     }
 
@@ -80,7 +81,7 @@ class PageExtractTest {
         (planPageExtract(document, range) as PdfCoreResult.Success).value
 
     private fun refused(document: PdfDocument, range: String): String =
-        ((planPageExtract(document, range) as PdfCoreResult.Failure).error as PdfCoreError.Failed).message
+        ((planPageExtract(document, range) as PdfCoreResult.Failure).error as PdfCoreError.Failed).text.english()
 }
 
 internal class ExtractDocument(
@@ -101,11 +102,11 @@ internal class ExtractDocument(
     override fun parsePageSelection(input: String): PdfCoreResult<List<Int>> {
         parsed += input
         val range = Regex("""(\d+)-(\d+)""").matchEntire(input)
-            ?: return PdfCoreResult.Failure(PdfCoreError.Failed("\"$input\" is not a page number."))
+            ?: return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("\"$input\" is not a page number.")))
         return PdfCoreResult.Success((range.groupValues[1].toInt()..range.groupValues[2].toInt()).map { it - 1 })
     }
     override fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> {
-        failure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        failure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         extracted += pages
         return PdfCoreResult.Success(pages.map { it.toByte() }.toByteArray())
     }

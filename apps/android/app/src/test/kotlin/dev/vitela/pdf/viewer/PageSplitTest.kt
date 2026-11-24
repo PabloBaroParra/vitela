@@ -7,6 +7,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SplitPart
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -34,14 +35,14 @@ class PageSplitTest {
     @Test
     fun theExtractionBitIsAskedBeforeTheCuts() {
         val document = SplitDocument(extractionAllowed = false)
-        assertEquals(PAGE_EXTRACT_NOT_ALLOWED, refused(document, "1"))
+        assertEquals(PAGE_EXTRACT_NOT_ALLOWED.english(), refused(document, "1"))
         assertEquals(emptyList<Pair<String, String>>(), document.planned)
     }
 
     @Test
     fun aDocumentThatCannotBeRewrittenIsRefusedBeforeTheCuts() {
         val document = SplitDocument(rewriteAllowed = false)
-        assertEquals(PAGE_SPLIT_NO_REWRITE, refused(document, "1"))
+        assertEquals(PAGE_SPLIT_NO_REWRITE.english(), refused(document, "1"))
         assertEquals(emptyList<Pair<String, String>>(), document.planned)
     }
 
@@ -63,7 +64,7 @@ class PageSplitTest {
         (planPageSplit(document, "report.pdf", cuts) as PdfCoreResult.Success).value
 
     private fun refused(document: PdfDocument, cuts: String): String =
-        ((planPageSplit(document, "report.pdf", cuts) as PdfCoreResult.Failure).error as PdfCoreError.Failed).message
+        ((planPageSplit(document, "report.pdf", cuts) as PdfCoreResult.Failure).error as PdfCoreError.Failed).text.english()
 }
 
 /**
@@ -88,13 +89,13 @@ internal class SplitDocument(
     override fun extractSourceIsSigned(): Boolean = signed
     override fun planSplit(cuts: String, displayName: String): PdfCoreResult<List<SplitPart>> {
         planned += cuts to displayName
-        if (cuts.isBlank()) return PdfCoreResult.Failure(PdfCoreError.Failed("Type where to cut, for example 3 to split after page 3."))
-        val after = cuts.split(",").map { it.trim().toIntOrNull() ?: return PdfCoreResult.Failure(PdfCoreError.Failed("\"$it\" is not a page number.")) }
+        if (cuts.isBlank()) return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("Type where to cut, for example 3 to split after page 3.")))
+        val after = cuts.split(",").map { it.trim().toIntOrNull() ?: return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("\"$it\" is not a page number."))) }
         val bounds = listOf(0) + after + pageCount
         return PdfCoreResult.Success(bounds.zipWithNext().mapIndexed { index, (from, to) -> SplitPart(from, to - 1, "$displayName-part${index + 1}.pdf") })
     }
     override fun extractPages(pages: List<Int>): PdfCoreResult<ByteArray> {
-        if (failAtPart == extracted.size + 1) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
+        if (failAtPart == extracted.size + 1) return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("The document could not be processed.")))
         extracted += pages
         return PdfCoreResult.Success(pages.map { it.toByte() }.toByteArray())
     }

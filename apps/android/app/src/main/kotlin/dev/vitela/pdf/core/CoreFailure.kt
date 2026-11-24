@@ -1,5 +1,8 @@
 package dev.vitela.pdf.core
 
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
+
 /**
  * What a core call failed with, one entry per `FfiError` variant — named here,
  * outside the generated adapter, so each one's sentence is tested without the
@@ -31,12 +34,12 @@ enum class CoreFailure {
     Unexpected,
 }
 
-const val GENERIC_FAILURE = "The document could not be processed."
+val GENERIC_FAILURE: UiText = UiText.Resource(R.string.error_core_generic)
 
 /** Only PNG and JPEG decode; the picker cannot be narrowed to them on every device. */
-const val NOT_AN_IMAGE = "This file is not a PNG or JPEG image."
+val NOT_AN_IMAGE: UiText = UiText.Resource(R.string.error_core_not_an_image)
 
-const val PDFIUM_UNAVAILABLE = "PDFium is unavailable. This package must include externally supplied compatible PDFium libraries."
+val PDFIUM_UNAVAILABLE: UiText = UiText.Resource(R.string.error_core_pdfium_unavailable)
 
 /**
  * `pdf_render::RenderError::LibraryLoad`'s Display. The FFI folds it into
@@ -56,21 +59,27 @@ fun CoreFailure.toPdfCoreError(detail: String): PdfCoreError = when (this) {
     else -> PdfCoreError.Failed(message(detail))
 }
 
-private fun CoreFailure.message(detail: String): String = when (this) {
-    CoreFailure.PasswordRequired, CoreFailure.WrongPassword -> "This document requires a password."
-    CoreFailure.UnsupportedSecurityHandler -> "This document uses a password protection this app does not support."
+private fun CoreFailure.message(detail: String): UiText = when (this) {
+    CoreFailure.PasswordRequired, CoreFailure.WrongPassword -> UiText.Resource(R.string.status_open_password_required)
+    CoreFailure.UnsupportedSecurityHandler -> UiText.Resource(R.string.error_core_security_handler)
     CoreFailure.DocumentNotFound,
     CoreFailure.BitmapNotFound,
     CoreFailure.PageIndexOutOfBounds,
     CoreFailure.AnnotationNotFound,
-    CoreFailure.FormFieldNotFound -> "The document changed. Please try again."
+    CoreFailure.FormFieldNotFound -> UiText.Resource(R.string.error_core_document_changed)
     CoreFailure.InvalidImage -> NOT_AN_IMAGE
-    CoreFailure.InvalidSaveRequest -> "The requested action could not be completed."
-    CoreFailure.SignaturesWouldBeInvalidated -> "Saving would invalidate this document's signature, so it was not saved."
-    CoreFailure.UnsupportedOperation -> "This document or action is not supported."
-    CoreFailure.EncodingGap -> "This text's font cannot show \"$detail\". Try different characters."
-    CoreFailure.InvalidPageSelection -> detail
-    CoreFailure.RenderFailed -> if (detail.contains(LIBRARY_LOAD_PREFIX)) PDFIUM_UNAVAILABLE else "This page could not be rendered."
-    CoreFailure.Io -> "The file could not be read or written."
+    CoreFailure.InvalidSaveRequest -> UiText.Resource(R.string.error_core_request_failed)
+    CoreFailure.SignaturesWouldBeInvalidated -> UiText.Resource(R.string.error_core_signatures_invalidated)
+    CoreFailure.UnsupportedOperation -> UiText.Resource(R.string.error_core_unsupported)
+    CoreFailure.EncodingGap -> UiText.Resource(R.string.error_core_font_gap, detail)
+    CoreFailure.InvalidPageSelection -> UiText.Verbatim(detail)
+    CoreFailure.RenderFailed -> if (detail.contains(LIBRARY_LOAD_PREFIX)) PDFIUM_UNAVAILABLE else UiText.Resource(R.string.error_core_page_not_rendered)
+    CoreFailure.Io -> UiText.Resource(R.string.error_core_io)
     CoreFailure.Internal, CoreFailure.Unexpected -> GENERIC_FAILURE
 }
+
+/**
+ * A refusal the core words as a lower-case clause, as the sentence it stands
+ * for. Verbatim: the core's wording has no translation.
+ */
+fun coreSentence(clause: String): UiText = UiText.Verbatim("${clause.replaceFirstChar { it.uppercase() }.trimEnd('.')}.")

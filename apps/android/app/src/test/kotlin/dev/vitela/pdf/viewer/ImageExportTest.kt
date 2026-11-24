@@ -7,6 +7,8 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -76,7 +78,7 @@ class ImageExportTest {
     @Test
     fun aDocumentThatWithholdsExtractionIsRefused() {
         val refusal = refused(PlanDocument(allowed = false), ImageExportDraft())
-        assertEquals(IMAGE_EXPORT_NOT_ALLOWED, refusal)
+        assertEquals(IMAGE_EXPORT_NOT_ALLOWED.english(), refusal)
     }
 
     @Test
@@ -100,7 +102,7 @@ class ImageExportTest {
     private fun refused(document: PdfDocument, draft: ImageExportDraft): String {
         val result = planImageExport(document, "report.pdf", 0, draft)
         assertTrue("expected a refusal but got $result", result is PdfCoreResult.Failure)
-        return ((result as PdfCoreResult.Failure).error as PdfCoreError.Failed).message
+        return ((result as PdfCoreResult.Failure).error as PdfCoreError.Failed).text.english()
     }
 }
 
@@ -126,7 +128,7 @@ internal class PlanDocument(
     override fun parsePageSelection(input: String): PdfCoreResult<List<Int>> {
         parsed += input
         val range = Regex("""(\d+)-(\d+)""").matchEntire(input)
-            ?: return PdfCoreResult.Failure(PdfCoreError.Failed("\"$input\" is not a page number."))
+            ?: return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("\"$input\" is not a page number.")))
         return PdfCoreResult.Success((range.groupValues[1].toInt()..range.groupValues[2].toInt()).map { it - 1 })
     }
     override fun pageImageFileName(displayName: String, pageIndex: Int, format: ImageExportFormat): PdfCoreResult<String> =
@@ -138,7 +140,7 @@ internal class PlanDocument(
         return PdfCoreResult.Success(byteArrayOf(-1))
     }
     override fun outputSnapshot(): PdfCoreResult<PdfDocument> {
-        if (snapshotFails) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
+        if (snapshotFails) return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("The document could not be processed.")))
         snapshotsTaken++
         return PdfCoreResult.Success(Snapshot())
     }
@@ -146,7 +148,7 @@ internal class PlanDocument(
 
     private inner class Snapshot : PdfDocument by this@PlanDocument {
         override fun exportPageImage(pageIndex: Int, dpi: Int, format: ImageExportFormat): PdfCoreResult<ByteArray> {
-            if (pageIndex == failingPage) return PdfCoreResult.Failure(PdfCoreError.Failed("The document could not be processed."))
+            if (pageIndex == failingPage) return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("The document could not be processed.")))
             exported += Triple(pageIndex, dpi, format)
             return PdfCoreResult.Success(byteArrayOf(pageIndex.toByte()))
         }

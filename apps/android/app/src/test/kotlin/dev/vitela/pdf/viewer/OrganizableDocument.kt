@@ -14,6 +14,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.PreparedImport
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 
 /**
  * A document whose pages are identified by their width (100 + the id the page
@@ -126,7 +127,7 @@ internal class OrganizableDocument(
     /** Adds every [FakePreparedImport]'s pages as new ids, one block per source and ONE undo step for the batch. */
     override fun importPrepared(sources: List<PreparedImport>, index: Int): PdfCoreResult<BatchImportReport> {
         imports += index to sources.size
-        importRefusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        importRefusal?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         val fakes = sources.map { it as FakePreparedImport }
         check(fakes.none { it.closed }) { "a closed source reached the core" }
         val before = pages.toList()
@@ -195,7 +196,7 @@ internal class OrganizeQueueCore(vararg documents: PdfDocument) : PdfCore {
         preparations += bytes[1].toInt() to password
         when (bytes[0]) {
             FAKE_LOCKED -> if (password != FAKE_PASSWORD) return PdfCoreResult.Failure(if (password == null) PdfCoreError.PasswordRequired else PdfCoreError.WrongPassword)
-            FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed("The PDF does not permit copying its pages."))
+            FAKE_REFUSED -> return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("The PDF does not permit copying its pages.")))
         }
         val warnings = if (bytes[0] == FAKE_WARNS) listOf("a form field was renamed") else emptyList()
         return PdfCoreResult.Success(FakePreparedImport(bytes[1].toInt(), warnings).also { prepared += it })

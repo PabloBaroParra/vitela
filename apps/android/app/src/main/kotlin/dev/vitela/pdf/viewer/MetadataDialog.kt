@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.text.resolve
 
 /** Document properties: the six text keys of `/Info`, read-only when the file forbids changes. */
 @Composable
@@ -30,7 +31,7 @@ internal fun MetadataDialog(
         text = {
             // Scrolls so the last field stays reachable above the keyboard.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                editor.message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                editor.message?.let { Text(it.resolve(), style = MaterialTheme.typography.bodyMedium) }
                 MetadataField("Title", draft.title, editor.editingAllowed) { onChange(draft.copy(title = it)) }
                 MetadataField("Author", draft.author, editor.editingAllowed) { onChange(draft.copy(author = it)) }
                 MetadataField("Subject", draft.subject, editor.editingAllowed) { onChange(draft.copy(subject = it)) }

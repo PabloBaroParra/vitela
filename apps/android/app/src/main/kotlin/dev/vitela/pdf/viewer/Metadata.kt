@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.text.UiText
 
 /**
  * The open Document properties dialog. [draft] is what the text boxes show,
@@ -10,10 +12,10 @@ data class MetadataEditor(
     val draft: DocumentInfo,
     val editingAllowed: Boolean,
     /** Why the properties are read-only, or why the last apply was refused. */
-    val message: String? = null,
+    val message: UiText? = null,
 )
 
-internal const val METADATA_READ_ONLY = "This document does not permit metadata changes."
+internal val METADATA_READ_ONLY: UiText = UiText.Resource(R.string.error_metadata_read_only)
 
 /**
  * What an apply should queue, or null when [draft] says nothing new. A text

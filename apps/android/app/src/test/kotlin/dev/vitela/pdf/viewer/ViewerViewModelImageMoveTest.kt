@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -116,7 +117,7 @@ class ViewerViewModelImageMoveTest {
     @Test
     fun aRefusedMoveSaysWhyAndDisarms() = runTest {
         val refusal = "This image cannot be moved."
-        val viewModel = armed(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = armed(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.tapContent(0, clear, reach = 0.0)
         advanceUntilIdle()
 

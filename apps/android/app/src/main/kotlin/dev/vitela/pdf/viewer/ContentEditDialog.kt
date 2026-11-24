@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.text.resolve
 
 /** What Edit content asks of the ViewModel, bundled like [FormFieldActions]. */
 internal class ContentEditActions(
@@ -114,7 +115,7 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
                     onValueChange = { text = it },
                     singleLine = true,
                     isError = editor.error != null,
-                    supportingText = editor.error?.let { error -> { Text(error) } },
+                    supportingText = editor.error?.let { error -> { Text(error.resolve()) } },
                 )
             }
         },
@@ -153,7 +154,7 @@ internal fun ImageResizerDialog(resizer: ImageResizer, documentId: Long, actions
                     PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
                     PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
                 }
-                resizer.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                resizer.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { Button(onClick = { actions.onResize(documentId, width, height) }) { Text("Resize") } },
@@ -192,7 +193,7 @@ internal fun TextInserterDialog(inserter: TextInserter, documentId: Long, action
                     isError = inserter.error != null,
                 )
                 PointsField("Size (pt)", size, { size = it }, inserter.error != null, Modifier)
-                inserter.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                inserter.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { Button(onClick = { actions.onInsertText(documentId, text, size) }) { Text("Insert") } },

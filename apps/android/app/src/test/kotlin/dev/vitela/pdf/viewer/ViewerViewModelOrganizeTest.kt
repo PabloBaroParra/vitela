@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -96,7 +97,7 @@ class ViewerViewModelOrganizeTest {
 
     @Test
     fun aRefusedEditLeavesThePreviewAlone() = runTest {
-        val document = OrganizableDocument(refusal = PdfCoreError.Failed("no"))
+        val document = OrganizableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim("no")))
         val viewModel = openedWith(document)
         val refreshes = document.previewRefreshes
         viewModel.openOrganize()
@@ -109,7 +110,7 @@ class ViewerViewModelOrganizeTest {
     @Test
     fun aPreviewThatCannotBeRebuiltSaysSoInsteadOfClaimingTheMove() = runTest {
         val failure = "The page could not be redrawn with your changes. They are still pending save."
-        val viewModel = openedWith(OrganizableDocument(previewFailure = PdfCoreError.Failed(failure)))
+        val viewModel = openedWith(OrganizableDocument(previewFailure = PdfCoreError.Failed(UiText.Verbatim(failure))))
         viewModel.openOrganize()
         viewModel.organizeMove(0, 1)
         advanceUntilIdle()
@@ -235,7 +236,7 @@ class ViewerViewModelOrganizeTest {
     @Test
     fun aRefusalFromTheCoreChangesNothingAndSaysWhy() = runTest {
         val refusal = "This document does not allow its pages to be rearranged, rotated or removed."
-        val document = OrganizableDocument(refusal = PdfCoreError.Failed(refusal))
+        val document = OrganizableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal)))
         val viewModel = openedWith(document)
         val before = viewModel.state.value
         viewModel.openOrganize()

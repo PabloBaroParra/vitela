@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 
 /**
  * A [RetypableDocument] that behaves like the core around a content-edit
@@ -94,7 +95,7 @@ internal class CheckpointingDocument(
 
     private fun <T> stale(id: Long): PdfCoreResult<T> {
         staleRefusals += "item $id is not numbered by generation $generation"
-        return PdfCoreResult.Failure(PdfCoreError.Failed("That item is no longer on the page."))
+        return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("That item is no longer on the page.")))
     }
 
     private fun ContentTextRun.numbered() = copy(id = id + shift)

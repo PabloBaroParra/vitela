@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /** Split PDF: the pages each new file starts after. It stays open on refused cuts and says why. */
 @Composable
@@ -26,7 +27,7 @@ internal fun PageSplitDialog(
         title = { Text("Split PDF") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                editor.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.message?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 OutlinedTextField(
                     value = editor.cuts,
                     onValueChange = onChange,

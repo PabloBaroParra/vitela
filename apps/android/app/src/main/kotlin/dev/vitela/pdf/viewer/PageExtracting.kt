@@ -66,7 +66,7 @@ internal class PageExtracting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.pageExtract ?: return@withLock null
-                    state.value = state.value.copy(pageExtract = latest.copy(message = dialogMessage(result.error)))
+                    state.value = state.value.copy(pageExtract = latest.copy(message = userMessage(result.error)))
                     null
                 }
             }

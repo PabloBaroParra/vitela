@@ -61,7 +61,7 @@ class ViewerViewModelPageExtractTest {
 
         assertNull(viewModel.planPageExtract())
         val editor = requireNotNull(viewModel.state.value.pageExtract)
-        assertEquals("\"nope\" is not a page number.", editor.message)
+        assertEquals("\"nope\" is not a page number.", editor.message?.english())
         assertEquals("nope", editor.range)
     }
 

@@ -10,6 +10,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RecoverySnapshot
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import java.io.IOException
 
 /** An editable document whose recovery bytes say how many edits they hold. */
@@ -46,7 +47,7 @@ internal class RecoverableDocument(var encrypted: Boolean = false, private val d
         snapshots++
         val taken = RecoverySnapshot(bytes(), breaksSignatures)
         duringSnapshot()
-        return if (snapshotFails || closes > 0) PdfCoreResult.Failure(PdfCoreError.Failed("no")) else PdfCoreResult.Success(taken)
+        return if (snapshotFails || closes > 0) PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim("no"))) else PdfCoreResult.Success(taken)
     }
     override fun close() {
         closes++

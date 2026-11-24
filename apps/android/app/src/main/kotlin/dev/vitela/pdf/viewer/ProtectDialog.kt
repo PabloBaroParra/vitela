@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /**
  * Protect with a password: both roles, as on Windows. The passwords live in
@@ -41,7 +42,7 @@ internal fun ProtectDialog(
         title = { Text("Protect with a password") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                editor.refusal?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.refusal?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 PasswordField("Password to open the document", openPassword, enabled) { openPassword = it }
                 PasswordField("Permissions password", permissionsPassword, enabled) { permissionsPassword = it }
                 Text("Use different passwords. The permissions password controls changes after the document is opened.", style = MaterialTheme.typography.bodyMedium)
@@ -52,7 +53,7 @@ internal fun ProtectDialog(
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
-                editor.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
         },
         confirmButton = {

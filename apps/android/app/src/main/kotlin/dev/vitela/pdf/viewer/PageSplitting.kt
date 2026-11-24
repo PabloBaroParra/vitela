@@ -66,7 +66,7 @@ internal class PageSplitting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.pageSplit ?: return@withLock false
-                    state.value = state.value.copy(pageSplit = latest.copy(message = dialogMessage(result.error)))
+                    state.value = state.value.copy(pageSplit = latest.copy(message = userMessage(result.error)))
                     false
                 }
             }

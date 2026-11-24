@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /** What the Sign dialog can ask of the ViewModel and the shell's certificate picker. */
 data class SignActions(
@@ -53,7 +54,7 @@ internal fun SignDialog(editor: SignEditor, actions: SignActions) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 editor.refusal?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
                     return@Column
                 }
                 Text(
@@ -87,7 +88,7 @@ internal fun SignDialog(editor: SignEditor, actions: SignActions) {
                         }
                     }
                 }
-                editor.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.error?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
             }
         },
         confirmButton = {

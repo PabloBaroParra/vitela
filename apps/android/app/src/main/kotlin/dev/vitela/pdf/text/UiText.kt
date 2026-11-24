@@ -25,13 +25,16 @@ sealed interface UiText {
         constructor(@PluralsRes id: Int, count: Int, vararg args: Any) : this(id, count, args.toList())
     }
 
-    /** Text that has no resource: the core's own sentence. */
+    /** Text that has no resource: the core's own words. */
     data class Verbatim(val text: String) : UiText
 
     /** Whole sentences, one after another. */
     data class Sentences(val parts: List<UiText>) : UiText {
         constructor(vararg parts: UiText) : this(parts.toList())
     }
+
+    /** Clauses of one sentence, in a list. */
+    data class Clauses(val parts: List<UiText>) : UiText
 }
 
 /** Where the words come from: the app's resources, or the XML itself in a test. */
@@ -47,6 +50,7 @@ internal fun UiText.resolve(words: UiTextWords): String {
         is UiText.Plural -> words.plural(id, count, args.worded())
         is UiText.Verbatim -> text
         is UiText.Sentences -> parts.joinToString(" ") { it.resolve(words) }
+        is UiText.Clauses -> parts.joinToString("; ") { it.resolve(words) }
     }
 }
 

@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -49,7 +50,7 @@ class ViewerViewModelImageReplaceTest {
     @Test
     fun aRefusedPreparationSaysWhyAndOpensNoPicker() = runTest {
         val refusal = "Save before replacing an image with a pending edit."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
 
         assertFalse(viewModel.prepareImageReplacement(viewModel.state.value.documentId))
 
@@ -105,7 +106,7 @@ class ViewerViewModelImageReplaceTest {
         val refusal = "The chosen file is not a PNG or JPEG image."
         val document = object : PdfDocument by RetypableDocument() {
             override fun replaceImage(image: ContentImage, imageBytes: ByteArray) =
-                PdfCoreResult.Failure(PdfCoreError.Failed(refusal))
+                PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(refusal)))
         }
         val viewModel = prepared(document)
         viewModel.replaceImage(png)

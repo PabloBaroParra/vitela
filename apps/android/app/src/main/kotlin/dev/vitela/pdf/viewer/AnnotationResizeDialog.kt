@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /**
  * **Resize**: the selected annotation's width and height in points, ready to
@@ -36,7 +37,7 @@ internal fun AnnotationResizeDialog(resizer: AnnotationResizer, documentId: Long
                     PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
                     PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
                 }
-                resizer.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                resizer.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { Button(onClick = { onResize(documentId, width, height) }) { Text("Resize") } },

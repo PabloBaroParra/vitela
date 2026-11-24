@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.CompressPreset
+import dev.vitela.pdf.text.resolve
 
 /**
  * Compress PDF: one radio per preset, Balanced pre-selected. No predicted
@@ -38,7 +39,7 @@ internal fun CompressDialog(
         title = { Text("Compress PDF") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                editor.refusal?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.refusal?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 Text("Writes a smaller copy. The open document stays as it is.", style = MaterialTheme.typography.bodyMedium)
                 CompressPreset.entries.forEach { preset ->
                     val (name, description) = describePreset(preset)

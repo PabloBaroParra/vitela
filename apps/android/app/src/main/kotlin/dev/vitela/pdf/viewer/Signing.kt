@@ -59,7 +59,7 @@ internal class Signing(
             session.documentLane.withLock {
                 if (session.document !== openDocument) return@withLock
                 val refusal = if (state.value.isDirty) SAVE_BEFORE_SIGNING
-                else withContext(session.compute) { openDocument.signingRefusal() }?.let(::signRefusalSentence)
+                else withContext(session.compute) { openDocument.signingRefusal() }
                 state.value = state.value.copy(sign = SignEditor(refusal = refusal))
             }
         }
@@ -89,7 +89,7 @@ internal class Signing(
                 sign = when (result) {
                     // A wrong password asks again; a file that opened but
                     // cannot sign carries the core's sentence saying why.
-                    is PdfCoreResult.Failure -> current.copy(unlocking = false, error = (result.error as? PdfCoreError.Failed)?.message ?: CERTIFICATE_LOCKED)
+                    is PdfCoreResult.Failure -> current.copy(unlocking = false, error = (result.error as? PdfCoreError.Failed)?.text ?: CERTIFICATE_LOCKED)
                     is PdfCoreResult.Success -> {
                         val identities = result.value.identities
                         if (identities.isEmpty()) {

@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /**
  * **Move to**: the selected annotation's bottom-left X and Y in points, ready
@@ -39,7 +40,7 @@ internal fun AnnotationPositionDialog(positioner: AnnotationPositioner, document
                     PointsField("X (pt)", x, { x = it }, positioner.error != null, Modifier.weight(1f))
                     PointsField("Y (pt)", y, { y = it }, positioner.error != null, Modifier.weight(1f))
                 }
-                positioner.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                positioner.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { Button(onClick = { onMove(documentId, x, y) }) { Text("Move") } },

@@ -17,6 +17,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.text.resolve
 
 /**
  * The shape dialog: a table border, rule or shaded box's width and height in
@@ -42,7 +43,7 @@ internal fun PathShaperDialog(shaper: PathShaper, documentId: Long, actions: Con
                     PointsField("Width (pt)", width, { width = it }, shaper.error != null, Modifier.weight(1f), enabled = shaper.path.bounds.width > 0.0)
                     PointsField("Height (pt)", height, { height = it }, shaper.error != null, Modifier.weight(1f), enabled = shaper.path.bounds.height > 0.0)
                 }
-                shaper.error?.let { error -> Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                shaper.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = { Button(onClick = { actions.onResizePath(documentId, width, height) }) { Text("Resize") } },

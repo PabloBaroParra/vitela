@@ -4,6 +4,8 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -147,7 +149,7 @@ class ViewerViewModelImageResizeTest {
     @Test
     fun aRefusedResizeKeepsTheResizerOpenWithTheReason() = runTest {
         val refusal = "This image cannot be resized."
-        val viewModel = openedWith(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = openedWith(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.openContentEdit()
         viewModel.tapContent(0, onImage, reach = 0.0)
         advanceUntilIdle()
@@ -155,7 +157,7 @@ class ViewerViewModelImageResizeTest {
         advanceUntilIdle()
 
         val resizer = viewModel.state.value.contentEdit?.resizer
-        assertEquals(refusal, resizer?.error)
+        assertEquals(refusal, resizer?.error?.english())
         assertEquals("60" to "15", resizer?.width to resizer?.height)
         assertFalse(viewModel.state.value.isDirty)
     }

@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -67,7 +68,7 @@ class ViewerViewModelTextDeleteTest {
     @Test
     fun aRefusedDeleteSaysWhyAndKeepsTheRun() = runTest {
         val refusal = "This text cannot be deleted."
-        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(refusal)))
+        val viewModel = opened(RetypableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim(refusal))))
         viewModel.deleteTextBlock(viewModel.state.value.documentId)
         advanceUntilIdle()
 

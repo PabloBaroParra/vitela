@@ -11,21 +11,20 @@ import dev.vitela.pdf.text.UiText
 data class PageSplitEditor(
     val cuts: String,
     val splitAllowed: Boolean,
-    val message: String? = null,
+    val message: UiText? = null,
 )
 
 /** A split whose cuts have been checked, so only the core's rewrite or the disk can still refuse a part. */
 data class PageSplitPlan(val parts: List<SplitPart>, val sourceIsSigned: Boolean)
 
-internal const val PAGE_SPLIT_NO_REWRITE =
-    "Splitting pages rewrites the whole file, which this document's encryption or available credentials do not allow."
+internal val PAGE_SPLIT_NO_REWRITE: UiText = UiText.Resource(R.string.error_split_no_rewrite)
 
 /**
  * Why [document] cannot be split at all, or null when it can. Each part is an
  * extraction, so these are Extract pages' two gates in the same order — and
  * the Windows split plan's.
  */
-internal fun pageSplitRefusal(document: PdfDocument): String? = when {
+internal fun pageSplitRefusal(document: PdfDocument): UiText? = when {
     !document.pageExtractionAllowed() -> PAGE_EXTRACT_NOT_ALLOWED
     !document.fullRewriteAllowed() -> PAGE_SPLIT_NO_REWRITE
     else -> null

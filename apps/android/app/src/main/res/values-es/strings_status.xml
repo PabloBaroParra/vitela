@@ -127,6 +127,8 @@
         <item quantity="many">%1$s elementos pegados: arrástralos dentro del recuadro discontinuo para colocarlos.</item>
         <item quantity="other">%1$s elementos pegados: arrástralos dentro del recuadro discontinuo para colocarlos.</item>
     </plurals>
+
+    <!-- Watermark -->
     <plurals name="status_watermark_added">
         <item quantity="one">Marca de agua añadida a %1$s página.</item>
         <item quantity="many">Marca de agua añadida a %1$s páginas.</item>

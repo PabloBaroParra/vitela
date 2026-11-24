@@ -219,7 +219,7 @@ internal class AnnotationEditing(
                         state.value = state.value.copy(freeText = null, isDirty = true, revision = state.value.revision + 1, status = done)
                         refresh(openDocument)
                     }
-                    is PdfCoreResult.Failure -> state.value = state.value.copy(freeText = draft.copy(busy = false, error = dialogMessage(result.error)))
+                    is PdfCoreResult.Failure -> state.value = state.value.copy(freeText = draft.copy(busy = false, error = userMessage(result.error)))
                 }
             }
         }

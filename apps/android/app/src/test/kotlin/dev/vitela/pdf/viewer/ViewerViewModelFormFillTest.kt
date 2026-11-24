@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.FormFieldValue
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -125,7 +126,7 @@ class ViewerViewModelFormFillTest {
 
     @Test
     fun aRefusedFillPutsTheCoresValueBackAndSaysWhy() = runTest {
-        val document = FillableDocument(refusal = PdfCoreError.Failed("That value does not fit this field."))
+        val document = FillableDocument(refusal = PdfCoreError.Failed(UiText.Verbatim("That value does not fit this field.")))
         val viewModel = openedWith(document)
         viewModel.openFormFields()
         advanceUntilIdle()

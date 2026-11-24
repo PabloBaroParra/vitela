@@ -7,6 +7,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -40,7 +41,7 @@ class ViewerViewModelProtectTest {
         viewModel.openProtect()
 
         val editor = requireNotNull(viewModel.state.first { it.protect != null }.protect)
-        assertEquals("This document does not permit protection changes.", editor.refusal)
+        assertEquals("This document does not permit protection changes.", editor.refusal?.english())
         assertNull(viewModel.confirmProtect("user", "owner"))
         viewModel.writeProtected("a-protected.pdf", null) { true }
         assertEquals(emptyList<Pair<String, String>>(), document.protections)
@@ -51,7 +52,7 @@ class ViewerViewModelProtectTest {
         val viewModel = openedWith(ProtectDocument(signatureQueryFailure = "The document could not be processed."))
         viewModel.openProtect()
 
-        assertEquals("The document could not be processed.", requireNotNull(viewModel.state.first { it.protect != null }.protect).refusal)
+        assertEquals("The document could not be processed.", requireNotNull(viewModel.state.first { it.protect != null }.protect).refusal?.english())
     }
 
     @Test
@@ -61,7 +62,7 @@ class ViewerViewModelProtectTest {
         viewModel.state.first { it.protect != null }
 
         assertNull(viewModel.confirmProtect("same", "same"))
-        assertEquals("The two passwords must be different.", viewModel.state.value.protect?.error)
+        assertEquals("The two passwords must be different.", viewModel.state.value.protect?.error?.english())
     }
 
     @Test
@@ -260,9 +261,9 @@ private class ProtectDocument(
     override fun search(query: String): PdfCoreResult<List<SearchHit>> = PdfCoreResult.Success(emptyList())
     override fun protectionChangeAllowed(): Boolean = allowed
     override fun protectionWillInvalidateSignatures(): PdfCoreResult<Boolean> =
-        signatureQueryFailure?.let { PdfCoreResult.Failure(PdfCoreError.Failed(it)) } ?: PdfCoreResult.Success(signed)
+        signatureQueryFailure?.let { PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) } ?: PdfCoreResult.Success(signed)
     override fun protect(openPassword: String, permissionsPassword: String, signaturesAcknowledged: Boolean): PdfCoreResult<ByteArray> {
-        protectFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(it)) }
+        protectFailure?.let { return PdfCoreResult.Failure(PdfCoreError.Failed(UiText.Verbatim(it))) }
         protections += openPassword to permissionsPassword
         acknowledgements += signaturesAcknowledged
         return PdfCoreResult.Success(byteArrayOf(9, 9))

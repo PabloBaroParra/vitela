@@ -220,7 +220,7 @@ class ViewerViewModelAutosaveTest {
     @Test
     fun aReplacementThatFailsToOpenKeepsTheOldDocumentsEntryAndName() = runTest {
         openProtected()
-        for (failure in listOf(PdfCoreError.Failed("broken"), PdfCoreError.PasswordRequired)) {
+        for (failure in listOf(PdfCoreError.Failed(UiText.Verbatim("broken")), PdfCoreError.PasswordRequired)) {
             core.failure = failure
             viewer.open("b.pdf", byteArrayOf(2))
             viewer.confirmReplacement()

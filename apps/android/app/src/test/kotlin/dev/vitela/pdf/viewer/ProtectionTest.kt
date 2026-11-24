@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -8,18 +9,18 @@ import org.junit.Test
 class ProtectionTest {
     @Test
     fun theOpenPasswordIsAskedForFirst() {
-        assertEquals("Enter the password the document will ask for when it is opened.", protectionPasswordProblem("", ""))
-        assertEquals("Enter the password the document will ask for when it is opened.", protectionPasswordProblem("", "owner"))
+        assertEquals("Enter the password the document will ask for when it is opened.", protectionPasswordProblem("", "")?.english())
+        assertEquals("Enter the password the document will ask for when it is opened.", protectionPasswordProblem("", "owner")?.english())
     }
 
     @Test
     fun thePermissionsPasswordIsRequired() {
-        assertEquals("Enter the permissions password.", protectionPasswordProblem("user", ""))
+        assertEquals("Enter the permissions password.", protectionPasswordProblem("user", "")?.english())
     }
 
     @Test
     fun theTwoPasswordsMustDiffer() {
-        assertEquals("The two passwords must be different.", protectionPasswordProblem("same", "same"))
+        assertEquals("The two passwords must be different.", protectionPasswordProblem("same", "same")?.english())
     }
 
     @Test

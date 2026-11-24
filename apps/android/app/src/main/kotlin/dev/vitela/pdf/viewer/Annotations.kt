@@ -40,13 +40,13 @@ data class AnnotationResizer(
     val rect: AnnotationRect,
     val width: String = pointsText(rect.width),
     val height: String = pointsText(rect.height),
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 // Wording follows the Windows shell's.
 internal val ANNOTATION_RESIZED: UiText = UiText.Resource(R.string.status_annotation_resized)
 internal val ANNOTATION_SIZE_UNCHANGED: UiText = UiText.Resource(R.string.status_annotation_size_unchanged)
-internal const val ANNOTATION_SIZE_INVALID = "Annotation dimensions must be finite and greater than zero."
+internal val ANNOTATION_SIZE_INVALID: UiText = UiText.Resource(R.string.error_annotation_size_invalid)
 internal val ANNOTATION_CHANGED: UiText = UiText.Resource(R.string.status_annotation_changed_resize)
 
 /** [rect] at [width] by [height] points, its PDF-space origin (bottom-left) kept, like **Grow**; null unless both are finite and positive. */
@@ -64,13 +64,13 @@ data class AnnotationPositioner(
     val bounds: AnnotationRect,
     val x: String = pointsText(bounds.x),
     val y: String = pointsText(bounds.y),
-    val error: String? = null,
+    val error: UiText? = null,
 )
 
 // Wording follows the Windows shell's.
 internal val ANNOTATION_MOVED: UiText = UiText.Resource(R.string.status_annotation_moved)
 internal val ANNOTATION_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_annotation_position_unchanged)
-internal const val ANNOTATION_POSITION_INVALID = "Annotation coordinates must be finite numbers."
+internal val ANNOTATION_POSITION_INVALID: UiText = UiText.Resource(R.string.error_annotation_position_invalid)
 internal val ANNOTATION_POSITION_CHANGED: UiText = UiText.Resource(R.string.status_annotation_changed_move)
 
 /**
