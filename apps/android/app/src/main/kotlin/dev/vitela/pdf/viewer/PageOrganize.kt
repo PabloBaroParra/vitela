@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
 import androidx.compose.ui.graphics.ImageBitmap
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.UiText
 import kotlin.math.floor
 
 /**
@@ -48,10 +50,10 @@ internal const val THUMBNAIL_CACHE_LIMIT = 48
 internal const val FALLBACK_THUMBNAIL_DPI = 24
 
 // Wording is the Windows shell's where it has one.
-internal const val ORGANIZE_LAST_PAGE = "A document needs at least one page."
-internal const val ORGANIZE_NO_SUCH_PAGE = "That page is no longer in the document."
-internal const val ORGANIZE_QUARTER_TURNS = "Pages turn a quarter at a time."
-internal const val ORGANIZE_NOTHING_TO_DO = "The page is already there."
+internal val ORGANIZE_LAST_PAGE: UiText = UiText.Resource(R.string.status_organize_last_page)
+internal val ORGANIZE_NO_SUCH_PAGE: UiText = UiText.Resource(R.string.status_organize_no_such_page)
+internal val ORGANIZE_QUARTER_TURNS: UiText = UiText.Resource(R.string.status_organize_quarter_turns)
+internal val ORGANIZE_NOTHING_TO_DO: UiText = UiText.Resource(R.string.status_organize_nothing_to_do)
 
 /**
  * Why [edit] must not reach the core, or null when it may. The core owns the
@@ -60,7 +62,7 @@ internal const val ORGANIZE_NOTHING_TO_DO = "The page is already there."
  * would accept it: a document with no pages leaves the reader nothing to act
  * on, not even a page to put back.
  */
-internal fun organizeRefusal(pageCount: Int, edit: PageEdit): String? = when (edit) {
+internal fun organizeRefusal(pageCount: Int, edit: PageEdit): UiText? = when (edit) {
     is PageEdit.Move -> when {
         !runFits(edit.from, edit.count, pageCount) || !runFits(edit.to, edit.count, pageCount) -> ORGANIZE_NO_SUCH_PAGE
         edit.from == edit.to -> ORGANIZE_NOTHING_TO_DO
@@ -114,18 +116,12 @@ private fun positionAfterMove(position: Int, from: Int, to: Int, count: Int): In
     else -> position
 }
 
-internal fun organizeStatus(edit: PageEdit): String {
-    val done = when (edit) {
-        is PageEdit.Move -> pagesDone(edit.count, "moved")
-        is PageEdit.Rotate -> pagesDone(edit.count, "rotated")
-        is PageEdit.Remove -> pagesDone(edit.count, "deleted")
-        is PageEdit.InsertBlank -> "Blank page added."
-    }
-    return "$done Changes are pending save."
+internal fun organizeStatus(edit: PageEdit): UiText = when (edit) {
+    is PageEdit.Move -> UiText.Plural(R.plurals.status_organize_moved, edit.count, edit.count)
+    is PageEdit.Rotate -> UiText.Plural(R.plurals.status_organize_rotated, edit.count, edit.count)
+    is PageEdit.Remove -> UiText.Plural(R.plurals.status_organize_deleted, edit.count, edit.count)
+    is PageEdit.InsertBlank -> UiText.Resource(R.string.status_organize_blank_added)
 }
-
-private fun pagesDone(count: Int, verb: String): String = if (count == 1) "Page $verb." else "$count pages $verb."
-
 
 /** The density that fits a page's longer side into [boxPx]. */
 internal fun thumbnailDpi(size: PageSize?, boxPx: Int): Int {

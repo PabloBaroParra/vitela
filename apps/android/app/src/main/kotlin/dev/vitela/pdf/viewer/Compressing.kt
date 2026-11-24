@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.CompressedCopy
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -47,7 +49,7 @@ internal class Compressing(private val session: ViewerSession) {
                     // guess could write a copy whose signature silently broke.
                     when (val signed = openDocument.compressedSaveWillInvalidateSignatures()) {
                         is PdfCoreResult.Success -> CompressEditor(signaturesWillBreak = signed.value)
-                        is PdfCoreResult.Failure -> CompressEditor(refusal = userMessage(signed.error))
+                        is PdfCoreResult.Failure -> CompressEditor(refusal = dialogMessage(signed.error))
                     }
                 }
                 state.value = state.value.copy(compress = editor)
@@ -75,7 +77,7 @@ internal class Compressing(private val session: ViewerSession) {
         if (state.value.compressRunning) return null
         return session.documentLane.withLock {
             if (session.document !== openDocument || state.value.compress == null) return@withLock null
-            state.value = state.value.copy(compress = null, compressRunning = true, status = "Compressing PDF...")
+            state.value = state.value.copy(compress = null, compressRunning = true, status = UiText.Resource(R.string.status_compress_busy))
             try {
                 // The dialog showed the signature warning and its button said so:
                 // confirming it is the acknowledgement, never a second prompt.
@@ -102,23 +104,23 @@ internal class Compressing(private val session: ViewerSession) {
     /** The picker was dismissed: nothing is written and the bytes are dropped. */
     fun cancel() {
         pending = null
-        state.value = state.value.copy(status = "Compression cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_compress_cancelled))
     }
 
     /** Hands the waiting bytes to [write]. They are spent either way. */
     suspend fun write(write: CompressedPdfWriter) {
         val copy = pending ?: return
         pending = null
-        state.value = state.value.copy(status = "Writing the compressed PDF...")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_compress_writing))
         if (!withContext(session.io) { write(copy.bytes) }) {
-            report("Could not write the compressed PDF.")
+            report(UiText.Resource(R.string.status_compress_write_failed))
         } else {
             report(compressWrittenSummary(copy))
         }
     }
 
     /** Always null, so a branch that only reports can be the value of [compress]. */
-    private fun report(status: String): String? {
+    private fun report(status: UiText): String? {
         state.value = state.value.copy(status = status)
         return null
     }

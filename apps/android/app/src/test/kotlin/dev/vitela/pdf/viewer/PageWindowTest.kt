@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -157,8 +158,8 @@ class PageWindowTest {
 
     @Test
     fun visibleRangeStatus_readsAsARangeOnlyWhenMoreThanOnePageShows() {
-        assertEquals("Page 1 of 10.", visibleRangeStatus(0, 0, 10))
-        assertEquals("Pages 2-4 of 10.", visibleRangeStatus(1, 3, 10))
-        assertEquals("No pages.", visibleRangeStatus(0, 0, 0))
+        assertEquals("Page 1 of 10.", visibleRangeStatus(0, 0, 10).english())
+        assertEquals("Pages 2-4 of 10.", visibleRangeStatus(1, 3, 10).english())
+        assertEquals("No pages.", visibleRangeStatus(0, 0, 0).english())
     }
 }

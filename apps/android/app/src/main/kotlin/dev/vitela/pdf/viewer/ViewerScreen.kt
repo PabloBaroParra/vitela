@@ -34,6 +34,7 @@ import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.home.HomeScreen
 import dev.vitela.pdf.home.RecentActions
 import dev.vitela.pdf.home.RecentDocument
+import dev.vitela.pdf.text.resolve
 import dev.vitela.pdf.ui.theme.Vitela
 
 /**
@@ -136,7 +137,7 @@ internal fun ViewerScreen(
     // Files dragged in from another app: whatever missed every page lands here, Home included.
     Box(Modifier.fillMaxSize().fileDropTarget(fileDrop.onScreen)) {
         if (showsHome(state)) {
-            HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status, onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample, recents = recents, recentActions = recentActions)
+            HomeScreen(canOpen = state.canOpen && !state.isLoading && !state.needsPassword, isLoading = state.isLoading, status = state.status.resolve(), onOpen = onOpen, onOpenTool = onOpenTool, onOpenSample = onOpenSample, recents = recents, recentActions = recentActions)
         } else {
             var mode by rememberSaveable(state.documentId) { mutableStateOf(initialReaderMode(state.startTool)) }
             var searchOpen by rememberSaveable { mutableStateOf(false) }
@@ -271,7 +272,7 @@ internal fun ViewerScreen(
                                 FormFieldsPanel(panel, state.documentId, formFields, modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp))
                             }
                             Text(
-                                state.status,
+                                state.status.resolve(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,

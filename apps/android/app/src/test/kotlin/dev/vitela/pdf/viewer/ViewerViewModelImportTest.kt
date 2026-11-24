@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -34,7 +35,7 @@ class ViewerViewModelImportTest {
         assertEquals(listOf(0, 1, 2, 3, 4), state.pageSizes.map { it.widthPt.toInt() - 100 })
         assertEquals(5, state.pageCount)
         assertTrue(state.isDirty)
-        assertEquals("Added 3 pages from 2 PDFs. Changes are pending save.", state.status)
+        assertEquals("Added 3 pages from 2 PDFs. Changes are pending save.", state.status.english())
         assertFalse(state.organize?.busy ?: true)
         assertTrue("every prepared source is let go", core.prepared.all { it.closed })
     }
@@ -85,7 +86,7 @@ class ViewerViewModelImportTest {
         assertEquals(3, state.pageCount)
         assertEquals("the next file goes without the last one's password", 1 to null, core.preparations.last())
         assertEquals(listOf(1 to 2), document.imports)
-        assertEquals("Added 2 pages from 2 PDFs. Changes are pending save.", state.status)
+        assertEquals("Added 2 pages from 2 PDFs. Changes are pending save.", state.status.english())
     }
 
     @Test
@@ -101,7 +102,7 @@ class ViewerViewModelImportTest {
 
         val state = viewModel.state.value
         assertEquals(1, state.pageCount)
-        assertEquals("Password entry cancelled for locked.pdf. No PDF was added.", state.status)
+        assertEquals("Password entry cancelled for locked.pdf. No PDF was added.", state.status.english())
         assertFalse(state.organize?.busy ?: true)
         assertFalse(state.isDirty)
         assertTrue(document.imports.isEmpty())
@@ -117,7 +118,7 @@ class ViewerViewModelImportTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("refused.pdf could not be added: The PDF does not permit copying its pages. No PDF was added.", state.status)
+        assertEquals("refused.pdf could not be added: The PDF does not permit copying its pages. No PDF was added.", state.status.english())
         assertEquals(1, state.pageCount)
         assertTrue(document.imports.isEmpty())
         assertFalse(state.isDirty)
@@ -132,7 +133,7 @@ class ViewerViewModelImportTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("This document does not allow pages to be added.", state.status)
+        assertEquals("This document does not allow pages to be added.", state.status.english())
         assertEquals(1, state.pageCount)
         assertFalse(state.isDirty)
         assertFalse(state.organize?.busy ?: true)
@@ -156,7 +157,7 @@ class ViewerViewModelImportTest {
         val state = viewModel.state.value
         assertEquals(emptyList<String>(), state.organize?.importWarnings)
         assertEquals(3, state.pageCount)
-        assertEquals("Added 2 pages from 2 PDFs. Changes are pending save.", state.status)
+        assertEquals("Added 2 pages from 2 PDFs. Changes are pending save.", state.status.english())
     }
 
     @Test
@@ -171,7 +172,7 @@ class ViewerViewModelImportTest {
         val state = viewModel.state.value
         assertEquals(emptyList<String>(), state.organize?.importWarnings)
         assertFalse(state.organize?.busy ?: true)
-        assertEquals("PDF import cancelled.", state.status)
+        assertEquals("PDF import cancelled.", state.status.english())
         assertEquals(1, state.pageCount)
         assertTrue(document.imports.isEmpty())
         assertTrue(core.prepared.single().closed)
@@ -207,8 +208,8 @@ class ViewerViewModelImportTest {
 
     @Test
     fun theSummaryCountsPagesAndFiles() {
-        assertEquals("Added 1 page from 1 PDF. Changes are pending save.", importSummary(1, 1))
-        assertEquals("Added 3 pages from 2 PDFs. Changes are pending save.", importSummary(3, 2))
+        assertEquals("Added 1 page from 1 PDF. Changes are pending save.", importSummary(1, 1).english())
+        assertEquals("Added 3 pages from 2 PDFs. Changes are pending save.", importSummary(3, 2).english())
     }
 
     private suspend fun TestScope.organizing(document: OrganizableDocument): Pair<ViewerViewModel, OrganizeQueueCore> =

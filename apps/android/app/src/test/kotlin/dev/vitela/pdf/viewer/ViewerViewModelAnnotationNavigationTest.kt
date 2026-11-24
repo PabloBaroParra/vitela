@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -36,7 +37,7 @@ class ViewerViewModelAnnotationNavigationTest {
         val state = viewModel.state.value
         assertEquals(5L, state.selectedAnnotationId)
         assertEquals(AnnotationReveal(1, AnnotationRect(10.0, 20.0, 30.0, 8.0)), state.annotationReveal)
-        assertEquals("Annotation 1 of 2.", state.status)
+        assertEquals("Annotation 1 of 2.", state.status.english())
     }
 
     @Test

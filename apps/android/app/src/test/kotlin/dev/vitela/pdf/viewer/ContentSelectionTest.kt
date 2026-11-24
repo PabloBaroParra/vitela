@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PathPaint
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -147,7 +148,7 @@ class ContentSelectionTest {
 
     @Test
     fun theCountReadsInTheSingularAndThePlural() {
-        assertTrue(selectedMessage(1).startsWith("1 item selected"))
-        assertTrue(selectedMessage(3).startsWith("3 items selected"))
+        assertTrue(selectedMessage(1).english().startsWith("1 item selected"))
+        assertTrue(selectedMessage(3).english().startsWith("3 items selected"))
     }
 }

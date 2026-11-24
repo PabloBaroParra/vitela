@@ -1,9 +1,11 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.PathPaint
+import dev.vitela.pdf.text.UiText
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -23,14 +25,14 @@ data class PathShaper(
 )
 
 // Wording follows the Windows shell's: a path is a "shape" to the reader.
-internal const val PATH_RESIZED = "Shape resized. Save to keep the change."
+internal val PATH_RESIZED: UiText = UiText.Resource(R.string.status_content_shape_resized)
 internal const val PATH_SIZE_INVALID = "Shape dimensions must be finite and greater than zero."
-internal const val PATH_MOVED = "Shape moved. Save to keep the change."
-internal const val PATH_POSITION_UNCHANGED = "Shape position unchanged."
-internal const val PATH_DELETED = "Shape deleted. Save to keep the change."
+internal val PATH_MOVED: UiText = UiText.Resource(R.string.status_content_shape_moved)
+internal val PATH_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_content_shape_position_unchanged)
+internal val PATH_DELETED: UiText = UiText.Resource(R.string.status_content_shape_deleted)
 
 /** What an armed move asks for; the shape stays on its own page. */
-internal fun pathMovePrompt(pageIndex: Int) = "Drag the shape, or tap page ${pageIndex + 1} where its top-left corner should go."
+internal fun pathMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.status_content_shape_move_prompt, pageIndex + 1)
 
 /**
  * How far past its box a path is still under the finger, in points. The core's

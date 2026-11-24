@@ -1,7 +1,9 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.CompressedCopy
+import dev.vitela.pdf.text.UiText
 import java.math.BigInteger
 import java.util.Locale
 
@@ -33,11 +35,13 @@ internal fun describePreset(preset: CompressPreset): Pair<String, String> = when
 }
 
 /** Powers of ten, the way the other shells count. */
-internal fun humanSize(bytes: Long): String = when {
-    bytes >= 1_000_000 -> String.format(Locale.ROOT, "%.1f MB", bytes / 1_000_000.0)
-    bytes >= 1_000 -> String.format(Locale.ROOT, "%.0f kB", bytes / 1_000.0)
-    bytes == 1L -> "1 byte"
-    else -> "$bytes bytes"
+internal fun humanSize(bytes: Long): UiText = when {
+    bytes >= 1_000_000 -> {
+        val (whole, tenth) = String.format(Locale.ROOT, "%.1f", bytes / 1_000_000.0).split('.')
+        UiText.Resource(R.string.status_compress_size_megabytes, whole, tenth)
+    }
+    bytes >= 1_000 -> UiText.Resource(R.string.status_compress_size_kilobytes, String.format(Locale.ROOT, "%.0f", bytes / 1_000.0))
+    else -> UiText.Plural(R.plurals.status_compress_size_bytes, bytes.toInt(), bytes.toInt())
 }
 
 /** Truncated rather than rounded, so the number shown is one the file actually reached: 49.7% reads 49%. */
@@ -45,20 +49,20 @@ internal fun percentSmaller(copy: CompressedCopy): Long =
     if (copy.beforeBytes <= 0) 0
     else BigInteger.valueOf(copy.savedBytes).multiply(BigInteger.valueOf(100)).divide(BigInteger.valueOf(copy.beforeBytes)).toLong()
 
-internal fun compressReductionSummary(copy: CompressedCopy): String =
-    "${humanSize(copy.beforeBytes)} uncompressed → ${humanSize(copy.afterBytes)} compressed (${percentSmaller(copy)}% smaller). Choose where to write it.${refusalClause(copy)}"
+internal fun compressReductionSummary(copy: CompressedCopy): UiText =
+    UiText.Resource(R.string.status_compress_reduced, humanSize(copy.beforeBytes), humanSize(copy.afterBytes), percentSmaller(copy).toString()).withRefusals(copy)
 
 /**
  * No destination is asked for: the bytes on offer are the ones an ordinary
  * save writes, and a picker would invite filing them under a name that
  * promises they are smaller.
  */
-internal fun compressNoGainSummary(copy: CompressedCopy): String =
-    "Nothing to gain: this document compresses to the same ${humanSize(copy.beforeBytes)} an uncompressed save writes, so no file was written.${refusalClause(copy)}"
+internal fun compressNoGainSummary(copy: CompressedCopy): UiText =
+    UiText.Resource(R.string.status_compress_no_gain, humanSize(copy.beforeBytes)).withRefusals(copy)
 
 /** The Windows summary without its destination: a SAF document has no path to show. */
-internal fun compressWrittenSummary(copy: CompressedCopy): String =
-    "Compressed PDF written (${humanSize(copy.beforeBytes)} → ${humanSize(copy.afterBytes)}, ${percentSmaller(copy)}% smaller)."
+internal fun compressWrittenSummary(copy: CompressedCopy): UiText =
+    UiText.Resource(R.string.status_compress_written, humanSize(copy.beforeBytes), humanSize(copy.afterBytes), percentSmaller(copy).toString())
 
 /** The core's clause as a sentence the dialog can show on its own. */
 internal fun compressRefusalSentence(clause: String): String = "${clause.replaceFirstChar { it.uppercaseChar() }}."
@@ -70,5 +74,5 @@ internal fun compressedFileName(title: String): String = "${documentStem(title)}
  * but the core's list is open-ended, and one this shell did not ask about
  * must still reach the reader.
  */
-private fun refusalClause(copy: CompressedCopy): String =
-    if (copy.refusals.isEmpty()) "" else " Not everything could be done: ${copy.refusals.joinToString("; ")}."
+private fun UiText.withRefusals(copy: CompressedCopy): UiText =
+    if (copy.refusals.isEmpty()) this else UiText.Sentences(this, UiText.Resource(R.string.status_compress_refusals, copy.refusals.joinToString("; ")))

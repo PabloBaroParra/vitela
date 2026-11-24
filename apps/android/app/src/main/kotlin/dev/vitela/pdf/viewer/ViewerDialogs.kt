@@ -15,6 +15,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentInfo
+import dev.vitela.pdf.text.resolve
 
 /** The document-level dialogs, each shown while its editor is in [ViewerState]. */
 internal data class DialogActions(
@@ -67,7 +68,7 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
             dismissButton = { TextButton(onClick = actions.onCloseCancelled) { Text("Keep editing") } },
         )
     }
-    if (state.needsPassword) PasswordDialog(state.passwordMessage, actions.onPassword, actions.onPasswordCancel)
+    if (state.needsPassword) PasswordDialog(state.passwordMessage?.resolve(), actions.onPassword, actions.onPasswordCancel)
     state.contentEdit?.editor?.let { TextBlockEditorDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.resizer?.let { ImageResizerDialog(it, state.documentId, actions.contentEdit) }
     state.contentEdit?.shaper?.let { PathShaperDialog(it, state.documentId, actions.contentEdit) }

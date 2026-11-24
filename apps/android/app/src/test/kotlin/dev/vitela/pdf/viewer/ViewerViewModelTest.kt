@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -16,8 +17,8 @@ class ViewerViewModelTest {
         val state = ViewerViewModel(core = null).state.value
         assertFalse("open must be disabled with no native core", state.canOpen)
         assertTrue(
-            "the status must say why opening is unavailable, got: ${state.status}",
-            state.status.contains("not packaged"),
+            "the status must say why opening is unavailable, got: ${state.status.english()}",
+            state.status.english().contains("not packaged"),
         )
     }
 

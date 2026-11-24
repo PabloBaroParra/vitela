@@ -6,6 +6,7 @@ import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -155,7 +156,7 @@ internal class SelectionEditing(
     }
 
     /** Makes [selection] the selection, saying how many it holds, or [whenNone] if it is null. */
-    private fun set(selection: ContentSelection?, whenNone: String) {
+    private fun set(selection: ContentSelection?, whenNone: UiText) {
         val mode = state.value.contentEdit ?: return
         state.value = state.value.copy(
             contentEdit = mode.copy(selection = selection),

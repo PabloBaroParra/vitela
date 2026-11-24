@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Documents: opening, closing and passwords -->
+    <string name="status_open_select">Selecciona un PDF para empezar.</string>
+    <string name="status_open_unavailable">El soporte nativo de PDF no está incluido. Compila con scripts/package-android.sh y bibliotecas PDFium suministradas aparte.</string>
+    <string name="status_open_busy">Abriendo el PDF...</string>
+    <string name="status_open_unreadable">No se pudo leer el PDF seleccionado.</string>
+    <string name="status_open_password_cancelled">Se canceló la introducción de la contraseña.</string>
+    <string name="status_open_password_wrong">La contraseña no es correcta. Inténtalo de nuevo.</string>
+    <string name="status_open_password_required">Este documento requiere una contraseña.</string>
+    <string name="status_open_recent_removed">%1$s ya no está disponible y se ha quitado de Recientes.</string>
+    <string name="status_open_recent_failed">No se pudo abrir %1$s.</string>
+
+    <!-- Crash recovery and autosave -->
+    <string name="status_recovery_busy">Restaurando el PDF...</string>
+    <string name="status_recovery_kept">El trabajo recuperado se conserva para la próxima vez que se inicie Vitela.</string>
+    <string name="status_recovery_restored">Se ha recuperado el trabajo sin guardar. Guarda una copia para conservarlo.</string>
+    <string name="status_recovery_restored_signed">Se ha recuperado el trabajo sin guardar. Guardarlo rompería su firma, así que no se permite. Usa Proteger para conservarlo en un archivo nuevo.</string>
+    <string name="status_recovery_discarded">La copia recuperada no se pudo abrir y se ha descartado.</string>
+    <string name="status_recovery_unreadable">La copia recuperada no se pudo abrir. Se conserva para la próxima vez que se inicie Vitela.</string>
+    <string name="status_recovery_autosave_unavailable">El guardado automático no está disponible, así que un cierre inesperado perdería los cambios sin guardar. Guarda para conservarlos.</string>
+
+    <!-- Saving and document properties -->
+    <string name="status_save_done">Guardado.</string>
+    <string name="status_save_failed">No se pudo guardar el PDF.</string>
+    <string name="status_save_in_place_failed">No se pudo guardar en el archivo original. Usa Guardar copia.</string>
+    <string name="status_metadata_updated">Propiedades del documento actualizadas. Los cambios están pendientes de guardar.</string>
+
+    <!-- Reader: page window and search -->
+    <string name="status_page_none">No hay páginas.</string>
+    <string name="status_page_single">Página %1$s de %2$s.</string>
+    <string name="status_page_range">Páginas %1$s-%2$s de %3$s.</string>
+    <string name="status_search_busy">Buscando...</string>
+    <string name="status_search_none">No hay coincidencias.</string>
+    <string name="status_search_match">Coincidencia %1$s de %2$s.</string>
+
+    <!-- Annotations -->
+    <string name="status_annotation_position">Anotación %1$s de %2$s.</string>
+    <string name="status_annotation_resized">Anotación redimensionada. Guarda para conservar el cambio.</string>
+    <string name="status_annotation_size_unchanged">Las dimensiones de la anotación no han cambiado.</string>
+    <string name="status_annotation_changed_resize">La anotación cambió mientras el cuadro de diálogo estaba abierto. No se ha redimensionado nada.</string>
+    <string name="status_annotation_moved">Anotación movida. Guarda para conservar el cambio.</string>
+    <string name="status_annotation_position_unchanged">La posición de la anotación no ha cambiado.</string>
+    <string name="status_annotation_changed_move">La anotación cambió mientras el cuadro de diálogo estaba abierto. No se ha movido nada.</string>
+    <string name="status_annotation_note_cancelled">Colocación de la nota cancelada.</string>
+    <string name="status_annotation_text_box_added">Cuadro de texto añadido. Guarda para conservarlo.</string>
+    <string name="status_annotation_text_box_edited">Texto actualizado. Guarda para conservar el cambio.</string>
+    <string name="status_annotation_text_box_unchanged">El texto no ha cambiado.</string>
+    <string name="status_annotation_text_box_cancelled">Colocación del cuadro de texto cancelada.</string>
+    <string name="status_annotation_text_box_changed">El cuadro de texto cambió mientras el cuadro de diálogo estaba abierto. No se ha cambiado nada.</string>
+
+    <!-- Stamps, drawn signature, clipboard image and drops -->
+    <string name="status_stamp_missing_image">Elige una imagen antes de colocar un sello.</string>
+    <string name="status_stamp_prompt">Toca una página para colocar el sello de imagen.</string>
+    <string name="status_stamp_placed">Sello de imagen colocado. Guarda para conservarlo.</string>
+    <string name="status_stamp_paste_prompt">Toca una página para colocar la imagen pegada.</string>
+    <string name="status_stamp_clipboard_no_image">El portapapeles no contiene una imagen de mapa de bits.</string>
+    <string name="status_stamp_clipboard_unreadable">No se pudo leer la imagen del portapapeles.</string>
+    <string name="status_signature_prompt">Toca una página para colocar tu firma.</string>
+    <string name="status_signature_placed">Firma colocada. Guarda para conservarla.</string>
+    <string name="status_signature_unrenderable">No se pudo convertir la firma en una imagen.</string>
+    <string name="status_signature_not_remembered">No se pudo recordar tu firma. Toca una página para colocarla.</string>
+    <string name="status_signature_forgotten">Tu firma guardada se ha eliminado de este teléfono.</string>
+    <string name="status_drop_image_placed">Imagen soltada colocada.</string>
+    <string name="status_drop_not_annotatable">Este documento no permite editar anotaciones.</string>
+    <string name="status_drop_unsupported">Vitela abre archivos PDF. Suelta un PNG o JPEG sobre una página para añadirlo como sello.</string>
+    <string name="status_drop_unreadable">No se pudo leer el archivo soltado.</string>
+    <string name="status_drop_image_off_page">Suelta la imagen sobre una página para colocarla como sello.</string>
+    <string name="status_drop_image_without_document">Abre primero un PDF y después suelta una imagen sobre una página para estamparla.</string>
+
+    <!-- Edit content: text, images, shapes and insertions -->
+    <string name="status_content_armed">Toca una línea de texto para reescribirla, moverla o eliminarla; una imagen para cambiar su tamaño, moverla, reemplazarla o eliminarla; o una línea o un recuadro para cambiar su tamaño, moverlo o eliminarlo.</string>
+    <string name="status_content_off">Edición de contenido desactivada.</string>
+    <string name="status_content_missed">Ahí no hay nada que editar. Toca una línea de texto para reescribirla, moverla o eliminarla; una imagen para cambiar su tamaño, moverla, reemplazarla o eliminarla; o una línea o un recuadro para cambiar su tamaño, moverlo o eliminarlo.</string>
+    <string name="status_content_forbidden">Este documento no permite cambiar su contenido.</string>
+    <string name="status_content_move_cancelled">Movimiento cancelado.</string>
+    <string name="status_content_text_updated">Texto actualizado. Guarda para conservar el cambio.</string>
+    <string name="status_content_text_deleted">Texto eliminado. Guarda para conservar el cambio.</string>
+    <string name="status_content_text_moved">Texto movido. Guarda para conservar el cambio.</string>
+    <string name="status_content_text_position_unchanged">La posición del texto no ha cambiado.</string>
+    <string name="status_content_text_move_prompt">Arrastra el texto o toca en la página %1$s donde deba ir su esquina superior izquierda.</string>
+    <string name="status_content_text_insert_prompt">Toca en la página donde deba ir la esquina superior izquierda del texto nuevo.</string>
+    <string name="status_content_text_inserted">Texto insertado. Guarda para conservar el cambio.</string>
+    <string name="status_content_image_resized">Imagen redimensionada. Guarda para conservar el cambio.</string>
+    <string name="status_content_image_moved">Imagen movida. Guarda para conservar el cambio.</string>
+    <string name="status_content_image_position_unchanged">La posición de la imagen no ha cambiado.</string>
+    <string name="status_content_image_move_prompt">Arrastra la imagen o toca en la página %1$s donde deba ir su esquina superior izquierda.</string>
+    <string name="status_content_image_deleted">Imagen eliminada. Guarda para conservar el cambio.</string>
+    <string name="status_content_image_replaced">Imagen reemplazada. Guarda para conservar el cambio.</string>
+    <string name="status_content_image_replace_cancelled">Reemplazo cancelado.</string>
+    <string name="status_content_image_unreadable">No se pudo leer la imagen seleccionada.</string>
+    <string name="status_content_image_insert_prompt">Toca en la página donde deba ir la esquina superior izquierda de la imagen.</string>
+    <string name="status_content_image_inserted">Imagen insertada. Guarda para conservar el cambio.</string>
+    <string name="status_content_insert_cancelled">Inserción cancelada.</string>
+    <string name="status_content_shape_resized">Forma redimensionada. Guarda para conservar el cambio.</string>
+    <string name="status_content_shape_moved">Forma movida. Guarda para conservar el cambio.</string>
+    <string name="status_content_shape_position_unchanged">La posición de la forma no ha cambiado.</string>
+    <string name="status_content_shape_move_prompt">Arrastra la forma o toca en la página %1$s donde deba ir su esquina superior izquierda.</string>
+    <string name="status_content_shape_deleted">Forma eliminada. Guarda para conservar el cambio.</string>
+
+    <!-- Edit content: selection and clipboard -->
+    <string name="status_selection_empty">No hay nada que seleccionar ahí.</string>
+    <string name="status_selection_cleared">Selección anulada.</string>
+    <string name="status_selection_moved">Selección movida. Guarda para conservar el cambio.</string>
+    <string name="status_selection_deleted">Selección eliminada. Guarda para conservar el cambio.</string>
+    <string name="status_selection_position_unchanged">La posición de la selección no ha cambiado.</string>
+    <plurals name="status_selection_count">
+        <item quantity="one">%1$s elemento seleccionado: arrástralo dentro del recuadro discontinuo para moverlo, usa Eliminar para quitarlo de la página o toca un elemento para añadirlo a la selección o sacarlo de ella.</item>
+        <item quantity="many">%1$s elementos seleccionados: arrástralos dentro del recuadro discontinuo para moverlos, usa Eliminar para quitarlos de la página o toca un elemento para añadirlo a la selección o sacarlo de ella.</item>
+        <item quantity="other">%1$s elementos seleccionados: arrástralos dentro del recuadro discontinuo para moverlos, usa Eliminar para quitarlos de la página o toca un elemento para añadirlo a la selección o sacarlo de ella.</item>
+    </plurals>
+    <string name="status_clipboard_paste_prompt">Toca en la página donde deba ir la esquina superior izquierda del contenido pegado.</string>
+    <string name="status_clipboard_paste_cancelled">Pegado cancelado.</string>
+    <string name="status_clipboard_pasted">Pegado. Guarda para conservar el cambio.</string>
+    <plurals name="status_clipboard_copied">
+        <item quantity="one">%1$s elemento copiado. Abre Pegar contenido y toca donde deba ir.</item>
+        <item quantity="many">%1$s elementos copiados. Abre Pegar contenido y toca donde deban ir.</item>
+        <item quantity="other">%1$s elementos copiados. Abre Pegar contenido y toca donde deban ir.</item>
+    </plurals>
+    <plurals name="status_clipboard_cut">
+        <item quantity="one">%1$s elemento cortado. Abre Pegar contenido y toca donde deba ir.</item>
+        <item quantity="many">%1$s elementos cortados. Abre Pegar contenido y toca donde deban ir.</item>
+        <item quantity="other">%1$s elementos cortados. Abre Pegar contenido y toca donde deban ir.</item>
+    </plurals>
+    <plurals name="status_clipboard_pasted_count">
+        <item quantity="one">%1$s elemento pegado: arrástralo dentro del recuadro discontinuo para colocarlo.</item>
+        <item quantity="many">%1$s elementos pegados: arrástralos dentro del recuadro discontinuo para colocarlos.</item>
+        <item quantity="other">%1$s elementos pegados: arrástralos dentro del recuadro discontinuo para colocarlos.</item>
+    </plurals>
+    <plurals name="status_watermark_added">
+        <item quantity="one">Marca de agua añadida a %1$s página.</item>
+        <item quantity="many">Marca de agua añadida a %1$s páginas.</item>
+        <item quantity="other">Marca de agua añadida a %1$s páginas.</item>
+    </plurals>
+
+    <!-- Form fields -->
+    <string name="status_form_filled">Campo rellenado. Guarda para conservar el cambio.</string>
+    <string name="status_form_none">Este documento no tiene campos de formulario.</string>
+    <string name="status_form_none_add">Este documento aún no tiene campos de formulario. Añade uno abajo.</string>
+    <string name="status_form_fill_forbidden">Este documento no permite rellenar su formulario.</string>
+    <string name="status_form_moved">Campo movido. Guarda para conservar el cambio.</string>
+    <string name="status_form_resized">Campo redimensionado. Guarda para conservar el cambio.</string>
+    <string name="status_form_deleted">Campo eliminado. Guarda para conservar el cambio o deshazlo para recuperarlo.</string>
+    <string name="status_form_size_invalid">Introduce dimensiones finitas y positivas para el campo.</string>
+    <string name="status_form_renamed">Campo renombrado. Guarda para conservar el cambio.</string>
+    <string name="status_form_restyled">Estilo del campo cambiado. Guarda para conservar el cambio.</string>
+    <string name="status_form_name_empty">Introduce un nombre para el campo.</string>
+    <string name="status_form_font_size_invalid">Introduce un tamaño de fuente entre 1 y 72 pt.</string>
+    <string name="status_form_place_text">Toca una página para colocar un campo de texto.</string>
+    <string name="status_form_place_checkbox">Toca una página para colocar una casilla de verificación.</string>
+    <string name="status_form_place_radio_group">Toca una página para colocar un grupo de opciones.</string>
+    <string name="status_form_place_dropdown">Toca una página para colocar una lista desplegable.</string>
+    <string name="status_form_placed_text">Campo de texto colocado. Guarda para conservar el cambio.</string>
+    <string name="status_form_placed_checkbox">Casilla de verificación colocada. Guarda para conservar el cambio.</string>
+    <string name="status_form_placed_radio_group">Grupo de opciones colocado. Guarda para conservar el cambio.</string>
+    <string name="status_form_placed_dropdown">Lista desplegable colocada. Guarda para conservar el cambio.</string>
+    <string name="status_form_move_prompt">Toca en la página %1$s donde deba ir %2$s.</string>
+    <string name="status_form_wrong_page">Toca la página %1$s para mover %2$s.</string>
+    <string name="status_form_name_taken">«%1$s» ya lo usa otro campo.</string>
+
+    <!-- Organize pages -->
+    <string name="status_organize_hint">Mueve, gira, elimina o añade páginas. Cada cambio es un solo paso de deshacer.</string>
+    <string name="status_organize_last_page">Un documento necesita al menos una página.</string>
+    <string name="status_organize_no_such_page">Esa página ya no está en el documento.</string>
+    <string name="status_organize_quarter_turns">Las páginas giran de cuarto en cuarto de vuelta.</string>
+    <string name="status_organize_nothing_to_do">La página ya está ahí.</string>
+    <plurals name="status_organize_moved">
+        <item quantity="one">Página movida. Los cambios están pendientes de guardar.</item>
+        <item quantity="many">%1$s páginas movidas. Los cambios están pendientes de guardar.</item>
+        <item quantity="other">%1$s páginas movidas. Los cambios están pendientes de guardar.</item>
+    </plurals>
+    <plurals name="status_organize_rotated">
+        <item quantity="one">Página girada. Los cambios están pendientes de guardar.</item>
+        <item quantity="many">%1$s páginas giradas. Los cambios están pendientes de guardar.</item>
+        <item quantity="other">%1$s páginas giradas. Los cambios están pendientes de guardar.</item>
+    </plurals>
+    <plurals name="status_organize_deleted">
+        <item quantity="one">Página eliminada. Los cambios están pendientes de guardar.</item>
+        <item quantity="many">%1$s páginas eliminadas. Los cambios están pendientes de guardar.</item>
+        <item quantity="other">%1$s páginas eliminadas. Los cambios están pendientes de guardar.</item>
+    </plurals>
+    <string name="status_organize_blank_added">Página en blanco añadida. Los cambios están pendientes de guardar.</string>
+
+    <!-- Add PDFs -->
+    <string name="status_import_checking">Comprobando los PDF seleccionados...</string>
+    <string name="status_import_password_waiting">Esperando la contraseña de %1$s.</string>
+    <string name="status_import_password_cancelled">Se canceló la introducción de la contraseña de %1$s. No se ha añadido ningún PDF.</string>
+    <string name="status_import_cancelled">Importación de PDF cancelada.</string>
+    <string name="status_import_failed">No se pudo añadir %1$s: %2$s No se ha añadido ningún PDF.</string>
+    <string name="status_import_warning">Parte del contenido cambiará al añadirlo.</string>
+    <string name="status_import_adding">Añadiendo los PDF seleccionados...</string>
+    <plurals name="status_import_done">
+        <item quantity="one">%1$s página añadida de %2$s. Los cambios están pendientes de guardar.</item>
+        <item quantity="many">%1$s páginas añadidas de %2$s. Los cambios están pendientes de guardar.</item>
+        <item quantity="other">%1$s páginas añadidas de %2$s. Los cambios están pendientes de guardar.</item>
+    </plurals>
+    <plurals name="status_import_files">
+        <item quantity="one">%1$s PDF</item>
+        <item quantity="many">%1$s PDF</item>
+        <item quantity="other">%1$s PDF</item>
+    </plurals>
+
+    <!-- Export images -->
+    <string name="status_export_cancelled">Exportación cancelada. No se ha escrito ningún archivo.</string>
+    <string name="status_export_preparing">Preparando la exportación...</string>
+    <string name="status_export_document_changed">El documento ha cambiado. Exportación cancelada.</string>
+    <string name="status_export_failed">No se pudo exportar: %1$s No se ha escrito ningún archivo.</string>
+    <string name="status_export_busy">Exportando la página %1$s (%2$s de %3$s)...</string>
+    <string name="status_export_page_failed">No se pudo exportar la página %1$s: %2$s Imágenes escritas: %3$s.</string>
+    <string name="status_export_write_failed">No se pudo escribir %1$s. Imágenes escritas: %2$s.</string>
+    <plurals name="status_export_done">
+        <item quantity="one">%1$s página exportada como %2$s.</item>
+        <item quantity="many">%1$s páginas exportadas como %2$s.</item>
+        <item quantity="other">%1$s páginas exportadas como %2$s.</item>
+    </plurals>
+
+    <!-- Extract pages -->
+    <string name="status_extract_cancelled">Extracción cancelada. No se ha escrito ningún archivo.</string>
+    <plurals name="status_extract_busy">
+        <item quantity="one">Extrayendo %1$s página...</item>
+        <item quantity="many">Extrayendo %1$s páginas...</item>
+        <item quantity="other">Extrayendo %1$s páginas...</item>
+    </plurals>
+    <string name="status_extract_document_changed">El documento ha cambiado. Extracción cancelada.</string>
+    <string name="status_extract_write_failed">No se pudo escribir el PDF extraído.</string>
+    <plurals name="status_extract_done">
+        <item quantity="one">Se ha extraído %1$s página en un PDF nuevo.</item>
+        <item quantity="many">Se han extraído %1$s páginas en un PDF nuevo.</item>
+        <item quantity="other">Se han extraído %1$s páginas en un PDF nuevo.</item>
+    </plurals>
+    <string name="status_extract_signed">El documento original está firmado, así que la firma del PDF extraído ya no es válida.</string>
+
+    <!-- Split -->
+    <string name="status_split_cancelled">División cancelada. No se ha escrito ningún archivo.</string>
+    <string name="status_split_busy">Escribiendo la parte %1$s de %2$s...</string>
+    <plurals name="status_split_document_changed">
+        <item quantity="one">El documento ha cambiado. La división se detuvo tras escribir %1$s archivo.</item>
+        <item quantity="many">El documento ha cambiado. La división se detuvo tras escribir %1$s archivos.</item>
+        <item quantity="other">El documento ha cambiado. La división se detuvo tras escribir %1$s archivos.</item>
+    </plurals>
+    <plurals name="status_split_failed">
+        <item quantity="one">La división se detuvo tras escribir %1$s archivo: %2$s</item>
+        <item quantity="many">La división se detuvo tras escribir %1$s archivos: %2$s</item>
+        <item quantity="other">La división se detuvo tras escribir %1$s archivos: %2$s</item>
+    </plurals>
+    <plurals name="status_split_write_failed">
+        <item quantity="one">La división se detuvo tras escribir %1$s archivo: no se pudo escribir %2$s.</item>
+        <item quantity="many">La división se detuvo tras escribir %1$s archivos: no se pudo escribir %2$s.</item>
+        <item quantity="other">La división se detuvo tras escribir %1$s archivos: no se pudo escribir %2$s.</item>
+    </plurals>
+    <string name="status_split_done">PDF dividido en %1$s archivos.</string>
+    <string name="status_split_signed">El documento original está firmado, así que la firma de cada parte ya no es válida.</string>
+
+    <!-- Compress -->
+    <string name="status_compress_busy">Comprimiendo el PDF...</string>
+    <string name="status_compress_cancelled">Compresión cancelada. No se ha escrito ningún archivo.</string>
+    <string name="status_compress_writing">Escribiendo el PDF comprimido...</string>
+    <string name="status_compress_write_failed">No se pudo escribir el PDF comprimido.</string>
+    <string name="status_compress_reduced">%1$s sin comprimir → %2$s comprimido (%3$s %% menos). Elige dónde guardarlo.</string>
+    <string name="status_compress_no_gain">No hay nada que ganar: comprimido, este documento ocupa los mismos %1$s que al guardarlo sin comprimir, así que no se ha escrito ningún archivo.</string>
+    <string name="status_compress_written">PDF comprimido guardado (%1$s → %2$s, %3$s %% menos).</string>
+    <string name="status_compress_refusals">No se pudo hacer todo: %1$s.</string>
+    <string name="status_compress_size_megabytes">%1$s,%2$s MB</string>
+    <string name="status_compress_size_kilobytes">%1$s kB</string>
+    <plurals name="status_compress_size_bytes">
+        <item quantity="one">%1$s byte</item>
+        <item quantity="many">%1$s bytes</item>
+        <item quantity="other">%1$s bytes</item>
+    </plurals>
+
+    <!-- Protect -->
+    <string name="status_protect_choose">Elige dónde guardar el PDF protegido.</string>
+    <string name="status_protect_cancelled">Protección cancelada. No se ha escrito ningún archivo.</string>
+    <string name="status_protect_document_changed">El documento cambió antes de poder protegerlo. No se ha escrito ningún archivo.</string>
+    <string name="status_protect_busy">Protegiendo el PDF...</string>
+    <string name="status_protect_write_failed">No se pudo escribir el PDF protegido.</string>
+    <string name="status_protect_done">PDF protegido guardado y reabierto.</string>
+    <string name="status_protect_not_reopened">El PDF protegido se escribió, pero no se pudo volver a abrir.</string>
+
+    <!-- Sign with a certificate -->
+    <string name="status_sign_choose">Elige dónde guardar el PDF firmado.</string>
+    <string name="status_sign_cancelled">Firma cancelada. No se ha escrito ningún archivo.</string>
+    <string name="status_sign_document_changed">El documento cambió antes de poder firmarlo. No se ha escrito ningún archivo.</string>
+    <string name="status_sign_busy">Firmando el PDF...</string>
+    <string name="status_sign_write_failed">No se pudo escribir el PDF firmado.</string>
+    <string name="status_sign_done">PDF firmado guardado y reabierto.</string>
+    <string name="status_sign_password">PDF firmado guardado. Introduce su contraseña para volver a abrirlo.</string>
+    <string name="status_sign_not_reopened">El PDF firmado se escribió, pero no se pudo volver a abrir.</string>
+</resources>

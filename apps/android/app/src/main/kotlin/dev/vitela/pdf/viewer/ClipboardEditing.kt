@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.ContentClip
 import dev.vitela.pdf.core.ContentImage
@@ -9,23 +10,24 @@ import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.PageContent
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 // Wording follows the Windows and Linux shells'; a touch screen has no Ctrl+V, so the hints name the tile and a tap instead.
-internal const val CONTENT_PASTE_PROMPT = "Tap the page where the pasted content's top-left corner should go."
-internal const val CONTENT_PASTE_CANCELLED = "Paste cancelled."
-internal const val CONTENT_PASTED = "Pasted. Save to keep the change."
+internal val CONTENT_PASTE_PROMPT: UiText = UiText.Resource(R.string.status_clipboard_paste_prompt)
+internal val CONTENT_PASTE_CANCELLED: UiText = UiText.Resource(R.string.status_clipboard_paste_cancelled)
+internal val CONTENT_PASTED: UiText = UiText.Resource(R.string.status_clipboard_pasted)
 
-/** What a copy or a cut tells the reader to do next. */
-internal const val CONTENT_COPIED_HINT = " Open Paste content, then tap where it should go."
+/** What the status line says once [count] items were copied, and what to do next. */
+internal fun copiedMessage(count: Int): UiText = UiText.Plural(R.plurals.status_clipboard_copied, count, count)
 
-/** What the status line says once [count] items were copied or cut — [verb] is "Copied" or "Cut". */
-internal fun copiedMessage(verb: String, count: Int) = "$verb $count ${if (count == 1) "item" else "items"}."
+/** What the status line says once [count] items were cut, and what to do next. */
+internal fun cutMessage(count: Int): UiText = UiText.Plural(R.plurals.status_clipboard_cut, count, count)
 
 /** What the status line says once a paste of [count] items landed and they are selected. */
-internal fun pastedMessage(count: Int) = "Pasted $count ${if (count == 1) "item" else "items"} — drag inside the dashed box to place them."
+internal fun pastedMessage(count: Int): UiText = UiText.Plural(R.plurals.status_clipboard_pasted_count, count, count)
 
 /** The ids a page's content had when it was last read, to tell what a paste added. */
 internal data class PageIds(val runs: Set<Long>, val images: Set<Long>, val paths: Set<Long>)
@@ -88,7 +90,7 @@ internal class ClipboardEditing(
                 // Only the selection this tap was made on: one cut or ended meanwhile copies nothing.
                 if (session.document !== openDocument || state.value.contentEdit?.selection != selection) return@withLock
                 when (val result = withContext(session.compute) { openDocument.copyContentSelection(selection) }) {
-                    is PdfCoreResult.Success -> hold(result.value, copiedMessage("Copied", selection.count) + CONTENT_COPIED_HINT)
+                    is PdfCoreResult.Success -> hold(result.value, copiedMessage(selection.count))
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }
@@ -113,7 +115,7 @@ internal class ClipboardEditing(
                         session.contentClip = result.value
                         state.value.contentEdit?.let { state.value = state.value.copy(contentEdit = it.copy(hasClip = true)) }
                         // The core no longer reports the members, so their outlines go too.
-                        content.landed(openDocument, selection.pageIndex, copiedMessage("Cut", selection.count) + CONTENT_COPIED_HINT)
+                        content.landed(openDocument, selection.pageIndex, cutMessage(selection.count))
                     }
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
@@ -164,7 +166,7 @@ internal class ClipboardEditing(
     }
 
     /** Keeps [clip] for the next paste and says [status]. */
-    private fun hold(clip: ContentClip, status: String) {
+    private fun hold(clip: ContentClip, status: UiText) {
         session.contentClip = clip
         val mode = state.value.contentEdit ?: return
         state.value = state.value.copy(contentEdit = mode.copy(hasClip = true), status = status)

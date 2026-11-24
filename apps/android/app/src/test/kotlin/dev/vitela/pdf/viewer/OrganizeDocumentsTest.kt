@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -100,9 +101,9 @@ class OrganizeDocumentsTest {
 
     @Test
     fun theStatusCountsTheBlocksPages() {
-        assertEquals("3 pages moved. Changes are pending save.", organizeStatus(PageEdit.Move(2, 0, count = 3)))
-        assertEquals("2 pages rotated. Changes are pending save.", organizeStatus(PageEdit.Rotate(0, 90, count = 2)))
-        assertEquals("2 pages deleted. Changes are pending save.", organizeStatus(PageEdit.Remove(0, count = 2)))
-        assertEquals("Page moved. Changes are pending save.", organizeStatus(PageEdit.Move(2, 0)))
+        assertEquals("3 pages moved. Changes are pending save.", organizeStatus(PageEdit.Move(2, 0, count = 3)).english())
+        assertEquals("2 pages rotated. Changes are pending save.", organizeStatus(PageEdit.Rotate(0, 90, count = 2)).english())
+        assertEquals("2 pages deleted. Changes are pending save.", organizeStatus(PageEdit.Remove(0, count = 2)).english())
+        assertEquals("Page moved. Changes are pending save.", organizeStatus(PageEdit.Move(2, 0)).english())
     }
 }

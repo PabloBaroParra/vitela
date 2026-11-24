@@ -1,9 +1,11 @@
 package dev.vitela.pdf.recovery
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.viewer.ViewerSession
 import dev.vitela.pdf.viewer.ViewerState
 import java.io.IOException
@@ -19,11 +21,11 @@ import kotlinx.coroutines.withContext
 /** Unsaved work a crashed session left behind, as the dialog names it. */
 data class RecoveryOffer(val name: String, val savedAt: Long)
 
-internal const val RECOVERY_KEPT = "Your recovered work is kept for the next time Vitela starts."
-internal const val RECOVERED = "Recovered unsaved work. Save a copy to keep it."
-internal const val RECOVERED_SIGNATURE_BROKEN = "Recovered unsaved work. Saving it would break its signature and is refused. Use Protect to keep it in a new file."
-internal const val RECOVERY_DISCARDED = "The recovered copy could not be opened and was discarded."
-internal const val RECOVERY_UNREADABLE = "The recovered copy could not be opened. It is kept for the next time Vitela starts."
+internal val RECOVERY_KEPT: UiText = UiText.Resource(R.string.status_recovery_kept)
+internal val RECOVERED: UiText = UiText.Resource(R.string.status_recovery_restored)
+internal val RECOVERED_SIGNATURE_BROKEN: UiText = UiText.Resource(R.string.status_recovery_restored_signed)
+internal val RECOVERY_DISCARDED: UiText = UiText.Resource(R.string.status_recovery_discarded)
+internal val RECOVERY_UNREADABLE: UiText = UiText.Resource(R.string.status_recovery_unreadable)
 
 /** An offer only stands over an idle Home: never over a document, one being opened, or a question about one. */
 internal fun recoveryOfferVisible(state: ViewerState): Boolean =
@@ -86,7 +88,7 @@ internal class RecoveryOffering(
         session.scope.launch {
             session.documentLane.withLock {
                 if (orphan !== restoring || session.document != null || !recoveryOfferVisible(state.value)) return@withLock
-                state.value = state.value.copy(isLoading = true, status = "Restoring PDF...")
+                state.value = state.value.copy(isLoading = true, status = UiText.Resource(R.string.status_recovery_busy))
                 val opened = open(availableCore, restoring)
                 if (closed) return@withLock
                 when (opened) {

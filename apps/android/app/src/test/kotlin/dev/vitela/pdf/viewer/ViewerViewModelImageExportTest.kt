@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.ImageExportFormat
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -79,7 +80,7 @@ class ViewerViewModelImageExportTest {
         )
         assertEquals(listOf(Triple(1, 200, ImageExportFormat.Jpeg), Triple(2, 200, ImageExportFormat.Jpeg)), document.exported)
         val state = viewModel.state.value
-        assertEquals("Exported 2 pages as JPEG.", state.status)
+        assertEquals("Exported 2 pages as JPEG.", state.status.english())
         assertFalse(state.imageExportRunning)
         assertFalse(state.isDirty)
     }
@@ -129,7 +130,7 @@ class ViewerViewModelImageExportTest {
 
         assertEquals(0, writes)
         assertEquals(emptyList<Int>(), document.exportedLive)
-        assertEquals("Could not export: The document could not be processed. No file was written.", viewModel.state.value.status)
+        assertEquals("Could not export: The document could not be processed. No file was written.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.imageExportRunning)
     }
 
@@ -142,7 +143,7 @@ class ViewerViewModelImageExportTest {
         viewModel.planImageExport()
         viewModel.exportImages { _, _, _ -> true }
 
-        assertEquals("Exported 1 page as PNG.", viewModel.state.value.status)
+        assertEquals("Exported 1 page as PNG.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -155,7 +156,7 @@ class ViewerViewModelImageExportTest {
         viewModel.exportImages { name, _, _ -> attempted += name; attempted.size < 2 }
 
         assertEquals(listOf("a-1.png", "a-2.png"), attempted)
-        assertEquals("Could not write a-2.png. 1 written.", viewModel.state.value.status)
+        assertEquals("Could not write a-2.png. 1 written.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.imageExportRunning)
     }
 
@@ -169,7 +170,7 @@ class ViewerViewModelImageExportTest {
         viewModel.exportImages { name, _, _ -> written += name; true }
 
         assertEquals(listOf("a-1.png"), written)
-        assertEquals("Page 2 could not be exported: The document could not be processed. 1 written.", viewModel.state.value.status)
+        assertEquals("Page 2 could not be exported: The document could not be processed. 1 written.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -183,7 +184,7 @@ class ViewerViewModelImageExportTest {
         viewModel.exportImages { _, _, _ -> writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("Export cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Export cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -213,7 +214,7 @@ class ViewerViewModelImageExportTest {
         viewModel.exportImages { _, _, _ -> writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("The document changed. Export cancelled.", viewModel.state.value.status)
+        assertEquals("The document changed. Export cancelled.", viewModel.state.value.status.english())
     }
 
     @Test

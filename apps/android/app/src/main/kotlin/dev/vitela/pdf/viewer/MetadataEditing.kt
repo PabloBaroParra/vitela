@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -65,7 +67,7 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
                             metadataEditor = null,
                             isDirty = true,
                             revision = state.value.revision + 1,
-                            status = "Document properties updated. Changes are pending save.",
+                            status = UiText.Resource(R.string.status_metadata_updated),
                         )
                         // The change sits in the same edit log: Undo must light up.
                         annotations.refresh(openDocument)
@@ -79,6 +81,6 @@ internal class MetadataEditing(private val session: ViewerSession, private val a
     /** Only the message changes: whatever was typed while the apply waited stays. */
     private fun refuse(error: PdfCoreError) {
         val editor = state.value.metadataEditor ?: return
-        state.value = state.value.copy(metadataEditor = editor.copy(message = userMessage(error)))
+        state.value = state.value.copy(metadataEditor = editor.copy(message = dialogMessage(error)))
     }
 }

@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -54,7 +56,7 @@ internal class Protecting(private val session: ViewerSession, private val reopen
                     // guess could write a copy whose signature silently broke.
                     when (val signed = openDocument.protectionWillInvalidateSignatures()) {
                         is PdfCoreResult.Success -> ProtectEditor(signaturesWillBreak = signed.value)
-                        is PdfCoreResult.Failure -> ProtectEditor(refusal = userMessage(signed.error))
+                        is PdfCoreResult.Failure -> ProtectEditor(refusal = dialogMessage(signed.error))
                     }
                 }
                 state.value = state.value.copy(protect = editor)
@@ -82,14 +84,14 @@ internal class Protecting(private val session: ViewerSession, private val reopen
         // The dialog showed the signature warning and its button said so:
         // confirming it is the acknowledgement, never a second prompt.
         pending = ProtectRequest(openDocument, openPassword, permissionsPassword, editor.signaturesWillBreak)
-        state.value = state.value.copy(protect = null, status = "Choose where to write the protected PDF.")
+        state.value = state.value.copy(protect = null, status = UiText.Resource(R.string.status_protect_choose))
         return protectedFileName(state.value.title)
     }
 
     /** The picker was dismissed: nothing is written and the passwords are dropped. */
     fun cancel() {
         pending = null
-        state.value = state.value.copy(status = "Protection cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_protect_cancelled))
     }
 
     /**
@@ -102,10 +104,10 @@ internal class Protecting(private val session: ViewerSession, private val reopen
         pending = null
         session.documentLane.withLock {
             if (session.document !== request.document) {
-                state.value = state.value.copy(status = "The document changed before it could be protected. No file was written.")
+                state.value = state.value.copy(status = UiText.Resource(R.string.status_protect_document_changed))
                 return
             }
-            state.value = state.value.copy(protectRunning = true, status = "Protecting PDF...")
+            state.value = state.value.copy(protectRunning = true, status = UiText.Resource(R.string.status_protect_busy))
             try {
                 val result = withContext(session.compute) {
                     request.document.protect(request.openPassword, request.permissionsPassword, request.signaturesAcknowledged)
@@ -114,11 +116,11 @@ internal class Protecting(private val session: ViewerSession, private val reopen
                     is PdfCoreResult.Failure -> return report(userMessage(result.error))
                     is PdfCoreResult.Success -> result.value
                 }
-                if (!withContext(session.io) { write(bytes) }) return report("Could not write the protected PDF.")
+                if (!withContext(session.io) { write(bytes) }) return report(UiText.Resource(R.string.status_protect_write_failed))
                 val failure = reopen(displayName, bytes, request.openPassword, request.permissionsPassword, saveTarget)
                 report(
-                    if (failure == null) "Protected PDF saved and reopened."
-                    else "The protected PDF was written, but it could not be reopened. ${userMessage(failure)}",
+                    if (failure == null) UiText.Resource(R.string.status_protect_done)
+                    else UiText.Sentences(UiText.Resource(R.string.status_protect_not_reopened), userMessage(failure)),
                 )
             } finally {
                 if (state.value.protectRunning) state.value = state.value.copy(protectRunning = false)
@@ -126,7 +128,7 @@ internal class Protecting(private val session: ViewerSession, private val reopen
         }
     }
 
-    private fun report(status: String) {
+    private fun report(status: UiText) {
         state.value = state.value.copy(status = status)
     }
 

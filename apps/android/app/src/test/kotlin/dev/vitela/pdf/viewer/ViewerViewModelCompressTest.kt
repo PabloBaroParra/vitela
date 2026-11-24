@@ -9,6 +9,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -101,14 +102,14 @@ class ViewerViewModelCompressTest {
         val waiting = viewModel.state.value
         assertNull(waiting.compress)
         assertFalse(waiting.compressRunning)
-        assertEquals("2.0 MB uncompressed → 500 kB compressed (75% smaller). Choose where to write it.", waiting.status)
+        assertEquals("2.0 MB uncompressed → 500 kB compressed (75% smaller). Choose where to write it.", waiting.status.english())
 
         val writes = mutableListOf<List<Byte>>()
         viewModel.writeCompressed { bytes -> writes += bytes.toList(); true }
 
         assertEquals(listOf(listOf<Byte>(7, 7)), writes)
         val state = viewModel.state.value
-        assertEquals("Compressed PDF written (2.0 MB → 500 kB, 75% smaller).", state.status)
+        assertEquals("Compressed PDF written (2.0 MB → 500 kB, 75% smaller).", state.status.english())
         assertFalse(state.isDirty)
     }
 
@@ -133,7 +134,7 @@ class ViewerViewModelCompressTest {
         viewModel.state.first { it.compress != null }
 
         assertNull(viewModel.compress())
-        assertEquals("Saving would invalidate this document's signature, so it was not saved.", viewModel.state.value.status)
+        assertEquals("Saving would invalidate this document's signature, so it was not saved.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.compressRunning)
     }
 
@@ -145,7 +146,7 @@ class ViewerViewModelCompressTest {
         viewModel.compress()
         viewModel.writeCompressed { false }
 
-        assertEquals("Could not write the compressed PDF.", viewModel.state.value.status)
+        assertEquals("Could not write the compressed PDF.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -159,7 +160,7 @@ class ViewerViewModelCompressTest {
         viewModel.writeCompressed { writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("Compression cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Compression cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test

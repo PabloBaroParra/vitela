@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -64,7 +66,7 @@ internal class PageSplitting(private val session: ViewerSession) {
                 is PdfCoreResult.Failure -> {
                     // Only the message changes: whatever was typed while the plan waited stays.
                     val latest = state.value.pageSplit ?: return@withLock false
-                    state.value = state.value.copy(pageSplit = latest.copy(message = userMessage(result.error)))
+                    state.value = state.value.copy(pageSplit = latest.copy(message = dialogMessage(result.error)))
                     false
                 }
             }
@@ -74,7 +76,7 @@ internal class PageSplitting(private val session: ViewerSession) {
     /** The picker was dismissed: nothing is written and the plan is dropped. */
     fun cancel() {
         pending = null
-        state.value = state.value.copy(status = "Split cancelled. No file was written.")
+        state.value = state.value.copy(status = UiText.Resource(R.string.status_split_cancelled))
     }
 
     /**
@@ -92,19 +94,19 @@ internal class PageSplitting(private val session: ViewerSession) {
         var written = 0
         try {
             for (part in parts) {
-                state.value = state.value.copy(status = "Writing part ${written + 1} of ${parts.size}...")
+                state.value = state.value.copy(status = UiText.Resource(R.string.status_split_busy, written + 1, parts.size))
                 val extracted = session.documentLane.withLock {
                     val openDocument = session.document
                     if (openDocument == null || state.value.documentId != split.documentId) return@withLock null
                     withContext(session.compute) { openDocument.extractPages((part.first..part.last).toList()) }
                 }
                 val bytes = when (extracted) {
-                    null -> return finish("The document changed. Split stopped after $written written.")
-                    is PdfCoreResult.Failure -> return finish("Split stopped after $written written: ${userMessage(extracted.error)}")
+                    null -> return finish(UiText.Plural(R.plurals.status_split_document_changed, written, written))
+                    is PdfCoreResult.Failure -> return finish(UiText.Plural(R.plurals.status_split_failed, written, written, userMessage(extracted.error)))
                     is PdfCoreResult.Success -> extracted.value
                 }
                 if (!withContext(session.io) { write(part.fileName, bytes) }) {
-                    return finish("Split stopped after $written written: could not write ${part.fileName}.")
+                    return finish(UiText.Plural(R.plurals.status_split_write_failed, written, written, part.fileName))
                 }
                 written++
             }
@@ -115,7 +117,7 @@ internal class PageSplitting(private val session: ViewerSession) {
         }
     }
 
-    private fun finish(status: String) {
+    private fun finish(status: UiText) {
         state.value = state.value.copy(pageSplitRunning = false, status = status)
     }
 

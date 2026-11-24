@@ -1,10 +1,12 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.Annotation
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.text.UiText
 
 internal val DEFAULT_ANNOTATION_COLOR = AnnotationColor(255, 220, 0)
 private const val MIN_RECT_PT = 4.0
@@ -24,7 +26,7 @@ data class NotePlacement(val pageIndex: Int, val rect: AnnotationRect)
 /** What **Read note** shows: a snapshot of the note's page and its core-owned text. */
 data class NoteReading(val pageIndex: Int, val contents: String, val author: String? = null, val date: String? = null)
 
-internal const val NOTE_PLACEMENT_CANCELED = "Note placement canceled."
+internal val NOTE_PLACEMENT_CANCELED: UiText = UiText.Resource(R.string.status_annotation_note_cancelled)
 
 /**
  * The **Resize** dialog: a snapshot of the selected annotation's [rect] as it
@@ -42,10 +44,10 @@ data class AnnotationResizer(
 )
 
 // Wording follows the Windows shell's.
-internal const val ANNOTATION_RESIZED = "Annotation resized. Save to keep the change."
-internal const val ANNOTATION_SIZE_UNCHANGED = "Annotation dimensions unchanged."
+internal val ANNOTATION_RESIZED: UiText = UiText.Resource(R.string.status_annotation_resized)
+internal val ANNOTATION_SIZE_UNCHANGED: UiText = UiText.Resource(R.string.status_annotation_size_unchanged)
 internal const val ANNOTATION_SIZE_INVALID = "Annotation dimensions must be finite and greater than zero."
-internal const val ANNOTATION_CHANGED = "The annotation changed while the dialog was open. Nothing was resized."
+internal val ANNOTATION_CHANGED: UiText = UiText.Resource(R.string.status_annotation_changed_resize)
 
 /** [rect] at [width] by [height] points, its PDF-space origin (bottom-left) kept, like **Grow**; null unless both are finite and positive. */
 internal fun sizedAnnotationRect(rect: AnnotationRect, width: Double, height: Double): AnnotationRect? =
@@ -66,10 +68,10 @@ data class AnnotationPositioner(
 )
 
 // Wording follows the Windows shell's.
-internal const val ANNOTATION_MOVED = "Annotation moved. Save to keep the change."
-internal const val ANNOTATION_POSITION_UNCHANGED = "Annotation position unchanged."
+internal val ANNOTATION_MOVED: UiText = UiText.Resource(R.string.status_annotation_moved)
+internal val ANNOTATION_POSITION_UNCHANGED: UiText = UiText.Resource(R.string.status_annotation_position_unchanged)
 internal const val ANNOTATION_POSITION_INVALID = "Annotation coordinates must be finite numbers."
-internal const val ANNOTATION_POSITION_CHANGED = "The annotation changed while the dialog was open. Nothing was moved."
+internal val ANNOTATION_POSITION_CHANGED: UiText = UiText.Resource(R.string.status_annotation_changed_move)
 
 /**
  * The [AnnotationEdit.Move] offset that puts [bounds]' bottom-left corner at

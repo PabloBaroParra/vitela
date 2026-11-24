@@ -1,6 +1,8 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.UiText
 import kotlin.math.floor
 import kotlin.math.sqrt
 
@@ -134,8 +136,8 @@ internal fun dominantPage(visible: List<VisiblePage>, viewportStart: Int, viewpo
         (bottom - top).coerceAtLeast(0)
     }?.index
 
-internal fun visibleRangeStatus(first: Int, last: Int, pageCount: Int): String = when {
-    pageCount == 0 -> "No pages."
-    first >= last -> "Page ${first + 1} of $pageCount."
-    else -> "Pages ${first + 1}-${last + 1} of $pageCount."
+internal fun visibleRangeStatus(first: Int, last: Int, pageCount: Int): UiText = when {
+    pageCount == 0 -> UiText.Resource(R.string.status_page_none)
+    first >= last -> UiText.Resource(R.string.status_page_single, first + 1, pageCount)
+    else -> UiText.Resource(R.string.status_page_range, first + 1, last + 1, pageCount)
 }

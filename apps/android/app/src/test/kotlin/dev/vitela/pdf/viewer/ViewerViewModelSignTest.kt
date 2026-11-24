@@ -12,6 +12,7 @@ import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.SigningCertificate
 import dev.vitela.pdf.core.SigningIdentity
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -125,7 +126,7 @@ class ViewerViewModelSignTest {
 
         assertEquals("a-signed.pdf", viewModel.confirmSign())
         assertNull(viewModel.state.value.sign)
-        assertEquals("Choose where to write the signed PDF.", viewModel.state.value.status)
+        assertEquals("Choose where to write the signed PDF.", viewModel.state.value.status.english())
         val writes = mutableListOf<List<Byte>>()
         viewModel.writeSigned("a-signed.pdf", "content://signed") { bytes -> writes += bytes.toList(); true }
 
@@ -138,7 +139,7 @@ class ViewerViewModelSignTest {
         assertEquals("a-signed.pdf", state.title)
         assertEquals("content://signed", state.saveTarget)
         assertFalse(state.signRunning)
-        assertEquals("Signed PDF saved and reopened.", state.status)
+        assertEquals("Signed PDF saved and reopened.", state.status.english())
     }
 
     @Test
@@ -151,7 +152,7 @@ class ViewerViewModelSignTest {
         val state = viewModel.state.value
         assertTrue(state.needsPassword)
         assertEquals("a-signed.pdf", state.title)
-        assertEquals("Signed PDF saved. Enter its password to reopen it.", state.status)
+        assertEquals("Signed PDF saved. Enter its password to reopen it.", state.status.english())
     }
 
     @Test
@@ -163,7 +164,7 @@ class ViewerViewModelSignTest {
         viewModel.writeSigned("a-signed.pdf", null) { writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("That identity is not in the certificate file.", viewModel.state.value.status)
+        assertEquals("That identity is not in the certificate file.", viewModel.state.value.status.english())
         assertTrue(certificate.closed)
     }
 
@@ -178,7 +179,7 @@ class ViewerViewModelSignTest {
 
         assertEquals(emptyList<String>(), document.signatures)
         assertTrue(certificate.closed)
-        assertEquals("Signing cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Signing cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test

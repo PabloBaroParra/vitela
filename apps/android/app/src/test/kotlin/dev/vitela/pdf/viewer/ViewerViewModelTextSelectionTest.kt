@@ -14,6 +14,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SearchHit
 import dev.vitela.pdf.core.TextRect
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -92,7 +93,7 @@ class ViewerViewModelTextSelectionTest {
         viewModel.beginTextSelection(0, AnnotationPoint(10.0, 705.0))
         viewModel.extendTextSelection(AnnotationPoint(40.0, 705.0))
 
-        assertEquals("Text extraction is not permitted.", viewModel.state.first { it.status.startsWith("Text extraction") }.status)
+        assertEquals("Text extraction is not permitted.", viewModel.state.first { it.status.english().startsWith("Text extraction") }.status.english())
         assertNull(viewModel.state.value.textSelection)
     }
 

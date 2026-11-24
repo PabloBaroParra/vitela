@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -53,7 +54,7 @@ class ViewerViewModelImageReplaceTest {
         assertFalse(viewModel.prepareImageReplacement(viewModel.state.value.documentId))
 
         val state = viewModel.state.value
-        assertEquals(refusal, state.status)
+        assertEquals(refusal, state.status.english())
         assertNull(state.contentEdit?.resizer)
         assertNull(state.contentEdit?.replacingImage)
     }
@@ -111,7 +112,7 @@ class ViewerViewModelImageReplaceTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals(refusal, state.status)
+        assertEquals(refusal, state.status.english())
         assertFalse(state.isDirty)
         assertNull(state.contentEdit?.replacingImage)
     }

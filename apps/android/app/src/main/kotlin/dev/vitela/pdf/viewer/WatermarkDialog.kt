@@ -16,6 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.core.WatermarkLayer
+import dev.vitela.pdf.text.resolve
 import kotlin.math.roundToInt
 
 /** The Add watermark dialog's callbacks, held by the screen as one group. */
@@ -46,7 +47,7 @@ internal fun WatermarkDialog(editor: WatermarkEditor, actions: WatermarkActions)
         text = {
             // Scrolls so the last choice stays reachable above the keyboard.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
-                editor.message?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+                editor.message?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
                 Text("Watermark", style = MaterialTheme.typography.labelLarge)
                 Choice("Text", draft.kind == WatermarkKind.Text, enabled = true) { onChange(editor.switchedTo(WatermarkKind.Text)) }
                 Choice("Picture", draft.kind == WatermarkKind.Picture, enabled = true) { onChange(editor.switchedTo(WatermarkKind.Picture)) }

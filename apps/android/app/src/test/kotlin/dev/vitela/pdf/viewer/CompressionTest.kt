@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.CompressedCopy
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -18,12 +19,12 @@ class CompressionTest {
 
     @Test
     fun sizesCountInPowersOfTen() {
-        assertEquals("1 byte", humanSize(1))
-        assertEquals("999 bytes", humanSize(999))
-        assertEquals("1 kB", humanSize(1_000))
-        assertEquals("250 kB", humanSize(250_400))
-        assertEquals("1.0 MB", humanSize(1_000_000))
-        assertEquals("12.3 MB", humanSize(12_345_678))
+        assertEquals("1 byte", humanSize(1).english())
+        assertEquals("999 bytes", humanSize(999).english())
+        assertEquals("1 kB", humanSize(1_000).english())
+        assertEquals("250 kB", humanSize(250_400).english())
+        assertEquals("1.0 MB", humanSize(1_000_000).english())
+        assertEquals("12.3 MB", humanSize(12_345_678).english())
     }
 
     @Test
@@ -37,7 +38,7 @@ class CompressionTest {
     fun aReductionAsksForADestination() {
         assertEquals(
             "2.0 MB uncompressed → 500 kB compressed (75% smaller). Choose where to write it.",
-            compressReductionSummary(copy(before = 2_000_000, after = 500_000)),
+            compressReductionSummary(copy(before = 2_000_000, after = 500_000)).english(),
         )
     }
 
@@ -45,20 +46,20 @@ class CompressionTest {
     fun noGainSaysNothingWasWritten() {
         assertEquals(
             "Nothing to gain: this document compresses to the same 40 kB an uncompressed save writes, so no file was written.",
-            compressNoGainSummary(copy(before = 40_000, after = 40_000)),
+            compressNoGainSummary(copy(before = 40_000, after = 40_000)).english(),
         )
     }
 
     @Test
     fun theWrittenSummaryRepeatsTheMeasurement() {
-        assertEquals("Compressed PDF written (2.0 MB → 500 kB, 75% smaller).", compressWrittenSummary(copy(before = 2_000_000, after = 500_000)))
+        assertEquals("Compressed PDF written (2.0 MB → 500 kB, 75% smaller).", compressWrittenSummary(copy(before = 2_000_000, after = 500_000)).english())
     }
 
     @Test
     fun aRefusalTheShellDidNotAskAboutStillReachesTheReader() {
         assertEquals(
             "Nothing to gain: this document compresses to the same 40 kB an uncompressed save writes, so no file was written. Not everything could be done: one; two.",
-            compressNoGainSummary(copy(before = 40_000, after = 40_000, refusals = listOf("one", "two"))),
+            compressNoGainSummary(copy(before = 40_000, after = 40_000, refusals = listOf("one", "two"))).english(),
         )
     }
 

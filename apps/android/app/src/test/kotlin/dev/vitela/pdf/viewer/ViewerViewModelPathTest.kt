@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -218,7 +219,7 @@ class ViewerViewModelPathTest {
         viewModel.deletePath(viewModel.state.value.documentId)
         advanceUntilIdle()
 
-        assertEquals(refusal, viewModel.state.value.status)
+        assertEquals(refusal, viewModel.state.value.status.english())
         assertEquals(listOf(40L, 41L), viewModel.state.value.contentEdit?.paths?.get(0)?.map { it.id })
     }
 

@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.BlockSource
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -60,7 +61,7 @@ class ViewerViewModelOrganizeDocumentsTest {
         val state = viewModel.state.value
         assertEquals(listOf(2, 3, 0, 1), state.pageSizes.map { it.widthPt.toInt() - 100 })
         assertEquals(listOf(BlockSource.Imported(40), BlockSource.Base), state.organize!!.blocks.map { it.source })
-        assertEquals("2 pages moved. Changes are pending save.", state.status)
+        assertEquals("2 pages moved. Changes are pending save.", state.status.english())
     }
 
     @Test

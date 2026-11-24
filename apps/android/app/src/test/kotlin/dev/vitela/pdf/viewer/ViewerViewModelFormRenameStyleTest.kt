@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.FieldFont
 import dev.vitela.pdf.core.FieldTextStyle
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -170,7 +171,7 @@ class ViewerViewModelFormRenameStyleTest {
         advanceUntilIdle()
 
         val state = viewModel.state.value
-        assertEquals("That name is already used by another field.", state.status)
+        assertEquals("That name is already used by another field.", state.status.english())
         assertFalse(state.isDirty)
         assertEquals("Name", state.formFields!!.fields.first { it.id == 1L }.name)
     }

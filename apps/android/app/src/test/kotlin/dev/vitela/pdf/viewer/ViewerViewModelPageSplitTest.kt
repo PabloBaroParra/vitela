@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PdfCore
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -101,7 +102,7 @@ class ViewerViewModelPageSplitTest {
             writes,
         )
         val state = viewModel.state.value
-        assertEquals("Split into 3 PDFs.", state.status)
+        assertEquals("Split into 3 PDFs.", state.status.english())
         assertFalse(state.pageSplitRunning)
         assertFalse(state.isDirty)
     }
@@ -129,7 +130,7 @@ class ViewerViewModelPageSplitTest {
         viewModel.splitPages { name, _ -> names += name; true }
 
         assertEquals(listOf("a.pdf-part1.pdf"), names)
-        assertEquals("Split stopped after 1 written: The document could not be processed.", viewModel.state.value.status)
+        assertEquals("Split stopped after 1 written: The document could not be processed.", viewModel.state.value.status.english())
         assertFalse(viewModel.state.value.pageSplitRunning)
     }
 
@@ -144,7 +145,7 @@ class ViewerViewModelPageSplitTest {
         viewModel.splitPages { _, _ -> false }
 
         assertEquals(1, document.extracted.size)
-        assertEquals("Split stopped after 0 written: could not write a.pdf-part1.pdf.", viewModel.state.value.status)
+        assertEquals("Split stopped after 0 written: could not write a.pdf-part1.pdf.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -159,7 +160,7 @@ class ViewerViewModelPageSplitTest {
         viewModel.splitPages { _, _ -> writes++; true }
 
         assertEquals(0, writes)
-        assertEquals("Split cancelled. No file was written.", viewModel.state.value.status)
+        assertEquals("Split cancelled. No file was written.", viewModel.state.value.status.english())
     }
 
     @Test
@@ -193,7 +194,7 @@ class ViewerViewModelPageSplitTest {
 
         assertEquals(0, writes)
         assertEquals(emptyList<List<Int>>(), first.extracted)
-        assertEquals("The document changed. Split stopped after 0 written.", viewModel.state.value.status)
+        assertEquals("The document changed. Split stopped after 0 written.", viewModel.state.value.status.english())
     }
 
     @Test

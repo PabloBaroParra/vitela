@@ -1,8 +1,11 @@
 package dev.vitela.pdf.viewer
 
-internal const val PASTE_STAMP_PROMPT = "Tap a page to place the pasted image."
-internal const val CLIPBOARD_HAS_NO_IMAGE = "Clipboard does not contain a bitmap image."
-internal const val CLIPBOARD_IMAGE_UNREADABLE = "The clipboard image could not be read."
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
+
+internal val PASTE_STAMP_PROMPT: UiText = UiText.Resource(R.string.status_stamp_paste_prompt)
+internal val CLIPBOARD_HAS_NO_IMAGE: UiText = UiText.Resource(R.string.status_stamp_clipboard_no_image)
+internal val CLIPBOARD_IMAGE_UNREADABLE: UiText = UiText.Resource(R.string.status_stamp_clipboard_unreadable)
 
 /**
  * The clipboard item a paste may read, or `null` when it offers no image.

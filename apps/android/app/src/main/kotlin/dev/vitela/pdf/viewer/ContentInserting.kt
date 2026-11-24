@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -94,14 +95,14 @@ internal class ContentInserting(
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
                         if (now.inserter !== inserter) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(inserter = inserter.copy(text = text, size = size, error = userMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = now.copy(inserter = inserter.copy(text = text, size = size, error = dialogMessage(result.error))))
                     }
                 }
             }
         }
     }
 
-    private fun arm(addition: ContentAddition, prompt: String) {
+    private fun arm(addition: ContentAddition, prompt: UiText) {
         val mode = state.value.contentEdit ?: return
         state.value = state.value.copy(
             contentEdit = mode.copy(adding = addition, moving = null, editor = null, resizer = null, shaper = null, inserter = null, selection = null),

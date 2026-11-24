@@ -1,10 +1,12 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-internal const val SIGNATURE_NOT_REMEMBERED = "Your signature could not be remembered. Tap a page to place it."
-internal const val SIGNATURE_FORGOTTEN = "Your saved signature was deleted from this phone."
+internal val SIGNATURE_NOT_REMEMBERED: UiText = UiText.Resource(R.string.status_signature_not_remembered)
+internal val SIGNATURE_FORGOTTEN: UiText = UiText.Resource(R.string.status_signature_forgotten)
 
 /**
  * **Draw signature** (T-088): the pad, and the one signature the user may ask

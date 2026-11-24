@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -195,7 +196,7 @@ class ViewerViewModelContentInsertTest {
         viewModel.tapContent(0, clear, reach = 0.0)
         advanceUntilIdle()
 
-        assertEquals(refusal, viewModel.state.value.status)
+        assertEquals(refusal, viewModel.state.value.status.english())
         assertNull(viewModel.state.value.contentEdit?.adding)
         assertFalse(viewModel.state.value.isDirty)
     }

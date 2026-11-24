@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfCoreError
 import dev.vitela.pdf.home.RecentDocument
 import dev.vitela.pdf.home.RecentStore
+import dev.vitela.pdf.text.english
 import dev.vitela.pdf.viewer.AnnotationTool
 import dev.vitela.pdf.viewer.ViewerDispatcherRule
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -150,7 +151,7 @@ class ViewerViewModelRestoreTest {
         offer()
         restore()
         assertNull(viewer.saveSnapshot())
-        assertTrue(viewer.state.value.status.contains("signature"))
+        assertTrue(viewer.state.value.status.english().contains("signature"))
         assertTrue(viewer.state.value.isDirty)
 
         edit()
@@ -265,7 +266,7 @@ class ViewerViewModelRestoreTest {
         restore()
         assertEquals(emptyList<String>(), files())
         assertNull(viewer.recoveryOffer.value)
-        assertTrue(viewer.state.value.status.contains("discarded"))
+        assertTrue(viewer.state.value.status.english().contains("discarded"))
         assertFalse(viewer.state.value.isLoading)
     }
 
@@ -324,7 +325,7 @@ class ViewerViewModelRestoreTest {
         offer()
         restore()
         assertEquals(2, files().size)
-        assertTrue(viewer.state.value.status.contains("kept"))
+        assertTrue(viewer.state.value.status.english().contains("kept"))
         assertNotNull("released", store.claimNewest(emptySet()))
     }
 

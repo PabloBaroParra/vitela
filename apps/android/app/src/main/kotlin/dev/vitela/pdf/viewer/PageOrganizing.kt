@@ -1,8 +1,10 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.PageEdit
 import dev.vitela.pdf.core.PdfCoreResult
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -41,7 +43,7 @@ internal class PageOrganizing(
             selectedAnnotationId = null,
             annotationReveal = null,
             activeAnnotationTool = AnnotationTool.Pointer,
-            status = "Move, turn, delete or add pages. Each change is one undo step.",
+            status = UiText.Resource(R.string.status_organize_hint),
         )
     }
 

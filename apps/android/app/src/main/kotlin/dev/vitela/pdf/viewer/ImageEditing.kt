@@ -4,6 +4,7 @@ import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.UiText
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -66,7 +67,7 @@ internal class ImageEditing(
                     is PdfCoreResult.Failure -> {
                         val now = state.value.contentEdit ?: return@withLock
                         if (now.resizer?.image != image) return@withLock
-                        state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = userMessage(result.error))))
+                        state.value = state.value.copy(contentEdit = now.copy(resizer = resizer.copy(width = width, height = height, error = dialogMessage(result.error))))
                     }
                 }
             }
@@ -128,7 +129,7 @@ internal class ImageEditing(
     }
 
     /** No file came back from the picker, for the reason [status] gives: the image keeps its picture. */
-    fun cancelReplace(status: String) {
+    fun cancelReplace(status: UiText) {
         val mode = state.value.contentEdit ?: return
         if (mode.replacingImage != null) state.value = state.value.copy(contentEdit = mode.copy(replacingImage = null), status = status)
     }

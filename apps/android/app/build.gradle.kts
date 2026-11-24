@@ -91,6 +91,12 @@ kotlin {
     }
 }
 
+// TranslationsTest reads the resource XML itself: without this, a change of
+// wording alone would leave the tests up to date.
+tasks.withType<Test>().configureEach {
+    inputs.dir("src/main/res").withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.activity:activity-compose:1.10.0")

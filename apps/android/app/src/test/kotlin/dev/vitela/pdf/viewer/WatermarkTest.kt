@@ -5,6 +5,7 @@ import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PictureWatermarkLook
 import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -133,8 +134,8 @@ class WatermarkTest {
 
     @Test
     fun theSummaryCountsPagesInWords() {
-        assertEquals("Watermark added to 1 page.", watermarkSummary(1))
-        assertEquals("Watermark added to 4 pages.", watermarkSummary(4))
+        assertEquals("Watermark added to 1 page.", watermarkSummary(1).english())
+        assertEquals("Watermark added to 4 pages.", watermarkSummary(4).english())
     }
 
     private fun draft(text: String = "DRAFT", pages: WatermarkPages = WatermarkPages.All, range: String = "") =

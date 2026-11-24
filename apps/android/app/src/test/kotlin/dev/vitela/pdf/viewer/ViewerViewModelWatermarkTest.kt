@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PictureWatermarkLook
 import dev.vitela.pdf.core.WatermarkLayer
 import dev.vitela.pdf.core.WatermarkLook
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -53,7 +54,7 @@ class ViewerViewModelWatermarkTest {
         val refreshesBefore = document.previewRefreshes
         viewModel.applyWatermark()
 
-        val state = viewModel.state.first { it.status == "Watermark added to 2 pages." }
+        val state = viewModel.state.first { it.status.english() == "Watermark added to 2 pages." }
         assertNull(state.watermark)
         assertEquals(listOf(Triple(listOf(0, 2), "COPY", look)), document.stamps)
         assertTrue(state.isDirty)
@@ -76,7 +77,7 @@ class ViewerViewModelWatermarkTest {
         viewModel.editWatermark(editor.draft.copy(pages = WatermarkPages.Current))
         viewModel.applyWatermark()
 
-        viewModel.state.first { it.status == "Watermark added to 1 page." }
+        viewModel.state.first { it.status.english() == "Watermark added to 1 page." }
         assertEquals(listOf(1), document.stamps.single().first)
     }
 
@@ -91,7 +92,7 @@ class ViewerViewModelWatermarkTest {
         viewModel.applyWatermark()
 
         val editor = requireNotNull(viewModel.state.first { it.watermark?.message != null }.watermark)
-        assertEquals("There is no page 9.", editor.message)
+        assertEquals("There is no page 9.", editor.message?.english())
         assertEquals(typed, editor.draft)
         assertEquals(emptyList<Any>(), document.stamps)
         assertFalse(viewModel.state.value.isDirty)
@@ -106,7 +107,7 @@ class ViewerViewModelWatermarkTest {
         viewModel.applyWatermark()
 
         val editor = requireNotNull(viewModel.state.first { it.watermark?.message != null }.watermark)
-        assertEquals("The watermark font cannot show “€”. Use Latin letters, digits and punctuation.", editor.message)
+        assertEquals("The watermark font cannot show “€”. Use Latin letters, digits and punctuation.", editor.message?.english())
         assertFalse(viewModel.state.value.isDirty)
     }
 
@@ -119,7 +120,7 @@ class ViewerViewModelWatermarkTest {
         viewModel.applyWatermark()
         viewModel.applyWatermark()
 
-        viewModel.state.first { it.status == "Watermark added to 3 pages." }
+        viewModel.state.first { it.status.english() == "Watermark added to 3 pages." }
         assertEquals(1, document.stamps.size)
     }
 
@@ -175,7 +176,7 @@ class ViewerViewModelWatermarkTest {
         val refreshesBefore = document.previewRefreshes
         viewModel.applyWatermark()
 
-        val state = viewModel.state.first { it.status == "Watermark added to 1 page." }
+        val state = viewModel.state.first { it.status.english() == "Watermark added to 1 page." }
         assertNull(state.watermark)
         assertEquals(emptyList<Any>(), document.stamps)
         val (pages, image, look) = document.pictureStamps.single()
@@ -197,7 +198,7 @@ class ViewerViewModelWatermarkTest {
         viewModel.applyWatermark()
 
         val editor = requireNotNull(viewModel.state.first { it.watermark?.message != null }.watermark)
-        assertEquals(sentence, editor.message)
+        assertEquals(sentence, editor.message?.english())
         assertEquals(WatermarkKind.Picture, editor.draft.kind)
         assertFalse(viewModel.state.value.isDirty)
     }
