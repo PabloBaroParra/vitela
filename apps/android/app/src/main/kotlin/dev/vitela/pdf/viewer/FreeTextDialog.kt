@@ -12,7 +12,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.text.resolve
 
 /**
@@ -28,12 +30,12 @@ internal fun FreeTextDialog(draft: FreeTextDraft, documentId: Long, onConfirm: (
     var text by remember(draft.pageIndex, draft.target) { mutableStateOf(freeTextInitialText(draft)) }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text(freeTextDialogTitle(draft)) },
+        title = { Text(freeTextDialogTitle(draft).resolve()) },
         text = {
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text("Text") },
+                label = { Text(stringResource(R.string.dialog_text)) },
                 isError = draft.error != null,
                 supportingText = draft.error?.let { message -> { Text(message.resolve()) } },
                 minLines = 3,
@@ -41,7 +43,7 @@ internal fun FreeTextDialog(draft: FreeTextDraft, documentId: Long, onConfirm: (
                 modifier = Modifier.heightIn(min = 120.dp),
             )
         },
-        confirmButton = { Button(onClick = { onConfirm(documentId, text) }, enabled = freeTextConfirmEnabled(text, draft.busy)) { Text(freeTextConfirmLabel(draft)) } },
-        dismissButton = { TextButton(onClick = onCancel, enabled = !draft.busy) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { onConfirm(documentId, text) }, enabled = freeTextConfirmEnabled(text, draft.busy)) { Text(freeTextConfirmLabel(draft).resolve()) } },
+        dismissButton = { TextButton(onClick = onCancel, enabled = !draft.busy) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

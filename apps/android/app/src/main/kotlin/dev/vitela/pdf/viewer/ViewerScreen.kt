@@ -29,7 +29,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.home.HomeScreen
 import dev.vitela.pdf.home.RecentActions
@@ -217,9 +219,9 @@ internal fun ViewerScreen(
                             if (modeBarVisible(state) && !layout.sideTools) ModeTabs(mode, switchMode)
                             if (layout.canShowSpread && state.organize == null) {
                                 Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Page layout", style = MaterialTheme.typography.labelLarge)
-                                    FilterChip(selected = !spread, onClick = { spread = false }, label = { Text("One page") })
-                                    FilterChip(selected = spread, onClick = { spread = true }, label = { Text("Two pages") })
+                                    Text(stringResource(R.string.reader_layout_title), style = MaterialTheme.typography.labelLarge)
+                                    FilterChip(selected = !spread, onClick = { spread = false }, label = { Text(stringResource(R.string.reader_layout_single)) })
+                                    FilterChip(selected = spread, onClick = { spread = true }, label = { Text(stringResource(R.string.reader_layout_spread)) })
                                 }
                             }
                             if (searchOpen && state.organize == null) {

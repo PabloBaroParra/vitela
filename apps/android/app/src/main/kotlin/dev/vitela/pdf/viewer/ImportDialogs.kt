@@ -15,9 +15,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /**
  * The two questions an import can raise, both before any page goes in: an
@@ -31,15 +33,15 @@ internal fun ImportDialogs(organize: OrganizeState, actions: OrganizeActions) {
     if (organize.importWarnings.isNotEmpty() && organize.importPassword == null) {
         AlertDialog(
             onDismissRequest = actions.onImportWarningsDismiss,
-            title = { Text("Some content will change on the way in") },
+            title = { Text(stringResource(R.string.import_warning_title)) },
             text = {
                 Column(modifier = Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
                     organize.importWarnings.forEach { Text("• $it") }
-                    Text("No pages have been added yet. Import anyway to add every selected PDF as one undo step.")
+                    Text(stringResource(R.string.import_warning_detail))
                 }
             },
-            confirmButton = { TextButton(onClick = actions.onImportWarningsAccept) { Text("Import anyway") } },
-            dismissButton = { Button(onClick = actions.onImportWarningsDismiss) { Text("Cancel") } },
+            confirmButton = { TextButton(onClick = actions.onImportWarningsAccept) { Text(stringResource(R.string.import_anyway)) } },
+            dismissButton = { Button(onClick = actions.onImportWarningsDismiss) { Text(stringResource(R.string.dialog_cancel)) } },
         )
     }
 }
@@ -55,20 +57,20 @@ private fun ImportPasswordDialog(prompt: ImportPasswordPrompt, actions: Organize
     var visible by remember(prompt) { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = actions.onImportPasswordCancel,
-        title = { Text("Password required") },
+        title = { Text(stringResource(R.string.password_title)) },
         text = {
             Column {
-                Text(if (prompt.wrong) "That password does not open ${prompt.name}." else "${prompt.name} is protected with a password.")
+                Text(stringResource(if (prompt.wrong) R.string.import_password_wrong else R.string.import_password_prompt, prompt.name))
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    label = { Text(stringResource(R.string.password_label)) },
                     visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
-                    trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) "Hide" else "Show") } },
+                    trailingIcon = { TextButton(onClick = { visible = !visible }) { Text(if (visible) stringResource(R.string.password_hide) else stringResource(R.string.password_show)) } },
                 )
             }
         },
-        confirmButton = { Button(onClick = { actions.onImportPassword(password) }) { Text("Add") } },
-        dismissButton = { TextButton(onClick = actions.onImportPasswordCancel) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { actions.onImportPassword(password) }) { Text(stringResource(R.string.dialog_add)) } },
+        dismissButton = { TextButton(onClick = actions.onImportPasswordCancel) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

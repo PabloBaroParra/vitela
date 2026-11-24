@@ -21,7 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /** The offer's answers; each names nothing the ViewModel does not already hold. */
 internal data class SavedSignatureActions(
@@ -42,7 +44,7 @@ internal fun SavedSignatureDialog(documentId: Long, png: ByteArray, actions: Sav
     val bitmap = remember(png) { BitmapFactory.decodeByteArray(png, 0, png.size)?.asImageBitmap() }
     AlertDialog(
         onDismissRequest = actions.onCancel,
-        title = { Text("Your signature") },
+        title = { Text(stringResource(R.string.signature_saved_title)) },
         text = {
             Box(
                 modifier = Modifier
@@ -54,19 +56,19 @@ internal fun SavedSignatureDialog(documentId: Long, png: ByteArray, actions: Sav
                 contentAlignment = Alignment.Center,
             ) {
                 if (bitmap != null) {
-                    Image(bitmap, contentDescription = "Your saved signature", contentScale = ContentScale.Fit)
+                    Image(bitmap, contentDescription = stringResource(R.string.signature_saved_image), contentScale = ContentScale.Fit)
                 } else {
-                    Text("This saved signature can no longer be shown.", color = Color.Black)
+                    Text(stringResource(R.string.signature_saved_unshowable), color = Color.Black)
                 }
             }
         },
         confirmButton = {
-            Button(onClick = { actions.onUse(documentId) }, enabled = bitmap != null) { Text("Use") }
+            Button(onClick = { actions.onUse(documentId) }, enabled = bitmap != null) { Text(stringResource(R.string.dialog_use)) }
         },
         dismissButton = {
             Row {
-                TextButton(onClick = actions.onDelete) { Text("Delete") }
-                TextButton(onClick = actions.onDrawNew) { Text("Draw new") }
+                TextButton(onClick = actions.onDelete) { Text(stringResource(R.string.dialog_delete)) }
+                TextButton(onClick = actions.onDrawNew) { Text(stringResource(R.string.signature_draw_new)) }
             }
         },
     )

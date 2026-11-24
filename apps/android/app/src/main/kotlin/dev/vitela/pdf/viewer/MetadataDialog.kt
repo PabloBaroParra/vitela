@@ -12,7 +12,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.text.resolve
 
@@ -27,21 +29,21 @@ internal fun MetadataDialog(
     val draft = editor.draft
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Document properties") },
+        title = { Text(stringResource(R.string.metadata_title)) },
         text = {
             // Scrolls so the last field stays reachable above the keyboard.
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 editor.message?.let { Text(it.resolve(), style = MaterialTheme.typography.bodyMedium) }
-                MetadataField("Title", draft.title, editor.editingAllowed) { onChange(draft.copy(title = it)) }
-                MetadataField("Author", draft.author, editor.editingAllowed) { onChange(draft.copy(author = it)) }
-                MetadataField("Subject", draft.subject, editor.editingAllowed) { onChange(draft.copy(subject = it)) }
-                MetadataField("Keywords", draft.keywords, editor.editingAllowed) { onChange(draft.copy(keywords = it)) }
-                MetadataField("Creator", draft.creator, editor.editingAllowed) { onChange(draft.copy(creator = it)) }
-                MetadataField("Producer", draft.producer, editor.editingAllowed) { onChange(draft.copy(producer = it)) }
+                MetadataField(stringResource(R.string.metadata_field_title), draft.title, editor.editingAllowed) { onChange(draft.copy(title = it)) }
+                MetadataField(stringResource(R.string.metadata_field_author), draft.author, editor.editingAllowed) { onChange(draft.copy(author = it)) }
+                MetadataField(stringResource(R.string.metadata_field_subject), draft.subject, editor.editingAllowed) { onChange(draft.copy(subject = it)) }
+                MetadataField(stringResource(R.string.metadata_field_keywords), draft.keywords, editor.editingAllowed) { onChange(draft.copy(keywords = it)) }
+                MetadataField(stringResource(R.string.metadata_field_creator), draft.creator, editor.editingAllowed) { onChange(draft.copy(creator = it)) }
+                MetadataField(stringResource(R.string.metadata_field_producer), draft.producer, editor.editingAllowed) { onChange(draft.copy(producer = it)) }
             }
         },
-        confirmButton = { Button(onClick = onApply, enabled = editor.editingAllowed) { Text("Apply") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(if (editor.editingAllowed) "Cancel" else "Close") } },
+        confirmButton = { Button(onClick = onApply, enabled = editor.editingAllowed) { Text(stringResource(R.string.metadata_apply)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(if (editor.editingAllowed) stringResource(R.string.dialog_cancel) else stringResource(R.string.dialog_close)) } },
     )
 }
 

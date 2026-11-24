@@ -17,9 +17,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.text.resolve
 
 /**
@@ -39,16 +41,16 @@ internal fun ProtectDialog(
     val enabled = editor.refusal == null
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Protect with a password") },
+        title = { Text(stringResource(R.string.protect_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.verticalScroll(rememberScrollState())) {
                 editor.refusal?.let { Text(it.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
-                PasswordField("Password to open the document", openPassword, enabled) { openPassword = it }
-                PasswordField("Permissions password", permissionsPassword, enabled) { permissionsPassword = it }
-                Text("Use different passwords. The permissions password controls changes after the document is opened.", style = MaterialTheme.typography.bodyMedium)
+                PasswordField(stringResource(R.string.protect_open_password), openPassword, enabled) { openPassword = it }
+                PasswordField(stringResource(R.string.protect_permissions_password), permissionsPassword, enabled) { permissionsPassword = it }
+                Text(stringResource(R.string.protect_detail), style = MaterialTheme.typography.bodyMedium)
                 if (editor.signaturesWillBreak) {
                     Text(
-                        "This document is signed. Applying password protection rewrites the file, so its existing digital signature will no longer verify.",
+                        stringResource(R.string.protect_signed),
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
@@ -58,10 +60,10 @@ internal fun ProtectDialog(
         },
         confirmButton = {
             Button(onClick = { onProtect(openPassword, permissionsPassword) }, enabled = enabled) {
-                Text(if (editor.signaturesWillBreak) "Protect anyway" else "Protect")
+                Text(if (editor.signaturesWillBreak) stringResource(R.string.protect_anyway) else stringResource(R.string.protect_confirm))
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }
 

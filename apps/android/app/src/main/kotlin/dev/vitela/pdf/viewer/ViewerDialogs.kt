@@ -11,8 +11,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.CompressPreset
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.text.resolve
@@ -62,10 +64,10 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     if (state.pendingClose != null) {
         AlertDialog(
             onDismissRequest = actions.onCloseCancelled,
-            title = { Text("Discard unsaved changes?") },
-            text = { Text("Closing this PDF will discard your unsaved changes and return to Home.") },
-            confirmButton = { Button(onClick = actions.onCloseConfirmed) { Text("Discard and close") } },
-            dismissButton = { TextButton(onClick = actions.onCloseCancelled) { Text("Keep editing") } },
+            title = { Text(stringResource(R.string.discard_title)) },
+            text = { Text(stringResource(R.string.discard_close_detail)) },
+            confirmButton = { Button(onClick = actions.onCloseConfirmed) { Text(stringResource(R.string.discard_close)) } },
+            dismissButton = { TextButton(onClick = actions.onCloseCancelled) { Text(stringResource(R.string.discard_keep_editing)) } },
         )
     }
     if (state.needsPassword) PasswordDialog(state.passwordMessage?.resolve(), actions.onPassword, actions.onPasswordCancel)
@@ -101,10 +103,10 @@ internal fun ViewerDialogs(state: ViewerState, actions: DialogActions) {
     state.pendingReplacementTitle?.let { title ->
         AlertDialog(
             onDismissRequest = actions.onReplacementCancelled,
-            title = { Text("Discard unsaved changes?") },
-            text = { Text("Open $title and discard the current unsaved changes?") },
-            confirmButton = { Button(onClick = actions.onReplacementConfirmed) { Text("Discard and open") } },
-            dismissButton = { TextButton(onClick = actions.onReplacementCancelled) { Text("Keep editing") } },
+            title = { Text(stringResource(R.string.discard_title)) },
+            text = { Text(stringResource(R.string.discard_open_detail, title)) },
+            confirmButton = { Button(onClick = actions.onReplacementConfirmed) { Text(stringResource(R.string.discard_open)) } },
+            dismissButton = { TextButton(onClick = actions.onReplacementCancelled) { Text(stringResource(R.string.discard_keep_editing)) } },
         )
     }
 }
@@ -116,24 +118,24 @@ private fun PasswordDialog(message: String?, onPassword: (String) -> Unit, onCan
     val cancel = { onCancel(); password = "" }
     AlertDialog(
         onDismissRequest = cancel,
-        title = { Text("Password required") },
+        title = { Text(stringResource(R.string.password_title)) },
         text = {
             Column {
                 message?.let { Text(it) }
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    label = { Text(stringResource(R.string.password_label)) },
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
                         TextButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Text(if (passwordVisible) "Hide" else "Show")
+                            Text(if (passwordVisible) stringResource(R.string.password_hide) else stringResource(R.string.password_show))
                         }
                     },
                 )
             }
         },
-        confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text("Open") } },
-        dismissButton = { TextButton(onClick = cancel) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { onPassword(password); password = "" }) { Text(stringResource(R.string.dialog_open)) } },
+        dismissButton = { TextButton(onClick = cancel) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

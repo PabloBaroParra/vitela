@@ -14,7 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.text.resolve
 
 /**
@@ -29,11 +31,11 @@ internal fun AnnotationPositionDialog(positioner: AnnotationPositioner, document
     var y by remember(positioner) { mutableStateOf(positioner.y) }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Move annotation — page ${positioner.annotation.pageIndex + 1}") },
+        title = { Text(stringResource(R.string.annotation_move_title, positioner.annotation.pageIndex + 1)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "Position the annotation's bottom-left bounds in unrotated PDF space. X increases rightward; Y increases upward. Size stays unchanged.",
+                    stringResource(R.string.annotation_move_help),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -43,7 +45,7 @@ internal fun AnnotationPositionDialog(positioner: AnnotationPositioner, document
                 positioner.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { Button(onClick = { onMove(documentId, x, y) }) { Text("Move") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { onMove(documentId, x, y) }) { Text(stringResource(R.string.dialog_move)) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

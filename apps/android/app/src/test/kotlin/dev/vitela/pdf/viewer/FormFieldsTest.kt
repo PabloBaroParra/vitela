@@ -1,5 +1,7 @@
 package dev.vitela.pdf.viewer
 
+import dev.vitela.pdf.R
+import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.FormField
@@ -39,10 +41,17 @@ class FormFieldsTest {
 
     @Test
     fun aChoiceOutsideTheOptionsShowsAsNoChoice() {
-        assertEquals("UY", choiceLabel(listOf("AR", "UY"), "UY"))
+        assertEquals("UY", choiceLabel(listOf("AR", "UY"), "UY").english())
         assertEquals(FORM_NO_CHOICE, choiceLabel(listOf("AR", "UY"), null))
         // Another tool may have written a value the options do not list.
         assertEquals(FORM_NO_CHOICE, choiceLabel(listOf("AR", "UY"), "CL"))
+        assertEquals("(none)", FORM_NO_CHOICE.english())
+    }
+
+    @Test
+    fun aColorAnotherToolWroteIsNamedCustom() {
+        assertEquals(R.string.form_color_red, fieldColorLabel(AnnotationColor(220, 40, 40)))
+        assertEquals(R.string.form_color_custom, fieldColorLabel(AnnotationColor(1, 2, 3)))
     }
 
     @Test

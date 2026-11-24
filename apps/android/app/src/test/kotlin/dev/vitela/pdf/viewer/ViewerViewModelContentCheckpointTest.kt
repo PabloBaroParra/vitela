@@ -2,6 +2,7 @@ package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.PdfDocument
+import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
@@ -170,7 +171,7 @@ class ViewerViewModelContentCheckpointTest {
 
             val editor = viewModel.state.value.contentEdit?.editor
             assertEquals(canCheckpoint, editor?.canCheckpoint)
-            assertEquals(!canCheckpoint, "needs a save first" in textDialogHelp(editor?.canCheckpoint == true))
+            assertEquals(!canCheckpoint, "needs a save first" in textDialogHelp(editor?.canCheckpoint == true).english())
         }
     }
 

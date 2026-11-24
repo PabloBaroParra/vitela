@@ -14,7 +14,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.text.resolve
 
 /**
@@ -29,18 +31,18 @@ internal fun AnnotationResizeDialog(resizer: AnnotationResizer, documentId: Long
     var height by remember(resizer) { mutableStateOf(resizer.height) }
     AlertDialog(
         onDismissRequest = onCancel,
-        title = { Text("Resize annotation — page ${resizer.pageIndex + 1}") },
+        title = { Text(stringResource(R.string.annotation_resize_title, resizer.pageIndex + 1)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("The annotation keeps its bottom-left corner. Width and height are independent; stamps stretch to fit.", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.annotation_resize_help), style = MaterialTheme.typography.bodySmall)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PointsField("Width (pt)", width, { width = it }, resizer.error != null, Modifier.weight(1f))
-                    PointsField("Height (pt)", height, { height = it }, resizer.error != null, Modifier.weight(1f))
+                    PointsField(stringResource(R.string.dialog_width), width, { width = it }, resizer.error != null, Modifier.weight(1f))
+                    PointsField(stringResource(R.string.dialog_height), height, { height = it }, resizer.error != null, Modifier.weight(1f))
                 }
                 resizer.error?.let { error -> Text(error.resolve(), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
-        confirmButton = { Button(onClick = { onResize(documentId, width, height) }) { Text("Resize") } },
-        dismissButton = { TextButton(onClick = onCancel) { Text("Cancel") } },
+        confirmButton = { Button(onClick = { onResize(documentId, width, height) }) { Text(stringResource(R.string.dialog_resize)) } },
+        dismissButton = { TextButton(onClick = onCancel) { Text(stringResource(R.string.dialog_cancel)) } },
     )
 }

@@ -25,9 +25,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.DocumentBlock
+import dev.vitela.pdf.text.resolve
 
 /**
  * Organize > Documents: one card per run of pages from the same PDF, covered by
@@ -55,7 +58,7 @@ private fun DocumentCard(position: Int, block: DocumentBlock, state: ViewerState
     LaunchedEffect(block.start, cover == null, organize.version) {
         if (cover == null) actions.onThumbnail(block.start)
     }
-    val title = blockTitle(block, state.title, state.importedSourceNames)
+    val title = blockTitle(block, state.title, state.importedSourceNames).resolve()
     val idle = !organize.busy
     val last = organize.blocks.lastIndex
     Row(
@@ -78,15 +81,15 @@ private fun DocumentCard(position: Int, block: DocumentBlock, state: ViewerState
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(blockMeta(block), style = MaterialTheme.typography.bodySmall)
+            Text(blockMeta(block).resolve(), style = MaterialTheme.typography.bodySmall)
             // Moves first, the delete last: the destructive control keeps the
             // end of the row, as on the page cards and the Linux shell's.
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CardButton("▲", "Move $title up", idle && position > 0) { actions.onMoveBlock(block, -1) }
-                CardButton("▼", "Move $title down", idle && position < last) { actions.onMoveBlock(block, 1) }
-                CardButton("↺", "Rotate $title left", idle) { actions.onRotateBlock(block, -90) }
-                CardButton("↻", "Rotate $title right", idle) { actions.onRotateBlock(block, 90) }
-                CardButton("✕", "Delete $title", idle && block.count < state.pageCount) { actions.onDeleteBlock(block) }
+                CardButton("▲", stringResource(R.string.organize_block_move_up, title), idle && position > 0) { actions.onMoveBlock(block, -1) }
+                CardButton("▼", stringResource(R.string.organize_block_move_down, title), idle && position < last) { actions.onMoveBlock(block, 1) }
+                CardButton("↺", stringResource(R.string.organize_block_rotate_left, title), idle) { actions.onRotateBlock(block, -90) }
+                CardButton("↻", stringResource(R.string.organize_block_rotate_right, title), idle) { actions.onRotateBlock(block, 90) }
+                CardButton("✕", stringResource(R.string.organize_block_delete, title), idle && block.count < state.pageCount) { actions.onDeleteBlock(block) }
             }
         }
     }

@@ -8,6 +8,7 @@ import dev.vitela.pdf.core.FreeTextLayout
 import dev.vitela.pdf.core.FreeTextLine
 import dev.vitela.pdf.core.PageRotation
 import dev.vitela.pdf.core.PageSize
+import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -164,10 +165,10 @@ class FreeTextTest {
         val place = FreeTextDraft(2, FreeTextTarget.Place(AnnotationRect(0.0, 0.0, 1.0, 1.0)))
         val retype = FreeTextDraft(2, FreeTextTarget.Retype(7, "uno"))
 
-        assertEquals("Add text box — page 3", freeTextDialogTitle(place))
-        assertEquals("Edit text — page 3", freeTextDialogTitle(retype))
-        assertEquals("Add", freeTextConfirmLabel(place))
-        assertEquals("Save", freeTextConfirmLabel(retype))
+        assertEquals("Add text box — page 3", freeTextDialogTitle(place).english())
+        assertEquals("Edit text — page 3", freeTextDialogTitle(retype).english())
+        assertEquals("Add", freeTextConfirmLabel(place).english())
+        assertEquals("Save", freeTextConfirmLabel(retype).english())
         assertEquals("", freeTextInitialText(place))
         assertEquals("uno", freeTextInitialText(retype))
     }

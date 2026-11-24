@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,19 +21,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.FieldFont
 import dev.vitela.pdf.core.FieldTextStyle
 
 /** The text colors a field can be given from its row; a color another tool wrote shows as Custom. */
 internal val FIELD_COLORS = listOf(
-    "Black" to AnnotationColor(0, 0, 0),
-    "Blue" to AnnotationColor(0, 70, 200),
-    "Red" to AnnotationColor(220, 40, 40),
-    "Green" to AnnotationColor(0, 128, 0),
+    R.string.form_color_black to AnnotationColor(0, 0, 0),
+    R.string.form_color_blue to AnnotationColor(0, 70, 200),
+    R.string.form_color_red to AnnotationColor(220, 40, 40),
+    R.string.form_color_green to AnnotationColor(0, 128, 0),
 )
 
 internal val FieldFont.label: String get() = when (this) {
@@ -41,7 +44,8 @@ internal val FieldFont.label: String get() = when (this) {
     FieldFont.Courier -> "Courier"
 }
 
-internal fun fieldColorLabel(color: AnnotationColor): String = FIELD_COLORS.firstOrNull { it.second == color }?.first ?: "Custom"
+@StringRes
+internal fun fieldColorLabel(color: AnnotationColor): Int = FIELD_COLORS.firstOrNull { it.second == color }?.first ?: R.string.form_color_custom
 
 /**
  * A field's name, typed. It commits only when focus leaves, and Done lets
@@ -58,7 +62,7 @@ internal fun FieldNameBox(name: String, rename: (String) -> Unit) {
     OutlinedTextField(
         value = draft,
         onValueChange = { draft = it },
-        label = { Text("Field name") },
+        label = { Text(stringResource(R.string.form_field_name)) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
@@ -78,7 +82,7 @@ internal fun FieldStyleRow(style: FieldTextStyle, restyle: (FieldTextStyle) -> U
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         StyleMenu(style.font.label, FieldFont.entries.map { it.label to it }) { restyle(style.copy(font = it)) }
         FontSizeBox(style.sizePt, Modifier.weight(1f)) { restyle(style.copy(sizePt = it)) }
-        StyleMenu(fieldColorLabel(style.color), FIELD_COLORS) { restyle(style.copy(color = it)) }
+        StyleMenu(stringResource(fieldColorLabel(style.color)), FIELD_COLORS.map { stringResource(it.first) to it.second }) { restyle(style.copy(color = it)) }
     }
 }
 
@@ -105,7 +109,7 @@ private fun FontSizeBox(sizePt: Double, modifier: Modifier, commit: (Double) -> 
     OutlinedTextField(
         value = draft,
         onValueChange = { draft = it },
-        label = { Text("Size (pt)") },
+        label = { Text(stringResource(R.string.dialog_size)) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
         keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),

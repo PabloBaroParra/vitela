@@ -10,7 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfComment
 
 /** Lists saved comments and pending notes without exposing saved entries to editing. */
@@ -18,12 +20,12 @@ import dev.vitela.pdf.core.PdfComment
 internal fun CommentsDialog(comments: List<PdfComment>, onClose: () -> Unit, onRead: (PdfComment) -> Unit) {
     AlertDialog(
         onDismissRequest = onClose,
-        title = { Text("Comments") },
+        title = { Text(stringResource(R.string.comments_title)) },
         text = {
-            if (comments.isEmpty()) Text("No comments in this document.")
+            if (comments.isEmpty()) Text(stringResource(R.string.comments_empty))
             else LazyColumn(Modifier.heightIn(max = 400.dp)) {
                 for ((page, entries) in comments.groupBy { it.pageIndex }.toSortedMap()) {
-                    item { Text("Page ${page + 1}") }
+                    item { Text(stringResource(R.string.reader_page_item, page + 1)) }
                     items(entries) { comment ->
                         TextButton(onClick = { onRead(comment) }, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth()) {
@@ -36,6 +38,6 @@ internal fun CommentsDialog(comments: List<PdfComment>, onClose: () -> Unit, onR
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onClose) { Text("Close") } },
+        confirmButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.dialog_close)) } },
     )
 }

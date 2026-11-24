@@ -51,9 +51,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 import kotlin.math.roundToInt
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.core.AnnotationPoint
@@ -303,7 +305,7 @@ private fun PageSlot(
         if (page != null) {
             Image(
                 bitmap = page,
-                contentDescription = "Page $pageNumber",
+                contentDescription = stringResource(R.string.reader_page_item, pageNumber),
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Fit,
             )

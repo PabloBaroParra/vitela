@@ -13,6 +13,7 @@ import android.print.PrintAttributes
 import android.print.PrintDocumentAdapter
 import android.print.PrintDocumentInfo
 import android.print.pdf.PrintedPdfDocument
+import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
@@ -89,7 +90,7 @@ class PdfPrintDocumentAdapter(
         val layout = attributes
         if (layout == null || finished) {
             destination.close()
-            callback.onWriteFailed("The print layout is not ready.")
+            callback.onWriteFailed(context.getString(R.string.print_not_ready))
             return
         }
         val requested = pagesToPrint(pages.map { it.start..it.end }, document.pageCount)
@@ -101,7 +102,7 @@ class PdfPrintDocumentAdapter(
                 if (!finished) withContext(NonCancellable + Dispatchers.Main) { callback.onWriteCancelled() }
                 throw cancelled
             } catch (error: Exception) {
-                withContext(Dispatchers.Main) { callback.onWriteFailed(error.message ?: "Could not render the PDF for printing.") }
+                withContext(Dispatchers.Main) { callback.onWriteFailed(error.message ?: context.getString(R.string.print_not_rendered)) }
                 return@launch
             }
             withContext(Dispatchers.Main) {

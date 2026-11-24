@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared by the dialogs -->
+    <string name="dialog_cancel">Cancelar</string>
+    <string name="dialog_close">Cerrar</string>
+    <string name="dialog_add">Añadir</string>
+    <string name="dialog_save">Guardar</string>
+    <string name="dialog_delete">Eliminar</string>
+    <string name="dialog_move">Mover</string>
+    <string name="dialog_resize">Cambiar tamaño</string>
+    <string name="dialog_use">Usar</string>
+    <string name="dialog_open">Abrir</string>
+    <string name="dialog_width">Ancho (pt)</string>
+    <string name="dialog_height">Alto (pt)</string>
+    <string name="dialog_size">Tamaño (pt)</string>
+    <string name="dialog_text">Texto</string>
+    <string name="dialog_pages">Páginas</string>
+    <string name="dialog_pages_all">Todas las páginas</string>
+    <string name="dialog_pages_current">Página actual</string>
+    <string name="dialog_pages_custom">Rango personalizado</string>
+    <string name="dialog_pages_example">p. ej., 1-3,7</string>
+
+    <!-- Discarding unsaved changes -->
+    <string name="discard_title">¿Descartar los cambios sin guardar?</string>
+    <string name="discard_close_detail">Si cierras este PDF, se descartarán los cambios sin guardar y volverás al inicio.</string>
+    <string name="discard_close">Descartar y cerrar</string>
+    <string name="discard_open_detail">¿Abrir %1$s y descartar los cambios actuales sin guardar?</string>
+    <string name="discard_open">Descartar y abrir</string>
+    <string name="discard_keep_editing">Seguir editando</string>
+
+    <!-- Passwords -->
+    <string name="password_title">Se necesita una contraseña</string>
+    <string name="password_label">Contraseña</string>
+    <string name="password_show">Mostrar</string>
+    <string name="password_hide">Ocultar</string>
+
+    <!-- Comments, notes and text boxes -->
+    <string name="comments_title">Comentarios</string>
+    <string name="comments_empty">No hay comentarios en este documento.</string>
+    <string name="note_add_title">Añadir nota — página %1$s</string>
+    <string name="note_read_title">Nota — página %1$s</string>
+    <string name="note_text">Texto de la nota</string>
+    <string name="text_box_add_title">Añadir cuadro de texto — página %1$s</string>
+    <string name="text_box_edit_title">Editar texto — página %1$s</string>
+
+    <!-- Annotation size and position -->
+    <string name="annotation_resize_title">Cambiar tamaño de la anotación — página %1$s</string>
+    <string name="annotation_resize_help">La anotación mantiene su esquina inferior izquierda. El ancho y el alto son independientes; los sellos se estiran para ajustarse.</string>
+    <string name="annotation_move_title">Mover anotación — página %1$s</string>
+    <string name="annotation_move_help">Indica la esquina inferior izquierda de la anotación en el espacio PDF sin girar. X aumenta hacia la derecha; Y aumenta hacia arriba. El tamaño no cambia.</string>
+
+    <!-- Edit content: the help names the buttons, so it uses their words -->
+    <string name="content_text_title">Editar texto</string>
+    <string name="content_text_retype">Reescribir</string>
+    <string name="content_text_font_substituted">La fuente de este texto no se puede conservar. Lo que escribas usará una fuente estándar.</string>
+    <string name="content_text_help_move">Mover te permite arrastrar este texto o tocar donde deba ir, conservando su fuente y su tamaño.</string>
+    <string name="content_text_help_save">Para mover una línea que ya has reescrito, o reescribir una que ya has movido, hay que guardar antes.</string>
+    <string name="content_text_help_delete">Eliminar lo quita de la página; Deshacer lo recupera. No es una censura segura.</string>
+    <string name="content_image_title">Editar imagen</string>
+    <string name="content_image_replace">Reemplazar</string>
+    <string name="content_image_help">La imagen mantiene su esquina superior izquierda y se estira hasta el tamaño que indiques. Mover te permite arrastrarla o tocar donde deba ir, conservando su tamaño. Reemplazar la cambia por un PNG o JPEG, estirado hasta el mismo recuadro; guarda primero si la imagen ya tiene un cambio pendiente. Eliminar la quita de la página; Deshacer la recupera.</string>
+    <string name="content_shape_title">Editar forma</string>
+    <string name="content_shape_help">La forma mantiene su esquina superior izquierda y su grosor de línea, y se estira hasta el tamaño que indiques; el texto de su interior no se toca. Una línea no tiene alto que cambiar. Mover te permite arrastrarla o tocar donde deba ir, conservando su tamaño. Eliminar la quita de la página; Deshacer la recupera.</string>
+    <string name="content_insert_title">Añadir texto — página %1$s</string>
+    <string name="content_insert_help">Añade una línea de texto en Helvetica al contenido de la página, con su esquina superior izquierda donde has tocado. Algunos caracteres no se pueden mostrar con esta fuente.</string>
+    <string name="content_insert">Insertar</string>
+
+    <!-- Watermark -->
+    <string name="watermark_title">Añadir marca de agua</string>
+    <string name="watermark_kind">Marca de agua</string>
+    <string name="watermark_kind_text">Texto</string>
+    <string name="watermark_kind_picture">Imagen</string>
+    <string name="watermark_choose_picture">Elegir imagen…</string>
+    <string name="watermark_choose_another">Elegir otra imagen…</string>
+    <string name="watermark_no_picture">No se ha elegido ninguna imagen. PNG o JPEG.</string>
+    <string name="watermark_picture_chosen">Imagen elegida (%1$s KB).</string>
+    <string name="watermark_size_points">Tamaño: %1$s pt</string>
+    <string name="watermark_size_percent">Tamaño: %1$s %% de la página</string>
+    <string name="watermark_opacity">Opacidad: %1$s %%</string>
+    <string name="watermark_angle">Ángulo: %1$s°</string>
+    <string name="watermark_placement">Posición</string>
+    <string name="watermark_over">Sobre el contenido de la página</string>
+    <string name="watermark_behind">Detrás del contenido de la página</string>
+
+    <!-- Document properties -->
+    <string name="metadata_title">Propiedades del documento</string>
+    <string name="metadata_field_title">Título</string>
+    <string name="metadata_field_author">Autor</string>
+    <string name="metadata_field_subject">Asunto</string>
+    <string name="metadata_field_keywords">Palabras clave</string>
+    <string name="metadata_field_creator">Creador</string>
+    <string name="metadata_field_producer">Productor</string>
+    <string name="metadata_apply">Aplicar</string>
+
+    <!-- Export images -->
+    <string name="export_title">Exportar páginas como imágenes</string>
+    <string name="export_format">Formato</string>
+    <string name="export_resolution">Resolución (%1$s-%2$s DPI)</string>
+    <string name="export_confirm">Exportar</string>
+
+    <!-- Extract pages -->
+    <string name="extract_title">Extraer páginas a un PDF nuevo</string>
+    <string name="extract_confirm">Extraer</string>
+
+    <!-- Split -->
+    <string name="split_title">Dividir PDF</string>
+    <string name="split_after">Dividir después de la página</string>
+    <string name="split_example">p. ej., 3,7</string>
+    <string name="split_detail">Este documento tiene %1$s páginas. Cada corte empieza un archivo nuevo.</string>
+    <string name="split_confirm">Dividir</string>
+
+    <!-- Compress -->
+    <string name="compress_title">Comprimir PDF</string>
+    <string name="compress_detail">Guarda una copia más pequeña. El documento abierto se queda como está.</string>
+    <string name="compress_lossless">Sin pérdida</string>
+    <string name="compress_lossless_detail">Solo reorganiza el archivo. Todas las páginas se ven exactamente igual que ahora.</string>
+    <string name="compress_balanced">Equilibrado</string>
+    <string name="compress_balanced_detail">Además, reduce las imágenes a 150 DPI. En pantalla no se aprecia la diferencia y en el disco ocupa bastante menos.</string>
+    <string name="compress_small">Pequeño</string>
+    <string name="compress_small_detail">Además, reduce las imágenes a 96 DPI. Para cuando el archivo tiene que caber en algún sitio y los píxeles importan menos que eso.</string>
+    <string name="compress_signed">Este documento está firmado. Comprimir reescribe el archivo, así que la firma digital de la copia comprimida dejará de ser válida.</string>
+    <string name="compress_confirm">Comprimir</string>
+    <string name="compress_anyway">Comprimir de todos modos</string>
+
+    <!-- Protect -->
+    <string name="protect_title">Proteger con contraseña</string>
+    <string name="protect_open_password">Contraseña para abrir el documento</string>
+    <string name="protect_permissions_password">Contraseña de permisos</string>
+    <string name="protect_detail">Usa contraseñas distintas. La contraseña de permisos controla los cambios una vez abierto el documento.</string>
+    <string name="protect_signed">Este documento está firmado. Protegerlo con contraseña reescribe el archivo, así que la firma digital que ya tiene dejará de ser válida.</string>
+    <string name="protect_confirm">Proteger</string>
+    <string name="protect_anyway">Proteger de todos modos</string>
+
+    <!-- Sign with a certificate -->
+    <string name="sign_title">Firmar</string>
+    <string name="sign_detail">Añade una firma digital invisible con un archivo de certificado .pfx o .p12. El PDF firmado se guarda como un archivo nuevo.</string>
+    <string name="sign_choose_certificate">Elegir certificado…</string>
+    <string name="sign_certificate">Certificado: %1$s</string>
+    <string name="sign_certificate_password">Contraseña del certificado</string>
+    <string name="sign_identity">Firmar como</string>
+    <string name="sign_confirm">Firmar</string>
+    <string name="sign_unlock">Desbloquear</string>
+    <string name="sign_unlocking">Desbloqueando…</string>
+
+    <!-- Drawn signature -->
+    <string name="signature_draw_title">Dibuja tu firma</string>
+    <string name="signature_remember">Recordar en este teléfono</string>
+    <string name="signature_clear">Borrar</string>
+    <string name="signature_saved_title">Tu firma</string>
+    <string name="signature_saved_image">Tu firma guardada</string>
+    <string name="signature_saved_unshowable">Esta firma guardada ya no se puede mostrar.</string>
+    <string name="signature_draw_new">Dibujar otra</string>
+
+    <!-- Form fields panel -->
+    <string name="form_title">Campos de formulario</string>
+    <string name="form_kind_text">Campo de texto</string>
+    <string name="form_kind_checkbox">Casilla de verificación</string>
+    <string name="form_kind_radio_group">Grupo de opciones</string>
+    <string name="form_kind_dropdown">Lista desplegable</string>
+    <string name="form_no_choice">(ninguna)</string>
+    <string name="form_field_name">Nombre del campo</string>
+    <string name="form_color_black">Negro</string>
+    <string name="form_color_blue">Azul</string>
+    <string name="form_color_red">Rojo</string>
+    <string name="form_color_green">Verde</string>
+
+    <!-- A color that is none of the above. Keep it short: its button shares a row with the size box -->
+    <string name="form_color_custom">Otro</string>
+
+    <!-- Printing, shown by the system print screen -->
+    <string name="print_not_ready">El diseño de impresión no está listo.</string>
+    <string name="print_not_rendered">No se pudo generar el PDF para imprimirlo.</string>
+</resources>

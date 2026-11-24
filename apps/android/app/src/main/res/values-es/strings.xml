@@ -133,6 +133,9 @@
     <string name="reader_zoom_out">Alejar</string>
     <string name="reader_zoom_fit_width">Ajustar al ancho</string>
     <string name="reader_zoom_fit_page">Ajustar a la página</string>
+    <string name="reader_layout_title">Diseño de página</string>
+    <string name="reader_layout_single">Una página</string>
+    <string name="reader_layout_spread">Dos páginas</string>
 
     <!-- Recovery dialog -->
     <string name="recovery_title">¿Recuperar el trabajo sin guardar?</string>
