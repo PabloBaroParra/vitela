@@ -1,14 +1,19 @@
 // Container: the open document as one vertically scrolling, virtualized
 // column of pages, with zoom, search, text selection, the session's
 // annotations, markup over the selection, the drawing tools, image stamps
-// (picked or dropped on a page) and undo/redo. Only pages within a
+// (picked or dropped on a page), selecting and editing an annotation, and
+// undo/redo. Only pages within a
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
+import { AnnotationDialog } from '../annotations/AnnotationDialog';
+import { AnnotationToolbar } from '../annotations/AnnotationToolbar';
 import { DraftDialog } from '../annotations/DraftDialog';
 import { DrawToolbar } from '../annotations/DrawToolbar';
+import { recolor } from '../annotations/editBuilds';
+import { useAnnotationEditing } from '../annotations/useAnnotationEditing';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import { useDrawing } from '../annotations/useDrawing';
 import { useStamps } from '../annotations/useStamps';
@@ -17,7 +22,6 @@ import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';
-import { boundingBox, toCssRects } from '../text/pageRects';
 import { TextToolbar } from '../text/TextToolbar';
 import { useCopy } from '../text/useCopy';
 import { useTextSelection } from '../text/useTextSelection';
@@ -25,7 +29,7 @@ import { HistoryControls } from './HistoryControls';
 import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
 import { PageSlot, type DrawingInput } from './PageSlot';
 import { renderDpi } from './renderDpi';
-import { revealScroll } from './reveal';
+import { useRevealMatch } from './useRevealMatch';
 import { useScrollMetrics } from './useScrollMetrics';
 import { useSettled } from './useSettled';
 import { useUndoKeys } from './useUndoKeys';
@@ -35,8 +39,6 @@ import { ZoomControls } from './ZoomControls';
 
 /** How long a zoom must hold still before pages re-render at its DPI. */
 const RENDER_SETTLE_MS = 150;
-/** Room kept around a search match scrolled into view, in CSS px. */
-const REVEAL_MARGIN = 48;
 
 const NO_ANNOTATIONS: readonly Annotation[] = [];
 
@@ -120,6 +122,12 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     [armed, drawing.color, editing.pending, drawing.onGesture],
   );
 
+  // Select also picks annotations: one selection at a time, text or annotation.
+  const annotations = document.annotations ?? NO_ANNOTATIONS;
+  const focusPages = useCallback(() => scroller.current?.focus({ preventScroll: true }), []);
+  const annotating = useAnnotationEditing(editing, annotations, keyOf, editing.allowed && !armed, clearSelection, focusPages);
+  const { selected } = annotating;
+
   // A new page list drops the selection once committed; until then a markup
   // checks the page the selection was made on (its `pageKey`).
   const structure = pageKeys.join(',');
@@ -145,7 +153,6 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     });
   };
 
-  const annotations = document.annotations ?? NO_ANNOTATIONS;
   const annotationsByPage = useMemo(() => {
     const byPage = new Map<number, Annotation[]>();
     for (const annotation of annotations) {
@@ -168,33 +175,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   const pageHits = useMemo(() => hitsByPage(hits), [hits]);
   const shownHit = currentHit(search.state);
 
-  // Every move between matches (a new search state) scrolls its match into
-  // view — from the layout, so a page that is not mounted yet works too.
-  // Read through a ref: a zoom must not scroll back to the match.
-  const view = useRef({ layout, scale });
-  useLayoutEffect(() => {
-    view.current = { layout, scale };
-  });
-  useLayoutEffect(() => {
-    const element = scroller.current;
-    const hit = currentHit(search.state);
-    if (!element || !hit) return;
-    const { layout, scale } = view.current;
-    const slot = layout.slots[hit.pageIndex];
-    const box = slot && boundingBox(toCssRects(hit.rects, scale));
-    if (!slot || !box) return;
-    const target = { ...box, left: slot.left + box.left, top: slot.top + box.top };
-    const viewport = {
-      left: element.scrollLeft,
-      top: element.scrollTop,
-      width: element.clientWidth,
-      height: element.clientHeight,
-    };
-    const scroll = revealScroll(viewport, target, REVEAL_MARGIN);
-    if (!scroll) return;
-    element.scrollLeft = scroll.x;
-    element.scrollTop = scroll.y;
-  }, [search.state]);
+  useRevealMatch(scroller, search.state, layout, scale);
 
   const slots = [];
   if (range && metrics.height > 0) {
@@ -218,6 +199,8 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
           textInput={textAllowed ? input : null}
           drawing={drawingInput}
+          editing={annotating.input}
+          selectedId={selected?.pageIndex === index ? selected.id : null}
           onImageDrop={stamps.drop}
         />,
       );
@@ -281,11 +264,37 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
         onKeyDown={(event) => {
           if (event.key === 'Escape') clearSelection();
         }}
+        // A press beside the selected annotation lets it go (and goes on to select text).
+        onPointerDown={(event) => {
+          const pressed = event.target as Element;
+          const onPage = event.button === 0 && event.isPrimary && pressed !== event.currentTarget;
+          if (onPage && !pressed.closest('.annotation-edit-layer')) annotating.deselect();
+        }}
       >
         <div className="viewer__content" style={{ width: layout.width, height: layout.height }}>
           {slots}
         </div>
       </div>
+      {selected && (
+        <AnnotationToolbar
+          annotation={selected}
+          onDialog={annotating.openDialog}
+          onColor={(color) => annotating.changeSelected(recolor(color))}
+          onRemove={annotating.removeSelected}
+          onFocusLost={focusPages}
+        />
+      )}
+      {selected && annotating.dialog && (
+        <AnnotationDialog
+          engine={engine}
+          dialog={annotating.dialog}
+          annotation={selected}
+          page={pages[selected.pageIndex]!}
+          onChange={annotating.dialogEdited}
+          onSubmit={(build) => void annotating.submitDialog(build)}
+          onCancel={annotating.cancelDialog}
+        />
+      )}
       {drawing.draft && (
         <DraftDialog
           engine={engine}

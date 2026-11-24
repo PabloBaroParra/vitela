@@ -1,12 +1,11 @@
-// Asks for the text of a note or a text box placed on the page. A native
-// modal <dialog> (focus stays inside, the page behind is inert, Escape fires
-// `cancel`) whose text area takes the focus. It stays open for as long as it
-// is mounted, even if the browser closes it on its own. Presentational: the caller
-// adds the annotation and keeps the dialog open with `error` when the core
-// refuses the text (a character Helvetica cannot show, for a text box).
+// Asks for the text of a note or a text box. A modal form whose text area
+// takes the focus. Presentational: the caller adds (or retypes) the
+// annotation and keeps the dialog open with `error` when the core refuses
+// the text (a character Helvetica cannot show, for a text box).
 
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { isBlank } from './drawing';
+import { ModalForm } from './ModalForm';
 
 interface TextDialogProps {
   readonly title: string;
@@ -14,7 +13,9 @@ interface TextDialogProps {
   readonly label: string;
   /** The submit button's label. */
   readonly submit: string;
-  /** The annotation is being added: the buttons wait and the dialog cannot be cancelled. */
+  /** The text the dialog opens with. */
+  readonly initialText?: string;
+  /** The text was sent: the buttons wait and the dialog cannot be cancelled. */
   readonly busy: boolean;
   /** Why the text cannot be used, shown under it; the dialog stays open. */
   readonly error: string | null;
@@ -25,88 +26,49 @@ interface TextDialogProps {
   readonly onCancel: () => void;
 }
 
-export function TextDialog({ title, label, submit, busy, error, children, onChange, onSubmit, onCancel }: TextDialogProps) {
-  const dialog = useRef<HTMLDialogElement>(null);
+export function TextDialog(props: TextDialogProps) {
+  const { title, label, submit, initialText = '', busy, error, children, onChange, onSubmit, onCancel } = props;
   const field = useRef<HTMLTextAreaElement>(null);
-  const titleId = useId();
   const errorId = useId();
-  const [text, setText] = useState('');
-
-  useEffect(() => {
-    const element = dialog.current;
-    if (!element) return;
-    if (!element.open) element.showModal();
-    field.current?.focus();
-    return () => element.close();
-  }, []);
-
-  const send = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!busy && !isBlank(text)) onSubmit(text);
-  };
+  const [text, setText] = useState(initialText);
 
   return (
-    <dialog
-      ref={dialog}
-      className="dialog text-dialog"
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        // The parent unmounts the dialog; do not let the browser close it first.
-        // While adding, the edit is already queued: stay open until it settles.
-        event.preventDefault();
-        if (!busy) onCancel();
-      }}
-      onClose={() => {
-        // Chromium lets a second Escape in a row close a modal whose `cancel`
-        // was prevented. Shown means open: while mounted (the parent has not
-        // dropped the draft) it opens again, so a refusal still has somewhere
-        // to show. Unmounting closes it from a detached node, out of reach.
-        const element = dialog.current;
-        if (element?.isConnected && !element.open) element.showModal();
-      }}
+    <ModalForm
+      title={title}
+      className="text-dialog"
+      submit={submit}
+      canSubmit={!isBlank(text)}
+      busy={busy}
+      error={error}
+      errorId={errorId}
+      field={field}
+      onSubmit={() => onSubmit(text)}
+      onCancel={onCancel}
     >
-      <form method="dialog" onSubmit={send}>
-        <h2 id={titleId} className="dialog__title">
-          {title}
-        </h2>
-        <label className="text-dialog__field">
-          {label}
-          <textarea
-            ref={field}
-            name="text"
-            rows={4}
-            autoFocus
-            value={text}
-            aria-invalid={!!error}
-            aria-describedby={error ? errorId : undefined}
-            onChange={(event) => {
-              setText(event.target.value);
-              onChange?.(event.target.value);
-            }}
-            onKeyDown={(event) => {
-              // Ctrl/⌘+Enter adds; Enter alone is a new line.
-              if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-          />
-        </label>
-        {children}
-        {error && (
-          <p id={errorId} className="text-dialog__error" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="dialog__actions">
-          <button type="button" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button type="submit" className="button--primary" disabled={busy || isBlank(text)}>
-            {submit}
-          </button>
-        </div>
-      </form>
-    </dialog>
+      <label className="text-dialog__field">
+        {label}
+        <textarea
+          ref={field}
+          name="text"
+          rows={4}
+          autoFocus
+          value={text}
+          aria-invalid={!!error}
+          aria-describedby={error ? errorId : undefined}
+          onChange={(event) => {
+            setText(event.target.value);
+            onChange?.(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            // Ctrl/⌘+Enter submits; Enter alone is a new line.
+            if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
+        />
+      </label>
+      {children}
+    </ModalForm>
   );
 }

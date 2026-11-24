@@ -1,6 +1,6 @@
 // The viewer's edits: markup over a text selection, an annotation drawn with
-// a tool (ink, shape, note, free text, image stamp), and undo/redo of the
-// document's history (any step: an annotation here, or a page edit made in
+// a tool (ink, shape, note, free text, image stamp), a change to one of the
+// session's annotations, and undo/redo of the document's history (any step: an annotation here, or a page edit made in
 // Organize). Sends them to the engine one at a time and reports every
 // edited document. Container logic only.
 //
@@ -15,14 +15,18 @@
 // or a drawn annotation is refused while any step is still running (an undo
 // may be putting another page where it was made), and is checked once more
 // right before it goes in: if the page at its position is no longer the one
-// it was made on (`pageKey`), nothing is added. The report
-// (`onEdited`) is made even if the viewer went away meanwhile: the core has
+// it was made on (`pageKey`), nothing is added. A change to an annotation
+// waits its turn instead (an arrow key repeats faster than the core
+// answers) and is built from the annotation as it is by then (`change`).
+// The report (`onEdited`) is made even if the viewer went away meanwhile: the core has
 // the edit either way.
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { EDIT_NOT_PERMITTED, errorKind, errorMessage } from '@vitela/core';
-import type { AnnotationEdit, DocumentInfo, EditedDocument, Engine, MarkupKind, PageRects, Rgb } from '@vitela/core';
+import type { Annotation, AnnotationEdit, DocumentInfo, EditedDocument, Engine, MarkupKind, PageRects, Rgb } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
+import type { EditBuild } from './editBuilds';
+import { sameGeometry } from './editGeometry';
 import { markupEdits } from './geometry';
 
 /** The markup colour of the native shells (their `DEFAULT_COLOR`). */
@@ -40,6 +44,9 @@ export function pageKey(info: PageLayout, index: number): string {
 
 const PAGE_CHANGED = 'The page changed before it could be marked up. Select the text again.';
 const PAGE_CHANGED_UNDER_TOOL = 'The page changed before the annotation could be added. Nothing was added.';
+const GONE = 'The annotation is no longer there. Nothing was changed.';
+const PAGE_CHANGED_UNDER_EDIT = 'The page changed before the annotation could be. Nothing was changed.';
+const MOVED_UNDER_DRAG = 'The annotation changed while it was being dragged. Try again.';
 
 /**
  * How a markup ended: every line went in (`marked`), some did before one
@@ -59,6 +66,16 @@ export type AddOutcome =
   | { readonly status: 'refused' }
   | { readonly status: 'failed'; readonly kind: string | null; readonly message: string };
 
+/** How a change to an annotation ended; `changed` also when there was nothing to change. */
+export type ChangeOutcome = { readonly status: 'changed' } | Exclude<AddOutcome, { status: 'added' }>;
+
+export interface ChangeOptions {
+  /** The annotation as it was when a drag began: the change is dropped if it has moved since. */
+  readonly grabbed?: Annotation;
+  /** Kinds of error the caller shows itself (see `AddOutcome`). */
+  readonly shownByCaller?: readonly string[];
+}
+
 /** An edit to add, or what builds it inside its step (see `add`). */
 export type PendingEdit = AnnotationEdit | (() => Promise<AnnotationEdit>);
 
@@ -69,8 +86,20 @@ interface QueueResult {
   readonly error?: unknown;
 }
 
-/** A step that must not run: the page it was meant for has moved. */
-class PageChanged extends Error {}
+/** A step that must not run (what it was meant for is not as it was), and what to say about it. */
+class StepDropped extends Error {}
+
+/** How a step that did not go in is told to its caller. */
+function failed(error: unknown) {
+  const kind = error instanceof StepDropped ? null : (errorKind(error) ?? null);
+  return { status: 'failed', kind, message: errorMessage(error) } as const;
+}
+
+/** The session as the core last described it. */
+interface Session {
+  readonly info: PageLayout;
+  readonly annotations: readonly Annotation[];
+}
 
 export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdited: (edited: EditedDocument) => void) {
   const [running, setRunning] = useState(0);
@@ -81,19 +110,30 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
   /** Synchronous twin of `running`: two clicks in one frame must not both get in. */
   const runningNow = useRef(0);
   /**
-   * The pages as the core last described them: from each step's result as
+   * The pages and annotations as the core last described them: from each step's result as
    * soon as it lands, ahead of the re-render that brings them as a prop.
    */
-  const latest = useRef<PageLayout>(document.info);
+  const latest = useRef<Session>({ info: document.info, annotations: document.annotations ?? [] });
   useLayoutEffect(() => {
-    latest.current = document.info;
-  }, [document.info]);
+    latest.current = { info: document.info, annotations: document.annotations ?? [] };
+  }, [document.info, document.annotations]);
+  /** A change still waiting when the viewer goes away is not made behind the next screen. */
+  const mounted = useRef(true);
+  useLayoutEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const { handle } = document;
   const allowed = document.info.annotationEditingAllowed && !denied;
 
-  /** Runs `steps` after every step already asked for; stops at the first refusal. */
+  /**
+   * Runs `steps` after every step already asked for; stops at the first
+   * refusal. A step that answers `null` had nothing to do.
+   */
   const enqueue = useCallback(
-    (steps: readonly (() => Promise<EditedDocument>)[], pageChanged = PAGE_CHANGED, shownByCaller: readonly string[] = []): Promise<QueueResult> => {
+    (steps: readonly (() => Promise<EditedDocument | null>)[], shownByCaller: readonly string[] = []): Promise<QueueResult> => {
       runningNow.current += 1;
       setRunning((count) => count + 1);
       const run = queue.current.then(async (): Promise<QueueResult> => {
@@ -103,18 +143,15 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
           for (const step of steps) {
             const edited = await step();
             applied += 1;
-            latest.current = edited.info;
+            if (!edited) continue;
+            latest.current = edited;
             onEdited(edited);
           }
           return { applied, complete: true };
         } catch (error) {
           const kind = errorKind(error);
-          if (error instanceof PageChanged) {
-            setFailure(pageChanged);
-          } else {
-            if (kind === EDIT_NOT_PERMITTED) setDenied(true);
-            if (!kind || !shownByCaller.includes(kind)) setFailure(errorMessage(error));
-          }
+          if (kind === EDIT_NOT_PERMITTED) setDenied(true);
+          if (!kind || !shownByCaller.includes(kind)) setFailure(errorMessage(error));
           return { applied, complete: false, error };
         } finally {
           runningNow.current -= 1;
@@ -139,8 +176,8 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
       if (edits.length === 0) return 'refused';
       const { applied, complete } = await enqueue(
         edits.map((edit, line) => () => {
-          if (line === 0 && pageKey(latest.current, pageIndex) !== expectedKey) {
-            return Promise.reject(new PageChanged());
+          if (line === 0 && pageKey(latest.current.info, pageIndex) !== expectedKey) {
+            return Promise.reject(new StepDropped(PAGE_CHANGED));
           }
           return engine.applyEdit(handle, edit);
         }),
@@ -176,19 +213,51 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
       const { complete, error } = await enqueue(
         [
           async () => {
-            if (pageKey(latest.current, pageIndex) !== expectedKey) throw new PageChanged();
+            if (pageKey(latest.current.info, pageIndex) !== expectedKey) throw new StepDropped(PAGE_CHANGED_UNDER_TOOL);
             const built = typeof edit === 'function' ? await edit() : edit;
             const edited = await engine.applyEdit(handle, built);
             if (edited.addedAnnotationId !== null) onAdded?.(edited.addedAnnotationId);
             return edited;
           },
         ],
-        PAGE_CHANGED_UNDER_TOOL,
         shownByCaller,
       );
-      if (complete) return { status: 'added' };
-      if (error instanceof PageChanged) return { status: 'failed', kind: null, message: PAGE_CHANGED_UNDER_TOOL };
-      return { status: 'failed', kind: errorKind(error) ?? null, message: errorMessage(error) };
+      return complete ? { status: 'added' } : failed(error);
+    },
+    [allowed, enqueue, engine, handle],
+  );
+
+  /**
+   * One change to annotation `id`, whose page was `expectedKey` when it was
+   * asked for: one undo step, after every step already asked for. `build`
+   * gets the annotation as it is by then, so changes asked for in a row each
+   * start where the last one ended; one that answers `null` records nothing.
+   */
+  const change = useCallback(
+    async (
+      id: number,
+      expectedKey: string,
+      build: EditBuild,
+      { grabbed, shownByCaller }: ChangeOptions = {},
+    ): Promise<ChangeOutcome> => {
+      if (!allowed) return { status: 'refused' };
+      const { complete, error } = await enqueue(
+        [
+          async () => {
+            if (!mounted.current) return null;
+            const { info, annotations } = latest.current;
+            const current = annotations.find((annotation) => annotation.id === id);
+            const page = current && info.pages[current.pageIndex];
+            if (!page) throw new StepDropped(GONE);
+            if (pageKey(info, current.pageIndex) !== expectedKey) throw new StepDropped(PAGE_CHANGED_UNDER_EDIT);
+            if (grabbed && !sameGeometry(grabbed, current)) throw new StepDropped(MOVED_UNDER_DRAG);
+            const edit = build(current, page);
+            return edit && engine.applyEdit(handle, edit);
+          },
+        ],
+        shownByCaller,
+      );
+      return complete ? { status: 'changed' } : failed(error);
     },
     [allowed, enqueue, engine, handle],
   );
@@ -205,5 +274,5 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     if (canRedo) await enqueue([() => engine.redo(handle)]);
   }, [canRedo, enqueue, engine, handle]);
 
-  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, notify, undo, redo };
+  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, change, notify, undo, redo };
 }

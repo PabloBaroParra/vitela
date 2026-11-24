@@ -45,6 +45,9 @@
 }
 
 .viewer {
+  /* Anchors the annotation toolbar, whose z-index stays inside. */
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   flex: 1;

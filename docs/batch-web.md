@@ -810,7 +810,7 @@ que sigue:
 | **T-237** ✓ | Web: capa de anotaciones por página (dibuja la instantánea) y marcado sobre la selección de texto (Resaltar/Subrayar/Tachar en `TextToolbar`). | Playwright (3 navegadores): seleccionar texto, Resaltar, se ve, deshacer/rehacer, guardar, reabrir la descarga y comprobar `/Highlight` con su rect; PDF sin permiso → botones apagados. |
 | **T-238** ✓ | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
 | **T-239** ✓ | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
-| **T-240** | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
+| **T-240** ✓ | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
 | **T-241** | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
 | **T-242** | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
 | **T-243** | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
@@ -1266,6 +1266,93 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
     El `<image>` llena la caja (`preserveAspectRatio="none"`): un redimensionado que no
     guarde la proporción la deformará en la capa.
   - T-241: sin cambios por los sellos.
+
+### T-240 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Editing an annotation"). Sin cambios
+en el core ni en `@vitela/core`. Lo que condiciona lo que sigue:
+
+- **Seleccionar vive en Select (decisión).** Encima de la capa de texto de cada `PageSlot` hay
+  una `AnnotationEditLayer` inerte al puntero salvo donde hay una anotación: un botón invisible
+  por anotación (área = su caja; subrayado, tachado y tinta, 3 pt más por lado). Pulsar ahí
+  selecciona (y puede arrastrar); pulsar fuera sigue seleccionando texto y quita la selección
+  de la anotación. Solo hay una selección a la vez: texto o anotación. Solo se editan las de la
+  sesión (las del archivo las pinta pdfium). Sin permiso de anotar, o con una herramienta armada,
+  la capa no se monta.
+- **Archivos nuevos en `features/annotations/`:** puros con tests: `editGeometry.ts` (caja,
+  área, asas, límites, qué admite cada tipo), `editKeys.ts`, `editDialogs.ts` (lo tecleado),
+  `editBuilds.ts` (cada edición como función de la anotación *actual*). Contenedores:
+  `useAnnotationEditing.ts` (selección, diálogos, borrar), `useAnnotationDrag.ts` (el gesto y su
+  vista previa), `useKeepFocus.ts`. Vistas: `AnnotationEditLayer`, `AnnotationToolbar`,
+  `AnnotationDialog`, `LengthsDialog`, `FreeTextDialog` (sacado de `DraftDialog`) y `ModalForm`
+  (el `<dialog>` modal, sacado de `TextDialog`). De `DocumentViewer` sale `useRevealMatch`
+  (sin cambio de comportamiento). CSS en `styles/annotations.css`, bajo clases propias.
+- **`useAnnotationEdits.change(id, pageKey, build, {grabbed, shownByCaller})`.** A diferencia
+  de `add`, **espera su turno** en vez de rechazarse: una flecha repetida llega antes de que
+  el core conteste. `build` recibe la anotación tal como la dejó el paso anterior, así que
+  cada pulsación parte de donde acabó la otra; si devuelve `null` no se registra nada ni se
+  marca sucio. Se descarta con aviso si la anotación ya no está, si su página cambió
+  (`pageKey`) o —un arrastre, `grabbed`— si se movió desde que se agarró: nunca se aplica
+  geometría vieja.
+- **Arrastrar:** un paso al soltar; menos de 3 px de recorrido, o volver al punto de partida, no
+  registra nada. La capa dibuja la anotación donde va el arrastre. Escape, `pointercancel` o
+  captura perdida lo descartan, y también que desaparezca lo pulsado (el navegador avisa de
+  esa captura al `document`, fuera de React) o que se suelte el botón primario. Otro arrastre
+  antes de que aterrice el primero parte de donde este lo dejó. Ni mover ni redimensionar saca la caja de la página.
+- **Redimensionar:** cuatro asas (la esquina opuesta queda quieta); el sello guarda la
+  proporción con asas y teclado. La tinta no tiene asas ni "Resize…" (el core no la
+  redimensiona); **la nota sí** (`resize_annotation` la admite). Suelo: 4 pt, y para texto libre
+  el mínimo del core + 0,01 pt; un lado ya por debajo de 4 pt no crece si no se toca (la instantánea es `f32` y volvía una pizca por debajo).
+- **Teclado:** Tab llega a cada anotación, Enter/Espacio la selecciona (o la suelta). Solo
+  seleccionada y con el foco en ella (o en un asa): flechas 1 pt, Mayús 12 pt, Alt+flechas
+  redimensionan, Supr/Retroceso borra, Escape suelta. Con el foco en un asa las flechas mueven
+  esa esquina. Sin selección las flechas siguen desplazando. Los manejadores están en los
+  elementos, no en `window`: el ámbito del editor, los diálogos y los campos de texto se
+  respetan solos. Si lo enfocado desaparece (borrar, deshacer, herramienta armada, página
+  desmontada), el foco pasa a la zona de páginas.
+- **Barra "Annotation"** flotante abajo (aparecer en la columna de barras movería la página bajo
+  el puntero): qué es y dónde (`aria-live`), Move to…, Resize…, Edit text… (texto libre),
+  colores (marcado, forma, tinta) y Delete. Los diálogos usan puntos de la página dibujada
+  desde arriba a la izquierda; "Keep proportions" viene marcado para sellos; un `EncodingGap`
+  deja abierto el de texto. Al cerrarse devuelven el foco (también los de T-238, que lo
+  perdían). Safari no enfoca un botón al pulsarlo: la barra lo enfoca a mano.
+- **Selección e historia:** si un deshacer o un borrado se lleva la anotación, no queda nada
+  seleccionado, y un rehacer no la vuelve a seleccionar.
+- **Sellos:** mover, redimensionar y borrar+deshacer conservan el id (`ReplaceAnnotation` /
+  `RemoveAnnotation`), así que `stampImages` sigue valiendo; comprobado en E2E.
+- **Tests:** Vitest de los puros, 8 de `change` y 34 de `viewer/annotationEditing.test.tsx`
+  (visor completo con un motor en memoria). Playwright (`e2e/edit-annotation.spec.ts`, 5 × 3
+  navegadores): mover arrastrando, con flechas y con diálogo, redimensionar por asa, teclado y
+  diálogo, recolorear, borrar, deshacer, y `/Rect` y `/C` de la descarga; teclado solo,
+  desplazamiento y selección de texto; retexto con `EncodingGap` y `/Contents`; sello (proporción,
+  imagen tras borrar+deshacer); página `/Rotate 90`. `annotate.spec.ts` comprueba además que el
+  PDF sin permiso no ofrece nada. Los 7 primeros de `change` se vieron en rojo antes de implementar; los
+  30 primeros del visor se escribieron antes, pero su rojo no distinguía (faltaba un proveedor en el
+  arnés), así que se comprobaron después con seis mutaciones del código, todas detectadas. Los de la revisión se vieron en rojo. Los
+  E2E se escribieron tras la UI.
+- **Verificado en local (Windows):** wasm reconstruido (`npm run build:wasm`). `@vitela/core`:
+  `typecheck`, Vitest 13 ficheros / 134, `build`. `@vitela/viewer`: `typecheck`, Vitest **63 /
+  631**, `build`. `apps/web`: `typecheck`, Vitest 6 / 19, `build`; Playwright completo **163
+  pasan, 20 omitidos** (los 148 / 20 de antes + 15). `edit-annotation`, `embed`, `draw`, `stamp` y `annotate` con `--repeat-each=2`: 126 / 126. `examples/embed-vite` (paquetes empaquetados): `setup`, `typecheck` y Playwright 12 / 12. Sin Rust tocado.
+- **No cubierto:** sin prueba con pantalla táctil real ni con lector de pantalla; con el dedo,
+  arrastrar una anotación **no** seleccionada desplaza o selecciona, pero no la mueve hasta
+  que está seleccionada. La página girada tiene E2E solo para la forma a 90°; 180°/270°, texto
+  libre y sello girados, sin E2E. Cada pulsación de flecha es un paso de deshacer (una tecla
+  mantenida son muchos). Pulsar dentro de una forma grande la selecciona aunque solo se vea su
+  borde, y el texto bajo una anotación no se puede empezar a seleccionar desde ella; de dos
+  solapadas, el puntero toma la de encima (Tab llega a las dos). La barra flotante puede tapar
+  una anotación pegada al borde inferior. Los cambios aún en cola al ir a Organize se descartan sin aviso (el que
+  ya salió sí entra). Mover con el teclado no desplaza la vista para
+  seguirla. Deshacer un borrado vuelve a poner la anotación la última en el orden de pintado
+  (regla del core).
+- **Para T-241:**
+  - `useAnnotationEditing` tiene la selección: "Siguiente" puede seleccionar una anotación de la
+    sesión con `input.select(id)`; las del archivo no tienen id y solo se pueden revelar. Para
+    revelar una fuera de pantalla, `useRevealMatch` (búsqueda) es el patrón: caja desde el
+    layout + `revealScroll`; el mismo gancho serviría para seguir a las flechas.
+  - "Leer nota" puede abrir `TextDialog`/`ModalForm` en solo lectura; la barra "Annotation" es el
+    sitio para el botón en una nota de sesión (hoy solo ofrece Move to, Resize y Delete).
+  - El `<title>` de la nota sigue en el SVG inerte: no se ve al pasar el ratón.
 
 ## Fase E — Visor embebible (`@vitela/viewer`)
 

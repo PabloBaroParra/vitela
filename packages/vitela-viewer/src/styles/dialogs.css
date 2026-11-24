@@ -152,6 +152,42 @@
   margin: 8px 0 0;
 }
 
+/* Two typed lengths: Move to, Resize. */
+.lengths-dialog {
+  width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.lengths-dialog__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.lengths-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.lengths-dialog__field input {
+  font: inherit;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.lengths-dialog__keep {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* The text box as the core lays it out: black Helvetica on white, like the page. */
 .free-text-preview {
   margin: 12px 0 0;

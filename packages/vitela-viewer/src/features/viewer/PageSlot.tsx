@@ -1,17 +1,20 @@
 // One page's place in the viewer: sized and positioned by the layout,
 // rendered at `dpi` while it is mounted, with the session's annotations over
-// the bitmap and its text layer (search highlights, selection) on top —
-// or, while a drawing tool is armed, the drawing layer over all of them. A
+// the bitmap, its text layer (search highlights, selection) on top and, over
+// that, what makes the annotations selectable and editable — or, while a drawing tool is armed, the drawing layer over all of them. A
 // PNG or JPEG dropped on the page is stamped where it was dropped. The
 // viewer mounts only the slots near the viewport, so far-away pages hold no
 // canvas, no annotation layer and no text layer at all.
 
 import { memo, type DragEvent } from 'react';
 import type { Annotation, DocumentHandle, Engine, PageRects, PageSize, Rgb } from '@vitela/core';
+import { AnnotationEditLayer } from '../annotations/AnnotationEditLayer';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
 import { clampPoint, type ArmedTool, type Gesture } from '../annotations/drawing';
 import { DrawingLayer } from '../annotations/DrawingLayer';
 import { stampFileOf } from '../annotations/stamps';
+import { useAnnotationDrag } from '../annotations/useAnnotationDrag';
+import type { AnnotationInput } from '../annotations/useAnnotationEditing';
 import type { ImageDrop } from '../annotations/useStamps';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
@@ -43,6 +46,10 @@ interface PageSlotProps {
   readonly textInput: TextInput | null;
   /** The armed drawing tool; `null` while Select is: the text layer has the pointer. */
   readonly drawing: DrawingInput | null;
+  /** Selecting and editing annotations; `null` while a tool is armed or the document forbids it. */
+  readonly editing: AnnotationInput | null;
+  /** The selected annotation, when it is on this page. */
+  readonly selectedId: number | null;
   /** A PNG or JPEG dropped on the page, at the drop point (drawn points, kept on the page). */
   readonly onImageDrop: ImageDrop;
 }
@@ -57,8 +64,9 @@ export interface DrawingInput {
 
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   const { engine, document, index, page, pageKey, annotations, stampImages, slot, dpi, label, scale } = props;
-  const { hits, currentHit, selection, textInput, drawing, onImageDrop } = props;
+  const { hits, currentHit, selection, textInput, drawing, editing, selectedId, onImageDrop } = props;
   const render = usePageRender(engine, document, index, dpi, pageKey);
+  const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
   // An image dropped here is stamped, not opened: claiming the drop
   // (`preventDefault`) tells the workspace's window-wide listener, which sees
@@ -83,7 +91,7 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
       onDrop={dropped}
     >
       {shown && <PageCanvas page={shown} label={label} />}
-      <AnnotationLayer page={page} annotations={annotations} stampImages={stampImages} />
+      <AnnotationLayer page={page} annotations={shownAnnotations} stampImages={stampImages} />
       <TextLayer
         pageIndex={index}
         scale={scale}
@@ -92,6 +100,16 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
         selection={selection}
         input={drawing ? null : textInput}
       />
+      {editing && shownAnnotations.length > 0 && (
+        <AnnotationEditLayer
+          annotations={shownAnnotations}
+          pageKey={pageKey}
+          scale={scale}
+          selectedId={selectedId}
+          input={editing}
+          drag={drag}
+        />
+      )}
       {drawing && (
         <DrawingLayer
           pageIndex={index}
