@@ -178,7 +178,7 @@ extension FakePdfCoreClient {
     func copyContent(document: any PdfDocument, selection: ContentSelection) throws -> ContentClip {
         if let contentEditError { throw contentEditError }
         copiedSelections.append(selection)
-        return ContentClip(pdf: Data([0x25]), bbox: selection.bbox ?? PdfRect(x: 0, y: 0, width: 0, height: 0))
+        return ContentClip(pdf: Data([0x25]), bbox: selection.bbox ?? PdfRect(x: 0, y: 0, width: 0, height: 0), fromEncrypted: false)
     }
 
     func contentEditsCanCheckpoint(document: any PdfDocument) -> Bool { canCheckpoint }

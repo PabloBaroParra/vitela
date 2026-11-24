@@ -627,6 +627,16 @@ impl Command {
             )
     }
 
+    /// Whether this command pastes content copied from an encrypted PDF. See
+    /// [`ContentClip::from_encrypted`].
+    fn holds_encrypted_paste(&self) -> bool {
+        match self {
+            Command::PasteContent { clip, .. } => clip.from_encrypted,
+            Command::Batch(commands) => commands.iter().any(Command::holds_encrypted_paste),
+            _ => false,
+        }
+    }
+
     /// Whether this command changes the membership or order of document pages.
     pub fn is_page_structure_edit(&self) -> bool {
         matches!(
@@ -1382,6 +1392,15 @@ impl EditLog {
 
     pub fn entries(&self) -> &[Command] {
         &self.entries
+    }
+
+    /// Whether any recorded paste holds content from an encrypted PDF.
+    /// Undone ones count while a redo can still bring them back.
+    pub fn holds_encrypted_paste(&self) -> bool {
+        self.entries
+            .iter()
+            .chain(&self.redo_stack)
+            .any(Command::holds_encrypted_paste)
     }
 
     /// The command a call to [`Self::undo`] would step right now, without
@@ -2764,6 +2783,7 @@ mod tests {
         ContentClip {
             pdf: b"%PDF-1.7".to_vec(),
             bbox: sample_rect(0.0, 0.0),
+            from_encrypted: false,
         }
     }
 
@@ -3506,6 +3526,7 @@ mod tests {
             clip: ContentClip {
                 pdf: Vec::new(),
                 bbox: sample_rect(0.0, 0.0),
+                from_encrypted: false,
             },
             to: sample_rect(10.0, 20.0),
         };

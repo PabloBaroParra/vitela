@@ -110,6 +110,10 @@ impl CheckpointSession for Live<'_> {
         Some(&self.backing.original_bytes)
     }
 
+    fn has_password(&self) -> bool {
+        self.backing.password.is_some()
+    }
+
     fn has_imported_sources(&self) -> bool {
         !self.imported.is_empty()
     }

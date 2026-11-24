@@ -148,6 +148,9 @@ pub fn copy_selection(
     Ok(ContentClip {
         pdf: clip_pdf(&content, resources, bbox)?,
         bbox,
+        // This file only; `pdf_save::checkpoint::copy_selection` replaces it
+        // with the answer for the whole session.
+        from_encrypted: document.encryption_state.is_some(),
     })
 }
 
@@ -706,6 +709,7 @@ mod tests {
         let clip = ContentClip {
             pdf: bytes,
             bbox: at(0.0, 0.0),
+            from_encrypted: false,
         };
 
         let (mut target, target_page) = destination();
@@ -720,6 +724,7 @@ mod tests {
         let clip = ContentClip {
             pdf: b"not a pdf".to_vec(),
             bbox: at(0.0, 0.0),
+            from_encrypted: false,
         };
         let (mut target, target_page) = destination();
         assert!(matches!(

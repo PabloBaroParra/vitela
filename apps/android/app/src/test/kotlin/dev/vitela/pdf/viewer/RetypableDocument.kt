@@ -275,7 +275,7 @@ internal class RetypableDocument(
         val boxes = held.runs.map { it.bounds } + held.images.map { it.bounds } + held.paths.map { it.bounds }
         val (left, bottom) = boxes.minOf { it.x } to boxes.minOf { it.y }
         val box = AnnotationRect(left, bottom, boxes.maxOf { it.x + it.width } - left, boxes.maxOf { it.y + it.height } - bottom)
-        return ContentClip(byteArrayOf(nextId.toByte()), box).also { clipped[it.pdf] = held }
+        return ContentClip(byteArrayOf(nextId.toByte()), box, fromEncrypted = false).also { clipped[it.pdf] = held }
     }
 
     override fun prepareImageReplacement(image: ContentImage): PdfCoreResult<Unit> {

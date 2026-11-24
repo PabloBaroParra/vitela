@@ -10,7 +10,7 @@ use gtk::{Overlay, Picture};
 use pdf_document::{PageId, TextRun};
 use pdf_render::{place_rect, PageRotation, TextRect};
 
-use crate::app::state::Viewer;
+use crate::app::state::{DocumentSession, Viewer};
 use crate::app::ui_tests::built_ui;
 use crate::app::BuiltUi;
 
@@ -255,4 +255,31 @@ fn pump() {
         while context.iteration(false) {}
         std::thread::sleep(std::time::Duration::from_millis(1));
     }
+}
+
+/// Copies `selection` as `clipboard::try_copy` does, without a window.
+pub(crate) fn copy(
+    session: &mut DocumentSession,
+    selection: &pdf_edit::Selection,
+) -> Result<pdf_document::ContentClip, String> {
+    super::command::copy(session, selection)
+}
+
+/// Pastes `clip` as `clipboard::try_paste` does, without a window.
+pub(crate) fn paste(
+    session: &mut DocumentSession,
+    page: PageId,
+    clip: pdf_document::ContentClip,
+    left: f64,
+    top: f64,
+) -> Result<(), String> {
+    super::command::paste(session, page, clip, left, top)
+}
+
+/// Records a content edit as the mode does, checkpointing when it must.
+pub(crate) fn record(
+    session: &mut DocumentSession,
+    command: pdf_document::Command,
+) -> Result<(), String> {
+    super::command::record(session, command)
 }

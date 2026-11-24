@@ -43,7 +43,7 @@ final class ViewerViewModelContentClipboardTests: XCTestCase {
         let model = ViewerViewModel(store: ViewerStore(client: client))
         model.store.open(bytes: Data([1]))
         model.setContentEditMode(true)
-        let clip = ContentClip(pdf: Data([1]), bbox: PdfRect(x: 40, y: 50, width: 10, height: 20))
+        let clip = ContentClip(pdf: Data([1]), bbox: PdfRect(x: 40, y: 50, width: 10, height: 20), fromEncrypted: true)
         model.contentClip = clip
         model.contentPointer = ContentPointer(page: 9, point: PdfPoint(x: 1, y: 1))
         model.pasteContent()

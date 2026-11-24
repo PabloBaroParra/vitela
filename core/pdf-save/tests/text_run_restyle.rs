@@ -154,6 +154,10 @@ impl CheckpointSession for Session {
     fn original_bytes(&self) -> Option<&[u8]> {
         Some(&self.bytes)
     }
+    fn has_password(&self) -> bool {
+        false
+    }
+
     fn has_imported_sources(&self) -> bool {
         false
     }

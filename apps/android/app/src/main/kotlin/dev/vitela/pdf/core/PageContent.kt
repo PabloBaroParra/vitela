@@ -123,7 +123,10 @@ data class ContentSelection(
  * points. Holds no id of the document it came from, so the shell keeps it past
  * a page edit and past the document, and it pastes into another one.
  *
+ * [fromEncrypted] says it came from an encrypted PDF. A paste hands it back, so
+ * the core knows the document pasted into may not be written out unasked.
+ *
  * Not a data class: two copies of the same items are two clips, and array
  * equality would compare contents.
  */
-class ContentClip(val pdf: ByteArray, val bounds: AnnotationRect)
+class ContentClip(val pdf: ByteArray, val bounds: AnnotationRect, val fromEncrypted: Boolean)

@@ -32,6 +32,11 @@ use crate::types::FfiRect;
 pub struct FfiContentClip {
     pub pdf: Vec<u8>,
     pub bbox: FfiRect,
+    /// Whether the content came from a session holding anything from an
+    /// encrypted PDF. A shell hands it back unchanged with the rest of the
+    /// clip: it is what makes the session pasted into answer `true` from
+    /// `DocumentHandle::holds_encrypted_content`.
+    pub from_encrypted: bool,
 }
 
 impl From<ContentClip> for FfiContentClip {
@@ -39,6 +44,7 @@ impl From<ContentClip> for FfiContentClip {
         Self {
             pdf: clip.pdf,
             bbox: clip.bbox.into(),
+            from_encrypted: clip.from_encrypted,
         }
     }
 }
@@ -48,6 +54,7 @@ impl From<FfiContentClip> for ContentClip {
         Self {
             pdf: clip.pdf,
             bbox: clip.bbox.into(),
+            from_encrypted: clip.from_encrypted,
         }
     }
 }
