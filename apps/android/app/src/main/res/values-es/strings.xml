@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same names as values/strings.xml (TranslationsTest). Shared terms follow the desktop locales/es.ftl. -->
+<resources>
+    <!-- Home -->
+    <string name="home_welcome_title">Te damos la bienvenida a Vitela</string>
+    <string name="home_welcome_subtitle">Tu espacio de trabajo PDF, rápido y privado.</string>
+    <string name="home_open_title">Abrir un PDF</string>
+    <string name="home_open_hint">Elige un archivo de este dispositivo o de tu almacenamiento en la nube.</string>
+    <string name="home_select_file">Seleccionar archivo</string>
+    <string name="home_quick_actions">Acciones rápidas</string>
+    <string name="home_open_sample">Abrir el ejemplo</string>
+    <string name="home_open_encrypted_sample">Abrir un ejemplo cifrado</string>
+    <string name="home_tools_title">Herramientas</string>
+    <string name="home_tools_hint">Elige una herramienta y luego selecciona un PDF.</string>
+    <string name="home_tool_edit_text">Editar texto</string>
+    <string name="home_tool_highlight">Resaltar</string>
+    <string name="home_tool_sign">Firmar</string>
+    <string name="home_tool_organize">Organizar páginas</string>
+    <string name="home_tool_compress">Comprimir</string>
+    <string name="home_recent_title">Recientes</string>
+    <string name="home_recent_empty">Aún no hay documentos recientes. Abre un PDF y aparecerá aquí.</string>
+    <string name="home_recent_today">Hoy</string>
+    <string name="home_recent_yesterday">Ayer</string>
+    <string name="home_recent_earlier">Anteriores</string>
+    <string name="home_recent_opened_today">Abierto hoy, %1$s</string>
+    <string name="home_recent_opened_yesterday">Abierto ayer, %1$s</string>
+    <string name="home_recent_opened_on">Abierto el %1$s</string>
+    <string name="home_recent_open">Abrir</string>
+    <string name="home_recent_show_options">Mostrar opciones</string>
+    <string name="home_recent_remove">Quitar de Recientes</string>
+    <plurals name="home_recent_page_count">
+        <item quantity="one">%1$s página</item>
+        <item quantity="many">%1$s páginas</item>
+        <item quantity="other">%1$s páginas</item>
+    </plurals>
+
+    <!-- Reader: title bar, modes and search -->
+    <string name="reader_back">Volver al lector</string>
+    <string name="reader_back_home">Volver al inicio</string>
+    <string name="reader_organize_title">Organizar páginas</string>
+    <string name="reader_organize_done">Listo</string>
+    <string name="reader_unsaved">Cambios sin guardar</string>
+    <string name="reader_save">Guardar</string>
+    <string name="reader_more_actions">Más acciones</string>
+    <string name="reader_mode_read">Leer</string>
+    <string name="reader_mode_edit">Editar</string>
+    <string name="reader_mode_sign">Firmar</string>
+    <string name="reader_search_find">Buscar texto</string>
+    <string name="reader_search_close">Cerrar búsqueda</string>
+    <string name="reader_search_previous">Coincidencia anterior</string>
+    <string name="reader_search_next">Coincidencia siguiente</string>
+
+    <!-- Reader: document menu -->
+    <string name="reader_menu_open">Abrir PDF</string>
+    <string name="reader_menu_save">Guardar</string>
+    <string name="reader_menu_save_copy">Guardar copia</string>
+    <string name="reader_menu_print">Imprimir</string>
+    <string name="reader_menu_compress">Comprimir</string>
+    <string name="reader_menu_protect">Proteger</string>
+    <string name="reader_menu_export_images">Exportar imágenes</string>
+    <string name="reader_menu_extract_pages">Extraer páginas</string>
+    <string name="reader_menu_split">Dividir</string>
+    <string name="reader_menu_previous_annotation">Anotación anterior</string>
+    <string name="reader_menu_next_annotation">Anotación siguiente</string>
+    <string name="reader_menu_properties">Propiedades</string>
+    <string name="reader_menu_close">Cerrar PDF</string>
+
+    <!-- Reader: tool trays -->
+    <string name="reader_tools_quick">Herramientas rápidas</string>
+    <string name="reader_tools_edit">Editar</string>
+    <string name="reader_tools_edit_content">Editar contenido</string>
+    <string name="reader_tools_sign">Rellenar y firmar</string>
+    <string name="reader_tool_edit_text">Editar texto</string>
+    <string name="reader_tool_highlight">Resaltar</string>
+    <string name="reader_tool_sign">Firmar</string>
+    <string name="reader_tool_organize">Organizar páginas</string>
+    <string name="reader_tool_compress">Comprimir</string>
+    <string name="reader_tool_comments">Comentarios</string>
+    <string name="reader_tool_undo">Deshacer</string>
+    <string name="reader_tool_redo">Rehacer</string>
+    <string name="reader_tool_add_text">Añadir texto</string>
+    <string name="reader_tool_add_image">Añadir imagen</string>
+    <string name="reader_tool_paste_content">Pegar contenido</string>
+    <string name="reader_tool_select">Seleccionar</string>
+    <string name="reader_tool_underline">Subrayar</string>
+    <string name="reader_tool_strikeout">Tachar</string>
+    <string name="reader_tool_draw">Dibujar</string>
+    <string name="reader_tool_shape">Forma</string>
+    <string name="reader_tool_note">Nota</string>
+    <string name="reader_tool_text_box">Cuadro de texto</string>
+    <string name="reader_tool_stamp">Sello</string>
+    <string name="reader_tool_paste">Pegar</string>
+    <string name="reader_tool_watermark">Marca de agua</string>
+    <string name="reader_tool_fill_forms">Rellenar formularios</string>
+    <string name="reader_tool_draw_signature">Dibujar firma</string>
+    <string name="reader_tool_sign_certificate">Firmar con certificado</string>
+
+    <!-- Reader: selection -->
+    <string name="reader_selection_copy">Copiar</string>
+    <string name="reader_selection_cut">Cortar</string>
+    <string name="reader_selection_share">Compartir</string>
+    <string name="reader_selection_delete">Eliminar</string>
+    <string name="reader_selection_clear">Deseleccionar</string>
+    <string name="reader_selection_read_note">Leer nota</string>
+    <string name="reader_selection_edit_text">Editar texto</string>
+    <string name="reader_selection_cancel_move">Cancelar movimiento</string>
+    <string name="reader_selection_cancel_insert">Cancelar inserción</string>
+    <string name="reader_selection_grow">Agrandar</string>
+    <string name="reader_selection_resize">Cambiar tamaño</string>
+    <string name="reader_selection_move_to">Mover a</string>
+    <string name="reader_selection_red">Rojo</string>
+    <string name="reader_selection_gold">Dorado</string>
+    <plurals name="reader_selection_count">
+        <item quantity="one">%1$s seleccionado</item>
+        <item quantity="many">%1$s seleccionados</item>
+        <item quantity="other">%1$s seleccionados</item>
+    </plurals>
+
+    <!-- Reader: page navigation and zoom -->
+    <string name="reader_page_of">%1$s de %2$s</string>
+    <string name="reader_page_pill">Página %1$s. Ir a la página</string>
+    <string name="reader_page_previous">Página anterior</string>
+    <string name="reader_page_next">Página siguiente</string>
+    <string name="reader_page_first">Primera página</string>
+    <string name="reader_page_last">Última página</string>
+    <string name="reader_page_item">Página %1$s</string>
+    <string name="reader_page_go_to">Ir a la página</string>
+    <string name="reader_page_number">Número de página (1–%1$s)</string>
+    <string name="reader_page_go">Ir</string>
+    <string name="reader_page_cancel">Cancelar</string>
+    <string name="reader_zoom_level">Nivel de zoom: %1$s%%</string>
+    <string name="reader_zoom_in">Acercar</string>
+    <string name="reader_zoom_out">Alejar</string>
+    <string name="reader_zoom_fit_width">Ajustar al ancho</string>
+    <string name="reader_zoom_fit_page">Ajustar a la página</string>
+
+    <!-- Recovery dialog -->
+    <string name="recovery_title">¿Recuperar el trabajo sin guardar?</string>
+    <string name="recovery_detail">Vitela se cerró mientras «%1$s» tenía cambios sin guardar. Se puede restaurar una copia guardada el %2$s como documento sin guardar.\n\nEl historial de deshacer no se recupera.</string>
+    <string name="recovery_restore">Restaurar</string>
+    <string name="recovery_discard">Descartar</string>
+    <string name="recovery_later">Más tarde</string>
+</resources>

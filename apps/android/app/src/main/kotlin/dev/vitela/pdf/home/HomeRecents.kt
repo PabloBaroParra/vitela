@@ -36,6 +36,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
@@ -70,10 +72,10 @@ internal fun HomeRecents(entries: List<RecentDocument>, enabled: Boolean, action
     val now = remember(entries) { System.currentTimeMillis() }
     val zone = remember(entries) { ZoneId.systemDefault() }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Recent", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.home_recent_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
         if (entries.isEmpty()) {
             Text(
-                "No recent documents yet. Open a PDF and it will show up here.",
+                stringResource(R.string.home_recent_empty),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -81,7 +83,7 @@ internal fun HomeRecents(entries: List<RecentDocument>, enabled: Boolean, action
         groupedByDay(entries, now, zone).forEach { (day, documents) ->
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(shape = MaterialTheme.shapes.small, color = MaterialTheme.colorScheme.surfaceVariant) {
-                    Text(day.chip, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+                    Text(stringResource(day.chip), style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     documents.forEach { entry -> key(entry.uri) { RecentCard(entry, openedText(entry, now, zone), enabled, actions) } }
@@ -91,10 +93,19 @@ internal fun HomeRecents(entries: List<RecentDocument>, enabled: Boolean, action
     }
 }
 
+/** The card's "Opened …" line, with the page count the desktop appends once a preview exists. */
+@Composable
+private fun openedText(entry: RecentDocument, now: Long, zone: ZoneId): String {
+    val line = openedLine(entry, now, zone)
+    val pages = pluralStringResource(R.plurals.home_recent_page_count, entry.pageCount, entry.pageCount)
+    return "${stringResource(line.text, line.moment)} · $pages"
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentCard(entry: RecentDocument, opened: String, enabled: Boolean, actions: RecentActions) {
     var menu by remember { mutableStateOf(false) }
+    val removeLabel = stringResource(R.string.home_recent_remove)
     // Keyed by when it was opened too: reopening replaces the preview under the same URI.
     val preview by produceState<ImageBitmap?>(null, entry.uri, entry.openedAt) {
         value = actions.thumbnail(entry.uri)?.let { png ->
@@ -112,13 +123,13 @@ private fun RecentCard(entry: RecentDocument, opened: String, enabled: Boolean, 
                 .clip(shape)
                 .combinedClickable(
                     enabled = enabled,
-                    onClickLabel = "Open",
-                    onLongClickLabel = "Show options",
+                    onClickLabel = stringResource(R.string.home_recent_open),
+                    onLongClickLabel = stringResource(R.string.home_recent_show_options),
                     onClick = { actions.onOpen(entry) },
                     onLongClick = { menu = true },
                 )
                 .semantics {
-                    customActions = listOf(CustomAccessibilityAction("Remove from Recent") { actions.onRemove(entry); true })
+                    customActions = listOf(CustomAccessibilityAction(removeLabel) { actions.onRemove(entry); true })
                 },
         ) {
             Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -140,7 +151,7 @@ private fun RecentCard(entry: RecentDocument, opened: String, enabled: Boolean, 
         }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(
-                text = { Text("Remove from Recent") },
+                text = { Text(removeLabel) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_shell_delete), contentDescription = null, modifier = Modifier.size(18.dp)) },
                 onClick = {
                     menu = false

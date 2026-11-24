@@ -1,11 +1,18 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
+import dev.vitela.pdf.R
+
 /**
  * The three tabs under the reader's title bar. Read is a plain reader; Edit
  * owns the annotation tools and content editing; Sign owns form filling and
  * certificate signing — the desktop shells' "Fill & Sign".
  */
-internal enum class ReaderMode(val label: String) { Read("Read"), Edit("Edit"), Sign("Sign") }
+internal enum class ReaderMode(@StringRes val label: Int) {
+    Read(R.string.reader_mode_read),
+    Edit(R.string.reader_mode_edit),
+    Sign(R.string.reader_mode_sign),
+}
 
 /**
  * What leaving a mode must undo, so a tool armed in one tab never acts on a
@@ -34,4 +41,5 @@ internal fun modeBarVisible(state: ViewerState): Boolean = state.organize == nul
 /** No document has pages, so the reader has nothing to show: Home takes the screen instead. */
 internal fun showsHome(state: ViewerState): Boolean = state.pageCount == 0
 
-internal fun pageLabel(state: ViewerState): String = "${state.pageIndex + 1} of ${state.pageCount}"
+/** The current page as the user counts it, from one. */
+internal fun pageNumber(state: ViewerState): Int = state.pageIndex + 1

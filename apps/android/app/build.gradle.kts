@@ -68,6 +68,12 @@ android {
         }
     }
 
+    // Offers the app's languages in Android 13+ settings, from the values-*
+    // directories and resources.properties (the unqualified one is English).
+    androidResources {
+        generateLocaleConfig = true
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true

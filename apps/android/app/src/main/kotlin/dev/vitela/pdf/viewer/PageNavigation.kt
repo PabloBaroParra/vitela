@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextRange
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import dev.vitela.pdf.R
 
 /**
  * Direct navigation needs pages to go to and a reader to scroll. The Organize
@@ -103,13 +105,13 @@ internal fun PageNavigationDialog(
     LaunchedEffect(Unit) { focus.requestFocus() }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Go to page") },
+        title = { Text(stringResource(R.string.reader_page_go_to)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = number,
                     onValueChange = { number = it },
-                    label = { Text("Page number (1–$pageCount)") },
+                    label = { Text(stringResource(R.string.reader_page_number, pageCount)) },
                     isError = number.text.isNotBlank() && typed == null,
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
@@ -119,14 +121,14 @@ internal fun PageNavigationDialog(
                 val first = firstPageTarget(currentPage, pageCount)
                 val last = lastPageTarget(currentPage, pageCount)
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    TextButton(onClick = { first?.let(onSelect) }, enabled = first != null) { Text("First page") }
-                    TextButton(onClick = { last?.let(onSelect) }, enabled = last != null) { Text("Last page") }
+                    TextButton(onClick = { first?.let(onSelect) }, enabled = first != null) { Text(stringResource(R.string.reader_page_first)) }
+                    TextButton(onClick = { last?.let(onSelect) }, enabled = last != null) { Text(stringResource(R.string.reader_page_last)) }
                 }
                 LazyColumn(state = listState, modifier = Modifier.heightIn(max = 360.dp).padding(top = 8.dp)) {
                     items(pageCount) { pageIndex ->
                         val current = pageIndex == currentPage
                         Text(
-                            "Page ${pageIndex + 1}",
+                            stringResource(R.string.reader_page_item, pageIndex + 1),
                             fontWeight = if (current) FontWeight.Bold else null,
                             color = if (current) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier
@@ -139,7 +141,7 @@ internal fun PageNavigationDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { typed?.let(onSelect) }, enabled = typed != null) { Text("Go") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        confirmButton = { TextButton(onClick = { typed?.let(onSelect) }, enabled = typed != null) { Text(stringResource(R.string.reader_page_go)) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.reader_page_cancel)) } },
     )
 }
