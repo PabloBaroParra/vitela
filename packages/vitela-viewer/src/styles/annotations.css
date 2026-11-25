@@ -86,3 +86,28 @@
   font-size: calc(0.88 * var(--font-size));
   font-variant-numeric: tabular-nums;
 }
+
+/* Narrow: one row, so it leaves the pages some height; it scrolls sideways. */
+@container vitela-viewer (max-width: 700px) {
+  .annotation-toolbar {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 5px 8px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .annotation-toolbar > * {
+    flex: none;
+  }
+
+  .annotation-toolbar__place {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}

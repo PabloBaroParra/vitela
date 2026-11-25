@@ -1,12 +1,12 @@
 // Container: the open document as one vertically scrolling, virtualized
 // column of pages, with zoom, search, text selection, the session's
 // annotations, markup over the selection, the drawing tools, image stamps
-// (picked or dropped on a page), selecting and editing an annotation, and
-// undo/redo. Only pages within a
+// (picked or dropped on a page), selecting and editing an annotation, going
+// from one annotation to the next, the comments, and undo/redo. Only pages within a
 // viewport of the visible area are mounted (and so rendered); the rest are
 // empty space.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
 import { AnnotationDialog } from '../annotations/AnnotationDialog';
 import { AnnotationToolbar } from '../annotations/AnnotationToolbar';
@@ -17,6 +17,12 @@ import { useAnnotationEditing } from '../annotations/useAnnotationEditing';
 import { pageKey, useAnnotationEdits } from '../annotations/useAnnotationEdits';
 import { useDrawing } from '../annotations/useDrawing';
 import { useStamps } from '../annotations/useStamps';
+import { CommentsPanel } from '../comments/CommentsPanel';
+import { NavigationToolbar } from '../comments/NavigationToolbar';
+import { NoteDialog, type ReadableNote } from '../comments/NoteDialog';
+import { commentEntries } from '../comments/stops';
+import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
+import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
 import type { OpenDocument } from '../document/useDocument';
 import { useMarkDirty } from '../save/MarkDirtyContext';
@@ -29,6 +35,7 @@ import { HistoryControls } from './HistoryControls';
 import { CSS_PX_PER_PT, layoutPages, pageAt, visiblePages } from './layout';
 import { PageSlot, type DrawingInput } from './PageSlot';
 import { renderDpi } from './renderDpi';
+import { useReveal } from './useReveal';
 import { useRevealMatch } from './useRevealMatch';
 import { useScrollMetrics } from './useScrollMetrics';
 import { useSettled } from './useSettled';
@@ -39,6 +46,9 @@ import { ZoomControls } from './ZoomControls';
 
 /** How long a zoom must hold still before pages re-render at its DPI. */
 const RENDER_SETTLE_MS = 150;
+
+/** The annotation toolbar over the foot of the pages, at two rows, in CSS px. */
+const ANNOTATION_TOOLBAR_ROOM = 112;
 
 const NO_ANNOTATIONS: readonly Annotation[] = [];
 
@@ -175,7 +185,40 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   const pageHits = useMemo(() => hitsByPage(hits), [hits]);
   const shownHit = currentHit(search.state);
 
-  useRevealMatch(scroller, search.state, layout, scale);
+  const annotationToolbar = useRef<HTMLDivElement>(null);
+  const reveal = useReveal(scroller, layout, scale);
+  useRevealMatch(reveal, search.state);
+
+  // Reading what is annotated: nothing here depends on what may be edited.
+  // Every edited document brings a new `info`, also when only an annotation changed.
+  const comments = useComments(engine, handle, document.info, structure);
+  const entries = useMemo(
+    () => commentEntries(comments.state.comments, (index) => pageKeys[index] ?? String(index)),
+    [comments.state.comments, pageKeys],
+  );
+  const navigation = useAnnotationNavigation(
+    pages,
+    annotations,
+    entries,
+    selected,
+    annotating.input,
+    annotating.deselect,
+    reveal,
+    annotationToolbar,
+  );
+  const { marked } = navigation;
+  const [commentsShown, setCommentsShown] = useState(false);
+  const [reading, setReading] = useState<ReadableNote | null>(null);
+  const commentsToggle = useRef<HTMLButtonElement>(null);
+  const commentsId = useId();
+  const closeComments = () => {
+    setCommentsShown(false);
+    commentsToggle.current?.focus({ preventScroll: true });
+  };
+
+  // Always there while annotations can be selected (so selecting moves nothing):
+  // the last page's foot can be scrolled above the annotation toolbar.
+  const footRoom = editing.allowed && annotations.length > 0 ? ANNOTATION_TOOLBAR_ROOM : 0;
 
   const slots = [];
   if (range && metrics.height > 0) {
@@ -201,6 +244,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           drawing={drawingInput}
           editing={annotating.input}
           selectedId={selected?.pageIndex === index ? selected.id : null}
+          marked={marked?.pageIndex === index ? marked.rect : null}
           onImageDrop={stamps.drop}
         />,
       );
@@ -247,43 +291,74 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           onUndo={editing.undo}
           onRedo={editing.redo}
         />
+        <NavigationToolbar
+          stops={navigation.stops}
+          current={navigation.current}
+          onStep={navigation.step}
+          commentsToggle={commentsToggle}
+          commentsId={commentsId}
+          commentsShown={commentsShown}
+          commentsFailed={comments.state.status === 'failed'}
+          onComments={() => setCommentsShown((shown) => !shown)}
+        />
         {editing.failure && (
           <p className="viewer__failure" role="alert">
             {editing.failure}
           </p>
         )}
       </div>
-      {/* Focusable so the keyboard can scroll it (and Escape drops a selection). */}
-      <div
-        ref={scroller}
-        className="viewer__scroller"
-        tabIndex={0}
-        aria-label="Pages"
-        data-zoom={zoom}
-        data-tool={drawing.tool}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') clearSelection();
-        }}
-        // A press beside the selected annotation lets it go (and goes on to select text).
-        onPointerDown={(event) => {
-          const pressed = event.target as Element;
-          const onPage = event.button === 0 && event.isPrimary && pressed !== event.currentTarget;
-          if (onPage && !pressed.closest('.annotation-edit-layer')) annotating.deselect();
-        }}
-      >
-        <div className="viewer__content" style={{ width: layout.width, height: layout.height }}>
-          {slots}
+      <div className="viewer__body">
+        <div className="viewer__pages">
+          {/* Focusable so the keyboard can scroll it (and Escape drops a selection). */}
+          <div
+            ref={scroller}
+            className="viewer__scroller"
+            tabIndex={0}
+            aria-label="Pages"
+            data-zoom={zoom}
+            data-tool={drawing.tool}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return;
+              clearSelection();
+              navigation.unmark();
+            }}
+            // A press beside the selected annotation lets it go (and goes on to select text).
+            onPointerDown={(event) => {
+              const pressed = event.target as Element;
+              const onPage = event.button === 0 && event.isPrimary && pressed !== event.currentTarget;
+              if (onPage && !pressed.closest('.annotation-edit-layer')) annotating.deselect();
+              if (onPage) navigation.unmark();
+            }}
+          >
+            <div className="viewer__content" style={{ width: layout.width, height: layout.height + footRoom }}>
+              {slots}
+            </div>
+          </div>
+          {selected && (
+            <AnnotationToolbar
+              toolbar={annotationToolbar}
+              annotation={selected}
+              onDialog={annotating.openDialog}
+              onColor={(color) => annotating.changeSelected(recolor(color))}
+              onRead={() => selected.kind === 'note' && setReading({ ...selected, author: null, date: null })}
+              onRemove={annotating.removeSelected}
+              onFocusLost={focusPages}
+            />
+          )}
         </div>
+        {commentsShown && (
+          <CommentsPanel
+            id={commentsId}
+            state={comments.state}
+            entries={entries}
+            currentKey={navigation.current?.key ?? null}
+            onGo={navigation.visitKey}
+            onRead={setReading}
+            onRetry={comments.retry}
+            onClose={closeComments}
+          />
+        )}
       </div>
-      {selected && (
-        <AnnotationToolbar
-          annotation={selected}
-          onDialog={annotating.openDialog}
-          onColor={(color) => annotating.changeSelected(recolor(color))}
-          onRemove={annotating.removeSelected}
-          onFocusLost={focusPages}
-        />
-      )}
       {selected && annotating.dialog && (
         <AnnotationDialog
           engine={engine}
@@ -295,6 +370,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           onCancel={annotating.cancelDialog}
         />
       )}
+      {reading && <NoteDialog note={reading} onClose={() => setReading(null)} />}
       {drawing.draft && (
         <DraftDialog
           engine={engine}

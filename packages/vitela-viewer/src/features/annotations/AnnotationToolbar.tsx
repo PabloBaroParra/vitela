@@ -3,35 +3,29 @@
 // over the pages so selecting never moves them under the pointer.
 // Presentational.
 
-import { useRef, type CSSProperties, type MouseEvent } from 'react';
+import type { CSSProperties, RefObject } from 'react';
 import type { Annotation, Rgb } from '@vitela/core';
 import { PALETTE } from './drawing';
 import { formatPt } from './editDialogs';
 import { annotationBounds, canRecolor, canResize, canRetext, kindName } from './editGeometry';
+import { focusing } from './focusing';
 import { colorCss } from './geometry';
 import type { DialogKind } from './useAnnotationEditing';
 import { useKeepFocus } from './useKeepFocus';
 
 interface AnnotationToolbarProps {
+  readonly toolbar: RefObject<HTMLDivElement | null>;
   readonly annotation: Annotation;
   readonly onDialog: (kind: DialogKind) => void;
   readonly onColor: (color: Rgb) => void;
+  /** Shows the text of a note. */
+  readonly onRead: () => void;
   readonly onRemove: () => void;
   /** The focused control went away with the toolbar. */
   readonly onFocusLost: () => void;
 }
 
-/**
- * Safari does not focus a clicked button; a dialog gives the focus back to
- * what had it, and a toolbar that goes away hands over the focus it held.
- */
-const focusing = (action: () => void) => (event: MouseEvent<HTMLElement>) => {
-  event.currentTarget.focus({ preventScroll: true });
-  action();
-};
-
-export function AnnotationToolbar({ annotation, onDialog, onColor, onRemove, onFocusLost }: AnnotationToolbarProps) {
-  const toolbar = useRef<HTMLDivElement>(null);
+export function AnnotationToolbar({ toolbar, annotation, onDialog, onColor, onRead, onRemove, onFocusLost }: AnnotationToolbarProps) {
   useKeepFocus(toolbar, onFocusLost);
   const { left, top, width, height } = annotationBounds(annotation);
   const color = canRecolor(annotation) && 'color' in annotation ? annotation.color : null;
@@ -47,6 +41,11 @@ export function AnnotationToolbar({ annotation, onDialog, onColor, onRemove, onF
       {canResize(annotation) && (
         <button type="button" onClick={focusing(() => onDialog('resize'))}>
           Resize…
+        </button>
+      )}
+      {annotation.kind === 'note' && (
+        <button type="button" onClick={focusing(onRead)}>
+          Read note…
         </button>
       )}
       {canRetext(annotation) && (

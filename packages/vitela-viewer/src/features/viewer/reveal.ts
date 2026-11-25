@@ -12,6 +12,19 @@ export interface Viewport {
   readonly height: number;
 }
 
+/** Room kept around a target, per axis. */
+export type Margins = Point;
+
+/** `margins`, less what a target that fits leaves no room for: it is shown whole rather than clipped by its own margin. */
+export function fittingMargins(
+  viewport: Pick<Viewport, 'width' | 'height'>,
+  target: Pick<Rect, 'width' | 'height'>,
+  margins: Margins,
+): Margins {
+  const fit = (size: number, length: number, margin: number) => Math.min(margin, Math.max(0, (size - length) / 2));
+  return { x: fit(viewport.width, target.width, margins.x), y: fit(viewport.height, target.height, margins.y) };
+}
+
 /**
  * The scroll (`x` = scrollLeft, `y` = scrollTop) that shows `target` with
  * `margin` px around it, or `null` if it already shows. Each axis moves only
@@ -19,9 +32,10 @@ export interface Viewport {
  * (a target bigger than the viewport starts at its near edge). Never
  * negative; the browser clamps the far end.
  */
-export function revealScroll(viewport: Viewport, target: Rect, margin: number): Point | null {
-  const x = axis(viewport.left, viewport.width, target.left, target.width, margin);
-  const y = axis(viewport.top, viewport.height, target.top, target.height, margin);
+export function revealScroll(viewport: Viewport, target: Rect, margin: number | Margins): Point | null {
+  const margins = typeof margin === 'number' ? { x: margin, y: margin } : margin;
+  const x = axis(viewport.left, viewport.width, target.left, target.width, margins.x);
+  const y = axis(viewport.top, viewport.height, target.top, target.height, margins.y);
   if (x === viewport.left && y === viewport.top) return null;
   return { x, y };
 }

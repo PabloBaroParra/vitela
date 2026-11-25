@@ -811,7 +811,7 @@ que sigue:
 | **T-238** ✓ | Web: herramientas de dibujo — tinta, forma, nota (diálogo) y texto libre (diálogo con maquetado del core), color. | Playwright: dibujar cada una con el ratón, guardar, reabrir y comprobar `/Ink`, `/Square`, `/Text`, `/FreeText`; un carácter fuera de WinAnsi deja el diálogo abierto con el error. |
 | **T-239** ✓ | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
 | **T-240** ✓ | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
-| **T-241** | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
+| **T-241** ✓ | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
 | **T-242** | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
 | **T-243** | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
 
@@ -1353,6 +1353,65 @@ en el core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   - "Leer nota" puede abrir `TextDialog`/`ModalForm` en solo lectura; la barra "Annotation" es el
     sitio para el botón en una nota de sesión (hoy solo ofrece Move to, Resize y Delete).
   - El `<title>` de la nota sigue en el SVG inerte: no se ve al pasar el ratón.
+
+### T-241 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Annotation navigation and
+comments"). Sin cambios en el core ni en `@vitela/core`. Lo que condiciona lo que sigue:
+
+- **Archivos (`features/comments/`):** puros con tests `stops.ts` (paradas, claves, paso) y
+  `commentText.ts` (autor y fecha). Contenedores `useComments.ts` y
+  `useAnnotationNavigation.ts`. Vistas `NavigationToolbar`, `CommentsPanel`, `NoteDialog` y
+  `AnnotationRing`. Salen sin cambio de comportamiento `ModalShell` (de `ModalForm`),
+  `focusing` (de `AnnotationToolbar`) y `useReveal` (de `useRevealMatch`). CSS en
+  `styles/comments.css`.
+- **Orden (decisión, distinto de los nativos):** Windows y Android recorren solo las
+  anotaciones de la sesión, en orden de pintado. Aquí se recorren también los comentarios del
+  archivo —si no, con anotar prohibido no habría nada que visitar—, así que el orden es por
+  página y, en cada una, el de `comments`: los del archivo y luego los de la sesión en orden de
+  pintado. Igual que en los nativos: da la vuelta por los dos extremos, y sin sitio previo
+  entra por la primera o la última. Una anotación del archivo sin texto no se visita (el core
+  no la lista).
+- **El sitio se guarda por clave:** id en la sesión; `pageKey` + puesto en la página para las
+  del archivo. Seleccionar a mano lo mueve; soltar la selección no lo pierde; si la anotación
+  desaparece, se entra de nuevo.
+- **Seleccionar o marcar:** la de la sesión se selecciona si se puede editar; si no (archivo,
+  sin permiso, herramienta armada) se dibuja un aro que se va al pulsar una página o con
+  Escape en ella. El foco se queda en el botón: pulsar otra vez sigue.
+- **`useComments`:** vuelve a preguntar tras cada `info` nuevo (toda edición lo trae), una
+  petición a la vez; las ediciones de mientras tanto cuestan una sola petición más y solo se
+  muestra la respuesta a la última. La lista anterior se ve hasta entonces, salvo que cambien
+  las páginas. Un fallo se muestra en el panel con "Try again".
+- **Panel:** al lado de las páginas; debajo si el editor mide menos de 700 px (consulta de
+  contenedor: vale también embebido). Escape lo cierra y devuelve el foco a su botón. Una fila
+  va al comentario y "Read note" lo lee (en los nativos, pulsar hace las dos cosas).
+- **La barra "Annotation" y lo revelado (medido):** a 390 × 600 con el panel abierto quedaban
+  107 px de páginas y la barra, de dos filas (89 px), tapaba entera la nota de la sesión; a
+  390 × 844 no. Ahora el salto se hace con la barra ya montada y descuenta lo que tapa; en un
+  editor estrecho la barra es una sola fila (45 px) que se desplaza de lado, con el sitio solo
+  para lectores de pantalla; y bajo la última página hay sitio fijo para subirla por encima.
+  Medido después a 390 × 600: nota en 424–438, barra desde 456. El margen (80 px) es solo
+  vertical y cede si no cabe; el de la búsqueda no cambia.
+- **Sin saltos de página:** el texto del sitio ocupa siempre lo mismo (se corta con puntos
+  suspensivos y va entero en el `title`). Un fallo de `comments` con el panel cerrado se marca
+  en el botón, con un `status` para lectores de pantalla; abierto, solo avisa el panel.
+- **De paso:** las herramientas de dibujo ya no desbordan a lo ancho en un móvil
+  (`flex-wrap`; a 390 px la página medía 404).
+- **Tests:** Vitest 45 nuevos: 38 en rojo antes de implementar (20 de los puros y
+  `useComments`, 18 del visor), con seis mutaciones posteriores, todas detectadas, y 7 de la
+  revisión, también vistos en rojo. Playwright (`e2e/comments.spec.ts`, 8 × 3): Siguiente y
+  Anterior fuera de pantalla y en página girada 90°, panel con lectura y deshacer, página
+  borrada en Organize, PDF sin permiso de anotar, editor estrecho, nota libre de la
+  barra a 390 × 844 y 390 × 600, y páginas quietas al decir el sitio. `e2e/pdf.ts` gana `notes`.
+- **Verificado en local (Windows):** `@vitela/viewer`: `typecheck`, Vitest 67 / 676, `build`.
+  `apps/web`: `typecheck`, Vitest 6 / 19, `build`; Playwright completo 187 pasan, 20 omitidos
+  (163 / 20 + 24); `comments` con `--repeat-each=3`: 72 / 72; `examples/embed-vite`: `setup`,
+  `typecheck` y Playwright 12 / 12. Una pasada inicial dio un fallo de WebKit (el botón del diálogo de nota no llegó a estar "estable" en 30 s), no reproducido después. Vistas capturas anchas, oscuras y estrechas. Sin Rust tocado (wasm del
+  24-11, igual al de `main`).
+- **No cubierto:** sin lector de pantalla ni pantalla táctil reales; páginas giradas 180° y
+  270° sin E2E. La lista no está virtualizada. El `<title>` de la nota sigue inerte: no se ve al
+  pasar el ratón. El panel se cierra al ir a Organize y volver. Una nota
+  de sesión se lee, pero no se puede retextear (regla del core).
 
 ## Fase E — Visor embebible (`@vitela/viewer`)
 
