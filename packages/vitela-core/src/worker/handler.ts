@@ -89,6 +89,11 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         return result(id, await engine.documentProperties(request.document));
       case 'metadataRefusal':
         return result(id, await engine.metadataRefusal(request.document));
+      // The looks are a few numbers, the gate a sentence: copied.
+      case 'watermarkDefaults':
+        return result(id, await engine.watermarkDefaults());
+      case 'watermarkRefusal':
+        return result(id, await engine.watermarkRefusal(request.document));
       // The protect questions are a sentence and a yes/no: copied.
       case 'protectionRefusal':
         return result(id, await engine.protectionRefusal(request.document));

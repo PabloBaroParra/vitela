@@ -44,10 +44,18 @@
   margin: 8px 0;
 }
 
-/* The document tools as one menu button: only on phones (see below). */
-.workspace__more {
-  display: none;
+/* The document tools as one menu button, at every width: "Tools" and a
+   chevron, three dots on a phone (see below). */
+.workspace__tools {
   position: relative;
+}
+
+.workspace__tools .menu-button__button {
+  gap: 4px;
+}
+
+.workspace__tools-dots {
+  display: none;
 }
 
 .menu-button__button {
@@ -373,10 +381,9 @@
 /* Phones: the document bar and the toolbars stay compact so the page gets
    the screen. The bar keeps ONE row: every pixel of height it takes comes off
    the pages and the Comments panel under them (at 390 x 600 the panel's first
-   row must still clear its sticky head). So the controls tighten, the
-   document tools (Compress, Export images, ...) fold into one "More tools"
-   menu button, and the file name gives way first. The menu sits where the
-   tools sit in the DOM, so the tab order stays the order on screen. */
+   row must still clear its sticky head). So the controls tighten, the Tools
+   menu shows three dots instead of its word, and the file name gives way
+   first. */
 @media (max-width: 600px) {
   .workspace__bar {
     flex-wrap: nowrap;
@@ -407,17 +414,18 @@
     padding-inline: 8px;
   }
 
-  /* Hidden, not just moved: out of the tab order and the accessibility tree too. */
-  .workspace__bar .compress-button,
-  .workspace__bar .export-images-button,
-  .workspace__bar .protect-button,
-  .viewer-toolbar .properties-toggle {
+  .workspace__bar .workspace__tools {
+    flex: none;
+  }
+
+  /* The menu's name stays "Tools" (its aria-label): only the face changes. */
+  .workspace__tools-label,
+  .workspace__tools-chevron {
     display: none;
   }
 
-  .workspace__bar .workspace__more {
+  .workspace__tools-dots {
     display: block;
-    flex: none;
   }
 
   .workspace__bar .menu-button__button {

@@ -173,7 +173,8 @@ impl DocumentModel {
         }
         let outcome = outcome?;
         // An import adds pages, as one undo step the preview shows.
-        self.preview.recorded(true);
+        // A page structure step: no page's own pixels change.
+        self.preview.recorded(true, false);
 
         let source_ids = outcome
             .ids

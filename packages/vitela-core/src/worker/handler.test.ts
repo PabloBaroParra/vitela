@@ -24,6 +24,16 @@ const compressed = {
   reduced: true,
   refusals: [],
 };
+const look = {
+  fontSize: 60,
+  textOpacity: 0.3,
+  textRotationDegrees: 45,
+  textBehind: false,
+  pictureScale: 0.5,
+  pictureOpacity: 0.3,
+  pictureRotationDegrees: 0,
+  pictureBehind: true,
+};
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
   return {
@@ -65,6 +75,8 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     planSplit: async () => [],
     documentProperties: async () => ({ title: null, author: null, subject: null, keywords: null, creator: null, producer: null }),
     metadataRefusal: async () => null,
+    watermarkDefaults: async () => look,
+    watermarkRefusal: async () => null,
     ...overrides,
   };
 }
@@ -258,6 +270,22 @@ describe('handleRequest', () => {
       message: { type: 'result', id: 6, value: compressed },
       transfer: [compressed.bytes.buffer],
     });
+  });
+
+  it('answers the watermark questions, copied', async () => {
+    const calls: unknown[] = [];
+    const engine = fakeEngine({
+      watermarkRefusal: async (document) => (calls.push(document), 'content editing is not permitted'),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'watermarkDefaults' } })).toEqual({
+      message: { type: 'result', id: 1, value: look },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'watermarkRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: 'content editing is not permitted' },
+      transfer: [],
+    });
+    expect(calls).toEqual([5]);
   });
 
   it('answers the document-properties questions for the document they name, copied', async () => {

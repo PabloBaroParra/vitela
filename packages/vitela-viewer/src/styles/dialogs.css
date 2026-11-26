@@ -372,6 +372,59 @@
   width: 8em;
 }
 
+/* Add watermark: text or a picture, three sliders, placement, pages. */
+.watermark-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.watermark-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.watermark-dialog__picture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__summary {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.watermark-dialog__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__slider input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.watermark-dialog__refusal,
+.watermark-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
 /* Two typed lengths: Move to, Resize. */
 .lengths-dialog {
   width: min(320px, calc(100vw - 32px));

@@ -36,6 +36,7 @@ export const coreFunctions: CoreFunctions = {
   freeTextLayout: core.freeTextLayout,
   stampPlacement: core.stampPlacement,
   compressPresets: core.compressPresets,
+  watermarkDefaults: core.watermarkDefaults,
   imageExportFormats: core.imageExportFormats,
   parsePageSelection: core.parsePageSelection,
   pageImageFileName: core.pageImageFileName,
@@ -66,6 +67,10 @@ export const coreEdits: CoreEdits = {
   setFieldChoice: (id, option) => core.EditCommand.setFieldChoice(id, option),
   setDocumentProperties: (title, author, subject, keywords, creator, producer) =>
     core.EditCommand.setDocumentProperties(title, author, subject, keywords, creator, producer),
+  addTextWatermark: (pages, text, fontSize, opacity, rotation, behind) =>
+    core.EditCommand.addTextWatermark(pages, text, fontSize, opacity, rotation, behind),
+  addPictureWatermark: (pages, image, scale, opacity, rotation, behind) =>
+    core.EditCommand.addPictureWatermark(pages, image, scale, opacity, rotation, behind),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

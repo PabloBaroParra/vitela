@@ -30,6 +30,7 @@ import type {
   PageRect,
   PreparedImport,
   DocumentProperties,
+  WatermarkDefaults,
   ProtectionPasswords,
   RenderedPage,
   SearchHit,
@@ -163,6 +164,14 @@ export class EngineClient implements Engine {
 
   metadataRefusal(document: DocumentHandle): Promise<string | null> {
     return this.send({ kind: 'metadataRefusal', document });
+  }
+
+  watermarkDefaults(): Promise<WatermarkDefaults> {
+    return this.send({ kind: 'watermarkDefaults' });
+  }
+
+  watermarkRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'watermarkRefusal', document });
   }
 
   protectionRefusal(document: DocumentHandle): Promise<string | null> {

@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 import { cards, openOrganize, tool } from './organize';
-import { expectOpened, fixtureBytes, inkedPixelCount, loadApp, openFixture } from './support';
+import { expectOpened, fixtureBytes, inkedPixelCount, loadApp, openFixture, openTool, toolsButton } from './support';
 
 const THREE_PAGES = 'compress/vector_only.pdf';
 const SIGNED = 'signed/rsa2048_sha256.pdf';
@@ -18,13 +18,11 @@ const ENCRYPTED_USER_PASSWORD = 'user-aes-pass';
 const OPEN_PASSWORD = 'open-e2e-pass';
 const PERMISSIONS_PASSWORD = 'permissions-e2e-pass';
 
-/** The workspace bar's Protect button (the dialog has one of its own). */
-const protectButton = (page: Page) => page.locator('.workspace__bar').getByRole('button', { name: 'Protect', exact: true });
 const protectDialog = (page: Page) => page.getByRole('dialog', { name: 'Protect with a password' });
 const passwordPrompt = (page: Page) => page.getByRole('dialog', { name: 'Password required' });
 
 async function openDialog(page: Page): Promise<Locator> {
-  await protectButton(page).click();
+  await openTool(page, 'Protect');
   const dialog = protectDialog(page);
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   return dialog;
@@ -73,7 +71,7 @@ test('protects a copy with the pending edits; it reopens with each password, eve
   expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   expect(bytes.toString('latin1')).toContain('/Encrypt');
   await expect(protectDialog(page)).toHaveCount(0);
-  await expect(protectButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   await expect(
     page.getByText('Downloaded vector_only-protected.pdf, protected with a password. The open document is not protected.'),
   ).toBeVisible();
@@ -123,7 +121,7 @@ test("refuses a missing or repeated password in the core's words, and nothing is
 
   await page.keyboard.press('Escape');
   await expect(protectDialog(page)).toHaveCount(0);
-  await expect(protectButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   // Reopened, the dialog has forgotten what was typed.
   const again = await openDialog(page);
   await expect(again.getByLabel('Password to open the document')).toHaveValue('');
@@ -162,6 +160,6 @@ test('a document whose permissions withhold modification is refused in the dialo
   await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(protectDialog(page)).toHaveCount(0);
-  await expect(protectButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   expect(downloads).toBe(0);
 });

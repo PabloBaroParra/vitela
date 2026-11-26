@@ -5,6 +5,8 @@
 // position: positions change with every move, the id never does. A rotation
 // changes the pixels, and it changes the key with them, so nothing has to be
 // invalidated by hand; an undo of that rotation finds the old bitmap again.
+// A watermark repaints pages in place: the engine's paint revision joins the
+// key, so it (and its undo) works the same way.
 // The cache belongs to one open document (the Organize screen makes one per
 // mount), so ids never collide across documents.
 //
@@ -16,8 +18,9 @@
 
 import type { PageSize, RenderedPage } from '@vitela/core';
 
-export function thumbnailKey(pageId: number, page: PageSize, dpi: number): string {
-  return `${pageId}/${page.rotationDegrees}/${dpi}`;
+export function thumbnailKey(pageId: number, page: PageSize, dpi: number, paintRevision = 0): string {
+  const key = `${pageId}/${page.rotationDegrees}/${dpi}`;
+  return paintRevision === 0 ? key : `${key}/${paintRevision}`;
 }
 
 /** Enough for a few hundred thumbnails at 1x, or about a hundred at 2x. */

@@ -5,7 +5,6 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { useRef } from 'react';
 import { PropertiesControls } from './PropertiesControls';
-import { PropertiesOpenerContext, PropertiesToggle } from './PropertiesToggle';
 import { propertiesBusy, useDocumentProperties, type PropertiesHost } from './useDocumentProperties';
 
 const document: OpenDocument = {
@@ -84,23 +83,22 @@ function host(overrides: Partial<PropertiesHost> = {}) {
   return { value, reported, dirty: () => dirty, waiting };
 }
 
-/** The workspace's wiring: the dialog in the bar, the button where the viewer puts it (`toggle`). */
-function Harness({ engine, props, toggle = true }: { engine: Engine; props: PropertiesHost; toggle?: boolean }) {
+/** The workspace's wiring: the dialog in the bar, opened from the Tools menu (a stand-in entry here). */
+function Harness({ engine, props }: { engine: Engine; props: PropertiesHost }) {
   const session = useDocumentProperties(engine, document, props);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const more = useRef<HTMLButtonElement>(null);
+  const tools = useRef<HTMLButtonElement>(null);
+  const busy = propertiesBusy(session.activity);
   return (
-    <PropertiesOpenerContext.Provider value={{ open: () => void session.open(), busy: propertiesBusy(session.activity), trigger }}>
-      <button ref={more} type="button" onClick={() => void session.open()}>
-        More tools
+    <>
+      <button ref={tools} type="button" aria-disabled={busy} onClick={busy ? undefined : () => void session.open()}>
+        Document properties
       </button>
-      {toggle && <PropertiesToggle />}
-      <PropertiesControls session={session} trigger={trigger} focusFallback={() => more.current?.focus()} />
-    </PropertiesOpenerContext.Provider>
+      <PropertiesControls session={session} trigger={tools} />
+    </>
   );
 }
 
-const trigger = () => screen.getByRole('button', { name: 'Properties' });
+const trigger = () => screen.getByRole('button', { name: 'Document properties' });
 const dialog = () => screen.findByRole('dialog', { name: 'Document properties' });
 const box = (shown: HTMLElement, label: string) => within(shown).getByLabelText(label) as HTMLInputElement;
 
@@ -213,18 +211,13 @@ describe('PropertiesControls', () => {
     expect(applied).toEqual([]);
   });
 
-  it('gives the focus back to More tools when the Properties button is not shown (a phone, Organize)', async () => {
+  it('gives the focus back to what opened it (the Tools menu button)', async () => {
     const { engine } = propertiesEngine();
-    render(<Harness engine={engine} props={host().value} toggle={false} />);
-    fireEvent.click(screen.getByRole('button', { name: 'More tools' }));
+    render(<Harness engine={engine} props={host().value} />);
+    fireEvent.click(trigger());
     const shown = await dialog();
     fireEvent.click(within(shown).getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'More tools' })).toBe(window.document.activeElement));
-  });
-
-  it('draws no Properties button without a workspace to open the dialog', () => {
-    render(<PropertiesToggle />);
-    expect(screen.queryByRole('button')).toBeNull();
+    await waitFor(() => expect(trigger()).toBe(window.document.activeElement));
   });
 
   it('says so in the bar when the properties cannot be read', async () => {

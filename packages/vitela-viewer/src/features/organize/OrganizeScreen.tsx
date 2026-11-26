@@ -211,6 +211,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed, pag
     pageIndex,
     pageId: info.pageIds[pageIndex]!,
     page: info.pages[pageIndex]!,
+    paintRevision: document.paintRevision ?? 0,
     devicePixelRatio: typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1,
     paused: organize.pending,
   });

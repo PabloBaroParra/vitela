@@ -9,18 +9,15 @@ import { readFileSync } from 'node:fs';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { buildPdf, MODIFY_PROHIBITED } from './pdf';
 import { documentInfo } from './pdfObjects';
-import { expectOpened, loadApp, openBytes } from './support';
+import { expectOpened, loadApp, openBytes, openTool, toolsButton } from './support';
 
 const LETTER = { widthPt: 612, heightPt: 792 };
 const bar = (page: Page) => page.locator('.workspace__bar');
-/** At the end of the viewer's View toolbar (the workspace bar has no room in an embedding host). */
-const propertiesButton = (page: Page) =>
-  page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Properties', exact: true });
 const propertiesDialog = (page: Page) => page.getByRole('dialog', { name: 'Document properties' });
 const saveButton = (page: Page) => bar(page).getByRole('button', { name: 'Save', exact: true });
 
 async function openDialog(page: Page): Promise<Locator> {
-  await propertiesButton(page).click();
+  await openTool(page, 'Document properties');
   const dialog = propertiesDialog(page);
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   return dialog;
@@ -37,7 +34,7 @@ test('edits the title and author as one undoable edit, and Save writes them into
   await dialog.getByLabel('Author').fill('Ana Peña');
   await dialog.getByRole('button', { name: 'Apply' }).click();
   await expect(propertiesDialog(page)).toHaveCount(0);
-  await expect(propertiesButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   await expect(page.getByText('Document properties updated. Changes are pending save.')).toBeVisible();
   await expect(page.getByText('Unsaved changes.')).toBeVisible();
 
@@ -77,11 +74,17 @@ test('edits the title and author as one undoable edit, and Save writes them into
   await expect(undo).toBeDisabled();
 });
 
-test('the Properties button takes no toolbar row of its own at 1280 px', async ({ page }) => {
+test('at 1280 px the tools take no row of their own: one bar row, and the toolbars keep theirs', async ({ page }) => {
   await loadApp(page);
   await openBytes(page, 'report.pdf', buildPdf([LETTER]));
+  await expect(toolsButton(page)).toBeVisible();
+  // Nothing in the viewer's View toolbar opens a tool.
+  await expect(page.getByRole('toolbar', { name: 'View' }).getByRole('button', { name: 'Properties' })).toHaveCount(0);
+  const tops = await bar(page).evaluate((node) =>
+    [...node.children].filter((child) => child.getBoundingClientRect().width > 0).map((child) => child.getBoundingClientRect()),
+  );
+  expect(Math.max(...tops.map((box) => box.top))).toBeLessThan(Math.min(...tops.map((box) => box.bottom)));
   const top = async (name: string) => (await page.getByRole('toolbar', { name }).boundingBox())!.y;
-  await expect(propertiesButton(page)).toBeVisible();
   // View shares its row with Text, and Annotations still fits beside Draw and History.
   expect(await top('View')).toBe(await top('Text'));
   expect(await top('Annotations')).toBe(await top('Draw'));
@@ -106,18 +109,16 @@ test('a document whose permissions forbid modification shows its properties read
   await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(propertiesDialog(page)).toHaveCount(0);
-  await expect(propertiesButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   await expect(page.getByText('Unsaved changes.')).toHaveCount(0);
 });
 
-test('on a phone, More tools opens the properties, which fit the screen', async ({ page }) => {
+test('on a phone, Tools opens the properties, which fit the screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 600 });
   await loadApp(page);
   await openBytes(page, 'report.pdf', buildPdf([LETTER]));
-  const more = bar(page).getByRole('button', { name: 'More tools' });
-  await expect(propertiesButton(page)).toBeHidden();
-  await more.click();
-  await page.getByRole('menu', { name: 'More tools' }).getByRole('menuitem', { name: 'Properties' }).click();
+  const more = toolsButton(page);
+  await openTool(page, 'Document properties');
   const dialog = propertiesDialog(page);
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   const box = (await dialog.boundingBox())!;

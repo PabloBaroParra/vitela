@@ -13,7 +13,8 @@
 //!   them. `model` holds the edit session too (page edits, undo/redo, save,
 //!   the preview snapshot, import and the Documents view's blocks, and the
 //!   session's annotations and comments, the form fields and filling them
-//!   in, the compressed save, and image export).
+//!   in, the compressed save, image export, document properties and
+//!   watermarks).
 //! - `engine`, `dto` and `geometry` are the `#[wasm_bindgen]` surface and
 //!   exist only on wasm32; they are tested by `wasm-bindgen-test` in a
 //!   headless browser (`tests/engine.rs`).
@@ -43,11 +44,12 @@ pub use dto::{
     AnnotationEntry, CommentEntry, CompressRefusalEntry, CompressedSave, DocumentBlock,
     DocumentPropertiesEntry, FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport,
     PageCharacters, PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart, TextRun,
+    WatermarkLook,
 };
 #[cfg(target_arch = "wasm32")]
 pub use engine::{
     compress_presets, free_text_layout, image_export_formats, page_image_file_name,
-    parse_page_selection, plan_split, stamp_placement, EditCommand, Engine,
+    parse_page_selection, plan_split, stamp_placement, watermark_defaults, EditCommand, Engine,
 };
 #[cfg(target_arch = "wasm32")]
 pub use geometry::{place_rects, point_to_pdf};

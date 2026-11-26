@@ -5,8 +5,9 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import type { DeliverRequest, Delivery } from '../save/delivery';
 import type { SaveOutcome } from '../save/outcome';
+import { useRef } from 'react';
 import { CompressControls } from './CompressControls';
-import { useCompress } from './useCompress';
+import { compressBusy, useCompress } from './useCompress';
 
 const document: OpenDocument = {
   name: 'a.pdf',
@@ -90,15 +91,23 @@ function Harness({
   engine,
   delivery,
   settle,
-  focusFallback,
 }: {
   engine: Engine;
   delivery: Delivery;
   settle?: () => Promise<unknown>;
-  focusFallback?: () => void;
 }) {
   const session = useCompress(engine, document, delivery, settle);
-  return <CompressControls session={session} documentName={document.name} focusFallback={focusFallback} />;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const busy = compressBusy(session.activity);
+  // Stands in for the Tools menu's entry, which the workspace wires the same way.
+  return (
+    <>
+      <button ref={trigger} type="button" aria-disabled={busy} onClick={busy ? undefined : () => void session.open()}>
+        Compress
+      </button>
+      <CompressControls session={session} documentName={document.name} trigger={trigger} />
+    </>
+  );
 }
 
 const compressButton = () => screen.getByRole('button', { name: 'Compress' });
@@ -127,16 +136,14 @@ describe('CompressControls', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
-  it('gives the focus to the fallback when its own button is not shown (a phone shows More tools instead)', async () => {
+  it('gives the focus back to what opened it (the Tools menu button)', async () => {
     const { engine } = compressEngine();
     const { delivery } = recording();
-    let fallback = 0;
-    render(<Harness engine={engine} delivery={delivery} focusFallback={() => void fallback++} />);
-    Object.defineProperty(compressButton(), 'checkVisibility', { value: () => false });
+    render(<Harness engine={engine} delivery={delivery} />);
     fireEvent.click(compressButton());
     fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(fallback).toBe(1);
+    expect(compressButton()).toBe(window.document.activeElement);
   });
 
   it('runs the preset the user picked', async () => {

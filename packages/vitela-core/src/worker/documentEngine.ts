@@ -40,6 +40,7 @@ import type {
   Engine,
   FormEdit,
   MetadataEdit,
+  WatermarkEdit,
   FormField,
   ImportedDocument,
   OpenedDocument,
@@ -75,12 +76,18 @@ import {
   type CoreDocumentProperties,
   type CoreMetadataEdits,
 } from './metadata.js';
+import {
+  watermarkCommand,
+  watermarkDefaults,
+  type CoreWatermarkEdits,
+  type CoreWatermarkLook,
+} from './watermark.js';
 import { splitParts, type CoreSplitFunctions } from './extract.js';
 import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
-export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits, CoreMetadataEdits {
+export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits, CoreMetadataEdits, CoreWatermarkEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -94,6 +101,8 @@ export interface CoreFunctions extends CoreGeometry, CoreExportFunctions, CoreSp
   stampPlacement(image: Uint8Array, anchorX: number, anchorY: number): Float64Array;
   /** The core's preset names, strongest-preserving first. */
   compressPresets(): string[];
+  /** The core's starting watermark looks. */
+  watermarkDefaults(): CoreWatermarkLook;
 }
 
 /** The slice of core/pdf-wasm's `Engine` this module uses. */
@@ -115,6 +124,10 @@ export interface CoreEngine extends CoreText {
   documentProperties(doc: number): CoreDocumentProperties;
   /** `undefined` (wasm-bindgen's `None`) when the properties can be changed. */
   metadataRefusal(doc: number): string | null | undefined;
+  /** The newest page-content step still applied (0: as opened). */
+  paintRevision(doc: number): number;
+  /** `undefined` (wasm-bindgen's `None`) when a watermark can be stamped. */
+  watermarkRefusal(doc: number): string | null | undefined;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -258,6 +271,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       annotations: snapshot(document),
       addedAnnotationId: added ?? null,
       formFields: fields(document),
+      paintRevision: core.paintRevision(document),
     };
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
@@ -318,6 +332,13 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     async metadataRefusal(document: DocumentHandle) {
       assertOpen(document);
       return core.metadataRefusal(document) ?? null;
+    },
+    async watermarkDefaults() {
+      return watermarkDefaults(functions.watermarkDefaults());
+    },
+    async watermarkRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.watermarkRefusal(document) ?? null;
     },
     async protectionRefusal(document: DocumentHandle) {
       assertOpen(document);
@@ -387,7 +408,9 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
               ? formFieldCommand(edits, edit, () => core.formFillAllowed(document))
               : isMetadataEdit(edit)
                 ? metadataCommand(edits, edit)
-                : annotationCommand(
+                : isWatermarkEdit(edit)
+                  ? watermarkCommand(edits, edit)
+                  : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -500,6 +523,10 @@ function isFormEdit(edit: Edit): edit is FormEdit {
 
 function isMetadataEdit(edit: Edit): edit is MetadataEdit {
   return edit.kind === 'setDocumentProperties';
+}
+
+function isWatermarkEdit(edit: Edit): edit is WatermarkEdit {
+  return edit.kind === 'addWatermark';
 }
 
 /** An `Error` named like the core's own refusals, so the UI branches alike. */

@@ -10,6 +10,13 @@ describe('thumbnailKey', () => {
     expect(thumbnailKey(7, page, 20)).toBe('7/90/20');
     expect(thumbnailKey(7, { ...page, rotationDegrees: 0 }, 20)).not.toBe(thumbnailKey(7, page, 20));
   });
+
+  it('names a repaint in place too (a watermark), and the file as opened as before', () => {
+    const page = { widthPt: 612, heightPt: 792, rotationDegrees: 0 };
+    expect(thumbnailKey(7, page, 20, 0)).toBe(thumbnailKey(7, page, 20));
+    expect(thumbnailKey(7, page, 20, 3)).not.toBe(thumbnailKey(7, page, 20));
+    expect(thumbnailKey(7, page, 20, 3)).not.toBe(thumbnailKey(7, page, 20, 4));
+  });
 });
 
 describe('ThumbnailCache', () => {
