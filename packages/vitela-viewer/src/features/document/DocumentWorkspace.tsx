@@ -18,6 +18,9 @@ import { SplitControls } from '../extract/SplitControls';
 import { pageRunText } from '../extract/extractText';
 import { extractBusy, useExtract } from '../extract/useExtract';
 import { splitBusy, useSplit } from '../extract/useSplit';
+import { PrintControls } from '../print/PrintControls';
+import { printBusy, usePrint } from '../print/usePrint';
+import { usePrintKey } from '../print/usePrintKey';
 import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
 import { PropertiesControls } from '../properties/PropertiesControls';
@@ -120,6 +123,13 @@ export function DocumentWorkspace({
   const toolsButton = useRef<HTMLButtonElement | null>(null);
   // Page images go where a compressed copy goes, after the same queued edits.
   const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
+  // Print draws what a save would write, after the same queued edits, into a
+  // frame inside the editor (never elsewhere on a host's page). Ctrl/⌘+P
+  // prints it too while the key is the editor's.
+  const frameHost = useCallback(() => rootRef.current, [rootRef]);
+  const print = usePrint(engine, document, { settleEdits: save.settleEdits, frameHost });
+  const startPrint = print.print;
+  usePrintKey(document ? () => void startPrint() : null, scope);
   // A protected copy goes where a compressed one goes, after the same queued edits.
   const protect = useProtect(engine, document, delivery ?? browserDelivery, save.settleEdits);
   // An extracted PDF and a split's parts go there too, after the same queued edits.
@@ -180,6 +190,7 @@ export function DocumentWorkspace({
             {/* Opened from the Tools menu below: here are their status lines and dialogs. */}
             <CompressControls session={compress} documentName={document.name} trigger={toolsButton} />
             <ExportImagesControls session={exportImages} trigger={toolsButton} />
+            <PrintControls session={print} />
             <ProtectControls session={protect} documentName={document.name} trigger={toolsButton} />
             <WatermarkControls session={watermark} trigger={toolsButton} />
             <PropertiesControls session={properties} trigger={toolsButton} />
@@ -200,6 +211,7 @@ export function DocumentWorkspace({
               tools={[
                 { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
                 { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: () => void exportImages.open() },
+                { label: 'Print', disabled: printBusy(print.activity), onSelect: () => void print.print() },
                 { label: 'Protect', disabled: protectBusy(protect.activity), onSelect: () => void protect.open() },
                 { label: 'Watermark', disabled: watermarkBusy(watermark.activity), onSelect: () => void watermark.open() },
                 {

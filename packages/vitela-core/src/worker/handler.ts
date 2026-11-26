@@ -126,6 +126,8 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
       }
       case 'closeImageExport':
         return result(id, await engine.closeImageExport(request.export));
+      case 'openPrintSnapshot':
+        return result(id, await engine.openPrintSnapshot(request.document));
       // The extract questions and a split plan are a sentence, a yes/no and a few parts: copied.
       case 'extractionRefusal':
         return result(id, await engine.extractionRefusal(request.document));

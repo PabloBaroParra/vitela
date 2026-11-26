@@ -438,7 +438,7 @@ describe('DocumentWorkspace', () => {
     const order = [...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
     expect(order.indexOf('Tools')).toBeGreaterThan(order.indexOf('Organize'));
     expect(order.indexOf('Tools')).toBeLessThan(order.indexOf('Save'));
-    for (const tool of ['Compress', 'Export images', 'Protect', 'Watermark', 'Properties', 'Document properties']) {
+    for (const tool of ['Compress', 'Export images', 'Print', 'Protect', 'Watermark', 'Properties', 'Document properties']) {
       expect(order).not.toContain(tool);
     }
 
@@ -447,6 +447,7 @@ describe('DocumentWorkspace', () => {
     expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual([
       'Compress',
       'Export images',
+      'Print',
       'Protect',
       'Watermark',
       'Document properties',

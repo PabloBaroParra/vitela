@@ -207,6 +207,10 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `encode_rgba_image`, not by a canvas) and freed with
   `closeImageExport(export)`. Close it however the export ends: the snapshot
   holds the engine's memory until then. It records no edit.
+  Print: `openPrintSnapshot(handle)` opens the same snapshot for printing —
+  same answer, pages drawn with `exportPageImage`, freed with
+  `closeImageExport` — but asks no permission: no native shell asks one
+  before printing, and the core has no rule for the `/P` print bit.
   `terminate()` stops the worker for good (every open document goes with it):
   pending and later calls fail with "the engine was terminated", and so does
   a `ready` still pending. Calling it again does nothing.

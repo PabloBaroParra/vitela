@@ -141,10 +141,14 @@ and pass `engineOptions: { workerUrl, assetBaseUrl }` (see `@vitela/core`).
 
 With the default `eventScope: 'editor'`:
 
-- The editor's keys (Ctrl/⌘+Z and Ctrl/⌘+Y, Ctrl/⌘+C, Escape) act only when
+- The editor's keys (Ctrl/⌘+Z and Ctrl/⌘+Y, Ctrl/⌘+C, Ctrl/⌘+P, Escape) act only when
   the focus is inside the editor, or, when nothing has the focus, when the
   user's last click, focus or drop was inside it. Keys elsewhere on your
   page are yours.
+- Ctrl/⌘+P in the editor prints the editor's pages, not your page: they go
+  into a hidden frame inside the editor's root, which prints itself, so your
+  page's print styles are never involved. Pressed elsewhere on your page, the
+  key is the browser's and prints your page as usual.
 - Only files dropped **on the editor** open in it. A file dropped anywhere
   else on your page is your page's business: the editor does not cancel the
   event, so unless your page handles it, the browser does what it does with

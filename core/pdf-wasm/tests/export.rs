@@ -139,3 +139,22 @@ async fn a_document_that_withholds_extraction_is_refused() {
         "UnsupportedOperation"
     );
 }
+
+#[wasm_bindgen_test]
+async fn a_print_snapshot_asks_no_permission_and_draws_like_an_export() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(
+            pdfs::restricted_document(),
+            Some(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+    let opened = engine.open_print_snapshot(doc).unwrap();
+    assert_eq!(opened.page_count(), 1);
+    let print = opened.id();
+    let png = engine
+        .export_page_image(print, 0, 72, "png".into())
+        .unwrap();
+    assert_eq!(&png[..8], PNG_SIGNATURE);
+    assert!(engine.close_image_export(print));
+}

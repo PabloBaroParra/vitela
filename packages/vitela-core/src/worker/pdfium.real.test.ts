@@ -539,6 +539,28 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect((await engine.undo(handle)).canUndo).toBe(true);
     await engine.close(handle);
   });
+
+  it('prints from a snapshot through the real core: the unsaved highlight drawn, nothing recorded', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const draw = async () => {
+      const { handle: print, pageCount } = await engine.openPrintSnapshot(handle);
+      expect(pageCount).toBe(1);
+      try {
+        return await engine.exportPageImage(print, 0, 72, 'png');
+      } finally {
+        expect(await engine.closeImageExport(print)).toBe(true);
+      }
+    };
+    const plain = await draw();
+    expect(pngSize(plain)).toEqual([612, 792]);
+    const band = { left: 72, top: 30, width: 200, height: 20 };
+    await engine.applyEdit(handle, { kind: 'addMarkup', page: 0, markup: 'highlight', rect: band, color: { r: 255, g: 255, b: 0 } });
+    expect(Buffer.from(await draw()).equals(Buffer.from(plain))).toBe(false);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    await engine.close(handle);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */

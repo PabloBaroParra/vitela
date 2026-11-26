@@ -18,6 +18,9 @@
 //! out for the overlay to draw, so an unsaved highlight would be missing from
 //! every image. The Android and Windows shells export from it for the same
 //! reason. Exporting is not an edit: nothing is recorded.
+//!
+//! Printing (B26 T-257) draws from the same snapshot, rendered the same way,
+//! but without the extraction gate (see [`DocumentModel::print_snapshot_bytes`]).
 
 use pdf_save::ExportFormat;
 
@@ -121,6 +124,14 @@ impl DocumentModel {
     /// never handed out as a PDF, only rasterized.
     pub fn output_snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
         self.ensure_image_export_allowed()?;
+        self.print_snapshot_bytes()
+    }
+
+    /// The same snapshot for printing (B26 T-257), with no permission asked:
+    /// `pdf-ffi`'s `output_snapshot` asks none, and neither does any native
+    /// shell before its print dialog — the core has no rule for the `/P`
+    /// print bit, so the web does not invent one.
+    pub fn print_snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
         Ok(self.with_save_input(true, pdf_save::save_document)?)
     }
 }
@@ -253,5 +264,48 @@ mod tests {
             model.output_snapshot_bytes().unwrap_err().kind,
             ErrorKind::UnsupportedOperation
         );
+    }
+
+    #[test]
+    fn a_print_snapshot_carries_the_pending_annotations_and_records_nothing() {
+        let mut model = open(&pdfs::text_document(&["one", "two"]));
+        model
+            .apply_annotation_edit(AnnotationEdit::Add {
+                page: 1,
+                annotation: NewAnnotation::Highlight {
+                    rect: Rect {
+                        x: 72.0,
+                        y: 690.0,
+                        width: 120.0,
+                        height: 30.0,
+                    },
+                    color: Color {
+                        r: 255,
+                        g: 255,
+                        b: 0,
+                    },
+                },
+            })
+            .unwrap();
+
+        let bytes = model.print_snapshot_bytes().expect("snapshot");
+        let snapshot = lopdf::Document::load_mem(&bytes).expect("parses");
+        let pages = snapshot.get_pages();
+        assert_eq!(pages.len(), 2);
+        let second = snapshot.get_dictionary(pages[&2]).unwrap();
+        assert!(second.get(b"Annots").is_ok());
+        assert!(model.can_undo());
+        assert!(!model.can_redo());
+    }
+
+    #[test]
+    fn printing_asks_no_permission_as_no_native_shell_does() {
+        let model = DocumentModel::open(
+            &pdfs::restricted_document(),
+            &OpenCredentials::Password(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+        assert!(model.ensure_image_export_allowed().is_err());
+        assert!(model.print_snapshot_bytes().is_ok());
     }
 }

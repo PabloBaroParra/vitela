@@ -38,6 +38,7 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     openImageExport: unused('openImageExport'),
     exportPageImage: unused('exportPageImage'),
     closeImageExport: unused('closeImageExport'),
+    openPrintSnapshot: unused('openPrintSnapshot'),
     protectionRefusal: unused('protectionRefusal'),
     protectionInvalidatesSignatures: unused('protectionInvalidatesSignatures'),
     protectToBytes: unused('protectToBytes'),

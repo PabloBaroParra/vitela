@@ -244,6 +244,10 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'closeImageExport', export: exportHandle });
   }
 
+  openPrintSnapshot(document: DocumentHandle): Promise<ImageExport> {
+    return this.send({ kind: 'openPrintSnapshot', document });
+  }
+
   /**
    * Stops the worker for good, freeing its memory (every open document goes
    * with it). Pending and later requests fail, as does a `ready` still

@@ -318,6 +318,7 @@ describe('EngineClient', () => {
       client.openImageExport(4),
       client.exportPageImage(7, 1, 150, 'jpeg'),
       client.closeImageExport(7),
+      client.openPrintSnapshot(4),
     ];
     expect(sent.map(({ message }) => message.request)).toEqual([
       { kind: 'imageExportFormats' },
@@ -327,9 +328,10 @@ describe('EngineClient', () => {
       { kind: 'openImageExport', document: 4 },
       { kind: 'exportPageImage', export: 7, pageIndex: 1, dpi: 150, format: 'jpeg' },
       { kind: 'closeImageExport', export: 7 },
+      { kind: 'openPrintSnapshot', document: 4 },
     ]);
     const image = new Uint8Array([0xff, 0xd8]);
-    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, { handle: 7, pageCount: 3 }, image, true];
+    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, { handle: 7, pageCount: 3 }, image, true, { handle: 8, pageCount: 3 }];
     sent.forEach(({ message }, i) => reply({ type: 'result', id: message.id, value: values[i] }));
     for (const [i, request] of requests.entries()) await expect(request).resolves.toEqual(values[i]);
   });

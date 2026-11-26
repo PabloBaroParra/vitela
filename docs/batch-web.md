@@ -2164,7 +2164,7 @@ Gates (Windows 11, local):
 | **T-254** ✓ | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
 | **T-255** ✓ | Metadatos. | Playwright: editar, guardar y releer. |
 | **T-256** ✓ | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
-| **T-257** | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
+| **T-257** ✓ | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
 | **T-258** | Modelo de contenido en wasm (`readPageContent`, `textRunLook`, familias de fuente, `CheckpointSession`). | `wasm-bindgen-test` + Vitest contra pdfium real. |
 | **T-259** | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
 | **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
@@ -2845,6 +2845,97 @@ que sigue:
   de contenido el core no reescribe (cadena de filtros) rechaza el sello al refrescar (`SaveFailed`)
   con el mensaje del core; el paso rehacible que deja ese rechazo es de `step`, no de esta tarea; sin
   lector de pantalla real.
+
+### T-257 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Print"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) ("Keys and drops"). Lo
+que condiciona lo que sigue:
+
+- **Parte A — tope de la imagen de la marca de agua (revisión de T-256).** `pickPicture` de
+  `useWatermark` leía el archivo entero sin límite. Ahora reutiliza `MAX_STAMP_BYTES` (20 MB, la
+  constante de los sellos de imagen de T-239, `features/annotations/stamps.ts`): un archivo más
+  grande se rechaza **sin leerlo** con "Pictures larger than 20 MB cannot be stamped on the pages.
+  Choose a smaller one." y el borrador conserva la imagen anterior. 1 Vitest nuevo en
+  `WatermarkControls.test.tsx` (visto en rojo antes del cambio).
+- **Qué se imprime: la instantánea de salida, como GTK y Windows** (imprimen la sesión anotada desde
+  su `output_snapshot`). **Print** espera a la cola de ediciones y abre `openPrintSnapshot`: lo que
+  escribiría un guardado ahora, así que entran las ediciones de página, anotaciones, rellenos y marcas
+  de agua sin guardar. No es un paso: ni historial ni refresco.
+- **Sin puerta de permiso (decisión, no hallazgo).** En el core **no existe** regla para el bit de
+  impresión de `/P` (`pdf-manip/src/security.rs` interpreta extracción, anotar, modificar y
+  ensamblar; nada más), y ningún nativo pregunta antes de su diálogo de impresión (GTK
+  `print_document`, Windows `PreparePrintAsync`, Android `PdfPrintDocumentAdapter`). Por eso la web
+  no inventa una: un PDF con `/P` sin el bit 3 imprime, y el E2E lo fija. `openImageExport` sí exige
+  el permiso de extracción, así que la impresión **no** lo reutiliza: `pdf-wasm` gana
+  `openPrintSnapshot` (la misma instantánea sin esa puerta, `DocumentModel::print_snapshot_bytes`;
+  `output_snapshot_bytes` = puerta + esa función). Si se quiere honrar el bit de impresión, es una
+  regla nueva del core para todos los shells, no de la web.
+- **`pdf-wasm`:** `Engine.openPrintSnapshot(doc)` → `OpenedImageExport` en el mismo mapa que las
+  exportaciones: las páginas salen con `exportPageImage` y se cierra con `closeImageExport`.
+  `open_export` y la impresión comparten `open_snapshot`. 2 tests nativos (`model/export.rs`: la
+  anotación pendiente entra y no se registra nada; un documento sin extracción imprime) y 1
+  `wasm-bindgen-test` (`tests/export.rs`). Los nativos se vieron en rojo.
+- **`@vitela/core`:** `Engine.openPrintSnapshot(handle)` (`client`, `protocol`, `handler`,
+  `documentEngine`). 2 Vitest nuevos (`documentEngine`: un documento restringido imprime y se cierra
+  como una exportación, documento cerrado → `DocumentNotFound`; pdfium real: el resaltado sin
+  guardar cambia los píxeles, nada que deshacer) y 2 ampliados (`client`, `handler`). Vistos en rojo.
+- **`@vitela/viewer` (`features/print/`):** puros con tests `printSheets.ts` (`PRINT_DPI` = 150,
+  `pngSize` del IHDR, `sheetOf` en puntos desde los píxeles, `printStyles` con un `@page` con nombre
+  por tamaño distinto, `writePrintDocument`) y `printText.ts` (`printKey`: ⌘+P en Apple, Ctrl+P en el
+  resto, sin otros modificadores; frases). Adaptador `printFrame.ts` (`iframeSurface`); contenedor
+  `usePrint`; `usePrintKey`; vista `PrintControls` (estado + **Cancel print**). En el menú **Tools**
+  tras Export images. Flujo: cola → instantánea → techo de raster a 150 DPI para todas las páginas
+  (rechazo "Page N is too large to print." antes de dibujar) → una página cada vez a PNG por el core,
+  guardando solo el archivo como blob URL ("Preparing page 2 of 5 for printing…"; Cancel para tras
+  la página en curso) → la instantánea se cierra **antes** del diálogo, acabe como acabe → marco →
+  `print()`. 150 DPI y no los 300 de GTK: la web retiene cada página como imagen hasta que se cierra
+  el diálogo (Letter ≈ 2 Mpx en vez de 8,4).
+- **El marco:** `iframe` oculto (`srcdoc`: Firefox sustituye el primer documento de un marco sin
+  `src` al cargar; 0 × 0 y `visibility: hidden`, no `display: none`, que en Firefox no imprime)
+  **dentro de la raíz del editor**, nunca en otro sitio de la página anfitriona; imprime su propia
+  ventana, así que la página de alrededor nunca se imprime y ningún estilo cruza (el marco tiene un
+  solo `<style>` propio). Cada página es una hoja del tamaño de su imagen en puntos, con un `@page`
+  con nombre por tamaño: la página girada sale apaisada. El título es el nombre sin `.pdf` (lo que el
+  diálogo propone al guardar en archivo). El marco y sus blobs se van con `afterprint`, o con la
+  siguiente impresión, un documento nuevo o el desmontaje (si un navegador no avisa, la siguiente
+  impresión lo limpia).
+- **Ctrl/⌘+P** con el alcance de T-246 (`EditorScope.ownsEvent`): con el foco en el editor, o sin
+  foco tras el último clic/soltado en él; en el anfitrión, la tecla apuntada a la página anfitriona
+  se deja al navegador. Tampoco con un diálogo modal del editor abierto, ni si otro manejador ya la
+  tomó.
+- **Tests:** `@vitela/viewer` 16 nuevos (4 de `printSheets`, 2 de `printText`, 9 de
+  `PrintControls`: orden cola/instantánea/techo/dibujo/cierre/marco/print, hoja apaisada,
+  `afterprint` libera marco y blobs, Cancel, techo, fallo de página, fallo de apertura, una segunda
+  impresión limpia la anterior y un `afterprint` tardío no toca la nueva, desmontaje sin marco, la
+  tecla dentro y fuera/con diálogo; 1 de la marca de agua) y el del menú del workspace actualizado.
+  `printSheets`/`printText` y el test del menú se vieron en rojo; el hook y su test se escribieron
+  juntos, y se comprobó que el test cae al quitar la limpieza previa y la condición del diálogo.
+- **E2E (`e2e/print.spec.ts`, 6 × 3, uno solo en Chromium):** un script de inicio sustituye el
+  `print` del marco (y el de la página) y anota lo que tenía el marco. Tres páginas → tres imágenes
+  en orden, 1275 × 1650 y la girada 1650 × 1275, en hojas `612pt 792pt` / `792pt 612pt`, con tinta,
+  marco `aria-hidden` y `tabindex=-1`, y `afterprint` lo quita; **Chromium:** el documento del marco
+  impreso a PDF (`page.pdf`, `preferCSSPageSize`) tiene esas dos `MediaBox`; una marca de agua sin
+  guardar añade tinta a la hoja y el documento sigue sin guardar; Ctrl+P con el foco en la app
+  imprime el marco y nunca la app; un PDF con `/P` sin imprimir ni copiar imprime; **embed:** Ctrl+P
+  con el foco en un botón del anfitrión no imprime nada del editor, y en el editor imprime una imagen
+  desde un marco dentro de `#host-frame` con una sola hoja de estilo y `margin: 0`. `phone-bar`
+  espera Print en el menú.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  --all-targets -- -D warnings` nativo y `cargo clippy --locked --target wasm32-unknown-unknown -p
+  pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+  141 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 211, `build`. `@vitela/viewer`:
+  `tsc -b`, Vitest 90 / 884, `build`. `apps/web`: `typecheck` (`tsc -b`), Vitest 6 / 19, `npm run
+  build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`) **316 pasan, 1 falla, 22 omitidos** (los de File System Access fuera de Chromium y el de `page.pdf` fuera de Chromium). El fallo fue `compress.spec.ts:57` en WebKit (timeout esperando que la primera tarjeta de Organize quede estable, nada de impresión); repetido aislado `--repeat-each=5` pasa 20 / 20, y una pasada completa anterior dio 317 pasan y 0 fallos por test (ese proceso no llegó a imprimir el resumen: quedó colgado al cerrar los servidores de `preview`), `zero-network`,
+  `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32);
+  `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** el diálogo real de impresión de cada navegador (el E2E lo sustituye) y
+  el papel físico; Safari puede ignorar los `@page` con nombre (la imagen conserva proporción con
+  `object-fit: contain`); sin vista previa propia ni elección de páginas (son del diálogo del
+  navegador); un anfitrión con CSP `style-src` estricta bloquearía el `<style>` del marco (la app no
+  tiene CSP); el bit de impresión de `/P` no se honra (ver arriba).
 
 ## Verificación
 
