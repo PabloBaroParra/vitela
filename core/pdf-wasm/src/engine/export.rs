@@ -88,6 +88,19 @@ impl Engine {
         self.open_export(doc).map_err(js_error)
     }
 
+    /// Starts a print (B26 T-257): the same snapshot as `openImageExport`,
+    /// pages drawn with `exportPageImage` and closed with
+    /// `closeImageExport`, but asked no permission — no native shell asks
+    /// one before printing, and the core has no print-bit rule.
+    #[wasm_bindgen(js_name = openPrintSnapshot)]
+    pub fn open_print_snapshot(&mut self, doc: u32) -> Result<OpenedImageExport, JsValue> {
+        let bytes = self
+            .document(doc)
+            .and_then(|open| open.model.print_snapshot_bytes())
+            .map_err(js_error)?;
+        self.open_snapshot(doc, bytes).map_err(js_error)
+    }
+
     /// One page of an export, rendered at `dpi` and encoded as `format`:
     /// the bytes of the file. Refused with `DocumentNotFound` for an export
     /// that is not open, `PageIndexOutOfBounds`, `UnsupportedOperation` for
@@ -117,9 +130,18 @@ impl Engine {
 
 impl Engine {
     fn open_export(&mut self, doc: u32) -> Result<OpenedImageExport, EngineError> {
+        let bytes = self.document(doc)?.model.output_snapshot_bytes()?;
+        self.open_snapshot(doc, bytes)
+    }
+
+    /// Opens `bytes`, a snapshot of `doc`, as an export to draw pages from.
+    fn open_snapshot(
+        &mut self,
+        doc: u32,
+        bytes: Vec<u8>,
+    ) -> Result<OpenedImageExport, EngineError> {
         let open = self.document(doc)?;
         let page_count = open.model.page_count();
-        let bytes = open.model.output_snapshot_bytes()?;
         let password = open.render_password.clone();
         let render = self
             .renderer

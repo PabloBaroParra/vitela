@@ -59,7 +59,7 @@ test('Tools works from the keyboard and gives the focus back after the dialog', 
   const menu = page.getByRole('menu', { name: 'Tools' });
   await expect(menu).toBeVisible();
   await expect(more(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images', 'Protect', 'Watermark', 'Document properties']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images', 'Print', 'Protect', 'Watermark', 'Document properties']);
   await expect(menu.getByRole('menuitem', { name: 'Compress' })).toBeFocused();
 
   await page.keyboard.press('ArrowDown');

@@ -25,11 +25,13 @@ import {
   type Engine,
   type WatermarkDefaults,
 } from '@vitela/core';
+import { MAX_STAMP_BYTES } from '../annotations/stamps';
 import type { OpenDocument } from '../document/useDocument';
 import { sentence } from '../../ui/text';
 import {
   FONT_GAP_HINT,
   NO_PAGES,
+  PICTURE_TOO_LARGE,
   PICTURE_UNREADABLE,
   RANGE_MISSING,
   draftOf,
@@ -164,8 +166,16 @@ export function useWatermark(
     );
   }, []);
 
-  /** The picked file's bytes become the draft's picture; whether they decode is the core's call on Add. */
+  /**
+   * The picked file's bytes become the draft's picture; whether they decode is
+   * the core's call on Add. A file over the image-stamp cap is refused before
+   * it is read (the draft keeps its earlier picture), as the Image tool does.
+   */
   const pickPicture = useCallback(async (file: File) => {
+    if (file.size > MAX_STAMP_BYTES) {
+      setActivity((a) => (a.kind === 'editing' && !a.running ? { ...a, error: PICTURE_TOO_LARGE } : a));
+      return;
+    }
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(await file.arrayBuffer());

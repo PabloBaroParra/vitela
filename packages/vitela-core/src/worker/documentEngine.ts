@@ -142,6 +142,8 @@ export interface CoreEngine extends CoreText {
   openImageExport(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   exportPageImage(exportId: number, pageIndex: number, dpi: number, format: string): Uint8Array;
   closeImageExport(exportId: number): boolean;
+  /** `openImageExport`'s snapshot for printing: no permission asked. */
+  openPrintSnapshot(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;
   undo(doc: number): boolean;
@@ -381,6 +383,15 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     },
     async closeImageExport(exportHandle: number) {
       return core.closeImageExport(exportHandle);
+    },
+    async openPrintSnapshot(document: DocumentHandle) {
+      assertOpen(document);
+      const opened = core.openPrintSnapshot(document);
+      try {
+        return { handle: opened.id, pageCount: opened.pageCount };
+      } finally {
+        opened.free();
+      }
     },
     async extractionRefusal(document: DocumentHandle) {
       assertOpen(document);

@@ -6,6 +6,7 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { WatermarkControls } from './WatermarkControls';
 import { useWatermark, watermarkBusy, type WatermarkHost } from './useWatermark';
+import { MAX_STAMP_BYTES } from '../annotations/stamps';
 
 const document: OpenDocument = {
   name: 'a.pdf',
@@ -266,6 +267,31 @@ describe('WatermarkControls', () => {
       rotationDegrees: 0,
       behind: true,
     });
+  });
+
+  it('refuses a picture over the image-stamp cap without reading it, keeping the earlier one', async () => {
+    const { engine, applied } = watermarkEngine();
+    const shown = await opened(engine, host().value);
+    fireEvent.click(within(shown).getByRole('radio', { name: 'Picture' }));
+    const logo = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    fireEvent.change(within(shown).getByLabelText('Choose picture…'), {
+      target: { files: [new File([logo], 'logo.png', { type: 'image/png' })] },
+    });
+    expect(await within(shown).findByText('logo.png (1 KB).')).toBeTruthy();
+
+    const huge = new File([new Uint8Array([1])], 'huge.png', { type: 'image/png' });
+    Object.defineProperty(huge, 'size', { value: MAX_STAMP_BYTES + 1 });
+    let read = false;
+    huge.arrayBuffer = async () => ((read = true), new ArrayBuffer(1));
+    fireEvent.change(within(shown).getByLabelText('Choose another picture…'), { target: { files: [huge] } });
+    expect((await within(shown).findByRole('alert')).textContent).toBe(
+      'Pictures larger than 20 MB cannot be stamped on the pages. Choose a smaller one.',
+    );
+    expect(read).toBe(false);
+    expect(within(shown).getByText('logo.png (1 KB).')).toBeTruthy();
+    add(shown);
+    expect(await screen.findByText('Watermark added to 3 pages.')).toBeTruthy();
+    expect(applied.at(-1)).toMatchObject({ mark: { kind: 'picture', image: logo } });
   });
 
   it('offers only Close, with the core sentence, when the document cannot take a stamp', async () => {

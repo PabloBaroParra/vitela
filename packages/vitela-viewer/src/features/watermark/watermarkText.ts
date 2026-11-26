@@ -7,6 +7,7 @@
 // (`watermarkDefaults`), never a copy of its constants.
 
 import type { WatermarkDefaults, WatermarkEdit } from '@vitela/core';
+import { MAX_STAMP_BYTES } from '../annotations/stamps';
 
 export type WatermarkKind = 'text' | 'picture';
 export type WatermarkPages = 'all' | 'current' | 'custom';
@@ -61,6 +62,7 @@ export const PICTURE_MISSING = 'Choose a PNG or JPEG picture to stamp on the pag
 export const RANGE_MISSING = 'Type which pages to stamp, for example 1-3,7.';
 export const NO_PAGES = 'This document has no pages to stamp.';
 export const PICTURE_UNREADABLE = 'That file could not be read as a PNG or JPEG picture. Choose another one.';
+export const PICTURE_TOO_LARGE = `Pictures larger than ${MAX_STAMP_BYTES / (1024 * 1024)} MB cannot be stamped on the pages. Choose a smaller one.`;
 export const FONT_GAP_HINT = 'Use Latin letters, digits and punctuation.';
 
 const clamp = (value: number, { min, max }: SliderRange) => Math.min(max, Math.max(min, value));

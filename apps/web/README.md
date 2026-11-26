@@ -378,7 +378,7 @@ are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
 
 ## Tools menu
 
-The document tools — **Compress**, **Export images**, **Protect**,
+The document tools — **Compress**, **Export images**, **Print**, **Protect**,
 **Watermark** and **Document properties**, in that order — are one menu
 button, **Tools** (`ui/MenuButton.tsx`, the WAI-ARIA "menu button" pattern),
 in the workspace bar before Save, in both screens and at every width (T-256).
@@ -477,6 +477,51 @@ scrolling to page 3) as PNG at 144 DPI is one download, `vector_only-3.png`,
 turned in Organize and not saved exports landscape and stays unsaved and
 undoable; a range past the last page shows the core's sentence and 600 DPI the
 range refusal, with nothing downloaded.
+
+## Print
+
+`features/print/` (T-257). **Print**, in **Tools** in both screens, or
+Ctrl+P (⌘+P on Apple platforms) while the key is the editor's — the same
+scope as the history keys: focus in the editor, or nothing focused after the
+user's last click or drop there; on an embedding host's page a key aimed at
+the host is left to the browser, which prints the host's page. The key is
+also left alone while one of the editor's dialogs is open. Native printing is
+the browser's: its dialog picks the printer, copies and paper.
+
+What prints is what a save would write now, as on GTK and Windows (which
+print an annotated session from its output snapshot): Print waits for the
+queued edits, then `openPrintSnapshot` takes the same snapshot as Export
+images, so pending page edits, annotations, fills and watermarks are on the
+paper. Unlike the export it asks **no permission**: the core has no rule for
+the `/P` print bit and no native shell asks one, so a document that withholds
+printing still prints (a decision for the core, not the web, if it changes).
+A page over the raster ceiling at 150 DPI is refused up front; otherwise each
+page is rendered and encoded as PNG by the core (`exportPageImage`) one at a
+time, shown as "Preparing page 2 of 5 for printing…" with **Cancel print**
+(the page in hand finishes, then nothing prints). Only the encoded files are
+kept, as blob URLs; the snapshot is closed before the dialog opens.
+
+The pages go into a hidden `iframe` (`printFrame.ts`, `srcdoc`, laid out at
+0 × 0 because a `display: none` frame does not print in Firefox) inside the
+editor's root, never elsewhere on a host's page, and the frame's own window
+prints: the page around it never does, and no stylesheet crosses either way
+(the frame has one `<style>` of its own and nothing else). Each page is one
+sheet sized in points from its image at 150 DPI, a named `@page` per distinct
+size, so a page turned a quarter prints landscape. The document title is the
+file name without `.pdf` (what the dialog offers when it saves to a file). The
+frame and its images go once the dialog reports `afterprint`, or with the
+next print, a new document or the editor.
+
+E2E (`e2e/print.spec.ts`, the dialog stubbed by an init script that records
+what the frame held): three pages print as three images in order, 1275 × 1650
+px and the turned one 1650 × 1275, on `612pt 792pt` and `792pt 612pt` sheets;
+in Chromium the frame's document printed to PDF has those two page sizes; a
+pending watermark adds ink to the printed page and the document stays
+unsaved; Ctrl+P with focus in the app prints the frame and never the app; a
+document whose `/P` withholds printing and copying still prints; embedded,
+Ctrl+P on a host button prints nothing of the editor's, and in the editor
+prints one image from a frame inside `#host-frame` with only its own
+stylesheet.
 
 ## Protect
 

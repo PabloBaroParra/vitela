@@ -754,6 +754,13 @@ export interface Engine {
   /** Ends an export, freeing its snapshot. `false` if it was not open. */
   closeImageExport(exportHandle: ImageExportHandle): Promise<boolean>;
   /**
+   * Starts a print: the same snapshot as `openImageExport` (what a save would
+   * write now), drawn with `exportPageImage` and ended with
+   * `closeImageExport`, but asked no permission — no native shell asks one
+   * before printing, and the core has no rule for the print bit.
+   */
+  openPrintSnapshot(document: DocumentHandle): Promise<ImageExport>;
+  /**
    * Why no page of `document` can be extracted (or split off), as the core's
    * sentence, or `null` when they can: its permissions withhold extracting
    * (`/P` bit 5, not page assembly: the open document does not change), or

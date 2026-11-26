@@ -64,6 +64,7 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     pageImageFileNames: async () => ['a-1.png'],
     firstPageTooLargeToExport: async () => null,
     openImageExport: async () => ({ handle: 9, pageCount: 3 }),
+    openPrintSnapshot: async () => ({ handle: 10, pageCount: 3 }),
     exportPageImage: async () => new Uint8Array([0x89, 0x50]),
     closeImageExport: async () => true,
     protectionRefusal: async () => null,
@@ -402,6 +403,7 @@ describe('handleRequest', () => {
       firstPageTooLargeToExport: async (...args) => (calls.push(['ceiling', ...args]), 2),
       openImageExport: async (...args) => (calls.push(['open', ...args]), { handle: 9, pageCount: 3 }),
       closeImageExport: async (...args) => (calls.push(['close', ...args]), true),
+      openPrintSnapshot: async (...args) => (calls.push(['print', ...args]), { handle: 10, pageCount: 2 }),
     });
     const value = async (id: number, request: Parameters<typeof handleRequest>[1]['request']) =>
       (await handleRequest(engine, { id, request })).message;
@@ -425,12 +427,18 @@ describe('handleRequest', () => {
       value: { handle: 9, pageCount: 3 },
     });
     expect(await value(6, { kind: 'closeImageExport', export: 9 })).toEqual({ type: 'result', id: 6, value: true });
+    expect(await value(7, { kind: 'openPrintSnapshot', document: 5 })).toEqual({
+      type: 'result',
+      id: 7,
+      value: { handle: 10, pageCount: 2 },
+    });
     expect(calls).toEqual([
       ['parse', '1,3', 3],
       ['names', 'r.pdf', [0, 2], 3, 'png'],
       ['ceiling', 5, [0, 2], 600],
       ['open', 5],
       ['close', 9],
+      ['print', 5],
     ]);
   });
 

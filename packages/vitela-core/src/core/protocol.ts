@@ -125,7 +125,8 @@ export type EngineRequest =
       readonly dpi: number;
       readonly format: ImageExportFormat;
     }
-  | { readonly kind: 'closeImageExport'; readonly export: ImageExportHandle };
+  | { readonly kind: 'closeImageExport'; readonly export: ImageExportHandle }
+  | { readonly kind: 'openPrintSnapshot'; readonly document: DocumentHandle };
 
 export interface EngineResults {
   open: OpenedDocument;
@@ -164,6 +165,7 @@ export interface EngineResults {
   openImageExport: ImageExport;
   exportPageImage: Uint8Array;
   closeImageExport: boolean;
+  openPrintSnapshot: ImageExport;
   extractionRefusal: string | null;
   extractSourceIsSigned: boolean;
   extract: Uint8Array;

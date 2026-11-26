@@ -439,6 +439,13 @@ function fakeCore(
       return new Uint8Array([snapshot.marker, id, dpi, format === 'png' ? 1 : 2]);
     },
     closeImageExport: (exportId) => exports.delete(exportId),
+    // No permission asked: a restricted document prints.
+    openPrintSnapshot: (doc) => {
+      const { marker, pages } = known(doc);
+      const id = nextExport++;
+      exports.set(id, { marker, ids: pages.map((page) => page.id) });
+      return { id, pageCount: pages.length, free: () => freed.push('print') };
+    },
     saveCompressedToBytes: (doc, preset, invalidate) => {
       const { marker, pages } = known(doc);
       if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
@@ -940,6 +947,20 @@ describe('documentEngine', () => {
     expect(exports.size).toBe(0);
     expect(await engine.closeImageExport(exportHandle)).toBe(false);
     await expect(engine.exportPageImage(exportHandle, 0, 72, 'png')).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('prints from a snapshot a restricted document still gives, drawn and closed like an export', async () => {
+    const { core, edits, exports, freed } = fakeCore({ pages: 2, restricted: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle, info } = await engine.open(new Uint8Array([10]));
+    const opened = await engine.openPrintSnapshot(handle);
+    expect(opened).toEqual({ handle: 50, pageCount: 2 });
+    expect(freed).toContain('print');
+    expect(await engine.exportPageImage(opened.handle, 1, 150, 'png')).toEqual(new Uint8Array([10, info.pageIds[1]!, 150, 1]));
+    expect(await engine.closeImageExport(opened.handle)).toBe(true);
+    expect(exports.size).toBe(0);
+    await engine.close(handle);
+    await expect(engine.openPrintSnapshot(handle)).rejects.toMatchObject({ name: 'DocumentNotFound' });
   });
 
   it('forwards an export the document withholds, and refuses a closed document', async () => {
