@@ -142,6 +142,18 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `EditNotPermitted`, `SignaturesWouldBeInvalidated` (unless told the user
   agreed) and `SaveFailed`. It records no edit, the open document's own
   protection does not change, and the engine keeps neither password.
+  Document properties: `documentProperties(handle)` answers the six text keys
+  of `/Info` (`title`, `author`, `subject`, `keywords`, `creator`,
+  `producer`; `null` for an absent key) as the next save would write them —
+  the last pending change's, else the file's — however restricted the
+  document is. `metadataRefusal(handle)` says why they cannot be changed (the
+  core's clause: the document's permissions withhold modification, the gate
+  every native shell asks) or `null`. A change is an ordinary edit:
+  `applyEdit(handle, { kind: 'setDocumentProperties', properties })` records
+  one undo step (an empty or `null` key is removed, the creation and
+  modification dates are kept, the values the document already has record
+  nothing) and rejects with `EditNotPermitted` on a refused document; Save
+  writes it into `/Info`. No XMP stream is written, as on the native shells.
   Extract and Split: `extractionRefusal(handle)` says why no page can leave
   the document (the core's sentence: its `/P` withholds extraction — bit 5,
   not page assembly — or its encryption cannot survive the rewrite, e.g.

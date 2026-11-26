@@ -18,6 +18,9 @@
 // A form fill does change the pixels (pdfium paints the field), so a fill,
 // and its undo and redo, refresh inside the request like a page edit.
 //
+// A properties change is a step like a page edit; the core counts it as one
+// the preview shows, so it refreshes too (a reopen with the same pixels).
+//
 // A compressed save is not a step at all: it records nothing and refreshes
 // nothing, like an ordinary save, and so is a protected copy (its passwords
 // go to the core and are kept nowhere). Neither is an image export: it draws from
@@ -36,6 +39,7 @@ import type {
   EditedDocument,
   Engine,
   FormEdit,
+  MetadataEdit,
   FormField,
   ImportedDocument,
   OpenedDocument,
@@ -65,12 +69,18 @@ import {
   type CoreCompressRefusal,
 } from './compress.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
+import {
+  documentProperties,
+  metadataCommand,
+  type CoreDocumentProperties,
+  type CoreMetadataEdits,
+} from './metadata.js';
 import { splitParts, type CoreSplitFunctions } from './extract.js';
 import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
-export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
+export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits, CoreMetadataEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -102,6 +112,9 @@ export interface CoreEngine extends CoreText {
   compressionRefusal(doc: number): CoreCompressRefusal | null | undefined;
   compressionInvalidatesSignatures(doc: number): boolean;
   saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
+  documentProperties(doc: number): CoreDocumentProperties;
+  /** `undefined` (wasm-bindgen's `None`) when the properties can be changed. */
+  metadataRefusal(doc: number): string | null | undefined;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -298,6 +311,14 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       assertOpen(document);
       return compressedDocument(core.saveCompressedToBytes(document, preset, invalidateSignatures));
     },
+    async documentProperties(document: DocumentHandle) {
+      assertOpen(document);
+      return documentProperties(core.documentProperties(document));
+    },
+    async metadataRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.metadataRefusal(document) ?? null;
+    },
     async protectionRefusal(document: DocumentHandle) {
       assertOpen(document);
       return core.protectionRefusal(document) ?? null;
@@ -364,7 +385,9 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
             ? pageCommand(edits, edit)
             : isFormEdit(edit)
               ? formFieldCommand(edits, edit, () => core.formFillAllowed(document))
-              : annotationCommand(
+              : isMetadataEdit(edit)
+                ? metadataCommand(edits, edit)
+                : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -473,6 +496,10 @@ function isPageEdit(edit: Edit): edit is PageEdit {
 
 function isFormEdit(edit: Edit): edit is FormEdit {
   return edit.kind === 'setFieldValue';
+}
+
+function isMetadataEdit(edit: Edit): edit is MetadataEdit {
+  return edit.kind === 'setDocumentProperties';
 }
 
 /** An `Error` named like the core's own refusals, so the UI branches alike. */

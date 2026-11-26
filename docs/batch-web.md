@@ -2162,7 +2162,7 @@ Gates (Windows 11, local):
 | **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
 | **T-253** ✓ | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
 | **T-254** ✓ | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
-| **T-255** | Metadatos. | Playwright: editar, guardar y releer. |
+| **T-255** ✓ | Metadatos. | Playwright: editar, guardar y releer. |
 | **T-256** | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
 | **T-257** | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
 | **T-258** | Modelo de contenido en wasm (`readPageContent`, `textRunLook`, familias de fuente, `CheckpointSession`). | `wasm-bindgen-test` + Vitest contra pdfium real. |
@@ -2657,6 +2657,97 @@ Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize", **Extract*
   ni en More tools (están en Organize); sin zip (como Export images); la aceptación de varias
   descargas del navegador no se prueba (Playwright las acepta todas); sin lector de pantalla
   real.
+
+### T-255 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Document properties") y
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **Paridad elegida (Android):** diálogo **Document properties** con las seis claves de texto de
+  `/Info` (Title, Author, Subject, Keywords, Creator, Producer), con las etiquetas y el orden de
+  Android; Windows y Linux muestran las mismas en un panel y además editan las dos fechas, que
+  aquí (como en Android) ni se muestran ni se editan: cada cambio las conserva. **Sin XMP:**
+  ningún shell sincroniza un flujo `/Metadata` (`pdf_save::metadata` solo escribe `/Info`), así
+  que el web tampoco. Puerta: el core no la tiene (`EditClass::of(SetDocumentInfo)` no pide
+  nada); los tres nativos preguntan el permiso de modificar contenido
+  (`content_editing_is_allowed`), y eso hace `pdf-wasm`.
+- **`pdf-wasm`** (`model/metadata.rs`, `engine/metadata.rs`, `dto/metadata.rs`):
+  `documentProperties(doc)` → `DocumentPropertiesEntry` (seis `Option<String>`), del último
+  `SetDocumentInfo` pendiente o del `/Info` del archivo (`pdf_save::pending_document_info` sobre
+  `LopdfDocument::document_info`, como `read_document_info` de `pdf-ffi`); `metadataRefusal(doc)`
+  → la frase (`this document does not permit metadata changes`, la de Android) o `undefined`;
+  `EditCommand.setDocumentProperties(title, author, subject, keywords, creator, producer)` por
+  `applyEdit`: un `Command::SetDocumentInfo { before, after }` (todo el diccionario, un paso de
+  deshacer), `""` → clave ausente (regla de Android, ahora en Rust), fechas conservadas, y sin
+  paso si no cambia nada. Rechazo → `EditNotPermitted`, sin registrar. El core cuenta el paso
+  como visible en la vista previa (`shows_in_session_preview`), así que `@vitela/core` refresca
+  (una reapertura con los mismos píxeles); no se tocó esa regla.
+- **`@vitela/core`:** `Engine` gana `documentProperties(handle)` y `metadataRefusal(handle)`;
+  `Edit` gana `MetadataEdit` (`{ kind: 'setDocumentProperties', properties }`); tipos
+  `DocumentProperties` y `MetadataEdit` exportados; `worker/metadata.ts` traduce `null` ↔
+  `undefined` y libera el objeto wasm.
+- **`@vitela/viewer` (`features/properties/`):** puro con tests `propertiesText.ts` (campos,
+  borrador, `propertiesChange`: vacío → `null`, nada nuevo → `null`); contenedor
+  `useDocumentProperties` (lee valores y puerta al abrir; **Apply** espera la cola de
+  ediciones, relee — un deshacer pudo llegar, como Android relee bajo su lane — y solo registra
+  un cambio real; informa con `revise` y marca sucio; un rechazo deja el diálogo y lo tecleado);
+  vistas `PropertiesDialog`, `PropertiesControls` (estado + diálogo, en la barra) y
+  `PropertiesToggle`. **`useSave`** ahora espera **varias** colas (`waitForEdits` guarda un
+  `Set`): la pantalla y el Apply del diálogo; antes la última registrada reemplazaba a la otra.
+- **UX: dónde va Properties.** Primero se puso un botón en la barra del workspace: en el host
+  de `embed` (botones del host enormes) la barra ya ocupa 1191 de 1200 px y el botón la partía
+  en dos filas (falló `embed.spec.ts` "undoes a stamp dropped…"). Después se probó convertir la
+  línea del documento ("report.pdf — 1 page") en el botón (cero ancho): rompía la premisa de
+  `embed.spec.ts` (esa línea no toma el foco) y chocaba con búsquedas por rol (`copy.pdf` contra
+  el botón Copy de `text.spec.ts`). Luego, en la fila **Annotations** del visor junto a
+  **Comments** y **Forms** (donde Windows y Linux tienen el panel): a 1280 px esa fila dejaba de
+  caber junto a Draw e History, aparecía una fila más de barras y el trazo de
+  `draw.spec.ts` salía del viewport en Firefox. Queda **al final de la barra View** del visor
+  (zoom y página): crece para llenar la fila que comparte con Text (~144 px libres en la app,
+  ~770 en el host; el botón ocupa ~100), así no añade filas; `properties.spec.ts` lo fija
+  (View con Text y Annotations con Draw en la misma fila). En el móvil, oculto (≤ 600 px) y en
+  **More tools**. El diálogo y su estado viven en la barra; el foco vuelve al botón, o a More
+  tools si no se ve. En escritorio no hay acceso desde Organize.
+- **Parte A (revisión de T-254):** (1) `useSplit` pide al motor como mucho **una parte por
+  delante** de la que se escribe (como Export images, página a página): Cancel para también el
+  trabajo y solo hay dos partes en memoria. Contrapartida: ya no salen todas del mismo estado;
+  una edición hecha mientras corre llega a las partes pedidas después (la cabecera lo dice).
+  (2) `useOrganize.settledNow` repite mientras haya un paso en curso o uno esperando turno
+  (contador `waiting` de `runInTurn`), así Save espera también la importación encolada.
+- **Tests:** `pdf-wasm` 6 nativos nuevos (`model/metadata.rs`: lectura y claves ausentes, un paso
+  deshecho/rehecho antes de guardar, guardado con la fecha de creación conservada y la clave
+  vaciada borrada, sin cambio no hay paso, permiso denegado de solo lectura, historial mezclado
+  con páginas) y 2 `wasm-bindgen-test` (`tests/metadata.rs`). `@vitela/core` 6 Vitest nuevos (1
+  de `client`, 1 de `handler`, 3 de `documentEngine`, 1 contra pdfium real: cambiar, deshacer,
+  rehacer, guardar y releer). `@vitela/viewer` 18 nuevos (1 de `useSplit`, 1 de `useOrganize`, 1
+  de `useSave`, 5 de `propertiesText`, 9 de `PropertiesControls`, 1 del workspace). Vistos en rojo
+  antes de implementar: los de Parte A (parte 3 pedida; Save no esperaba la importación), el de
+  `useSave`, los de `client`/`handler`/`documentEngine` (5) y los de `PropertiesControls` (sin
+  módulo; y otra vez al cambiar el disparador). Los de `pdf-wasm`, `propertiesText`, pdfium real
+  y el del workspace se escribieron junto a su código.
+- **E2E (`e2e/properties.spec.ts`, 4 × 3):** título y autor (`Ana Peña`) aplicados, sin guardar,
+  deshechos y rehechos (el diálogo muestra cada estado), guardados: el `/Info` del archivo los
+  tiene y no tiene `/Subject` (helper nuevo `documentInfo` en `e2e/pdfObjects.ts`: sigue la
+  referencia `/Info` del tráiler, objeto suelto o dentro de un `/ObjStm`, y decodifica literales
+  y UTF-16BE); reabierto, el diálogo los muestra y un Apply sin cambios no registra nada; un PDF
+  con `/P` sin el bit 4 (abierto con su contraseña de usuario) es de solo lectura con solo Close;
+  en el móvil se abre desde More tools, cabe en 390 px y el foco vuelve a More tools; a 1280 px
+  el botón no crea una fila de barras nueva.
+  `phone-bar.spec.ts` lista Properties en More tools.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo
+  test --locked -p pdf-wasm` 131 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  203, `build`. `@vitela/viewer`: `tsc -b`, Vitest 85 / 851, `build`. `apps/web`: `tsc -b`,
+  Vitest 6 / 19, `npm run build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`)
+  **283 pasan, 20 omitidos** (los de File System Access fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** sin fechas (Windows y Linux las editan); sin acceso a Properties
+  desde Organize en escritorio; sin claves personalizadas ni `/Trapped` (fuera de alcance del
+  core, decisión 2 del batch de metadatos); sin lector de pantalla real.
 
 ## Verificación
 

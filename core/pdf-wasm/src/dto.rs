@@ -17,6 +17,7 @@ mod export;
 mod extract;
 mod form;
 mod import;
+mod metadata;
 
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
 pub use compress::{CompressRefusalEntry, CompressedSave};
@@ -24,6 +25,7 @@ pub use export::OpenedImageExport;
 pub use extract::SplitPart;
 pub use form::FormFieldEntry;
 pub use import::{DocumentBlock, ImportedPages, PreparedImport};
+pub use metadata::DocumentPropertiesEntry;
 
 /// One page's layout size in PDF points and the clockwise turn (0, 90, 180
 /// or 270) it is drawn at.

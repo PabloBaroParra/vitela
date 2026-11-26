@@ -36,6 +36,7 @@ mod export;
 mod extract;
 mod form;
 mod import;
+mod metadata;
 mod protect;
 
 pub use annotation::{free_text_layout, stamp_placement};

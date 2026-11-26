@@ -308,4 +308,36 @@ describe('SplitControls', () => {
     expect(await screen.findByText('Split cancelled. 1 written.')).toBeTruthy();
     expect(delivered).toEqual(['a-part1.pdf']);
   });
+
+  it('asks the engine for at most one part ahead, so a cancel spares the parts after it', async () => {
+    const { engine, extracted } = extractEngine();
+    const delivered: string[] = [];
+    let release: () => void = () => {};
+    const delivery: Delivery = {
+      prepare: async () => null,
+      deliver: async ({ name }) => {
+        delivered.push(name);
+        if (delivered.length === 1) await new Promise<void>((resolve) => (release = resolve));
+        return { how: 'downloaded', name, fellBack: null };
+      },
+    };
+    render(<SplitHarness engine={engine} delivery={delivery} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Split' }));
+    const shown = await splitDialog();
+    fireEvent.change(field(shown, 'Split after page'), { target: { value: '2,4' } });
+    fireEvent.click(within(shown).getByRole('button', { name: 'Split' }));
+    await waitFor(() => expect(delivered).toEqual(['a-part1.pdf']));
+    // Part 1 is being written: part 2 may be on its way, part 3 is not asked for.
+    expect(extracted).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel split' }));
+    release();
+    expect(await screen.findByText('Split cancelled. 1 written.')).toBeTruthy();
+    expect(extracted).toEqual([
+      [0, 1],
+      [2, 3],
+    ]);
+  });
 });

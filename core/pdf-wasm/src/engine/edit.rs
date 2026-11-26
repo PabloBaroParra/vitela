@@ -19,19 +19,21 @@ use pdf_document::Orientation;
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
-use crate::model::{AnnotationEdit, FieldFill, PageEdit};
+use crate::model::{AnnotationEdit, DocumentProperties, FieldFill, PageEdit};
 
-/// What an `EditCommand` carries: a page edit, an annotation edit or a
-/// form fill.
+/// What an `EditCommand` carries: a page edit, an annotation edit, a form
+/// fill or a change of the document's properties.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
     Annotation(AnnotationEdit),
     Form(FieldFill),
+    Metadata(DocumentProperties),
 }
 
 /// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
-/// (`engine/annotation.rs`) or a form fill (`engine/form.rs`). Positions are
+/// (`engine/annotation.rs`), a form fill (`engine/form.rs`) or a change of
+/// the document's properties (`engine/metadata.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -95,7 +97,10 @@ impl Engine {
     /// `EditNotPermitted` when the document withholds the annotate-or-fill
     /// permission (asked first), then `FormFieldNotFound` or
     /// `UnsupportedOperation` (a value the field cannot hold); unlike an
-    /// annotation edit it makes `previewStale` true.
+    /// annotation edit it makes `previewStale` true. A properties change is
+    /// refused with `EditNotPermitted` when the document withholds
+    /// modification (`metadataRefusal`); the values it already has record
+    /// nothing.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
@@ -107,6 +112,10 @@ impl Engine {
                     open.model.apply_annotation_edit(annotation.clone())
                 }
                 Edit::Form(fill) => open.model.fill_form_field(fill.clone()).map(|()| None),
+                Edit::Metadata(properties) => open
+                    .model
+                    .set_document_properties(properties.clone())
+                    .map(|()| None),
             })
             .map_err(js_error)
     }

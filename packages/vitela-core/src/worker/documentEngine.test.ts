@@ -97,7 +97,8 @@ type FakeEdit =
   | { kind: 'remove'; from: number; count: number; free(): void }
   | { kind: 'insertBlank'; index: number; landscape: boolean; free(): void }
   | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
-  | { kind: 'fill'; op: string; id: number; value: unknown; free(): void };
+  | { kind: 'fill'; op: string; id: number; value: unknown; free(): void }
+  | { kind: 'metadata'; keys: (string | undefined)[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -236,6 +237,7 @@ function fakeCore(
     setFieldText: (id, value) => command({ kind: 'fill', op: 'setFieldText', id, value }),
     setFieldChecked: (id, value) => command({ kind: 'fill', op: 'setFieldChecked', id, value }),
     setFieldChoice: (id, value) => command({ kind: 'fill', op: 'setFieldChoice', id, value }),
+    setDocumentProperties: (...keys) => command({ kind: 'metadata', keys }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -360,6 +362,20 @@ function fakeCore(
         : undefined;
     },
     compressionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    // The file's /Info: a title, and no author (wasm-bindgen's `undefined`).
+    documentProperties: (doc) => (
+      known(doc),
+      {
+        title: 'Report',
+        author: undefined,
+        subject: 'Q3',
+        keywords: undefined,
+        creator: undefined,
+        producer: 'Vitela',
+        free: () => freed.push('properties'),
+      }
+    ),
+    metadataRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit metadata changes' : undefined),
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
     protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
@@ -430,6 +446,12 @@ function fakeCore(
         const { next, added } = annotate(entry, edit.op, edit.args);
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
+      }
+      if (edit.kind === 'metadata') {
+        if (options.restricted) throw named('EditNotPermitted', 'this document does not permit metadata changes');
+        // The core counts it as a step the preview shows.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true);
+        return undefined;
       }
       if (edit.kind === 'fill') {
         // pdfium paints a field: the step shows in the pixels.
@@ -1556,6 +1578,51 @@ describe('documentEngine forms', () => {
       },
     ]);
     expect(freed).toEqual(['field:0', 'field:1']);
+  });
+
+  it("reads the document's properties with absent keys as null, and frees the core's entry", async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.documentProperties(handle)).toEqual({
+      title: 'Report',
+      author: null,
+      subject: 'Q3',
+      keywords: null,
+      creator: null,
+      producer: 'Vitela',
+    });
+    expect(freed).toContain('properties');
+    expect(await engine.metadataRefusal(handle)).toBeNull();
+    await expect(engine.documentProperties(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('records a properties change as one step, in the core order of its keys, null as absent', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, {
+      kind: 'setDocumentProperties',
+      properties: { title: 'Annual', author: 'Ana', subject: null, keywords: 'k', creator: null, producer: 'p' },
+    });
+    expect(applied.at(-1)).toMatchObject({ kind: 'metadata', keys: ['Annual', 'Ana', undefined, 'k', undefined, 'p'] });
+    expect(freed).toContain('edit:metadata');
+    expect(edited).toMatchObject({ canUndo: true, canRedo: false, addedAnnotationId: null });
+    expect(refreshed).toEqual([handle]);
+  });
+
+  it("refuses a properties change in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.metadataRefusal(handle)).toBe('this document does not permit metadata changes');
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'setDocumentProperties',
+        properties: { title: 'x', author: null, subject: null, keywords: null, creator: null, producer: null },
+      }),
+    ).rejects.toMatchObject({ name: 'EditNotPermitted' });
+    expect(core.canUndo(handle)).toBe(false);
   });
 
   it('fills a field as one step, refreshes the preview inside the request, and answers with the fields', async () => {

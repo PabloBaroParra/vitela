@@ -45,6 +45,8 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     extractSourceIsSigned: unused('extractSourceIsSigned'),
     extractPages: unused('extractPages'),
     planSplit: unused('planSplit'),
+    documentProperties: unused('documentProperties'),
+    metadataRefusal: unused('metadataRefusal'),
     ...overrides,
   };
 }

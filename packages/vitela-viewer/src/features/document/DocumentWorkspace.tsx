@@ -20,6 +20,9 @@ import { extractBusy, useExtract } from '../extract/useExtract';
 import { splitBusy, useSplit } from '../extract/useSplit';
 import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
+import { PropertiesControls } from '../properties/PropertiesControls';
+import { PropertiesOpenerContext } from '../properties/PropertiesToggle';
+import { propertiesBusy, useDocumentProperties } from '../properties/useDocumentProperties';
 import { MenuButton } from '../../ui/MenuButton';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
@@ -122,6 +125,21 @@ export function DocumentWorkspace({
   // An extracted PDF and a split's parts go there too, after the same queued edits.
   const extract = useExtract(engine, document, delivery ?? browserDelivery, save.settleEdits, pageCountNow);
   const split = useSplit(engine, document, delivery ?? browserDelivery, save.settleEdits, pageCountNow);
+  // A properties change is an edit: it waits for the queued ones, joins the
+  // history, marks the document dirty and is waited for by Save.
+  const properties = useDocumentProperties(engine, document, {
+    settleEdits: save.settleEdits,
+    waitForEdits: save.waitForEdits,
+    onEdited: revise,
+    markDirty: save.markDirty,
+  });
+  const propertiesTrigger = useRef<HTMLButtonElement | null>(null);
+  const propertiesIdle = !propertiesBusy(properties.activity);
+  const openProperties = properties.open;
+  const propertiesOpener = useMemo(
+    () => ({ open: () => void openProperties(), busy: !propertiesIdle, trigger: propertiesTrigger }),
+    [openProperties, propertiesIdle],
+  );
   const pageToolsBusy = extractBusy(extract.activity) || splitBusy(split.activity);
   const openExtract = extract.open;
   const openSplit = split.open;
@@ -160,6 +178,8 @@ export function DocumentWorkspace({
             <CompressControls session={compress} documentName={document.name} focusFallback={focusMore} />
             <ExportImagesControls session={exportImages} focusFallback={focusMore} />
             <ProtectControls session={protect} documentName={document.name} focusFallback={focusMore} />
+            {/* Opened from the viewer's View toolbar (PropertiesToggle) or More tools: here are its status and dialog. */}
+            <PropertiesControls session={properties} trigger={propertiesTrigger} focusFallback={focusMore} />
             {/* Extract and Split are opened from Organize: here are their status lines and dialogs. */}
             <ExtractControls session={extract} pageCount={document.info.pageCount} />
             <SplitControls session={split} pageCount={document.info.pageCount} />
@@ -177,6 +197,7 @@ export function DocumentWorkspace({
                 { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
                 { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: () => void exportImages.open() },
                 { label: 'Protect', disabled: protectBusy(protect.activity), onSelect: () => void protect.open() },
+                { label: 'Properties', disabled: propertiesBusy(properties.activity), onSelect: () => void properties.open() },
               ]}
             />
             <SaveControls session={save} documentName={document.name} />
@@ -194,27 +215,29 @@ export function DocumentWorkspace({
         {document && (
           <MarkDirtyContext.Provider value={save.markDirty}>
             <SaveWaitsForEditsContext.Provider value={save.waitForEdits}>
-              {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
-              {screen === 'view' ? (
-                <ReportCurrentPageContext.Provider value={reportCurrentPage}>
-                  <DocumentViewer
+              <PropertiesOpenerContext.Provider value={propertiesOpener}>
+                {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+                {screen === 'view' ? (
+                  <ReportCurrentPageContext.Provider value={reportCurrentPage}>
+                    <DocumentViewer
+                      key={document.generation}
+                      engine={engine}
+                      document={document}
+                      onEdited={revise}
+                      onStampImage={keepStampImage}
+                    />
+                  </ReportCurrentPageContext.Provider>
+                ) : (
+                  <OrganizeScreen
                     key={document.generation}
                     engine={engine}
                     document={document}
                     onEdited={revise}
-                    onStampImage={keepStampImage}
+                    onSourcesNamed={nameSources}
+                    pageTools={pageTools}
                   />
-                </ReportCurrentPageContext.Provider>
-              ) : (
-                <OrganizeScreen
-                  key={document.generation}
-                  engine={engine}
-                  document={document}
-                  onEdited={revise}
-                  onSourcesNamed={nameSources}
-                  pageTools={pageTools}
-                />
-              )}
+                )}
+              </PropertiesOpenerContext.Provider>
             </SaveWaitsForEditsContext.Provider>
           </MarkDirtyContext.Provider>
         )}

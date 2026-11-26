@@ -63,6 +63,8 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     extractSourceIsSigned: async () => false,
     extractPages: async () => new Uint8Array(0),
     planSplit: async () => [],
+    documentProperties: async () => ({ title: null, author: null, subject: null, keywords: null, creator: null, producer: null }),
+    metadataRefusal: async () => null,
     ...overrides,
   };
 }
@@ -256,6 +258,27 @@ describe('handleRequest', () => {
       message: { type: 'result', id: 6, value: compressed },
       transfer: [compressed.bytes.buffer],
     });
+  });
+
+  it('answers the document-properties questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const properties = { title: 'Report', author: 'Ana', subject: null, keywords: null, creator: null, producer: null };
+    const engine = fakeEngine({
+      documentProperties: async (document) => (calls.push(['read', document]), properties),
+      metadataRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'documentProperties', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: properties },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'metadataRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: 'no' },
+      transfer: [],
+    });
+    expect(calls).toEqual([
+      ['read', 5],
+      ['refusal', 5],
+    ]);
   });
 
   it('answers the protect questions for the document they name, copied', async () => {

@@ -510,6 +510,46 @@ modification) is refused in the dialog. `e2e/phone-bar.spec.ts` checks Protect
 is hidden from the bar at 390 px, listed in More tools, its dialog fits, and
 the focus comes back to More tools.
 
+## Document properties
+
+`features/properties/` (T-255), Android's **Document properties** dialog (the
+Windows and Linux shells show the same keys in a panel): **Title**,
+**Author**, **Subject**, **Keywords**, **Creator** and **Producer**, as the
+next save would write them (`documentProperties`: the last pending change,
+else the file's `/Info`). The dates are neither shown nor edited (as on
+Android); every change keeps them. **Properties** sits at the end of the
+viewer's View toolbar (zoom and page), and in **More tools** on a phone (in
+both screens). It is not in the workspace bar: the bar has no width left in an
+embedding host whose own button styles are larger (`e2e/embed.spec.ts` drops
+onto a page that a second bar row would push out of the frame). Nor beside
+Comments and Forms (where Windows and Linux keep the panel): at 1280 px that
+row would no longer fit beside Draw and History, and the extra toolbar row
+pushed a drawing test's stroke out of Firefox's viewport. The View toolbar
+grows to fill the row it shares with Text, so the button takes room that row
+already had (`e2e/properties.spec.ts` pins both rows).
+
+**Apply** waits for the queued edits, reads the properties again (an undo may
+have landed) and records only a real change: an emptied box is an absent key,
+never `""`, and boxes that say what the document has close the dialog with
+nothing recorded. The change is one step in the document's history (Undo and
+Redo, from the toolbar or the keyboard, take it back and forth), marks the
+document unsaved and is written by Save; the dialog hands its apply to the
+save, so a save asked for meanwhile waits for it. A document whose permissions
+withhold modification (`metadataRefusal`, the gate every native shell asks)
+shows its properties read-only with the core's sentence and only **Close**. A
+refused apply keeps the dialog and what was typed. No XMP stream is written
+(no shell syncs one).
+
+E2E (`e2e/properties.spec.ts`, all three browsers): title and author typed
+into a new PDF, applied (unsaved, focus back on Properties), undone and redone
+(the dialog shows each state), saved — the downloaded file's `/Info` has them
+(`Ana Peña` included) and no `/Subject` — and reopened, where the dialog shows
+them and an unchanged Apply records nothing; a PDF whose `/P` withholds
+modification, opened with its user password, is read-only with only Close; on
+a phone, More tools opens it, it fits 390 px and the focus comes back to More
+tools; at 1280 px View still shares its row with Text and Annotations with
+Draw. `e2e/phone-bar.spec.ts` lists it in More tools.
+
 ## Organize
 
 `features/organize/`, reached with the **View / Organize** switch in the bar
@@ -587,9 +627,10 @@ the focus comes back to More tools.
   core (`planSplit`: the parts and their names, `<name>-part1.pdf`…, the same
   on every shell; a one-page document is refused up front) and delivers one
   download per part, in order, as Export images does (**Cancel split** while
-  it runs; the part in hand still goes out). Every part is asked of the
-  engine right after the plan, so all come from the same state of the
-  document. Both wait for the queued edits, so unsaved edits are in the
+  it runs; the part in hand still goes out). The engine is asked for at
+  most one part ahead of the one being written, so a cancel stops the work as
+  well as the downloads and no more than two parts are held in memory (an
+  edit made while a split runs reaches the parts asked for after it). Both wait for the queued edits, so unsaved edits are in the
   files; a protected source gives protected files, and a signed one files
   whose signature no longer verifies (the status line says so). The natives
   write into a folder with one overwrite prompt; a download overwrites

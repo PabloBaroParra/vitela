@@ -141,6 +141,7 @@ mod export;
 mod extract;
 mod form;
 mod import;
+mod metadata;
 mod preview;
 mod protect;
 
@@ -158,6 +159,7 @@ pub use export::{
 pub use extract::{plan_split, SplitPartPlan};
 pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
+pub use metadata::{DocumentProperties, METADATA_FORBIDDEN};
 pub use protect::PROTECTION_FORBIDDEN;
 
 // Declared at file level, not inside `mod tests`: there the path would be

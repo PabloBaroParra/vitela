@@ -64,6 +64,8 @@ export const coreEdits: CoreEdits = {
   setFieldText: (id, text) => core.EditCommand.setFieldText(id, text),
   setFieldChecked: (id, checked) => core.EditCommand.setFieldChecked(id, checked),
   setFieldChoice: (id, option) => core.EditCommand.setFieldChoice(id, option),
+  setDocumentProperties: (title, author, subject, keywords, creator, producer) =>
+    core.EditCommand.setDocumentProperties(title, author, subject, keywords, creator, producer),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {
