@@ -160,8 +160,9 @@ internal class ContentEditing(
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
                     is ContentTarget.Block -> {
                         // Asked as the dialog opens, not once per mode: an annotation, an import or a signature since changes the answer.
-                        // The core says no while nothing is queued (nothing to checkpoint), yet with nothing unsaved no edit needs a save first.
-                        val canCheckpoint = !state.value.isDirty || withContext(session.compute) { openDocument.contentEditsCanCheckpoint() }
+                        // The core says no while nothing is queued (nothing to checkpoint), yet then no edit needs a save first. Nothing to
+                        // undo means nothing queued; isDirty would not do, since a save here keeps the core's queue.
+                        val canCheckpoint = !state.value.canUndoAnnotations || withContext(session.compute) { openDocument.contentEditsCanCheckpoint() }
                         state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block, canCheckpoint = canCheckpoint), resizer = null, shaper = null))
                     }
                     is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image), shaper = null))

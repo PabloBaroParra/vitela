@@ -1,6 +1,7 @@
 package dev.vitela.pdf.viewer
 
 import dev.vitela.pdf.core.AnnotationPoint
+import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.text.english
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -189,6 +190,25 @@ class ViewerViewModelContentCheckpointTest {
         val editor = viewModel.state.value.contentEdit?.editor
         assertEquals(true, editor?.canCheckpoint)
         assertFalse("needs a save first" in textDialogHelp(editor?.canCheckpoint == true).english())
+    }
+
+    @Test
+    fun aSaveKeepsTheWarningWhileTheCoreStillHoldsTheEdit() = runTest {
+        // Android saves without reopening: the core keeps its queue, so the
+        // retyped line still needs a save-and-reopen where it cannot checkpoint.
+        val document = object : PdfDocument by CheckpointingDocument(canCheckpoint = false) {
+            override fun saveToBytes(): PdfCoreResult<ByteArray> = PdfCoreResult.Success(byteArrayOf(1))
+        }
+        val viewModel = editing(document)
+        retypeHello(viewModel, "Howdy")
+        viewModel.confirmSaved(requireNotNull(viewModel.saveSnapshot()))
+        advanceUntilIdle()
+        assertFalse(viewModel.state.value.isDirty)
+        viewModel.tapContent(0, onHello, reach = 0.0)
+        advanceUntilIdle()
+
+        val editor = viewModel.state.value.contentEdit?.editor
+        assertEquals(false, editor?.canCheckpoint)
     }
 
     private suspend fun TestScope.readPageOne(viewModel: ViewerViewModel) {
