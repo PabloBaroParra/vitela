@@ -76,6 +76,7 @@ internal class SelectionEditing(
                 val current = state.value.contentEdit?.selection ?: return@withLock
                 val next = contentAt(page.blocks, page.images, point, reach, page.paths)?.let(current::toggled)
                 set(next, SELECTION_CLEARED)
+                content.styles.readSelection(openDocument)
             }
         }
     }
@@ -99,7 +100,10 @@ internal class SelectionEditing(
                 // Only the selection this drag began on: one already moved, or ended by an undo, is not moved twice.
                 if (session.document !== openDocument || state.value.contentEdit?.selection != selection) return@withLock
                 when (val result = withContext(session.compute) { openDocument.moveContentSelection(selection, dx, dy) }) {
-                    is PdfCoreResult.Success -> content.landed(openDocument, pageIndex, SELECTION_MOVED, settled = { followMoved(selection) })
+                    is PdfCoreResult.Success -> {
+                        content.landed(openDocument, pageIndex, SELECTION_MOVED, settled = { follow(selection) })
+                        content.styles.readSelection(openDocument)
+                    }
                     is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))
                 }
             }
@@ -151,6 +155,7 @@ internal class SelectionEditing(
                 val page = content.contentOf(openDocument, pageIndex) ?: return@withLock
                 if (state.value.contentEdit?.idle != true) return@withLock
                 set(pick(page), SELECTION_EMPTY)
+                content.styles.readSelection(openDocument)
             }
         }
     }
@@ -164,8 +169,8 @@ internal class SelectionEditing(
         )
     }
 
-    /** After a move: [moved] looked up again in the fresh read, so it stays on the members where they landed. */
-    private fun followMoved(moved: ContentSelection) {
+    /** After a move or a restyle: [moved] looked up again in the fresh read, so it stays on the members where they landed. */
+    fun follow(moved: ContentSelection) {
         val mode = state.value.contentEdit ?: return
         if (mode.selection != moved) return
         val page = moved.pageIndex

@@ -75,6 +75,9 @@ internal class ContentEditing(
     /** Copying, cutting and pasting the selection. */
     val clipboard = ClipboardEditing(session, this)
 
+    /** Bold, italic and underline on the open editor's block or the selection's text. */
+    val styles = TextStyling(session, this)
+
     /**
      * Arms the mode. Not over the Organize grid, which hides the pages a
      * retype would redraw. One mode claims a page tap at a time, so an armed
@@ -160,10 +163,9 @@ internal class ContentEditing(
                     null -> state.value.copy(status = CONTENT_EDIT_MISSED)
                     is ContentTarget.Block -> {
                         // Asked as the dialog opens, not once per mode: an annotation, an import or a signature since changes the answer.
-                        // The core says no while nothing is queued (nothing to checkpoint), yet then no edit needs a save first. Nothing to
-                        // undo means nothing queued; isDirty would not do, since a save here keeps the core's queue.
-                        val canCheckpoint = !state.value.canUndoAnnotations || withContext(session.compute) { openDocument.contentEditsCanCheckpoint() }
-                        state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block, canCheckpoint = canCheckpoint), resizer = null, shaper = null))
+                        val canCheckpoint = canCheckpoint(openDocument)
+                        val style = styles.buttonsFor(openDocument, hit.block.runs)
+                        state.value.copy(contentEdit = mode.copy(editor = TextBlockEditor(hit.block, canCheckpoint = canCheckpoint, style = style), resizer = null, shaper = null))
                     }
                     is ContentTarget.Image -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = ImageResizer(hit.image), shaper = null))
                     is ContentTarget.Path -> state.value.copy(contentEdit = mode.copy(editor = null, resizer = null, shaper = PathShaper(hit.path)))
@@ -171,6 +173,15 @@ internal class ContentEditing(
             }
         }
     }
+
+    /**
+     * Whether a retype dialog opening now can say no save is needed between edits:
+     * the core says no while nothing is queued (nothing to checkpoint), yet then no
+     * edit needs a save first. Nothing to undo means nothing queued; isDirty would
+     * not do, since a save here keeps the core's queue. Called with the lane held.
+     */
+    suspend fun canCheckpoint(document: PdfDocument): Boolean =
+        !state.value.canUndoAnnotations || withContext(session.compute) { document.contentEditsCanCheckpoint() }
 
     /**
      * Lands an edit the core accepted on page [pageIndex]: the page re-renders,

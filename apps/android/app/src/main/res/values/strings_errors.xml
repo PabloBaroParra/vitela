@@ -30,6 +30,7 @@
     <string name="error_unavailable_form_rename">Renaming form fields is unavailable in this PDF core.</string>
     <string name="error_unavailable_form_style">Styling form fields is unavailable in this PDF core.</string>
     <string name="error_unavailable_content">Editing page content is unavailable in this PDF core.</string>
+    <string name="error_unavailable_text_style">Bold, italic and underline are unavailable in this PDF core.</string>
     <string name="error_unavailable_watermarks">Watermarks are unavailable in this PDF core.</string>
     <string name="error_unavailable_picture_watermarks">Picture watermarks are unavailable in this PDF core.</string>
     <string name="error_unavailable_text_selection">Text selection is unavailable in this PDF core.</string>
@@ -56,6 +57,11 @@
     <!-- Edit content: text, images, shapes and insertions -->
     <string name="error_content_read_forbidden">This document does not allow its text to be read.</string>
     <string name="error_content_text_not_edited">This text cannot be edited.</string>
+    <string name="error_content_text_not_restyled">This text cannot be restyled.</string>
+    <string name="error_content_text_bold_fixed">This text\'s font is bold and the page has no regular version of it, so it cannot be made regular.</string>
+    <string name="error_content_text_italic_fixed">This text\'s font is italic and the page has no upright version of it, so it cannot be made upright.</string>
+    <string name="error_content_text_style_unreadable">The style of this text cannot be read. Save the document before restyling it.</string>
+    <string name="error_content_text_gone">This text is no longer on the page.</string>
     <string name="error_content_text_not_moved">This text cannot be moved.</string>
     <string name="error_content_text_not_deleted">This text cannot be deleted.</string>
     <string name="error_content_text_not_added">This text cannot be added here.</string>

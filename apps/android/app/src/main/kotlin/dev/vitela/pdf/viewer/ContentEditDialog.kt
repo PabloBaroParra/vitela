@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
+import dev.vitela.pdf.core.TextStyleToggle
 import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.text.resolve
 
@@ -42,6 +43,10 @@ internal class ContentEditActions(
     val onDeleteText: (Long) -> Unit,
     /** documentId: swaps the retype dialog for a move armed on the next page tap. */
     val onMoveText: (Long) -> Unit,
+    /** documentId, style, the text typed so far: restyles the dialog's block, which reopens with that text. */
+    val onTextStyle: (Long, TextStyleToggle, String) -> Unit,
+    /** Restyles the selection's text, one undo step. */
+    val onSelectionTextStyle: (TextStyleToggle) -> Unit,
     val onDismiss: () -> Unit,
     /** documentId, width, height as typed, in points: the document is the one the dialog was built for. */
     val onResize: (Long, String, String) -> Unit,
@@ -112,6 +117,8 @@ internal fun textDialogHelp(canCheckpoint: Boolean, paragraph: Boolean = false):
  * reopens with it rather than with the block's old text. Move leaves it for a
  * page tap that places the block, like an image's Move. Delete takes the block
  * off the page at once, like an image's Delete: it is one undoable entry.
+ * Bold, Italic and Underline restyle the block as the page paints it, at once and
+ * one undo step each, and the dialog reopens over it with what was typed kept.
  *
  * The column scrolls, so on a short screen with the keyboard up the field and
  * its help stay reachable rather than pushed under it.
@@ -128,6 +135,7 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED.resolve(), style = MaterialTheme.typography.bodySmall)
                 Text(textDialogHelp(editor.canCheckpoint, paragraph).resolve(), style = MaterialTheme.typography.bodySmall)
+                TextStyleToggles(editor.style, { style -> actions.onTextStyle(documentId, style, text) })
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },

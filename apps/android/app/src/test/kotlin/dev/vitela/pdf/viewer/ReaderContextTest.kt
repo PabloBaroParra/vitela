@@ -6,7 +6,10 @@ import dev.vitela.pdf.core.AnnotationKind
 import dev.vitela.pdf.core.AnnotationRect
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
+import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentSelection
+import dev.vitela.pdf.core.ContentTextBlock
+import dev.vitela.pdf.core.ContentTextRun
 import dev.vitela.pdf.core.PathPaint
 import dev.vitela.pdf.resources.StringResources
 import org.junit.Assert.assertEquals
@@ -75,5 +78,21 @@ class ReaderContextTest {
         assertEquals("Delete", label(ContextChip.DeleteSelection))
         assertEquals("Copy", label(ContextChip.CopySelection))
         assertEquals("Cut", label(ContextChip.CutSelection))
+    }
+
+    @Test
+    fun aSelectionHoldingTextAlsoOffersBoldItalicAndUnderline() {
+        val run = ContentTextRun(10, 0, AnnotationRect(10.0, 150.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "Hello")
+        val selection = ContentSelection(0, blocks = listOf(ContentTextBlock(listOf(run), run.bounds, run.text)))
+        val state = ViewerState(pageCount = 1, contentEdit = ContentEditState(selection = selection))
+
+        assertEquals(
+            listOf(
+                ContextChip.Selected, ContextChip.Bold, ContextChip.Italic, ContextChip.Underline,
+                ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection,
+            ),
+            chips(state),
+        )
+        assertEquals(listOf("Bold", "Italic", "Underline"), listOf(ContextChip.Bold, ContextChip.Italic, ContextChip.Underline).map(::label))
     }
 }

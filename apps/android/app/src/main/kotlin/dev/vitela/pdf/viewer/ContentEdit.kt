@@ -62,6 +62,8 @@ data class ContentEditState(
      * when the mode opens and when a copy or cut fills the clip.
      */
     val hasClip: Boolean = false,
+    /** The Bold, Italic and Underline toggles for [selection]'s text, read for the selection it names: see [selectionButtons]. */
+    val selectionStyle: SelectionTextStyle? = null,
 ) {
     /** Whether nothing is open or armed, so a selection may start. */
     val idle: Boolean get() = editor == null && resizer == null && shaper == null && inserter == null &&
@@ -114,13 +116,15 @@ data class TextInserter(
  * [canCheckpoint] is, as the dialog opened, whether a retyped line can be moved,
  * or a moved one retyped, without a save in between: true with nothing to undo
  * (nothing queued), else the core's answer. The dialog warns of the save only on
- * a no.
+ * a no. [style] is what its Bold, Italic and Underline toggles show, read from
+ * the core as it opened; null when a run's look cannot be read, which leaves them off.
  */
 data class TextBlockEditor(
     val block: ContentTextBlock,
     val text: String = block.text,
     val error: UiText? = null,
     val canCheckpoint: Boolean = false,
+    val style: TextStyleButtons? = null,
 )
 
 /**

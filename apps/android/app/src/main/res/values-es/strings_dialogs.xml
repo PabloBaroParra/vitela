@@ -52,6 +52,9 @@
     <!-- Edit content: the help names the buttons, so it uses their words -->
     <string name="content_text_title">Editar texto</string>
     <string name="content_text_retype">Reescribir</string>
+    <string name="content_text_bold">Negrita</string>
+    <string name="content_text_italic">Cursiva</string>
+    <string name="content_text_underline">Subrayado</string>
     <string name="content_text_font_substituted">La fuente de este texto no se puede conservar. Lo que escribas usará una fuente estándar.</string>
     <string name="content_text_help_paragraph">Cada salto de línea que escribas empieza una línea nueva; el texto se ajusta al ancho del párrafo.</string>
     <string name="content_text_help_move">Mover te permite arrastrar este texto o tocar donde deba ir, conservando su fuente y su tamaño.</string>

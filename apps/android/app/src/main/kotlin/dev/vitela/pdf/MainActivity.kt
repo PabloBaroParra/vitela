@@ -490,6 +490,8 @@ private fun VitelaApp(
                 onRetype = viewModel::retypeTextBlock,
                 onDeleteText = viewModel::deleteTextBlock,
                 onMoveText = viewModel::armTextMove,
+                onTextStyle = viewModel::toggleEditorTextStyle,
+                onSelectionTextStyle = viewModel::toggleSelectionTextStyle,
                 onDismiss = viewModel::dismissTextBlockEditor,
                 onResize = viewModel::resizeImage,
                 onDismissResizer = viewModel::dismissImageResizer,

@@ -75,6 +75,7 @@
     <string name="status_content_forbidden">Este documento no permite cambiar su contenido.</string>
     <string name="status_content_move_cancelled">Movimiento cancelado.</string>
     <string name="status_content_text_updated">Texto actualizado. Guarda para conservar el cambio.</string>
+    <string name="status_content_text_restyled">Estilo del texto cambiado. Guarda para conservar el cambio.</string>
     <string name="status_content_text_deleted">Texto eliminado. Guarda para conservar el cambio.</string>
     <string name="status_content_text_moved">Texto movido. Guarda para conservar el cambio.</string>
     <string name="status_content_text_position_unchanged">La posición del texto no ha cambiado.</string>
