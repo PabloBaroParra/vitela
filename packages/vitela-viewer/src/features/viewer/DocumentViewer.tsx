@@ -2,9 +2,9 @@
 // column of pages, with zoom, search, text selection, the session's
 // annotations, markup over the selection, the drawing tools, image stamps
 // (picked or dropped on a page), selecting and editing an annotation, going
-// from one annotation to the next, the comments, and undo/redo. Only pages within a
-// viewport of the visible area are mounted (and so rendered); the rest are
-// empty space.
+// from one annotation to the next, the comments, filling in form fields, and
+// undo/redo. Only pages within a viewport of the visible area are mounted (and
+// so rendered); the rest are empty space.
 
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Annotation, DocumentHandle, EditedDocument, Engine, MarkupKind } from '@vitela/core';
@@ -25,7 +25,10 @@ import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
 import type { OpenDocument } from '../document/useDocument';
-import { useMarkDirty } from '../save/MarkDirtyContext';
+import { FormsPanel } from '../forms/FormsPanel';
+import { FormsToggle } from '../forms/FormsToggle';
+import { useForms } from '../forms/useForms';
+import { useMarkDirty, useSaveWaitsFor } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';
 import { TextToolbar } from '../text/TextToolbar';
@@ -51,6 +54,9 @@ const RENDER_SETTLE_MS = 150;
 const ANNOTATION_TOOLBAR_ROOM = 112;
 
 const NO_ANNOTATIONS: readonly Annotation[] = [];
+
+/** What sits beside the pages, one at a time. */
+type SidePanel = 'comments' | 'forms' | null;
 
 interface DocumentViewerProps {
   readonly engine: Engine;
@@ -105,6 +111,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     [onEdited, handle, markDirty],
   );
   const editing = useAnnotationEdits(engine, document, report);
+  useSaveWaitsFor(editing.settled);
   useUndoKeys(editing.undo, editing.redo, scope);
   // Read through a ref: a markup's end must see the selection shown then.
   const shownSelection = useRef(selection);
@@ -207,14 +214,28 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     annotationToolbar,
   );
   const { marked } = navigation;
-  const [commentsShown, setCommentsShown] = useState(false);
+  const [panel, setPanel] = useState<SidePanel>(null);
+  const commentsShown = panel === 'comments';
+  const formsShown = panel === 'forms';
+  const togglePanel = (which: Exclude<SidePanel, null>) => setPanel((shown) => (shown === which ? null : which));
   const [reading, setReading] = useState<ReadableNote | null>(null);
   const commentsToggle = useRef<HTMLButtonElement>(null);
   const commentsId = useId();
   const closeComments = () => {
-    setCommentsShown(false);
+    setPanel(null);
     commentsToggle.current?.focus({ preventScroll: true });
   };
+
+  const forms = useForms(engine, document, editing, reveal, annotationToolbar);
+  const formsToggle = useRef<HTMLButtonElement>(null);
+  const formsId = useId();
+  const closeForms = () => {
+    setPanel(null);
+    forms.blurField();
+    formsToggle.current?.focus({ preventScroll: true });
+  };
+  // A field focused in the panel is ringed on its page, unless an annotation already is.
+  const ringed = marked ?? (formsShown ? forms.spot : null);
 
   // Always there while annotations can be selected (so selecting moves nothing):
   // the last page's foot can be scrolled above the annotation toolbar.
@@ -244,7 +265,8 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           drawing={drawingInput}
           editing={annotating.input}
           selectedId={selected?.pageIndex === index ? selected.id : null}
-          marked={marked?.pageIndex === index ? marked.rect : null}
+          marked={ringed?.pageIndex === index ? ringed.rect : null}
+          paintKey={forms.paintKeys.get(index) ?? ''}
           onImageDrop={stamps.drop}
         />,
       );
@@ -299,8 +321,10 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           commentsId={commentsId}
           commentsShown={commentsShown}
           commentsFailed={comments.state.status === 'failed'}
-          onComments={() => setCommentsShown((shown) => !shown)}
-        />
+          onComments={() => togglePanel('comments')}
+        >
+          <FormsToggle toggle={formsToggle} panelId={formsId} shown={formsShown} onToggle={() => togglePanel('forms')} />
+        </NavigationToolbar>
         {editing.failure && (
           <p className="viewer__failure" role="alert">
             {editing.failure}
@@ -356,6 +380,19 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
             onRead={setReading}
             onRetry={comments.retry}
             onClose={closeComments}
+          />
+        )}
+        {formsShown && (
+          <FormsPanel
+            id={formsId}
+            state={forms.state}
+            allowed={forms.allowed}
+            errors={forms.errors}
+            onFill={forms.fill}
+            onFocusField={forms.focusField}
+            onBlurField={forms.blurField}
+            onRetry={forms.retry}
+            onClose={closeForms}
           />
         )}
       </div>

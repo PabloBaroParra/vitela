@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓, T-238 ✓, T-242 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓, T-238 ✓, T-242 ✓, T-243 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -813,7 +813,7 @@ que sigue:
 | **T-240** ✓ | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
 | **T-241** ✓ | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
 | **T-242** ✓ | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
-| **T-243** | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
+| **T-243** ✓ | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
 
 T-235 bloquea T-236 y T-242. T-236 bloquea T-237…T-241; T-237 (la capa) bloquea T-238…T-240. T-242 bloquea T-243. Tras T-235 las dos pistas (anotar y formularios) pueden ir en paralelo. Fuera de la fase 3: crear/mover/borrar campos de formulario (autoría).
 
@@ -1497,6 +1497,99 @@ condiciona lo que sigue:
   Playwright y `build` de la app (sin UI nueva); `linux-gtk` (no toca).
 - **No cubierto:** ninguna UI (T-243); cuadros de lista, botones y campos de firma no se
   listan; crear/mover/borrar campos (autoría) sigue fuera de la fase 3.
+
+### T-243 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Forms"). Lo que condiciona lo que
+sigue:
+
+- **Archivos (`features/forms/`):** puro con tests `fieldValues.ts` (`sameValue`,
+  `fieldsByPage`, `paintKeys`). Contenedores `useFormFields` (la lista), `useFormFill`
+  (rellenar), `useDraft` (el texto escrito antes de confirmar) y `useForms`, que los junta con
+  revelar y el aro. Vistas `FormsPanel`, `TextFieldInput` (texto y lista editable),
+  `ChoiceInputs` (casilla, radio, lista fija) y `FormsToggle`; tipos en `fieldProps.ts`. CSS en
+  `styles/forms.css`. Apoyo de test `src/test/formFields.ts` (un campo de cada tipo).
+- **La lista:** `OpenDocument` gana `formFields` (lo guarda `revise` de cada
+  `EditedDocument`); hasta la primera edición se pide `engine.formFields` una vez por
+  documento (fallo → mensaje y "Try again" en el panel; al quitarse el aviso el foco pasa al panel con
+  `useKeepFocus`, como en Comments).
+- **Rellenar va por la cola del visor:** `useAnnotationEdits` gana `apply(build,
+  shownByCaller)`, un paso genérico que recibe la sesión como la dejó el último paso (ahora
+  con `formFields`); no mira el permiso de anotar, el panel mira `formFillAllowed`. Deshacer,
+  rehacer y sucio no cambian. **Guardar espera a la cola:** `useAnnotationEdits` gana
+  `settled()` y el visor se la da a `useSave` (`waitForEdits`, por
+  `SaveWaitsForEditsContext`); tras preparar el destino y antes de pedir los bytes, el
+  guardado espera a los pasos ya pedidos (un paso en cola no llega al engine hasta su turno, y
+  sin esto un relleno hecho justo antes de Save faltaba en el archivo) y cuenta como guardados
+  los que aterrizan en esa espera. **Un valor igual no se manda** (el core lo grabaría como
+  paso): se compara al pedirlo contra el último valor pedido para ese campo que siga pendiente
+  (si no hay, el que se ve) — así marcar y desmarcar deprisa, o volver al texto original antes
+  de que aterrice el primer relleno, manda la vuelta atrás como relleno propio — y otra vez
+  dentro del paso, contra la lista del último paso. `useDraft` hace lo mismo con el texto que
+  se está mandando.
+- **Confirmar (decisión):** texto y lista editable al salir del campo (Tab, clic fuera) o con
+  Enter en una línea, sin perder el foco; en multilínea Enter es salto de línea. Casilla,
+  radio y lista fija se confirman al cambiar (no hay nada que escribir); la elección se ve al
+  momento y, al terminar el paso, lo que tenga el documento (vuelve atrás si el core la
+  rechaza). Escape con texto cambiado lo devuelve al del documento sin cerrar; sin cambios,
+  cierra el panel y el foco vuelve a "Forms". Un texto rechazado se queda en el campo para
+  corregirlo.
+- **Repintado:** pdfium pinta los campos en el bitmap y la página no cambia de `pageKey`, así
+  que `usePageRender` gana `paintKey`: por página, los valores de sus campos; si cambia, se
+  repinta conservando el bitmap anterior. La clave es `''` mientras los valores son los de la
+  primera lista (la del bitmap ya pintado): listar no repinta nada, y solo se repintan las
+  páginas cuyos campos cambian (también al deshacer).
+- **Revelar:** al enfocar un campo del panel se lleva a la vista con `useReveal` (el margen de
+  las anotaciones, con la barra "Annotation" como `foot`) y se marca con el aro de T-241
+  (`AnnotationRing`; un botón de radio, con su propia caja); al salir se quita. Si la
+  navegación tiene un aro, manda el suyo.
+- **Paneles:** Comments y Forms comparten el lado de las páginas, uno a la vez. El botón
+  "Forms" va en la fila de "Comments" (`children` de `NavigationToolbar`): con una barra
+  propia un editor estrecho ganaba una fila y, medido, `comments` a 390 × 600 fallaba en los
+  tres navegadores.
+- **Solo lectura:** con `formFillAllowed` falso el panel lo dice, el texto es `readonly` (se
+  puede enfocar y copiar) y casilla/radio/lista están `disabled`. Si el core contesta
+  `EditNotPermitted`, el panel pasa a solo lectura sin aviso sobre las páginas.
+  `UnsupportedOperation` y `FormFieldNotFound` se muestran bajo su campo (`role="alert"`,
+  `aria-invalid`, `aria-describedby`); otros errores, en el aviso del visor.
+- **Accesibilidad:** cada control con su `label` (el nombre completo `/T`), el radio como
+  `radiogroup` con nombre, "(None)" en la lista fija (no elige nada), el orden de Tab es el de
+  la lista. Textos en inglés: la web no tiene i18n.
+- **Fallo del core encontrado y arreglado (`core/pdf-save/src/forms.rs`):** `ensure_acroform`
+  solo reutilizaba un `/AcroForm` indirecto; uno en línea en el catálogo (el que escribe el
+  propio `pdf-sign` y muchos productores) se cambiaba por uno nuevo con `/Fields []`, así que
+  al guardar un relleno se perdían de `/Fields` todos los campos, la firma incluida. Ahora se
+  pasa a objeto propio, sin cambios. Lo destapó el E2E del formulario firmado (al reabrir no
+  había campos); test nuevo `ensure_acroform_keeps_an_inline_one`, visto en rojo. Afecta
+  también a los nativos (`pdf-save` es común).
+- **E2E (`e2e/forms.spec.ts`, 4 × 3):** los cuatro tipos del fixture de reportlab (Tab de
+  `full_name` a `notes`, la página cambia de píxeles, guardar, reabrir y leer los valores);
+  deshacer devuelve el valor y los mismos píxeles; formulario firmado → incremental con el
+  prefijo abierto y el del fixture intactos, `/Fields` con la firma y el campo, y el valor al
+  reabrir; PDF cifrado sin el bit 6 → solo lectura. `e2e/forms.ts` construye el firmado en
+  memoria (una revisión más sobre `signed/rsa2048_sha256.pdf` con un campo de texto);
+  `e2e/pdf.ts` gana `fields` (campos de texto).
+- **Tests:** Vitest 44 nuevos en `@vitela/viewer` (puros, hooks, panel, visor, cola,
+  `revise`, `paintKey`), vistos en rojo antes de implementar salvo los de `useFormFields`
+  (escritos junto con el hook).
+- **Verificado en local (Windows):** `@vitela/viewer`: `typecheck`, Vitest 72 / 720.
+  `apps/web`: `typecheck` (incluye el `build` de los paquetes), Vitest 6 / 19, `build`;
+  Playwright completo 199 pasan, 20 omitidos; `forms`, `comments` 390 × 600 y `draw` con
+  `--repeat-each=3`: 63 / 63. `@vitela/core`: `build:wasm` (con el arreglo), Vitest 14 / 151.
+  Rust: `cargo test --locked -p pdf-save -p pdf-sign -p pdf-form` (501, 0 fallos, 7
+  ignorados), `-p pdf-wasm` (91), `-p pdf-ffi` (369); `cargo clippy --locked -p pdf-save
+  --all-targets -- -D warnings`; `cargo fmt --all -- --check`. Capturas ancha, estrecha
+  (390 × 844) y oscura vistas.
+- **No corrido en local:** `wasm-bindgen-test` (sin chromedriver), `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto:** cuadros de lista, botones y campos de firma no se listan (T-242); crear,
+  mover o borrar campos (autoría) sigue fuera de la fase 3; pulsar un campo en la página no
+  lo enfoca en el panel (solo panel → página); el panel se cierra al ir a Organize y volver;
+  sin lector de pantalla ni pantalla táctil reales; la lista no está virtualizada.
+  Visto de paso, sin tocar: en `draw.spec`, "Add text box" con un carácter fuera de WinAnsi
+  tiene una carrera latente (si la respuesta del core llega después de reescribir el texto,
+  el error vuelve). Con la barra propia de Forms falló 2 de 12; con el botón en la fila de
+  Comments, 0 de 9.
 
 ## Fase E — Visor embebible (`@vitela/viewer`)
 

@@ -8,6 +8,11 @@
 // Only a save that WROTE over the opened file clears it, and only if no edit
 // came in while it ran: a download or a copy leaves the opened file without
 // the edits. The state belongs to one document: opening another starts clean.
+//
+// An editing screen queues its edits and sends each to the engine only once
+// the ones before it have ended, so a save waits for the edits asked for so
+// far (`waitForEdits`) before it asks for the bytes: a fill the user made
+// just before clicking Save is in the file.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SIGNATURES_WOULD_BE_INVALIDATED, errorKind, errorMessage } from '@vitela/core';
@@ -44,6 +49,8 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
   const shown = useRef(generation);
   /** The on-disk change the user accepted in the save being retried (e.g. after a signature question). */
   const accepted = useRef<FileStamp | undefined>(undefined);
+  /** Settles once every edit the editing screen has asked for so far has ended. */
+  const editsSettled = useRef<(() => Promise<unknown>) | null>(null);
 
   // A new document starts with a clean slate (adjusting state while rendering
   // is React's way to reset state when an input changes).
@@ -62,7 +69,6 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
       if (!document || running.current === document.generation) return;
       const saving = document.generation;
       running.current = saving;
-      const editsAtStart = edits.current;
       const current = () => shown.current === saving;
       setActivity({ kind: 'saving' });
       try {
@@ -78,6 +84,9 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
           if (current()) setActivity({ kind: 'confirmChangedOnDisk' });
           return;
         }
+        // The edits asked for before the click go in, and count as saved.
+        await editsSettled.current?.();
+        const editsAtStart = edits.current;
         const bytes = await engine.saveToBytes(document.handle, invalidateSignatures);
         // The document was closed while the engine worked: deliver nothing.
         if (!current()) return;
@@ -127,6 +136,14 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
     setActivity((a) => (a.kind === 'done' ? IDLE : a));
   }, []);
 
+  /** An editing screen hands over its queue; the result takes it back (when the screen goes). */
+  const waitForEdits = useCallback((settled: () => Promise<unknown>) => {
+    editsSettled.current = settled;
+    return () => {
+      if (editsSettled.current === settled) editsSettled.current = null;
+    };
+  }, []);
+
   return {
     activity,
     dirty,
@@ -138,5 +155,6 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
     saveChangedCopy,
     cancelChanged,
     markDirty,
+    waitForEdits,
   };
 }

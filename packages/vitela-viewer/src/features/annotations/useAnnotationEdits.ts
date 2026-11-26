@@ -1,6 +1,6 @@
 // The viewer's edits: markup over a text selection, an annotation drawn with
 // a tool (ink, shape, note, free text, image stamp), a change to one of the
-// session's annotations, and undo/redo of the document's history (any step: an annotation here, or a page edit made in
+// session's annotations, a step of the caller's own (a form fill), and undo/redo of the document's history (any step: an annotation here, or a page edit made in
 // Organize). Sends them to the engine one at a time and reports every
 // edited document. Container logic only.
 //
@@ -23,7 +23,18 @@
 
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { EDIT_NOT_PERMITTED, errorKind, errorMessage } from '@vitela/core';
-import type { Annotation, AnnotationEdit, DocumentInfo, EditedDocument, Engine, MarkupKind, PageRects, Rgb } from '@vitela/core';
+import type {
+  Annotation,
+  AnnotationEdit,
+  DocumentInfo,
+  Edit,
+  EditedDocument,
+  Engine,
+  FormField,
+  MarkupKind,
+  PageRects,
+  Rgb,
+} from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 import type { EditBuild } from './editBuilds';
 import { sameGeometry } from './editGeometry';
@@ -96,9 +107,11 @@ function failed(error: unknown) {
 }
 
 /** The session as the core last described it. */
-interface Session {
+export interface Session {
   readonly info: PageLayout;
   readonly annotations: readonly Annotation[];
+  /** Unset until the first step answers, unless the document already had them. */
+  readonly formFields?: readonly FormField[];
 }
 
 export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdited: (edited: EditedDocument) => void) {
@@ -113,10 +126,10 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
    * The pages and annotations as the core last described them: from each step's result as
    * soon as it lands, ahead of the re-render that brings them as a prop.
    */
-  const latest = useRef<Session>({ info: document.info, annotations: document.annotations ?? [] });
+  const latest = useRef<Session>({ info: document.info, annotations: document.annotations ?? [], formFields: document.formFields });
   useLayoutEffect(() => {
-    latest.current = { info: document.info, annotations: document.annotations ?? [] };
-  }, [document.info, document.annotations]);
+    latest.current = { info: document.info, annotations: document.annotations ?? [], formFields: document.formFields };
+  }, [document.info, document.annotations, document.formFields]);
   /** A change still waiting when the viewer goes away is not made behind the next screen. */
   const mounted = useRef(true);
   useLayoutEffect(() => {
@@ -262,6 +275,30 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     [allowed, enqueue, engine, handle],
   );
 
+  /**
+   * One step of the caller's own, after every step already asked for:
+   * `build` gets the session as the core last described it and answers the
+   * edit to apply, or `null` to record nothing (a build that throws fails the
+   * step). Not held to the annotating permission: the caller checks its own,
+   * and the core asks again. See `change` for `shownByCaller`.
+   */
+  const apply = useCallback(
+    async (build: (session: Session) => Edit | null, shownByCaller: readonly string[] = []): Promise<ChangeOutcome> => {
+      const { complete, error } = await enqueue(
+        [
+          async () => {
+            if (!mounted.current) return null;
+            const edit = build(latest.current);
+            return edit && engine.applyEdit(handle, edit);
+          },
+        ],
+        shownByCaller,
+      );
+      return complete ? { status: 'changed' } : failed(error);
+    },
+    [enqueue, engine, handle],
+  );
+
   /** Shows a caller's own notice as the failure, until the next step starts. */
   const notify = useCallback((message: string) => setFailure(message), []);
 
@@ -274,5 +311,8 @@ export function useAnnotationEdits(engine: Engine, document: OpenDocument, onEdi
     if (canRedo) await enqueue([() => engine.redo(handle)]);
   }, [canRedo, enqueue, engine, handle]);
 
-  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, change, notify, undo, redo };
+  /** Settles once every step asked for so far has ended (a save waits for it). */
+  const settled = useCallback(() => queue.current, []);
+
+  return { allowed, pending: running > 0, failure, canUndo, canRedo, markup, add, change, apply, notify, undo, redo, settled };
 }

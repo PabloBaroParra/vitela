@@ -534,3 +534,73 @@ describe('useAnnotationEdits.change', () => {
     expect(result.current.failure).toBeNull();
   });
 });
+
+describe('useAnnotationEdits.apply', () => {
+  const field = {
+    id: 9,
+    pageIndex: 0,
+    kind: 'checkbox' as const,
+    name: 'subscribe',
+    rect: { left: 72, top: 100, width: 14, height: 14 },
+    existing: true,
+    checked: false,
+  };
+  const fill = (checked: boolean): Edit => ({ kind: 'setFieldValue', fieldId: 9, value: { kind: 'checked', checked } });
+
+  it('builds each step from the session the previous one left, form fields included', async () => {
+    const applied: Edit[] = [];
+    const engine = fakeEngine({
+      applyEdit: async (_handle, edit) => {
+        applied.push(edit);
+        return { ...edited(true), formFields: [{ ...field, checked: true }] };
+      },
+    });
+    const onEdited = vi.fn();
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc({ formFields: [field] }), onEdited));
+
+    const seen: boolean[] = [];
+    let outcomes: ChangeOutcome[] = [];
+    await act(async () => {
+      outcomes = await Promise.all(
+        [true, true].map((checked) =>
+          result.current.apply((session) => {
+            const now = session.formFields?.find(({ id }) => id === 9);
+            seen.push(now?.kind === 'checkbox' && now.checked);
+            return now?.kind === 'checkbox' && now.checked === checked ? null : fill(checked);
+          }),
+        ),
+      );
+    });
+
+    // The second saw the first's answer and asked for nothing.
+    expect(seen).toEqual([false, true]);
+    expect(applied).toEqual([fill(true)]);
+    expect(onEdited).toHaveBeenCalledTimes(1);
+    expect(outcomes).toEqual([{ status: 'changed' }, { status: 'changed' }]);
+  });
+
+  it('runs where annotating is not allowed: the caller checks its own permission', async () => {
+    const applyEdit = vi.fn(async () => edited(true));
+    const engine = fakeEngine({ applyEdit });
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc({ info: info(false) }), vi.fn()));
+    await act(async () => {
+      await result.current.apply(() => fill(true));
+    });
+    expect(applyEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands back an error the caller shows itself without making it the failure', async () => {
+    const engine = fakeEngine({
+      applyEdit: async () => {
+        throw new EngineError('UnsupportedOperation', 'text longer than /MaxLen');
+      },
+    });
+    const { result } = renderHook(() => useAnnotationEdits(engine, doc(), vi.fn()));
+    let outcome: ChangeOutcome | null = null;
+    await act(async () => {
+      outcome = await result.current.apply(() => fill(true), ['UnsupportedOperation']);
+    });
+    expect(outcome).toEqual({ status: 'failed', kind: 'UnsupportedOperation', message: 'text longer than /MaxLen' });
+    expect(result.current.failure).toBeNull();
+  });
+});

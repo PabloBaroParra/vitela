@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '@vitela/core';
-import type { Annotation, DocumentHandle, DocumentInfo, EditedDocument, Engine } from '@vitela/core';
+import type { Annotation, DocumentHandle, DocumentInfo, EditedDocument, Engine, FormField } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
 import { recordFileStamp } from '../../platform/fileStamp';
 
@@ -43,6 +43,11 @@ export interface OpenDocument {
    * freshly opened document has none (the file's own are in pdfium's bitmap).
    */
   readonly annotations?: readonly Annotation[];
+  /**
+   * The form fields as the last edit, undo or redo reported them. Unset until
+   * then: the open does not list them, the viewer asks the engine.
+   */
+  readonly formFields?: readonly FormField[];
   /**
    * The file each PDF added to this document came from, by the block source
    * id the import reported (the engine never sees a file name). Unset until
@@ -199,6 +204,7 @@ export function useDocument(engine: Engine) {
               canUndo: edited.canUndo,
               canRedo: edited.canRedo,
               annotations: edited.annotations,
+              formFields: edited.formFields,
             },
           }
         : s,
