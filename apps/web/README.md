@@ -451,7 +451,7 @@ browser; if fewer arrived, allow multiple downloads for the site and export
 again, or export one page at a time. That prompt is not covered by the tests
 (Playwright accepts every download).
 
-On a phone (≤ 600 px) both tools live in **More tools** (`ui/ToolsMenu.tsx`), a
+On a phone (≤ 600 px) both tools live in **More tools** (`ui/MenuButton.tsx`), a
 menu button in the WAI-ARIA pattern placed where the tools sit in the DOM, so
 the tab order is the order on screen (`e2e/phone-bar.spec.ts` checks the single
 row, that order, Tab, and the menu's keys). Tools that come later join it as
@@ -570,6 +570,44 @@ the focus comes back to More tools.
   gate is the one Move and Delete ask (`check_edit`: the assembly permission,
   then whether the encryption survives the full rewrite); without the
   permission the button is off and never opens.
+- **Extract** and **Split** (toolbar buttons; `features/extract/`): page
+  tools that write **new files** and change nothing about the open document,
+  so the assembly permission does not hold them back; like Undo, they are off
+  while an Organize edit is in flight. Organize's edit queue is now one Save
+  waits for (so do Compress, Protect, Export, Extract and Split), and both
+  read the page count as of the last landed edit, not the click's.
+  Their gates are the native shells', asked as the dialog opens
+  (`extractionRefusal`: the copy/extract bit `/P` 5, then whether the
+  encryption survives the full rewrite — a PDF opened with only its user
+  password cannot); a refused document says why and offers only Cancel.
+  **Extract** opens on the selection (`"2-3"`) in a "Pages to extract" field
+  read by the core's grammar (`parsePageSelection`), and downloads
+  `<name>-extract.pdf` (Android's and Windows' name). **Split** asks "Split
+  after page" (`3,7`, the one mode every native shell has), plans with the
+  core (`planSplit`: the parts and their names, `<name>-part1.pdf`…, the same
+  on every shell; a one-page document is refused up front) and delivers one
+  download per part, in order, as Export images does (**Cancel split** while
+  it runs; the part in hand still goes out). Every part is asked of the
+  engine right after the plan, so all come from the same state of the
+  document. Both wait for the queued edits, so unsaved edits are in the
+  files; a protected source gives protected files, and a signed one files
+  whose signature no longer verifies (the status line says so). The natives
+  write into a folder with one overwrite prompt; a download overwrites
+  nothing, so there is none. **Blocked downloads:** as for Export images
+  (below), a browser may ask once, or refuse, to download several files; if
+  fewer parts arrived than "Split into n PDFs." says, allow multiple
+  downloads for the site and split again. The buttons sit in Organize, with
+  the other page tools, not in the workspace bar: two more bar buttons
+  wrapped the bar onto another row in narrow embeds (the embed host's
+  oversized buttons), taking height from the pages; their status lines and
+  Cancel split do sit in the bar, so they survive a switch to View.
+  E2E (`e2e/extract-split.spec.ts`, all three browsers): pages 2-3 of a
+  five-page PDF → `five-extract.pdf` with exactly those two pages (by their
+  `/MediaBox` widths), which opens with 2 pages; the selection fills the
+  dialog and a pending deletion is in the file, still unsaved; a split after
+  2 and 4 → `five-part1..3.pdf` with 2, 2 and 1 pages; a cut after the last
+  page refused in the dialog with nothing downloaded; a PDF that withholds
+  extraction refused in both dialogs; the Split dialog fits a 390 px phone.
 
 ## Zero-network
 

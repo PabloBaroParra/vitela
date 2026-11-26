@@ -95,11 +95,13 @@ What reaches `onSave`, told apart by name and `type`:
 | Save, Save anyway, Save a copy | the document's name | `application/pdf` | yes |
 | Compress | `<name>-compressed.pdf` | `application/pdf` | no |
 | Protect | `<name>-protected.pdf` (encrypted: it needs the open password chosen in the dialog) | `application/pdf` | no |
+| Extract (Organize) | `<name>-extract.pdf` (protected when the document is) | `application/pdf` | no |
+| Split (Organize) | one call per part, named by the engine: `<name>-part<n>.pdf`, `n` zero-padded to the number of parts | `application/pdf` | no |
 | Export images | one call per page, named by the engine: `<name>-<page>.png` or `.jpg`, the page number zero-padded to the page count (`report-03.jpg`) | `image/png` or `image/jpeg` | no |
 
 An image export calls `onSave` once per page, in page order, waiting for each
 call to settle; a rejection stops the export there and the editor says how
-many pages went out. The images show the document as a save would write it
+many pages went out. A split does the same, once per part. The images show the document as a save would write it
 now, unsaved edits included.
 
 ## Bundler (Vite)

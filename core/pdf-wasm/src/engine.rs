@@ -16,7 +16,7 @@
 //! free-text and stamp geometry are in [`annotation`]; the form fields and
 //! filling them in are in [`form`]; the compressed save is in
 //! [`compress`]; the protected copy is in [`protect`]; image export is in
-//! [`export`].
+//! [`export`]; extracting pages and splitting are in [`extract`].
 
 use std::collections::HashMap;
 
@@ -33,6 +33,7 @@ mod annotation;
 mod compress;
 mod edit;
 mod export;
+mod extract;
 mod form;
 mod import;
 mod protect;
@@ -41,6 +42,7 @@ pub use annotation::{free_text_layout, stamp_placement};
 pub use compress::compress_presets;
 pub use edit::EditCommand;
 pub use export::{image_export_formats, page_image_file_name, parse_page_selection};
+pub use extract::plan_split;
 
 struct OpenDocument {
     model: DocumentModel,

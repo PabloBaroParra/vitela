@@ -50,12 +50,12 @@
   position: relative;
 }
 
-.tools-menu__button {
+.menu-button__button {
   display: flex;
   align-items: center;
 }
 
-.tools-menu__list {
+.menu-button__list {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
@@ -71,20 +71,20 @@
   box-shadow: var(--card-shadow);
 }
 
-.tools-menu__item {
+.menu-button__item {
   padding: 8px 12px;
   border-radius: 6px;
   cursor: pointer;
   white-space: nowrap;
 }
 
-.tools-menu__item:focus {
+.menu-button__item:focus {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
   background: var(--accent-soft);
 }
 
-.tools-menu__item[aria-disabled='true'] {
+.menu-button__item[aria-disabled='true'] {
   color: var(--text-muted);
   cursor: default;
 }
@@ -419,7 +419,7 @@
     flex: none;
   }
 
-  .workspace__bar .tools-menu__button {
+  .workspace__bar .menu-button__button {
     padding-inline: 6px;
   }
 

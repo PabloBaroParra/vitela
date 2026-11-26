@@ -142,6 +142,21 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `EditNotPermitted`, `SignaturesWouldBeInvalidated` (unless told the user
   agreed) and `SaveFailed`. It records no edit, the open document's own
   protection does not change, and the engine keeps neither password.
+  Extract and Split: `extractionRefusal(handle)` says why no page can leave
+  the document (the core's sentence: its `/P` withholds extraction — bit 5,
+  not page assembly — or its encryption cannot survive the rewrite, e.g.
+  opened with only one of its two passwords) or `null`;
+  `extractSourceIsSigned(handle)` says whether the file as opened is signed
+  (an extracted copy's signature no longer verifies). `extractPages(handle,
+  pages)` answers a new PDF of `pages` (zero-based, ascending, unique; the
+  current order) with every pending edit, protected as the source is (the
+  bytes are transferred); it rejects with `InvalidPageSelection`,
+  `PageIndexOutOfBounds`, `UnsupportedOperation` and `SaveFailed`, and
+  records no edit. `planSplit(cuts, totalPages, documentName)` answers the
+  `SplitPart`s (`{ first, last, fileName }`, `report-part1.pdf`…) a split
+  after the one-based pages `cuts` (`"3,7"`) makes, by the core's grammar and
+  names (rejects with `InvalidPageSelection` and a sentence: one page, no
+  cut, a cut after the last page); each part is then one `extractPages`.
   Export images: `imageExportFormats()` (`png`, `jpeg`; there is no JPEG
   quality — the core's encoder has none), `parsePageSelection(input,
   totalPages)` reads `"1-3,7"` into zero-based pages by the core's grammar

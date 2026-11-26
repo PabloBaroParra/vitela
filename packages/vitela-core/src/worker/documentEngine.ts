@@ -65,6 +65,7 @@ import {
   type CoreCompressRefusal,
 } from './compress.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
+import { splitParts, type CoreSplitFunctions } from './extract.js';
 import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
@@ -77,7 +78,7 @@ export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
 }
 
 /** core/pdf-wasm's free functions: placement, and the geometry asked before an annotation exists. */
-export interface CoreFunctions extends CoreGeometry, CoreExportFunctions {
+export interface CoreFunctions extends CoreGeometry, CoreExportFunctions, CoreSplitFunctions {
   freeTextLayout(contents: string, widthPt: number, heightPt: number): CoreFreeTextLines;
   /** `x, y, width, height` in PDF space. */
   stampPlacement(image: Uint8Array, anchorX: number, anchorY: number): Float64Array;
@@ -105,6 +106,10 @@ export interface CoreEngine extends CoreText {
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
   protectToBytes(doc: number, openPassword: string, permissionsPassword: string, invalidateSignatures: boolean): Uint8Array;
+  /** `undefined` (wasm-bindgen's `None`) when pages can be extracted. */
+  extractionRefusal(doc: number): string | null | undefined;
+  extractSourceIsSigned(doc: number): boolean;
+  extractPagesToBytes(doc: number, pages: Uint32Array): Uint8Array;
   /** `undefined` (wasm-bindgen's `None`) when every page fits. */
   firstPageTooLargeToExport(doc: number, pages: Uint32Array, dpi: number): number | null | undefined;
   /** The export's snapshot: its id (its own namespace, not a document id) and page count. */
@@ -334,6 +339,21 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     },
     async closeImageExport(exportHandle: number) {
       return core.closeImageExport(exportHandle);
+    },
+    async extractionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.extractionRefusal(document) ?? null;
+    },
+    async extractSourceIsSigned(document: DocumentHandle) {
+      assertOpen(document);
+      return core.extractSourceIsSigned(document);
+    },
+    async extractPages(document: DocumentHandle, pages: readonly number[]) {
+      assertOpen(document);
+      return core.extractPagesToBytes(document, Uint32Array.from(pages));
+    },
+    async planSplit(cuts: string, totalPages: number, documentName: string) {
+      return splitParts(functions.planSplit(cuts, totalPages, documentName));
     },
     async applyEdit(document: DocumentHandle, edit: Edit) {
       return step(

@@ -146,7 +146,7 @@
   position: relative;
 }
 
-.organize__insert .tools-menu__list {
+.organize__insert .menu-button__list {
   right: auto;
   left: 0;
 }

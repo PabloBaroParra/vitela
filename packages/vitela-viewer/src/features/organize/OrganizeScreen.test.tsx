@@ -7,7 +7,7 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import { MarkDirtyContext } from '../save/MarkDirtyContext';
 import { CARD, GRID_GAP, GRID_PADDING } from './gridLayout';
-import { OrganizeScreen } from './OrganizeScreen';
+import { OrganizeScreen, type PageTools } from './OrganizeScreen';
 
 /** Room for exactly four cards a row. */
 const VIEWPORT = { width: 2 * GRID_PADDING + 4 * CARD.width + 3 * GRID_GAP, height: 600 };
@@ -133,7 +133,17 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
   return { engine, edits, imports, prepared, opened: answer().info, holdEdits };
 }
 
-function Harness({ engine, initial, markDirty }: { engine: Engine; initial: DocumentInfo; markDirty: () => void }) {
+function Harness({
+  engine,
+  initial,
+  markDirty,
+  pageTools,
+}: {
+  engine: Engine;
+  initial: DocumentInfo;
+  markDirty: () => void;
+  pageTools?: PageTools;
+}) {
   const [document, setDocument] = useState<OpenDocument>({ name: 'a.pdf', info: initial, handle: 1, generation: 1 });
   return (
     <MarkDirtyContext.Provider value={markDirty}>
@@ -147,15 +157,23 @@ function Harness({ engine, initial, markDirty }: { engine: Engine; initial: Docu
         onSourcesNamed={(_handle, names) =>
           setDocument((d) => ({ ...d, sourceNames: new Map([...(d.sourceNames ?? []), ...names]) }))
         }
+        pageTools={pageTools}
       />
     </MarkDirtyContext.Provider>
   );
 }
 
-function setup(count: number, allowed = true, importRefusal: string | null = null) {
+function setup(
+  count: number,
+  allowed = true,
+  importRefusal: string | null = null,
+  pageTools?: PageTools,
+) {
   const fake = pagesEngine(count, allowed, importRefusal);
   const markDirty = vi.fn();
-  const view = render(<Harness engine={fake.engine} initial={fake.opened} markDirty={markDirty} />);
+  const view = render(
+    <Harness engine={fake.engine} initial={fake.opened} markDirty={markDirty} pageTools={pageTools} />,
+  );
   const grid = () => screen.getByRole('listbox');
   const cards = () => [...view.container.querySelectorAll<HTMLElement>('.page-card')];
   /** Page ids in grid order. */
@@ -466,6 +484,40 @@ describe('OrganizeScreen', () => {
     expect(imports).toEqual([[[1], 2]]);
     expect(order()).toEqual([1, 2, 100, 101]);
     expect(screen.getByText('Added 2 pages from b.pdf.')).toBeTruthy();
+  });
+
+  it('hands the selected pages to Extract and opens Split, even when the document withholds page edits', async () => {
+    const asked: string[] = [];
+    const tools: PageTools = {
+      busy: false,
+      extract: ({ from, count }) => asked.push(`extract ${from}+${count}`),
+      split: () => asked.push('split'),
+    };
+    const { edits, grid } = setup(4, false, null, tools);
+    fireEvent.keyDown(grid(), { key: 'ArrowRight' });
+    fireEvent.keyDown(grid(), { key: 'ArrowRight', shiftKey: true });
+    expect(button('Extract').getAttribute('aria-disabled')).toBe('false');
+    fireEvent.click(button('Extract'));
+    // It takes the focus, so the dialog gives it back there (Safari does not focus a pressed button).
+    expect(button('Extract')).toBe(window.document.activeElement);
+    fireEvent.click(button('Split'));
+    expect(asked).toEqual(['extract 1+2', 'split']);
+    expect(edits).toEqual([]);
+  });
+
+  it('turns Extract and Split off while one of them runs, and offers neither when the workspace does not', () => {
+    const asked: string[] = [];
+    const busy: PageTools = { busy: true, extract: () => asked.push('extract'), split: () => asked.push('split') };
+    const { unmount } = setup(2, true, null, busy);
+    for (const name of ['Extract', 'Split']) {
+      expect(button(name).getAttribute('aria-disabled')).toBe('true');
+      fireEvent.click(button(name));
+    }
+    expect(asked).toEqual([]);
+    unmount();
+    setup(2);
+    expect(screen.queryByRole('button', { name: 'Extract' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Split' })).toBeNull();
   });
 
   it('is blocked when the document withholds the assembly permission', async () => {

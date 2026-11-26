@@ -102,8 +102,9 @@ export interface ImportedDocument extends EditedDocument {
 
 /**
  * One page edit, recorded as one undo step. Positions are 0-based and name
- * pages as they are now; `count` pages starting at `from` take part (one new
- * page, for an insert).
+ * pages as they are now. A move, rotate or remove acts on the run of `count`
+ * pages starting at `from`; an insert names no run, only the position `at`
+ * its one new page takes.
  */
 export type PageEdit =
   /** Moves the run so its first page ends up at `to`. */
@@ -424,6 +425,16 @@ export interface CompressedDocument {
   readonly refusals: readonly CompressRefusal[];
 }
 
+/**
+ * One part of a split: an inclusive run of zero-based page positions and the
+ * file the core names it (`report-part1.pdf`, padded to the number of parts).
+ */
+export interface SplitPart {
+  readonly first: number;
+  readonly last: number;
+  readonly fileName: string;
+}
+
 /** The encoding of an exported page image (the core's `ExportFormat`). JPEG has no alpha: the page is flattened onto white. */
 export type ImageExportFormat = 'png' | 'jpeg';
 
@@ -638,4 +649,31 @@ export interface Engine {
   ): Promise<Uint8Array>;
   /** Ends an export, freeing its snapshot. `false` if it was not open. */
   closeImageExport(exportHandle: ImageExportHandle): Promise<boolean>;
+  /**
+   * Why no page of `document` can be extracted (or split off), as the core's
+   * sentence, or `null` when they can: its permissions withhold extracting
+   * (`/P` bit 5, not page assembly: the open document does not change), or
+   * its encryption cannot survive the rewrite a new page set needs (opened
+   * with only one of its two passwords). Ask before offering to run.
+   */
+  extractionRefusal(document: DocumentHandle): Promise<string | null>;
+  /** Whether the file as opened is signed: an extracted copy's signature no longer verifies. */
+  extractSourceIsSigned(document: DocumentHandle): Promise<boolean>;
+  /**
+   * A new PDF of `pages` (zero-based, ascending and unique, in the
+   * document's current order) with every pending edit applied, protected as
+   * the source is (the bytes, transferred, not copied). Records no edit.
+   * Rejects with `InvalidPageSelection` (empty, out of order),
+   * `PageIndexOutOfBounds`, `UnsupportedOperation` (see
+   * `extractionRefusal`) or `SaveFailed`.
+   */
+  extractPages(document: DocumentHandle, pages: readonly number[]): Promise<Uint8Array>;
+  /**
+   * The parts a split at `cuts` (one-based "split after page" positions,
+   * `"3,7"`) makes of a document of `totalPages` named `documentName` — the
+   * core's grammar and names, as on every shell. Rejects with
+   * `InvalidPageSelection`, whose message is the core's sentence for the
+   * person who typed it (one page, no cut, a cut after the last page).
+   */
+  planSplit(cuts: string, totalPages: number, documentName: string): Promise<SplitPart[]>;
 }

@@ -138,6 +138,7 @@ mod annotation;
 mod compress;
 mod edit;
 mod export;
+mod extract;
 mod form;
 mod import;
 mod preview;
@@ -154,6 +155,7 @@ pub use export::{
     encode_page_image, format_from_name, format_name, page_image_file_name, parse_page_selection,
     EXPORT_FORMATS,
 };
+pub use extract::{plan_split, SplitPartPlan};
 pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 pub use protect::PROTECTION_FORBIDDEN;

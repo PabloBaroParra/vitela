@@ -57,6 +57,7 @@ export type {
   RenderedPage,
   Rgb,
   SearchHit,
+  SplitPart,
   TextSelection,
 } from './core/types.js';
 export type { MessagePortLike, RequestEnvelope, WorkerMessage } from './core/protocol.js';

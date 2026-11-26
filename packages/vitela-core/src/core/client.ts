@@ -32,6 +32,7 @@ import type {
   ProtectionPasswords,
   RenderedPage,
   SearchHit,
+  SplitPart,
   TextSelection,
 } from './types.js';
 
@@ -169,6 +170,22 @@ export class EngineClient implements Engine {
     invalidateSignatures: boolean,
   ): Promise<Uint8Array> {
     return this.send({ kind: 'protect', document, openPassword, permissionsPassword, invalidateSignatures });
+  }
+
+  extractionRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'extractionRefusal', document });
+  }
+
+  extractSourceIsSigned(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'extractSourceIsSigned', document });
+  }
+
+  extractPages(document: DocumentHandle, pages: readonly number[]): Promise<Uint8Array> {
+    return this.send({ kind: 'extract', document, pages });
+  }
+
+  planSplit(cuts: string, totalPages: number, documentName: string): Promise<SplitPart[]> {
+    return this.send({ kind: 'planSplit', cuts, totalPages, documentName });
   }
 
   imageExportFormats(): Promise<ImageExportFormat[]> {

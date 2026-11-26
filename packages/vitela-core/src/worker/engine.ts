@@ -39,6 +39,7 @@ export const coreFunctions: CoreFunctions = {
   imageExportFormats: core.imageExportFormats,
   parsePageSelection: core.parsePageSelection,
   pageImageFileName: core.pageImageFileName,
+  planSplit: core.planSplit,
 };
 
 /** The core's `EditCommand` constructors, as `documentEngine` takes them. */

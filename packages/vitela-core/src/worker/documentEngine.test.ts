@@ -37,6 +37,14 @@ const annotationFunctions = {
   },
   pageImageFileName: (name: string, index: number, total: number, format: string) =>
     `${name}#${index + 1}of${total}.${format}`,
+  planSplit: (cuts: string, total: number, name: string) => {
+    if (cuts === 'bad') throw named('InvalidPageSelection', 'Split position is not valid');
+    // One cut after the first page, whatever was typed.
+    return [
+      { first: 0, last: 0, fileName: `${name}#1`, free: () => {} },
+      { first: 1, last: total - 1, fileName: `${name}#2`, free: () => {} },
+    ];
+  },
 };
 
 /** Placement that only marks its output, so a test sees it was applied. */
@@ -156,6 +164,8 @@ function fakeCore(
   const compressions: [number, string, boolean][] = [];
   /** Every protected save the core ran: document, both passwords, acknowledgement. */
   const protections: [number, string, string, boolean][] = [];
+  /** Every extraction the core ran: document, zero-based pages (as a plain array). */
+  const extractions: [number, number[]][] = [];
   /** Open image exports: id -> the marker and page ids of the document at the moment it was opened. */
   const exports = new Map<number, { marker: number; ids: number[] }>();
   let nextExport = 50;
@@ -359,6 +369,20 @@ function fakeCore(
       protections.push([doc, openPassword, permissionsPassword, invalidate]);
       // One byte per page, after the marker: the protected copy of what the session holds now.
       return new Uint8Array([marker, ...pages.map((page) => page.id)]);
+    },
+    extractionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit extracting its pages' : undefined),
+    extractSourceIsSigned: (doc) => (known(doc), options.signed ?? false),
+    extractPagesToBytes: (doc, pages) => {
+      const entry = known(doc);
+      if (options.restricted) throw named('UnsupportedOperation', 'this document does not permit extracting its pages');
+      const out = Array.from(pages).map((index) => {
+        const page = entry.pages[index];
+        if (page === undefined) throw named('PageIndexOutOfBounds', `page index ${index} is out of bounds`);
+        return page.id;
+      });
+      extractions.push([doc, Array.from(pages)]);
+      // The marker, then the id of each extracted page: what the session holds now.
+      return new Uint8Array([entry.marker, ...out]);
     },
     // Over 400 DPI the first asked page is too large, like a Letter page at 600.
     firstPageTooLargeToExport: (doc, pages, dpi) => (known(doc), dpi > 400 ? pages[0] : undefined),
@@ -587,7 +611,7 @@ function fakeCore(
       };
     },
   };
-  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, protections, exports };
+  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, protections, extractions, exports };
 }
 
 describe('documentEngine', () => {
@@ -748,6 +772,60 @@ describe('documentEngine', () => {
       engine.protectionInvalidatesSignatures(handle),
       engine.protectToBytes(handle, { openPassword: 'o', permissionsPassword: 'p' }, false),
     ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it('asks the extract gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.extractionRefusal(handle)).toBeNull();
+    expect(await engine.extractSourceIsSigned(handle)).toBe(false);
+
+    const restricted = fakeCore({ restricted: true, signed: true });
+    const other = documentEngine(restricted.core, geometry, restricted.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.extractionRefusal(opened.handle)).toBe('this document does not permit extracting its pages');
+    expect(await other.extractSourceIsSigned(opened.handle)).toBe(true);
+    await expect(other.extractPages(opened.handle, [0])).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+  });
+
+  it('extracts the pages of the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, extractions, refreshed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const bytes = await engine.extractPages(handle, [1]);
+    expect(extractions).toEqual([[handle, [1]]]);
+    expect(bytes).toEqual(new Uint8Array([10, removed.info.pageIds[1]!]));
+    expect(refreshed.length).toBe(refreshes);
+    await expect(engine.extractPages(handle, [5])).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+  });
+
+  it("plans a split by the core's rules as plain parts, and forwards its refusal by name", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.planSplit('1', 3, 'a.pdf')).toEqual([
+      { first: 0, last: 0, fileName: 'a.pdf#1' },
+      { first: 1, last: 2, fileName: 'a.pdf#2' },
+    ]);
+    await expect(engine.planSplit('bad', 3, 'a.pdf')).rejects.toMatchObject({
+      name: 'InvalidPageSelection',
+      message: 'Split position is not valid',
+    });
+  });
+
+  it('refuses every extract request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [engine.extractionRefusal(handle), engine.extractSourceIsSigned(handle), engine.extractPages(handle, [0])]) {
       await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
     }
   });

@@ -24,6 +24,7 @@ import type {
   PreparedImport,
   RenderedPage,
   SearchHit,
+  SplitPart,
   TextSelection,
 } from './types.js';
 
@@ -91,6 +92,10 @@ export type EngineRequest =
       readonly permissionsPassword: string;
       readonly invalidateSignatures: boolean;
     }
+  | { readonly kind: 'extractionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'extractSourceIsSigned'; readonly document: DocumentHandle }
+  | { readonly kind: 'extract'; readonly document: DocumentHandle; readonly pages: readonly number[] }
+  | { readonly kind: 'planSplit'; readonly cuts: string; readonly totalPages: number; readonly documentName: string }
   | { readonly kind: 'imageExportFormats' }
   | { readonly kind: 'parsePageSelection'; readonly input: string; readonly totalPages: number }
   | {
@@ -149,6 +154,10 @@ export interface EngineResults {
   openImageExport: ImageExport;
   exportPageImage: Uint8Array;
   closeImageExport: boolean;
+  extractionRefusal: string | null;
+  extractSourceIsSigned: boolean;
+  extract: Uint8Array;
+  planSplit: SplitPart[];
 }
 
 /** UI -> worker. `id` correlates the reply. */

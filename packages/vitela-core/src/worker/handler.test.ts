@@ -59,6 +59,10 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     protectionRefusal: async () => null,
     protectionInvalidatesSignatures: async () => false,
     protectToBytes: async () => new Uint8Array(0),
+    extractionRefusal: async () => null,
+    extractSourceIsSigned: async () => false,
+    extractPages: async () => new Uint8Array(0),
+    planSplit: async () => [],
     ...overrides,
   };
 }
@@ -282,6 +286,41 @@ describe('handleRequest', () => {
       request: { kind: 'protect', document: 5, openPassword: 'o', permissionsPassword: 'p', invalidateSignatures: true },
     });
     expect(calls).toEqual([[5, { openPassword: 'o', permissionsPassword: 'p' }, true]]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('answers the extract questions and a split plan, copied', async () => {
+    const calls: unknown[][] = [];
+    const parts = [{ first: 0, last: 1, fileName: 'a-part1.pdf' }];
+    const engine = fakeEngine({
+      extractionRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+      extractSourceIsSigned: async (document) => (calls.push(['signed', document]), true),
+      planSplit: async (...args) => (calls.push(['split', ...args]), parts),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'extractionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: 'no' },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'extractSourceIsSigned', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: true },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 3, request: { kind: 'planSplit', cuts: '2', totalPages: 3, documentName: 'a.pdf' } }),
+    ).toEqual({ message: { type: 'result', id: 3, value: parts }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+      ['split', '2', 3, 'a.pdf'],
+    ]);
+  });
+
+  it('answers an extract request with the new PDF, transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const engine = fakeEngine({ extractPages: async (...args) => (calls.push(args), bytes) });
+    const reply = await handleRequest(engine, { id: 7, request: { kind: 'extract', document: 5, pages: [1, 2] } });
+    expect(calls).toEqual([[5, [1, 2]]]);
     expect(reply).toEqual({ message: { type: 'result', id: 7, value: bytes }, transfer: [bytes.buffer] });
   });
 

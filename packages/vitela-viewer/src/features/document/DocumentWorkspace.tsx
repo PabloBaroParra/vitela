@@ -2,7 +2,7 @@
 // open document: the viewer, or Organize. What shows before a document is
 // open is the caller's: it gets the open action (picker plus activity) to place.
 
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
@@ -13,9 +13,14 @@ import { CompressControls } from '../compress/CompressControls';
 import { compressBusy, useCompress } from '../compress/useCompress';
 import { ExportImagesControls } from '../exportImages/ExportImagesControls';
 import { exportBusy, useExportImages } from '../exportImages/useExportImages';
+import { ExtractControls } from '../extract/ExtractControls';
+import { SplitControls } from '../extract/SplitControls';
+import { pageRunText } from '../extract/extractText';
+import { extractBusy, useExtract } from '../extract/useExtract';
+import { splitBusy, useSplit } from '../extract/useSplit';
 import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
-import { ToolsMenu } from '../../ui/ToolsMenu';
+import { MenuButton } from '../../ui/MenuButton';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
 import { ViewSwitch } from '../../ui/ViewSwitch';
@@ -81,7 +86,8 @@ export function DocumentWorkspace({
   delivery,
   ref,
 }: DocumentWorkspaceProps) {
-  const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage } = useDocument(engine);
+  const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage, pageCountNow } =
+    useDocument(engine);
   const { document, activity } = state;
   const [screen, setScreen] = useState<DocumentScreen>(initialScreen);
   const [screenFor, setScreenFor] = useState(document?.generation);
@@ -113,6 +119,20 @@ export function DocumentWorkspace({
   const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
   // A protected copy goes where a compressed one goes, after the same queued edits.
   const protect = useProtect(engine, document, delivery ?? browserDelivery, save.settleEdits);
+  // An extracted PDF and a split's parts go there too, after the same queued edits.
+  const extract = useExtract(engine, document, delivery ?? browserDelivery, save.settleEdits, pageCountNow);
+  const split = useSplit(engine, document, delivery ?? browserDelivery, save.settleEdits, pageCountNow);
+  const pageToolsBusy = extractBusy(extract.activity) || splitBusy(split.activity);
+  const openExtract = extract.open;
+  const openSplit = split.open;
+  const pageTools = useMemo(
+    () => ({
+      busy: pageToolsBusy,
+      extract: (pages: { readonly from: number; readonly count: number }) => void openExtract(pageRunText(pages)),
+      split: () => void openSplit(),
+    }),
+    [pageToolsBusy, openExtract, openSplit],
+  );
   useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
   const picker = filePicker && (
@@ -140,12 +160,15 @@ export function DocumentWorkspace({
             <CompressControls session={compress} documentName={document.name} focusFallback={focusMore} />
             <ExportImagesControls session={exportImages} focusFallback={focusMore} />
             <ProtectControls session={protect} documentName={document.name} focusFallback={focusMore} />
+            {/* Extract and Split are opened from Organize: here are their status lines and dialogs. */}
+            <ExtractControls session={extract} pageCount={document.info.pageCount} />
+            <SplitControls session={split} pageCount={document.info.pageCount} />
             {/*
               The same tools as one menu button: what a phone shows instead
               of the buttons above (CSS), at the same place in the DOM, so
               the tab order is the order on screen at every width.
             */}
-            <ToolsMenu
+            <MenuButton
               label="More tools"
               buttonRef={moreButton}
               className="workspace__more"
@@ -189,6 +212,7 @@ export function DocumentWorkspace({
                   document={document}
                   onEdited={revise}
                   onSourcesNamed={nameSources}
+                  pageTools={pageTools}
                 />
               )}
             </SaveWaitsForEditsContext.Provider>

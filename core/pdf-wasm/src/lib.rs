@@ -42,12 +42,12 @@ mod geometry;
 pub use dto::{
     AnnotationEntry, CommentEntry, CompressRefusalEntry, CompressedSave, DocumentBlock,
     FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport, PageCharacters,
-    PageDimensions, PreparedImport, RenderedPage, SearchMatch, TextRun,
+    PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart, TextRun,
 };
 #[cfg(target_arch = "wasm32")]
 pub use engine::{
     compress_presets, free_text_layout, image_export_formats, page_image_file_name,
-    parse_page_selection, stamp_placement, EditCommand, Engine,
+    parse_page_selection, plan_split, stamp_placement, EditCommand, Engine,
 };
 #[cfg(target_arch = "wasm32")]
 pub use geometry::{place_rects, point_to_pdf};

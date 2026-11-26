@@ -2161,7 +2161,7 @@ Gates (Windows 11, local):
 | **T-251** ✓ | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
 | **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
 | **T-253** ✓ | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
-| **T-254** | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
+| **T-254** ✓ | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
 | **T-255** | Metadatos. | Playwright: editar, guardar y releer. |
 | **T-256** | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
 | **T-257** | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
@@ -2553,6 +2553,110 @@ nueva en el core: `Command::insert_blank_page` ya mintaba el `PageId` desde el `
 - **No cubierto / pendiente:** sin tamaño Carta ni personalizado (ningún shell nativo lo ofrece
   en Organize, aunque `FfiPageSize` lo admite); sin "insertar antes" por tarjeta (se cubre con
   seleccionar la página anterior); sin lector de pantalla real.
+
+### T-254 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize", **Extract** y **Split**),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Lo que condiciona lo que sigue:
+
+- **Core (`pdf-save`):** una función nueva, `pdf_save::extraction_refusal(&Document)` → las dos
+  puertas de la extracción que no dependen de la selección (`ExtractionDenied`, luego
+  `RewriteBlocked`), en el orden de `extracted_pages`, que ahora la usa. Así la web pregunta la
+  puerta antes de abrir el diálogo con la frase del core (`rewrite_refusal` es privada) sin
+  copiarla. `pdf-ffi` no cambia.
+- **`pdf-wasm`** (`model/extract.rs`, `engine/extract.rs`, `dto/extract.rs`):
+  `extractionRefusal(doc)` → frase o `undefined`, `extractSourceIsSigned(doc)` (de `base`, como
+  `pdf-ffi`), `extractPagesToBytes(doc, pages)` sobre el `SaveSource` de la sesión (ediciones
+  pendientes incluidas; poda un **clon**, sin paso de deshacer) y la función libre
+  `planSplit(cuts, totalPages, documentName)` → `SplitPart { first, last, fileName }` (el
+  `plan_split` de `pdf-ffi`: `resolve_split_cuts` + `split_parts` + `split_part_file_name`).
+  Errores con el mapeo de `pdf-ffi`: selección vacía o desordenada → `InvalidPageSelection`,
+  posición fuera → `PageIndexOutOfBounds`, permiso o cifrado → `UnsupportedOperation` con la
+  frase del core, guardado → los del guardado; un corte que el core rechaza →
+  `InvalidPageSelection` con su frase.
+- **Cifrado y firmas, como los nativos:** extraer de un PDF protegido da un PDF **protegido**
+  (`SaveIntent::Default` del core: el bit 5 permite sacar contenido, no entregarlo sin
+  protección); abierto solo con la contraseña de usuario se rechaza (la reescritura no puede
+  recifrarlo); con las dos, la copia pide la misma contraseña. De un PDF firmado se extrae igual
+  y el estado lo dice ("…signature no longer verifies"), sin pregunta, como Android y Windows.
+- **`@vitela/core`:** `Engine` gana `extractionRefusal`, `extractSourceIsSigned`,
+  `extractPages(handle, pages)` (bytes transferidos) y `planSplit(cuts, totalPages, name)`;
+  tipo `SplitPart` exportado; `worker/extract.ts` convierte y libera los objetos wasm.
+- **`@vitela/viewer` (`features/extract/`):** puro con tests `extractText.ts` (nombre
+  `<nombre>-extract.pdf` de Android y Windows, pistas y estados con las palabras de Android);
+  contenedores `useExtract` y `useSplit` (las dos preguntas al abrir: si fallan, rechaza; un PDF
+  de una página se rechaza al abrir Split con la frase del core, como el preflight de Windows);
+  vista común `PageRangeDialog` (un campo, pista, rechazo con el diálogo abierto y lo tecleado
+  intacto; con puerta cerrada, alerta y solo Cancel) y `ExtractControls`/`SplitControls` (estado,
+  **Cancel split** y diálogo). **Split en paralelo con Export images:** una descarga por parte,
+  en orden, se para en la primera que falla, al cancelar (tras la parte en curso) o al
+  desmontarse, y cuenta lo escrito; todas las partes se piden al motor justo después del plan,
+  así salen del mismo estado del documento aunque se edite mientras salen. Sin carpeta ni aviso
+  de sobrescritura (los nativos lo tienen; una descarga no sobrescribe). Esperan a la cola de
+  ediciones como Save.
+- **UX: los botones van en Organize, no en la barra.** **Extract** (activo con selección, abre
+  el diálogo con ella: `"2-3"`) y **Split** en la barra de Organize junto a las otras
+  herramientas de páginas (Windows también los tiene en su cabecera de Organize; Android en el
+  menú del lector). No son ediciones: el permiso de ensamblado no los apaga; se apagan mientras uno de los dos
+  corre y, como Undo, mientras una edición de Organize está en curso. **Corrección de revisión
+  (R4-001):** la cola de Organize no se entregaba a `useSave` (solo el visor lo hacía), así que
+  Save, Compress, Protect, Export, Extract y Split no la esperaban; ahora `useOrganize` la
+  registra (`useSaveWaitsFor`), y Extract/Split leen el número de páginas de la última edición
+  aplicada (`useDocument.pageCountNow`, fijado en `revise` antes del render), no el del clic. Primero se pusieron en la barra del workspace
+  (y en **More tools**), pero dos botones más la partían en otra fila en el host de `embed`
+  (botones del host enormes) y bajaban la página fuera de la ventana: los dos tests de
+  `embed.spec.ts` que sueltan/dibujan sobre la página fallaban. En lugar de tocar esos tests se
+  movieron a Organize; sus líneas de estado y Cancel split sí están en la barra, así sobreviven
+  al cambio a View. **More tools no cambia** (Compress, Export images, Protect). Los botones de
+  Organize toman el foco al pulsarse (`opensDialog`): Safari no enfoca un botón pulsado y el
+  diálogo devolvía el foco a la tarjeta.
+- **Parte A (revisión de T-253):** `ui/ToolsMenu.tsx` pasa a `ui/MenuButton.tsx` (componente
+  `MenuButton`, clases `menu-button__*`, cabecera genérica: sirve a More tools y a Add blank
+  page). Al desactivarse abierto se cierra para siempre (un `useLayoutEffect` lo cierra antes de
+  pintar, mientras el foco aún está en el menú) y, si el foco estaba dentro, vuelve al botón;
+  volver a activarlo no lo reabre. Doc de `PageEdit` corregido (`insertBlank` usa `at`, no
+  `from`/`count`).
+- **Tests:** `pdf-save` 1 nativo nuevo (`extraction_refusal` y su orden); `pdf-wasm` 8 nativos
+  nuevos (`model/extract.rs`: páginas y sesión intacta, ediciones pendientes, selecciones y
+  posición fuera, permiso, una contraseña vs. las dos con copia protegida, firmado, plan y sus
+  rechazos) y 5 `wasm-bindgen-test` (`tests/extract.rs`). `@vitela/core` 8 Vitest nuevos (1 de
+  `client`, 2 de `handler`, 4 de `documentEngine`, 1 contra pdfium real: `vector_only.pdf` con
+  una página borrada sin guardar → 1 página extraída que se abre y pinta, plan con nombres del
+  core, corte tras la última rechazado, el borrado aún se deshace). `@vitela/viewer` 22 nuevos (7
+  de `extractText`, 10 de `ExtractControls`/`SplitControls`, 2 de `OrganizeScreen`, 1 del
+  workspace, 2 de `MenuButton`). Vistos en rojo antes de implementar: los de `MenuButton` (1
+  fallando), los de `client`/`handler`/`documentEngine` (7), los de `extractText`, controles
+  (sin módulo) y workspace (2) y el de `extraction_refusal` (no compilaba). Los de `pdf-wasm`, el
+  de pdfium real y los de `OrganizeScreen` se escribieron junto a su código.
+- **E2E (`e2e/extract-split.spec.ts`, 6 × 3):** páginas 2-3 de un PDF de 5 (anchos 300…700) →
+  `five-extract.pdf` con exactamente esas dos (`/MediaBox` 400 y 500), que abre con "2 pages",
+  y el foco vuelve a Extract; la selección rellena el diálogo y un borrado pendiente está en el
+  archivo (500, 600), que sigue sin guardar y deshacible; Split tras 2 y 4 →
+  `five-part1..3.pdf` con 2, 2 y 1 páginas; un corte tras la última página se rechaza en el
+  diálogo sin descargas; un PDF con `/P` sin el bit 5 (abierto con su contraseña de usuario)
+  rechaza en los dos diálogos, con solo Cancel; el diálogo de Split cabe a 390 px. `phone-bar`
+  y `zero-network` siguen en verde sin cambios.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm -p pdf-save --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`);
+  `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`; `cargo test --locked -p
+  pdf-wasm` 125 pasan; `cargo test --locked -p pdf-save -- --skip
+  export::tests::exports_a_page` 221 pasan (los 2 omitidos necesitan `pdfium.dll` nativo y fallan
+  igual sin este cambio); `cargo test -p pdf-ffi --lib -- extract split` pasan. `@vitela/core`:
+  `build:wasm`, `typecheck`, Vitest 15 / 197, `build`. `@vitela/viewer`: `tsc -b`, Vitest
+  83 / 831, `build`. `apps/web`: `tsc -b`, Vitest 6 / 19, `npm run build`; Playwright completo
+  (Chromium, Firefox, WebKit, con `CI=1`) **271 pasan, 20 omitidos** (los de File System Access
+  fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** Split solo "después de la página N" (el único modo de los
+  nativos; "cada N páginas" se escribe como cortes, `2,4`); sin Extract/Split en la vista View
+  ni en More tools (están en Organize); sin zip (como Export images); la aceptación de varias
+  descargas del navegador no se prueba (Playwright las acepta todas); sin lector de pantalla
+  real.
 
 ## Verificación
 
