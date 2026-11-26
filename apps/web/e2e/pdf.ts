@@ -13,6 +13,18 @@ export interface PageSpec {
   readonly lines?: readonly string[];
   /** Text annotations (sticky notes) the file itself carries. */
   readonly notes?: readonly NoteSpec[];
+  /** AcroForm text fields on the page, in `/Fields` order after those of earlier pages. */
+  readonly fields?: readonly TextFieldSpec[];
+}
+
+/** A one-line AcroForm text field, drawn in Helvetica. */
+export interface TextFieldSpec {
+  /** `/T`. */
+  readonly name: string;
+  /** `/Rect`: left, bottom, right, top in PDF space. */
+  readonly rect: readonly [number, number, number, number];
+  /** `/V`. */
+  readonly value: string;
 }
 
 export interface NoteSpec {
@@ -64,6 +76,7 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
   add(''); // the page tree, filled once the kids are known
   add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
   const kids: number[] = [];
+  const fields: number[] = [];
   pages.forEach((page, index) => {
     const content = [
       '0.2 0.2 0.2 rg',
@@ -74,16 +87,26 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
       ),
     ].join('\n');
     const notes = (page.notes ?? []).map((note) => add((text) => noteBody(note, text)));
+    const pageFields = (page.fields ?? []).map((field) => add((text) => textFieldBody(field, text)));
+    fields.push(...pageFields);
+    const annots = [...notes, ...pageFields];
     const pageNumber = objects.length + 1;
     kids.push(pageNumber);
     add(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.widthPt} ${page.heightPt}]` +
         `${page.rotate ? ` /Rotate ${page.rotate}` : ''}` +
-        `${notes.length ? ` /Annots [${notes.map((note) => `${note} 0 R`).join(' ')}]` : ''}` +
+        `${annots.length ? ` /Annots [${annots.map((annot) => `${annot} 0 R`).join(' ')}]` : ''}` +
         ` /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageNumber + 1} 0 R >>`,
     );
     add('', content);
   });
+  if (fields.length) {
+    objects[0] = {
+      body: (text) =>
+        `<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [${fields.map((field) => `${field} 0 R`).join(' ')}]` +
+        ` /DA ${text('/Helv 0 Tf 0 g')} /DR << /Font << /Helv 3 0 R >> >> >> >>`,
+    };
+  }
   objects[1] = { body: `<< /Type /Pages /Kids [${kids.map((kid) => `${kid} 0 R`).join(' ')}] /Count ${kids.length} >>` };
 
   const id = createHash('md5').update(`vitela-e2e ${pages.length}`).digest();
@@ -125,6 +148,13 @@ function noteBody({ rect, contents, author, date }: NoteSpec, text: (value: stri
   return (
     `<< /Type /Annot /Subtype /Text /Rect [${rect.join(' ')}] /Contents ${text(contents)}` +
     `${author ? ` /T ${text(author)}` : ''}${date ? ` /M ${text(date)}` : ''} >>`
+  );
+}
+
+function textFieldBody({ name, rect, value }: TextFieldSpec, text: (value: string) => string): string {
+  return (
+    `<< /Type /Annot /Subtype /Widget /FT /Tx /F 4 /T ${text(name)} /V ${text(value)}` +
+    ` /Rect [${rect.join(' ')}] /DA ${text('/Helv 12 Tf 0 g')} >>`
   );
 }
 

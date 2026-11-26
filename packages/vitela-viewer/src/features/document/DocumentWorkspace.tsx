@@ -6,7 +6,7 @@ import { useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
-import { MarkDirtyContext } from '../save/MarkDirtyContext';
+import { MarkDirtyContext, SaveWaitsForEditsContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
 import type { Delivery } from '../save/delivery';
 import { useSave } from '../save/useSave';
@@ -125,24 +125,26 @@ export function DocumentWorkspace({
         )}
         {document && (
           <MarkDirtyContext.Provider value={save.markDirty}>
-            {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
-            {screen === 'view' ? (
-              <DocumentViewer
-                key={document.generation}
-                engine={engine}
-                document={document}
-                onEdited={revise}
-                onStampImage={keepStampImage}
-              />
-            ) : (
-              <OrganizeScreen
-                key={document.generation}
-                engine={engine}
-                document={document}
-                onEdited={revise}
-                onSourcesNamed={nameSources}
-              />
-            )}
+            <SaveWaitsForEditsContext.Provider value={save.waitForEdits}>
+              {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+              {screen === 'view' ? (
+                <DocumentViewer
+                  key={document.generation}
+                  engine={engine}
+                  document={document}
+                  onEdited={revise}
+                  onStampImage={keepStampImage}
+                />
+              ) : (
+                <OrganizeScreen
+                  key={document.generation}
+                  engine={engine}
+                  document={document}
+                  onEdited={revise}
+                  onSourcesNamed={nameSources}
+                />
+              )}
+            </SaveWaitsForEditsContext.Provider>
           </MarkDirtyContext.Provider>
         )}
         {activity.kind === 'password' && (

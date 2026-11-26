@@ -130,7 +130,9 @@ fn standard_font_resources() -> Dictionary {
 }
 
 /// Gets `catalog_id`'s `/AcroForm`, creating one with a standard-14 `/DR`
-/// and an empty `/Fields` if absent. **Public** (per T-138's ficha): the
+/// and an empty `/Fields` if absent. One inline in the catalog (what
+/// `pdf-sign` and many producers write) becomes its own object, unchanged:
+/// replacing it would drop every field it lists. **Public** (per T-138's ficha): the
 /// `/Sig` field wiring `pdf-sign`'s `SignatureFieldBuilder` needs (T-073)
 /// shares this same `/AcroForm /Fields`/`/DR` — it builds the signature
 /// dictionaries but delegates their placement into `/AcroForm`/`/Annots` to
@@ -139,14 +141,19 @@ pub fn ensure_acroform<S: ObjectSink>(
     sink: &mut S,
     catalog_id: ObjectId,
 ) -> Result<ObjectId, SaveError> {
-    {
+    let inline = {
         let catalog = sink.page_dict_mut(catalog_id)?;
-        if let Ok(id) = catalog
-            .get(b"AcroForm")
-            .and_then(|object| object.as_reference())
-        {
-            return Ok(id);
+        match catalog.get(b"AcroForm") {
+            Ok(Object::Reference(id)) => return Ok(*id),
+            Ok(Object::Dictionary(acroform)) => Some(acroform.clone()),
+            _ => None,
         }
+    };
+    if let Some(acroform) = inline {
+        let acroform_id = sink.add_object(Object::Dictionary(acroform));
+        sink.page_dict_mut(catalog_id)?
+            .set("AcroForm", Object::Reference(acroform_id));
+        return Ok(acroform_id);
     }
 
     let mut acroform = Dictionary::new();
@@ -878,6 +885,38 @@ mod tests {
         let first = ensure_acroform(&mut doc, catalog_id).unwrap();
         let second = ensure_acroform(&mut doc, catalog_id).unwrap();
         assert_eq!(first, second);
+    }
+
+    /// What `pdf-sign` itself writes (and many producers do): `/AcroForm`
+    /// inline in the catalog. Filling one of its fields must not swap it for
+    /// an empty one — that dropped every field, the signature's included,
+    /// from `/Fields` on save.
+    #[test]
+    fn ensure_acroform_keeps_an_inline_one() {
+        use lopdf::dictionary;
+        let mut doc = one_page_doc();
+        let catalog_id = doc.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        let field_id =
+            doc.add_object(dictionary! { "FT" => "Tx", "T" => Object::string_literal("name") });
+        doc.get_dictionary_mut(catalog_id).unwrap().set(
+            "AcroForm",
+            dictionary! { "Fields" => vec![Object::Reference(field_id)], "SigFlags" => 3 },
+        );
+
+        let acroform_id = ensure_acroform(&mut doc, catalog_id).unwrap();
+
+        let catalog = doc.get_dictionary(catalog_id).unwrap();
+        assert_eq!(
+            catalog.get(b"AcroForm").unwrap().as_reference().unwrap(),
+            acroform_id
+        );
+        let acroform = doc.get_dictionary(acroform_id).unwrap();
+        assert_eq!(
+            acroform.get(b"Fields").unwrap().as_array().unwrap(),
+            &vec![Object::Reference(field_id)]
+        );
+        assert_eq!(acroform.get(b"SigFlags").unwrap().as_i64().unwrap(), 3);
+        assert_eq!(ensure_acroform(&mut doc, catalog_id).unwrap(), acroform_id);
     }
 
     #[test]

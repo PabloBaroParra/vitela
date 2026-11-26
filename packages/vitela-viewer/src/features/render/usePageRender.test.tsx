@@ -116,4 +116,21 @@ describe('usePageRender', () => {
     await waitFor(() => expect(result.current.status).toBe('rendered'));
     expect(calls).toBe(2);
   });
+
+  it('paints the same page again, keeping its bitmap meanwhile, when what pdfium draws on it changed', async () => {
+    const filled: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray([1, 2, 3, 4]) };
+    let calls = 0;
+    const engine = engineWith(async () => (++calls === 1 ? page : filled));
+    const { result, rerender } = renderHook(({ paintKey }) => usePageRender(engine, 1, 0, 72, '4/0', paintKey), {
+      initialProps: { paintKey: 'a' },
+    });
+    await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page }));
+    rerender({ paintKey: 'a' });
+    expect(calls).toBe(1);
+    // A form field on it was filled in: the same page, other pixels.
+    rerender({ paintKey: 'b' });
+    expect(result.current).toEqual({ status: 'rendering', previous: page });
+    await waitFor(() => expect(result.current).toEqual({ status: 'rendered', page: filled }));
+    expect(calls).toBe(2);
+  });
 });

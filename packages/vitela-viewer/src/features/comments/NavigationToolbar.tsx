@@ -1,7 +1,8 @@
-// Previous/Next annotation, where that is, and the comments panel's toggle.
+// Previous/Next annotation, where that is, and the comments panel's toggle
+// (with any other side panel's toggle the viewer puts in, `children`).
 // Presentational. `aria-disabled`, not `disabled`: see `HistoryControls`.
 
-import { useId, type RefObject } from 'react';
+import { useId, type ReactNode, type RefObject } from 'react';
 import { focusing } from '../annotations/focusing';
 import { stopLabel, type Stop } from './stops';
 
@@ -15,12 +16,14 @@ interface NavigationToolbarProps {
   /** The comments could not be listed: the panel, when it is open, says why. */
   readonly commentsFailed: boolean;
   readonly onComments: () => void;
+  /** More toggles after Comments: one row less on a narrow editor than a toolbar of their own. */
+  readonly children?: ReactNode;
 }
 
 const COMMENTS_FAILED = 'Could not list the comments. Open Comments to try again.';
 
 export function NavigationToolbar(props: NavigationToolbarProps) {
-  const { stops, current, onStep, commentsToggle, commentsId, commentsShown, commentsFailed, onComments } = props;
+  const { stops, current, onStep, commentsToggle, commentsId, commentsShown, commentsFailed, onComments, children } = props;
   const failedId = useId();
   const tellsFailure = commentsFailed && !commentsShown;
   const none = stops.length === 0;
@@ -46,6 +49,7 @@ export function NavigationToolbar(props: NavigationToolbarProps) {
       >
         Comments
       </button>
+      {children}
       <span id={failedId} className="annotation-nav__failed" role="status">
         {tellsFailure && COMMENTS_FAILED}
       </span>

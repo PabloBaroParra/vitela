@@ -32,6 +32,8 @@ interface PageSlotProps {
   readonly page: PageSize;
   /** What is at this position (page id and turn): a change repaints it. */
   readonly pageKey: string;
+  /** What pdfium draws of its form fields: a change repaints it, keeping the old bitmap meanwhile. */
+  readonly paintKey?: string;
   /** This page's session annotations, in paint order. */
   readonly annotations: readonly Annotation[];
   /** The image of each stamp added this session, by annotation id. */
@@ -66,9 +68,9 @@ export interface DrawingInput {
 }
 
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
-  const { engine, document, index, page, pageKey, annotations, stampImages, slot, dpi, label, scale } = props;
+  const { engine, document, index, page, pageKey, paintKey, annotations, stampImages, slot, dpi, label, scale } = props;
   const { hits, currentHit, selection, textInput, drawing, editing, selectedId, marked, onImageDrop } = props;
-  const render = usePageRender(engine, document, index, dpi, pageKey);
+  const render = usePageRender(engine, document, index, dpi, pageKey, paintKey);
   const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
   // An image dropped here is stamped, not opened: claiming the drop

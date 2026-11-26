@@ -95,6 +95,40 @@ describe('useSave', () => {
     expect(calls).toEqual([{ bytes, name: 'a.pdf', destination }]);
   });
 
+  it('waits for the edits already asked for before the engine saves, and counts them as saved', async () => {
+    const log: Log = [];
+    const { engine } = savingEngine(log);
+    const { delivery } = deliveries(log, undefined, wrote);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    let land: () => void = () => {};
+    const edits = new Promise<void>((resolve) => (land = resolve));
+    act(() => void result.current.waitForEdits(() => edits));
+
+    act(() => result.current.save());
+    await waitFor(() => expect(log).toEqual(['prepare overwrite']));
+    // The queued edit lands (and flags the document) only now.
+    await act(async () => {
+      result.current.markDirty();
+      land();
+    });
+    await waitFor(() => expect(result.current.activity.kind).toBe('done'));
+    expect(log).toEqual(['prepare overwrite', 'engine', 'deliver']);
+    expect(result.current.dirty).toBe(false);
+  });
+
+  it('stops waiting for the edits of a screen that has gone', async () => {
+    const log: Log = [];
+    const { engine } = savingEngine(log);
+    const { delivery } = deliveries(log);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    let stop: () => void = () => {};
+    act(() => void (stop = result.current.waitForEdits(() => new Promise(() => {}))));
+    act(() => stop());
+
+    act(() => result.current.save());
+    await waitFor(() => expect(result.current.activity).toEqual({ kind: 'done', outcome }));
+  });
+
   it('saves nothing, and keeps the edits marked, when the user dismisses a dialog', async () => {
     const log: Log = [];
     const { engine } = savingEngine(log);

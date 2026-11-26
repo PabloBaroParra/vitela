@@ -329,6 +329,29 @@ describe('useDocument', () => {
     expect(result.current.state.document?.annotations).toEqual([]);
   });
 
+  it('keeps the form fields every edit answers with', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document).not.toBeNull());
+    // Not known at open: the viewer asks the engine for them.
+    expect(result.current.state.document?.formFields).toBeUndefined();
+
+    const field = {
+      id: 1,
+      pageIndex: 0,
+      kind: 'checkbox' as const,
+      name: 'subscribe',
+      rect: { left: 72, top: 100, width: 14, height: 14 },
+      existing: true,
+      checked: true,
+    };
+    act(() => {
+      result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [field] });
+    });
+    expect(result.current.state.document?.formFields).toEqual([field]);
+  });
+
   it('ignores an edit of a document that is no longer on screen', async () => {
     const engine = engineWith(async () => info(3));
     const { result } = renderHook(() => useDocument(engine));

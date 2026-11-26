@@ -290,6 +290,18 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   and shows only the answer to the latest; a failure says why and offers Try
   again, and marks the Comments button while the panel is closed. None of it needs permission to annotate. A file's date is shown as
   written, in its own time zone.
+- **Forms** (T-243, `features/forms/`): **Forms** (beside Comments; one side panel
+  at a time) lists the AcroForm fields by page — text, checkbox, radio group and
+  dropdown — from the core's `formFields` (asked once at open; after that every edited
+  document brings them). Text is filled in when the field is left (Tab, a click away) or
+  on Enter in a one-line field; Escape puts the document's value back. A checkbox, a radio
+  button or a dropdown choice is filled in as it changes. Each fill is one undo step through
+  the viewer's edit queue (`useAnnotationEdits.apply`), and a value the field already holds
+  is never sent (the core would record it as a step). pdfium paints fields into the bitmap,
+  so each page gets a `paintKey` from its fields' values and is painted again when they
+  change. Focusing a field scrolls it into view (`useReveal`) and rings it on its page.
+  Where `formFillAllowed` is false the panel is read-only and says so; the core's refusal
+  of a value is shown under its field.
 
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text

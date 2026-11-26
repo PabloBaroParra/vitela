@@ -19,7 +19,9 @@ export type PageRenderState =
  * none is open. Handles are never reused, so it also tells documents apart.
  * `pageKey` names what is at `pageIndex` (the page's id and turn): when an
  * edit, undo or redo puts another page there, it changes and the page is
- * painted again, without the old bitmap in the meantime.
+ * painted again, without the old bitmap in the meantime. `paintKey` changes
+ * when what pdfium draws on the same page does (a form field filled in): it
+ * is painted again, keeping its bitmap until the new one arrives.
  */
 export function usePageRender(
   engine: Engine,
@@ -27,6 +29,7 @@ export function usePageRender(
   pageIndex: number,
   dpi: number,
   pageKey = '',
+  paintKey = '',
 ): PageRenderState {
   const [state, setState] = useState<PageRenderState>({ status: 'idle' });
   /** The document and page the bitmap in `state` belongs to. */
@@ -59,7 +62,7 @@ export function usePageRender(
     return () => {
       stale = true;
     };
-  }, [engine, document, pageIndex, dpi, pageKey]);
+  }, [engine, document, pageIndex, dpi, pageKey, paintKey]);
 
   return document === null ? { status: 'idle' } : state;
 }
