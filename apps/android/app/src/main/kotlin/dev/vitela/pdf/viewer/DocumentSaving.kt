@@ -1,5 +1,6 @@
 package dev.vitela.pdf.viewer
 
+import androidx.annotation.StringRes
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.PdfDocument
@@ -10,7 +11,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
- * Serializes the open document for Save, Save copy, and Print. The shell
+ * Serializes the open document for Save, Save copy, Share, and Print. The shell
  * writes the bytes (or rasterizes the print copy); this owns the snapshot and whether a finished write
  * still belongs to the document on screen. [onSaved] hears of each write that
  * left nothing unsaved.
@@ -48,6 +49,39 @@ internal class DocumentSaving(private val session: ViewerSession, private val on
                 null
             }
         }
+    }
+
+    /**
+     * The open document as a save would write it — pending edits included —
+     * for **Share** to hand to another app. Not a save: nothing here marks the
+     * session saved or forgets its recovery copy, so closing still asks about
+     * the edits (Windows `ShareBytesAsync`). A refusal the save would give, a
+     * signature it would break, is the share's refusal too, in the status.
+     *
+     * [documentId] is the document the tap was for; null, silently, when
+     * another one replaced it before the lane was free.
+     */
+    suspend fun shareBytes(documentId: Long): SharedDocument? = session.documentLane.withLock {
+        if (state.value.documentId != documentId) return@withLock null
+        val openDocument = session.document ?: return@withLock null
+        when (val result = withContext(session.compute) { openDocument.saveToBytes() }) {
+            is PdfCoreResult.Success -> SharedDocument(result.value, state.value.title, documentId)
+            is PdfCoreResult.Failure -> {
+                state.value = state.value.copy(status = userMessage(result.error))
+                null
+            }
+        }
+    }
+
+    /** Dropped when [shared] no longer belongs to the open document: a late report must not land on a replacement. */
+    fun reportShareFailure(shared: SharedDocument) = reportShare(shared, R.string.status_share_failed)
+
+    fun reportShareUnavailable(shared: SharedDocument) = reportShare(shared, R.string.status_share_no_receiver)
+
+    private fun reportShare(shared: SharedDocument, @StringRes message: Int) {
+        val current = state.value
+        if (current.documentId != shared.documentId) return
+        state.value = current.copy(status = UiText.Resource(message))
     }
 
     fun confirmSaved(snapshot: SaveSnapshot) {

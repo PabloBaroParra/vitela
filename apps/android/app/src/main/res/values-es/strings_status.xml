@@ -24,6 +24,8 @@
     <string name="status_save_done">Guardado.</string>
     <string name="status_save_failed">No se pudo guardar el PDF.</string>
     <string name="status_save_in_place_failed">No se pudo guardar en el archivo original. Usa Guardar copia.</string>
+    <string name="status_share_failed">No se pudo preparar el PDF para compartirlo.</string>
+    <string name="status_share_no_receiver">Ninguna app de este dispositivo puede recibir un PDF.</string>
     <string name="status_metadata_updated">Propiedades del documento actualizadas. Los cambios están pendientes de guardar.</string>
 
     <!-- Reader: page window and search -->

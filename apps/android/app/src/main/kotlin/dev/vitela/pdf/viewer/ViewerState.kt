@@ -186,6 +186,14 @@ internal fun ViewerState.matches(snapshot: SaveSnapshot): Boolean =
  */
 data class InPlaceSave(val target: String, val snapshot: SaveSnapshot)
 
+/**
+ * The bytes **Share** sends and the name of the document that produced them,
+ * taken as one value under the document lane, so a replacement can never pair
+ * one document's name with another's content. [documentId] lets a late status
+ * report check it still speaks for the document on screen.
+ */
+class SharedDocument(val bytes: ByteArray, val name: String, val documentId: Long)
+
 internal const val MIN_ZOOM_FACTOR = 0.10
 internal const val MAX_ZOOM_FACTOR = 8.0
 internal const val DEFAULT_ZOOM_FACTOR = 1.0

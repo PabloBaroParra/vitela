@@ -424,7 +424,7 @@ class ViewerViewModel(
     fun fitWidth() = reader.fitWidth()
     fun fitPage() = reader.fitPage()
 
-    // Save and print
+    // Save, share and print
     /** A throwaway copy to rasterize for printing; the caller closes it. See [DocumentSaving.printDocument]. */
     suspend fun printDocument(): PdfDocument? = saving.printDocument()
     suspend fun saveSnapshot(): SaveSnapshot? = saving.saveSnapshot()
@@ -432,6 +432,10 @@ class ViewerViewModel(
     fun reportSaveFailure() = saving.reportSaveFailure()
     suspend fun inPlaceSave(): InPlaceSave? = saving.inPlaceSave()
     fun reportInPlaceSaveFailure(save: InPlaceSave) = saving.reportInPlaceSaveFailure(save)
+    /** The bytes and name **Share** sends; the session stays unsaved. See [DocumentSaving.shareBytes]. */
+    suspend fun shareBytes(documentId: Long): SharedDocument? = saving.shareBytes(documentId)
+    fun reportShareFailure(shared: SharedDocument) = saving.reportShareFailure(shared)
+    fun reportShareUnavailable(shared: SharedDocument) = saving.reportShareUnavailable(shared)
 
     // Autosave and crash recovery
     /** Starts the autosave timer; only the app does, never a test that drains its scheduler. */

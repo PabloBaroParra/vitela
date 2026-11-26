@@ -54,6 +54,7 @@
     <string name="reader_menu_open">Abrir PDF</string>
     <string name="reader_menu_save">Guardar</string>
     <string name="reader_menu_save_copy">Guardar copia</string>
+    <string name="reader_menu_share">Compartir</string>
     <string name="reader_menu_print">Imprimir</string>
     <string name="reader_menu_compress">Comprimir</string>
     <string name="reader_menu_protect">Proteger</string>

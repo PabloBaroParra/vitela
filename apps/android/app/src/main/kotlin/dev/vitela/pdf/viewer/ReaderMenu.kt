@@ -28,6 +28,8 @@ internal enum class DocumentMenuItem(
     Open(R.string.reader_menu_open, R.drawable.ic_shell_files, enabled = { it.canOpen }),
     Save(R.string.reader_menu_save, R.drawable.ic_shell_save, enabled = { it.isDirty && it.saveTarget != null }),
     SaveCopy(R.string.reader_menu_save_copy, null, enabled = { it.isDirty }),
+    // A copy for another app, not a save: a clean document can be shared too.
+    Share(R.string.reader_menu_share, R.drawable.ic_shell_share, enabled = { it.pageCount > 0 && !it.isLoading }),
     Print(R.string.reader_menu_print, R.drawable.ic_shell_print, enabled = { it.canPrint }),
     Compress(R.string.reader_menu_compress, R.drawable.ic_shell_compress, startsGroup = true, enabled = { it.pageCount > 0 && !it.compressRunning }),
     Protect(R.string.reader_menu_protect, R.drawable.ic_shell_protect, enabled = { it.pageCount > 0 && !it.protectRunning }),
@@ -46,6 +48,7 @@ internal data class DocumentMenuActions(
     val onOpen: () -> Unit,
     val onSave: () -> Unit,
     val onSaveCopy: () -> Unit,
+    val onShare: () -> Unit,
     val onPrint: () -> Unit,
     val onProperties: () -> Unit,
     val onExportImages: () -> Unit,
@@ -60,6 +63,7 @@ internal data class DocumentMenuActions(
         DocumentMenuItem.Open -> onOpen()
         DocumentMenuItem.Save -> onSave()
         DocumentMenuItem.SaveCopy -> onSaveCopy()
+        DocumentMenuItem.Share -> onShare()
         DocumentMenuItem.Print -> onPrint()
         DocumentMenuItem.Compress -> onCompress()
         DocumentMenuItem.Protect -> onProtect()

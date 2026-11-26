@@ -25,6 +25,8 @@
     <string name="status_save_done">Saved.</string>
     <string name="status_save_failed">Could not save the PDF.</string>
     <string name="status_save_in_place_failed">Could not save to the original file. Use Save copy instead.</string>
+    <string name="status_share_failed">Could not prepare the PDF to share.</string>
+    <string name="status_share_no_receiver">No app on this device can receive a PDF.</string>
     <string name="status_metadata_updated">Document properties updated. Changes are pending save.</string>
 
     <!-- Reader: page window and search -->

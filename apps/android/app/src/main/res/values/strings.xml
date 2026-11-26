@@ -53,6 +53,7 @@
     <string name="reader_menu_open">Open PDF</string>
     <string name="reader_menu_save">Save</string>
     <string name="reader_menu_save_copy">Save copy</string>
+    <string name="reader_menu_share">Share</string>
     <string name="reader_menu_print">Print</string>
     <string name="reader_menu_compress">Compress</string>
     <string name="reader_menu_protect">Protect</string>

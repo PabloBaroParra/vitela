@@ -27,5 +27,15 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
         </activity>
+        <!-- Share: read-only grants to the copies under cache/share/, nothing else. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
     </application>
 </manifest>

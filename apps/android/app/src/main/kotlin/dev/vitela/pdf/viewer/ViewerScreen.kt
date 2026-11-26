@@ -69,6 +69,7 @@ internal fun ViewerScreen(
     onPrint: () -> Unit,
     onSave: () -> Unit,
     onSaveCopy: () -> Unit,
+    onShare: () -> Unit,
     onChooseStamp: () -> Unit,
     onPasteStamp: () -> Unit,
     onReplacementConfirmed: () -> Unit,
@@ -205,7 +206,7 @@ internal fun ViewerScreen(
                         onSearchToggle = { searchOpen = !searchOpen },
                         onSave = if (state.saveTarget != null) onSave else onSaveCopy,
                         menu = DocumentMenuActions(
-                            onOpen = onOpen, onSave = onSave, onSaveCopy = onSaveCopy, onPrint = onPrint, onProperties = onOpenMetadata,
+                            onOpen = onOpen, onSave = onSave, onSaveCopy = onSaveCopy, onShare = onShare, onPrint = onPrint, onProperties = onOpenMetadata,
                             onExportImages = onOpenImageExport, onExtractPages = onOpenPageExtract, onSplit = onOpenPageSplit,
                             onCompress = onOpenCompress, onProtect = onOpenProtect, onAnnotationStep = onAnnotationStep,
                             onClose = onClose,
