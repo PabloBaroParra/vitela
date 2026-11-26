@@ -138,8 +138,10 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   the raster ceiling (32 Mpx), or `null`. An export is a snapshot of what a
   save would write now — every pending edit, annotation and fill drawn in,
   no signature question since nothing is written — opened with
-  `openImageExport(handle)` (rejects with `UnsupportedOperation` when the
-  document withholds extraction), read one page at a time with
+  `openImageExport(handle)` — it answers `{ handle, pageCount }`, the
+  snapshot's own page count, which is what to plan the export against
+  (rejects with `UnsupportedOperation` when the document withholds
+  extraction) — read one page at a time with
   `exportPageImage(export, pageIndex, dpi, format)` (the encoded file,
   transferred; rendered by the core's renderer and encoded by its
   `encode_rgba_image`, not by a canvas) and freed with

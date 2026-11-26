@@ -62,13 +62,6 @@ export function compressedName(name: string): string {
   return `${stem || 'document'}-compressed.pdf`;
 }
 
-/** The core's lower-case clause as a sentence. */
-export function sentence(message: string): string {
-  const text = message.trim();
-  const capital = text.charAt(0).toUpperCase() + text.slice(1);
-  return /[.!?]$/.test(capital) ? capital : `${capital}.`;
-}
-
 /** The status line for a finished compression. */
 export function compressStatus(result: CompressResult): string {
   const { report } = result;

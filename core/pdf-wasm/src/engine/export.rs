@@ -17,6 +17,7 @@ use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
 use crate::convert::tight_rgba;
+use crate::dto::OpenedImageExport;
 use crate::error::EngineError;
 use crate::model::{
     encode_page_image, format_from_name, page_image_file_name as file_name,
@@ -78,11 +79,12 @@ impl Engine {
 
     /// Starts an export: opens a snapshot of what a save would write now
     /// (every pending edit and annotation in it; a signature is not asked
-    /// about, nothing is written) and returns its id. Records no edit.
+    /// about, nothing is written) and returns its id with the snapshot's
+    /// page count — what to plan the export against. Records no edit.
     /// Refused with `UnsupportedOperation` when the document withholds
     /// extraction. Close it with `closeImageExport`.
     #[wasm_bindgen(js_name = openImageExport)]
-    pub fn open_image_export(&mut self, doc: u32) -> Result<u32, JsValue> {
+    pub fn open_image_export(&mut self, doc: u32) -> Result<OpenedImageExport, JsValue> {
         self.open_export(doc).map_err(js_error)
     }
 
@@ -114,7 +116,7 @@ impl Engine {
 }
 
 impl Engine {
-    fn open_export(&mut self, doc: u32) -> Result<u32, EngineError> {
+    fn open_export(&mut self, doc: u32) -> Result<OpenedImageExport, EngineError> {
         let open = self.document(doc)?;
         let page_count = open.model.page_count();
         let bytes = open.model.output_snapshot_bytes()?;
@@ -125,7 +127,7 @@ impl Engine {
         let id = self.next_export;
         self.next_export = self.next_export.wrapping_add(1);
         self.exports.insert(id, ImageExport { render, page_count });
-        Ok(id)
+        Ok(OpenedImageExport::new(id, page_count))
     }
 
     fn export_page(

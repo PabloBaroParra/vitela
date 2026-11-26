@@ -411,6 +411,16 @@ export type ImageExportFormat = 'png' | 'jpeg';
 /** An image export opened by `openImageExport`: a snapshot of the document to draw pages from. */
 export type ImageExportHandle = number;
 
+/** What `openImageExport` answers: the export, and how many pages its snapshot has. */
+export interface ImageExport {
+  readonly handle: ImageExportHandle;
+  /**
+   * The snapshot's page count: plan the export against it, not against a
+   * page count read before the queued edits settled.
+   */
+  readonly pageCount: number;
+}
+
 /** What the UI may ask the engine to do. */
 export interface Engine {
   /**
@@ -567,7 +577,7 @@ export interface Engine {
    * Records no edit. Rejects with `UnsupportedOperation` when the document
    * withholds extracting its pages. End it with `closeImageExport`.
    */
-  openImageExport(document: DocumentHandle): Promise<ImageExportHandle>;
+  openImageExport(document: DocumentHandle): Promise<ImageExport>;
   /**
    * One page of an export, rendered at `dpi` and encoded as `format` by the
    * core: the bytes of the image file (transferred, not copied). Rejects

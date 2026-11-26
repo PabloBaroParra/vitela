@@ -181,7 +181,8 @@ describe('DocumentWorkspace', () => {
       renderPage: async () => page,
       firstPageTooLargeToExport: async () => null,
       pageImageFileNames: async (_name, pages) => pages.map((index) => `two-${index + 1}.png`),
-      openImageExport: async () => 3,
+      imageExportFormats: async () => ['png', 'jpeg'],
+      openImageExport: async () => ({ handle: 3, pageCount: 2 }),
       exportPageImage: async (_export, index) => new Uint8Array([index]),
       closeImageExport: async () => true,
     });

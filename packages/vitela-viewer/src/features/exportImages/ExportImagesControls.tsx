@@ -1,7 +1,9 @@
-// The Export images button, what the last export did, and its dialog.
-// Presentational: the state lives in `useExportImages`, owned by the workspace.
+// The Export images button, what the last export did (with Cancel export
+// while it runs), and its dialog. Presentational: the state lives in
+// `useExportImages`, owned by the workspace.
 
 import { useEffect, useRef } from 'react';
+import { focusShown } from '../../ui/focusShown';
 import { StatusLine } from '../../ui/StatusLine';
 import { ExportImagesDialog } from './ExportImagesDialog';
 import { exportProgress } from './exportText';
@@ -9,10 +11,12 @@ import { exportBusy, type ExportActivity, type ExportImagesSession } from './use
 
 interface ExportImagesControlsProps {
   readonly session: ExportImagesSession;
+  /** Where the focus goes when the dialog closes while this button is not shown (a phone's More tools). */
+  readonly focusFallback?: () => void;
 }
 
-export function ExportImagesControls({ session }: ExportImagesControlsProps) {
-  const { activity, open, edit, cancel, exportImages } = session;
+export function ExportImagesControls({ session, focusFallback }: ExportImagesControlsProps) {
+  const { activity, open, edit, cancel, stop, exportImages } = session;
   const busy = exportBusy(activity);
   const button = useRef<HTMLButtonElement>(null);
 
@@ -20,9 +24,9 @@ export function ExportImagesControls({ session }: ExportImagesControlsProps) {
   const wasChoosing = useRef(false);
   useEffect(() => {
     const choosing = activity.kind === 'choosing';
-    if (wasChoosing.current && !choosing) button.current?.focus();
+    if (wasChoosing.current && !choosing) focusShown(button.current, focusFallback);
     wasChoosing.current = choosing;
-  }, [activity.kind]);
+  }, [activity.kind, focusFallback]);
 
   return (
     <>
@@ -32,15 +36,21 @@ export function ExportImagesControls({ session }: ExportImagesControlsProps) {
         type="button"
         className="export-images-button"
         title="Export images"
-        onClick={busy ? undefined : open}
+        onClick={busy ? undefined : () => void open()}
         aria-disabled={busy}
       >
         Export images
       </button>
       <ExportStatus activity={activity} />
+      {activity.kind === 'exporting' && (
+        <button type="button" className="export-images-stop" onClick={stop}>
+          Cancel export
+        </button>
+      )}
       {activity.kind === 'choosing' && (
         <ExportImagesDialog
           draft={activity.draft}
+          formats={activity.formats}
           allowed={activity.allowed}
           message={activity.message}
           checking={activity.checking}
@@ -52,7 +62,6 @@ export function ExportImagesControls({ session }: ExportImagesControlsProps) {
     </>
   );
 }
-
 
 function ExportStatus({ activity }: { readonly activity: ExportActivity }) {
   switch (activity.kind) {

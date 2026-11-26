@@ -239,7 +239,7 @@ describe('EngineClient', () => {
       { kind: 'closeImageExport', export: 7 },
     ]);
     const image = new Uint8Array([0xff, 0xd8]);
-    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, 7, image, true];
+    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, { handle: 7, pageCount: 3 }, image, true];
     sent.forEach(({ message }, i) => reply({ type: 'result', id: message.id, value: values[i] }));
     for (const [i, request] of requests.entries()) await expect(request).resolves.toEqual(values[i]);
   });

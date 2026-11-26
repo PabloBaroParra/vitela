@@ -100,8 +100,8 @@ export interface CoreEngine extends CoreText {
   saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
   /** `undefined` (wasm-bindgen's `None`) when every page fits. */
   firstPageTooLargeToExport(doc: number, pages: Uint32Array, dpi: number): number | null | undefined;
-  /** The id of the export's snapshot (its own namespace, not a document id). */
-  openImageExport(doc: number): number;
+  /** The export's snapshot: its id (its own namespace, not a document id) and page count. */
+  openImageExport(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   exportPageImage(exportId: number, pageIndex: number, dpi: number, format: string): Uint8Array;
   closeImageExport(exportId: number): boolean;
   /** The id of the annotation the edit added, else `undefined`. */
@@ -301,7 +301,12 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     },
     async openImageExport(document: DocumentHandle) {
       assertOpen(document);
-      return core.openImageExport(document);
+      const opened = core.openImageExport(document);
+      try {
+        return { handle: opened.id, pageCount: opened.pageCount };
+      } finally {
+        opened.free();
+      }
     },
     // An export outlives nothing on this side: the core refuses an id it does
     // not have (`DocumentNotFound`), whatever document it came from.

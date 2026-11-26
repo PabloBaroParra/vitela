@@ -13,10 +13,11 @@ const PAGES: readonly { readonly value: ExportPages; readonly label: string }[] 
   { value: 'current', label: 'Current page' },
   { value: 'custom', label: 'Custom range' },
 ];
-const FORMATS: readonly ImageExportFormat[] = ['png', 'jpeg'];
 
 interface ExportImagesDialogProps {
   readonly draft: ExportDraft;
+  /** The formats the core offers, in its order. */
+  readonly formats: readonly ImageExportFormat[];
   readonly allowed: boolean;
   /** Why the last Export was refused, or why none is possible; `null` when nothing was. */
   readonly message: string | null;
@@ -26,7 +27,7 @@ interface ExportImagesDialogProps {
   readonly onCancel: () => void;
 }
 
-export function ExportImagesDialog({ draft, allowed, message, checking, onChange, onExport, onCancel }: ExportImagesDialogProps) {
+export function ExportImagesDialog({ draft, formats, allowed, message, checking, onChange, onExport, onCancel }: ExportImagesDialogProps) {
   const chosen = useRef<HTMLInputElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
   const pagesName = useId();
@@ -84,7 +85,7 @@ export function ExportImagesDialog({ draft, allowed, message, checking, onChange
           </fieldset>
           <fieldset className="export-dialog__group export-dialog__group--row">
             <legend className="export-dialog__legend">Format</legend>
-            {FORMATS.map((format) => (
+            {formats.map((format) => (
               <label key={format} className="export-dialog__choice">
                 <input
                   type="radio"

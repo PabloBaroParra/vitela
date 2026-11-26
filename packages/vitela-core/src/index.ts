@@ -38,6 +38,7 @@ export type {
   FormField,
   FreeTextLayout,
   FreeTextLine,
+  ImageExport,
   ImageExportFormat,
   ImageExportHandle,
   ImportedDocument,

@@ -86,9 +86,19 @@ function compressEngine({ refusal = null, signed = false, result = smaller }: En
   return { engine, asked, runs };
 }
 
-function Harness({ engine, delivery, settle }: { engine: Engine; delivery: Delivery; settle?: () => Promise<unknown> }) {
+function Harness({
+  engine,
+  delivery,
+  settle,
+  focusFallback,
+}: {
+  engine: Engine;
+  delivery: Delivery;
+  settle?: () => Promise<unknown>;
+  focusFallback?: () => void;
+}) {
   const session = useCompress(engine, document, delivery, settle);
-  return <CompressControls session={session} documentName={document.name} />;
+  return <CompressControls session={session} documentName={document.name} focusFallback={focusFallback} />;
 }
 
 const compressButton = () => screen.getByRole('button', { name: 'Compress' });
@@ -115,6 +125,18 @@ describe('CompressControls', () => {
     expect(runs).toEqual([[7, 'balanced', false]]);
     expect(delivered).toEqual([{ bytes: smaller.bytes, name: 'a-compressed.pdf', destination: { kind: 'newFile' } }]);
     expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('gives the focus to the fallback when its own button is not shown (a phone shows More tools instead)', async () => {
+    const { engine } = compressEngine();
+    const { delivery } = recording();
+    let fallback = 0;
+    render(<Harness engine={engine} delivery={delivery} focusFallback={() => void fallback++} />);
+    Object.defineProperty(compressButton(), 'checkVisibility', { value: () => false });
+    fireEvent.click(compressButton());
+    fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(fallback).toBe(1);
   });
 
   it('runs the preset the user picked', async () => {

@@ -105,6 +105,9 @@ export function DocumentWorkspace({
     currentPage.current = 0;
   }, [document?.generation]);
   // Page images go where a compressed copy goes, after the same queued edits.
+  // On a phone the tool buttons are hidden: a dialog they opened hands the focus back to More tools.
+  const moreButton = useRef<HTMLButtonElement | null>(null);
+  const focusMore = useCallback(() => moreButton.current?.focus(), []);
   const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
   useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
@@ -130,8 +133,8 @@ export function DocumentWorkspace({
               <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
             )}
             <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
-            <CompressControls session={compress} documentName={document.name} />
-            <ExportImagesControls session={exportImages} />
+            <CompressControls session={compress} documentName={document.name} focusFallback={focusMore} />
+            <ExportImagesControls session={exportImages} focusFallback={focusMore} />
             {/*
               The same tools as one menu button: what a phone shows instead
               of the buttons above (CSS), at the same place in the DOM, so
@@ -139,11 +142,12 @@ export function DocumentWorkspace({
             */}
             <ToolsMenu
               label="More tools"
+              buttonRef={moreButton}
               className="workspace__more"
               icon={<MoreIcon />}
               tools={[
                 { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
-                { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: exportImages.open },
+                { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: () => void exportImages.open() },
               ]}
             />
             <SaveControls session={save} documentName={document.name} />

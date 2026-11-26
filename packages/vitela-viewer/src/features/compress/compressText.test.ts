@@ -5,7 +5,6 @@ import {
   humanSize,
   percentSmaller,
   presetText,
-  sentence,
   type CompressReport,
 } from './compressText';
 
@@ -42,13 +41,6 @@ describe('compressedName', () => {
     expect(compressedName('Scan.PDF')).toBe('Scan-compressed.pdf');
     expect(compressedName('notes')).toBe('notes-compressed.pdf');
     expect(compressedName('  ')).toBe('document-compressed.pdf');
-  });
-});
-
-describe('sentence', () => {
-  it("turns the core's clause into a sentence", () => {
-    expect(sentence('this cannot be compressed')).toBe('This cannot be compressed.');
-    expect(sentence('Already one.')).toBe('Already one.');
   });
 });
 

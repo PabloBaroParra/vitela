@@ -2365,6 +2365,31 @@ nombres y `encode_rgba_image`, y `pdf_render` el techo de raster. Lo que condici
 - **No cubierto / pendiente:** el rechazo por página demasiado grande solo se cubre con
   Vitest y con el test nativo (a 400 DPI ningún fixture pasa del techo); la herramienta de
   la portada (`/pdf-to-image`) sigue en `web: false`, como `/compress`.
+- **Revisión (después de #657):**
+  - **Recuento de páginas:** `openImageExport` devuelve `{ handle, pageCount }` (DTO
+    `OpenedImageExport` en `pdf-wasm`) y el plan cuenta las páginas de la instantánea,
+    abierta tras asentarse la cola, no las del documento tal como lo vio el viewer (podía
+    no haber alcanzado una edición todavía). Lo que no necesita instantánea (DPI, permiso)
+    se comprueba antes (`precheckExport`); un rechazo del plan cierra la instantánea.
+  - **Cancelar y desmontar:** **Cancel export** mientras corre (la página en curso sale;
+    "Export cancelled. N written."); al desmontarse el editor el bucle para y la
+    instantánea se cierra.
+  - **Foco en teléfono:** al cerrar el diálogo, si el botón propio está oculto
+    (`checkVisibility`), el foco va a **More tools** (`ui/focusShown.ts`), en Compress y en
+    Export images. Playwright 390 × 600: tras Cancel de Compress y tras una exportación
+    lanzada desde el menú, el foco está en More tools.
+  - **Formatos del core:** el diálogo pinta los de `imageExportFormats` (PNG primero si
+    está; si la pregunta falla, rechaza en vez de suponer).
+  - **Descargas bloqueadas:** solo documentado (README de `apps/web`): la página no puede
+    saber si el navegador permitió cada descarga.
+  - `sentence` pasa a `ui/text.ts` (compartido); fuera las líneas en blanco dobles.
+  - **Puertas:** `cargo fmt --check`, clippy `pdf-wasm` nativo y wasm32, `cargo test -p
+    pdf-wasm` 106; `@vitela/core` `build:wasm`, `typecheck`, Vitest 177; `@vitela/viewer`
+    `tsc -b`, Vitest 792; `apps/web` `typecheck`, Vitest 19, `build`; Playwright completo en
+    los tres navegadores **232 pasan, 20 omitidos**. Vistos en rojo antes del código: los
+    12 de `ExportImagesControls`, el de `documentEngine`, el de foco de Compress y los
+    `wasm-bindgen-test` (por no compilar); los dos Playwright de foco nuevos no se vieron
+    en rojo por separado.
 
 ## Verificación
 

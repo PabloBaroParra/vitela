@@ -60,7 +60,9 @@ async fn a_page_exports_as_png_at_the_dpi_and_as_jpeg() {
         Some(0)
     );
 
-    let export = engine.open_image_export(doc).unwrap();
+    let opened = engine.open_image_export(doc).unwrap();
+    assert_eq!(opened.page_count(), 2);
+    let export = opened.id();
     let png = engine
         .export_page_image(export, 1, 72, "png".into())
         .unwrap();
@@ -105,8 +107,14 @@ async fn the_export_draws_the_pending_edits_and_leaves_the_history_alone() {
     engine
         .apply_edit(doc, &EditCommand::rotate_pages(1, 1, 90))
         .unwrap();
+    // A page removed before the export opened is not in its snapshot.
+    engine
+        .apply_edit(doc, &EditCommand::remove_pages(2, 1))
+        .unwrap();
 
-    let export = engine.open_image_export(doc).unwrap();
+    let opened = engine.open_image_export(doc).unwrap();
+    assert_eq!(opened.page_count(), 2);
+    let export = opened.id();
     let png = engine
         .export_page_image(export, 1, 72, "png".into())
         .unwrap();

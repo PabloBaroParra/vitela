@@ -2,6 +2,7 @@
 // Presentational: the state lives in `useCompress`, owned by the workspace.
 
 import { useEffect, useRef } from 'react';
+import { focusShown } from '../../ui/focusShown';
 import { StatusLine } from '../../ui/StatusLine';
 import { CompressDialog } from './CompressDialog';
 import { compressStatus } from './compressText';
@@ -10,9 +11,11 @@ import { compressBusy, type CompressActivity, type CompressSession } from './use
 interface CompressControlsProps {
   readonly session: CompressSession;
   readonly documentName: string;
+  /** Where the focus goes when the dialog closes while this button is not shown (a phone's More tools). */
+  readonly focusFallback?: () => void;
 }
 
-export function CompressControls({ session, documentName }: CompressControlsProps) {
+export function CompressControls({ session, documentName, focusFallback }: CompressControlsProps) {
   const { activity, open, select, cancel, compress } = session;
   const busy = compressBusy(activity);
   const button = useRef<HTMLButtonElement>(null);
@@ -21,9 +24,9 @@ export function CompressControls({ session, documentName }: CompressControlsProp
   const wasChoosing = useRef(false);
   useEffect(() => {
     const choosing = activity.kind === 'choosing';
-    if (wasChoosing.current && !choosing) button.current?.focus();
+    if (wasChoosing.current && !choosing) focusShown(button.current, focusFallback);
     wasChoosing.current = choosing;
-  }, [activity.kind]);
+  }, [activity.kind, focusFallback]);
 
   return (
     <>
@@ -53,7 +56,6 @@ export function CompressControls({ session, documentName }: CompressControlsProp
     </>
   );
 }
-
 
 function CompressStatus({ activity, documentName }: { readonly activity: CompressActivity; readonly documentName: string }) {
   switch (activity.kind) {
