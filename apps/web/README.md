@@ -495,18 +495,28 @@ images, so pending page edits, annotations, fills and watermarks are on the
 paper. Unlike the export it asks **no permission**: the core has no rule for
 the `/P` print bit and no native shell asks one, so a document that withholds
 printing still prints (a decision for the core, not the web, if it changes).
-A page over the raster ceiling at 150 DPI is refused up front; otherwise each
-page is rendered and encoded as PNG by the core (`exportPageImage`) one at a
-time, shown as "Preparing page 2 of 5 for printing…" with **Cancel print**
-(the page in hand finishes, then nothing prints). Only the encoded files are
-kept, as blob URLs; the snapshot is closed before the dialog opens.
+The pages are drawn at 150 DPI, lowered for a long document so that every
+page together stays within 128 Mpx (`printDpi`: the frame keeps each page
+decoded until the dialog closes, ~512 MB at that budget, about 60 Letter
+pages at full resolution), never below 96 DPI: past ~148 Letter pages the
+document still prints, at 96. The core caps a print snapshot at 150 DPI
+(`exportPageImage` refuses finer), so it is no way around the export's
+permission. A page over the raster ceiling at that resolution is refused up
+front; otherwise each page is rendered and encoded as PNG by the core
+(`exportPageImage`) one at a time, shown as "Preparing page 2 of 5 for
+printing…" with **Cancel print** — heard before each page, after the last
+one and while the frame decodes its pages one by one: until the dialog opens,
+a cancel means no dialog and nothing kept. Only the encoded files are kept,
+as blob URLs; the snapshot is closed before the dialog opens. The snapshot
+lifecycle and page loop are shared with Export images
+(`features/snapshot/`).
 
 The pages go into a hidden `iframe` (`printFrame.ts`, `srcdoc`, laid out at
 0 × 0 because a `display: none` frame does not print in Firefox) inside the
 editor's root, never elsewhere on a host's page, and the frame's own window
 prints: the page around it never does, and no stylesheet crosses either way
 (the frame has one `<style>` of its own and nothing else). Each page is one
-sheet sized in points from its image at 150 DPI, a named `@page` per distinct
+sheet sized in points from its image at the DPI it was drawn at, a named `@page` per distinct
 size, so a page turned a quarter prints landscape. The document title is the
 file name without `.pdf` (what the dialog offers when it saves to a file). The
 frame and its images go once the dialog reports `afterprint`, or with the

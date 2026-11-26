@@ -158,3 +158,27 @@ async fn a_print_snapshot_asks_no_permission_and_draws_like_an_export() {
     assert_eq!(&png[..8], PNG_SIGNATURE);
     assert!(engine.close_image_export(print));
 }
+
+#[wasm_bindgen_test]
+async fn a_print_snapshot_is_drawn_no_finer_than_print_resolution() {
+    let mut engine = engine().await;
+    let doc = engine
+        .open(
+            pdfs::restricted_document(),
+            Some(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+    let print = engine.open_print_snapshot(doc).unwrap().id();
+    assert!(engine
+        .export_page_image(print, 0, 150, "png".into())
+        .is_ok());
+    assert_eq!(
+        error_name(
+            engine
+                .export_page_image(print, 0, 151, "png".into())
+                .unwrap_err()
+        ),
+        "UnsupportedOperation"
+    );
+    assert!(engine.close_image_export(print));
+}

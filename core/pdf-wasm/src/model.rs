@@ -155,7 +155,7 @@ pub use compress::{
 pub use edit::PageEdit;
 pub use export::{
     encode_page_image, format_from_name, format_name, page_image_file_name, parse_page_selection,
-    EXPORT_FORMATS,
+    SnapshotUse, EXPORT_FORMATS, PRINT_MAX_DPI,
 };
 pub use extract::{plan_split, SplitPartPlan};
 pub use form::{FieldFill, FieldShape, FormFieldView};

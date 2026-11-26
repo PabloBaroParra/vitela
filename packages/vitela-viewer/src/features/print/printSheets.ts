@@ -6,12 +6,50 @@
 // and nothing of it leaks out. Pure apart from the DOM it is handed.
 
 /**
- * The resolution pages are drawn at for printing. The GTK shell rasterizes at
- * 300; the web holds every page as an image until the print dialog closes,
- * and 150 DPI keeps a Letter page at ~2 Mpx (a quarter of 300's) while text
- * still prints sharp.
+ * The resolution pages are drawn at for printing, at best. The GTK shell
+ * rasterizes at 300; the web holds every page as an image until the print
+ * dialog closes, and 150 DPI keeps a Letter page at ~2 Mpx (a quarter of
+ * 300's) while text still prints sharp. It is also the core's cap for a
+ * print snapshot (`PRINT_MAX_DPI` in `pdf-wasm`): never draw finer.
  */
 export const PRINT_DPI = 150;
+
+/** The lowest resolution a long document is lowered to: text still reads on paper. */
+export const PRINT_MIN_DPI = 96;
+
+/**
+ * How many pixels every page of one print may add up to before the
+ * resolution is lowered: the print frame keeps each page decoded (4 bytes a
+ * pixel) until the dialog closes, so ~512 MB — about 60 Letter pages at 150
+ * DPI, 148 at the floor. Past the floor a document still prints, at 96 DPI.
+ */
+export const PRINT_PIXEL_BUDGET = 128_000_000;
+
+/** A page's size, in points. */
+export interface PagePoints {
+  readonly widthPt: number;
+  readonly heightPt: number;
+}
+
+/** US Letter, for pages whose size is not known. */
+const LETTER_SQUARE_INCHES = (612 / 72) * (792 / 72);
+
+/**
+ * The resolution to print `pageCount` pages at: `PRINT_DPI` while they fit
+ * `PRINT_PIXEL_BUDGET`, else the finest that fits, never below
+ * `PRINT_MIN_DPI`. `sizes` are the pages as last seen (the snapshot may hold
+ * more after a pending edit); a page with no size counts as the average of
+ * those known, or Letter when none is.
+ */
+export function printDpi(sizes: readonly PagePoints[], pageCount: number): number {
+  const known = sizes.slice(0, pageCount).map(({ widthPt, heightPt }) => (widthPt / 72) * (heightPt / 72));
+  const knownArea = known.reduce((sum, area) => sum + area, 0);
+  const average = known.length > 0 ? knownArea / known.length : LETTER_SQUARE_INCHES;
+  const squareInches = knownArea + (pageCount - known.length) * average;
+  if (squareInches <= 0) return PRINT_DPI;
+  const fits = Math.floor(Math.sqrt(PRINT_PIXEL_BUDGET / squareInches));
+  return Math.max(PRINT_MIN_DPI, Math.min(PRINT_DPI, fits));
+}
 
 /** A drawn page, in pixels. */
 export interface PixelSize {

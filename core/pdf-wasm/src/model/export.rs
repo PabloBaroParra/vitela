@@ -20,7 +20,8 @@
 //! reason. Exporting is not an edit: nothing is recorded.
 //!
 //! Printing (B26 T-257) draws from the same snapshot, rendered the same way,
-//! but without the extraction gate (see [`DocumentModel::print_snapshot_bytes`]).
+//! but without the extraction gate (see [`DocumentModel::print_snapshot_bytes`])
+//! and no finer than [`PRINT_MAX_DPI`].
 
 use pdf_save::ExportFormat;
 
@@ -118,21 +119,58 @@ impl DocumentModel {
         })
     }
 
-    /// The bytes an export draws its pages from: what a save would write
-    /// now, every pending edit and annotation in it. A signature is
-    /// acknowledged, as `pdf-ffi`'s `output_snapshot` does: the snapshot is
-    /// never handed out as a PDF, only rasterized.
-    pub fn output_snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
+    /// The bytes an export draws its pages from: the snapshot, behind the
+    /// extraction gate.
+    pub fn export_snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
         self.ensure_image_export_allowed()?;
-        self.print_snapshot_bytes()
+        self.snapshot_bytes()
     }
 
     /// The same snapshot for printing (B26 T-257), with no permission asked:
     /// `pdf-ffi`'s `output_snapshot` asks none, and neither does any native
     /// shell before its print dialog — the core has no rule for the `/P`
-    /// print bit, so the web does not invent one.
+    /// print bit, so the web does not invent one. What keeps it from being
+    /// a way around the extraction gate is [`SnapshotUse::Print`]: its pages
+    /// are drawn no finer than [`PRINT_MAX_DPI`].
     pub fn print_snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
+        self.snapshot_bytes()
+    }
+
+    /// What a save would write now, every pending edit and annotation in it.
+    /// A signature is acknowledged, as `pdf-ffi`'s `output_snapshot` does:
+    /// the snapshot is never handed out as a PDF, only rasterized.
+    fn snapshot_bytes(&self) -> Result<Vec<u8>, EngineError> {
         Ok(self.with_save_input(true, pdf_save::save_document)?)
+    }
+}
+
+/// The finest a print snapshot's pages are drawn (B26 T-257), in DPI: the
+/// web's print resolution. A print snapshot asks no extraction permission,
+/// so it must not become a way to draw a restricted document's pages at
+/// export quality.
+pub const PRINT_MAX_DPI: u32 = 150;
+
+/// What a snapshot was opened for, and so how finely its pages may be drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SnapshotUse {
+    /// `openImageExport`: behind the extraction gate, any DPI the raster
+    /// ceiling allows.
+    Export,
+    /// `openPrintSnapshot`: no gate, at most [`PRINT_MAX_DPI`].
+    Print,
+}
+
+impl SnapshotUse {
+    /// Refuses, with `UnsupportedOperation`, a page drawn finer than this
+    /// snapshot allows.
+    pub fn check_dpi(self, dpi: u32) -> Result<(), EngineError> {
+        match self {
+            SnapshotUse::Print if dpi > PRINT_MAX_DPI => Err(EngineError::new(
+                ErrorKind::UnsupportedOperation,
+                format!("a print snapshot is drawn at {PRINT_MAX_DPI} DPI at most, not {dpi}"),
+            )),
+            _ => Ok(()),
+        }
     }
 }
 
@@ -227,7 +265,7 @@ mod tests {
             })
             .unwrap();
 
-        let bytes = model.output_snapshot_bytes().expect("snapshot");
+        let bytes = model.export_snapshot_bytes().expect("snapshot");
         let snapshot = lopdf::Document::load_mem(&bytes).expect("parses");
         let pages = snapshot.get_pages();
         assert_eq!(pages.len(), 2);
@@ -244,7 +282,7 @@ mod tests {
     #[test]
     fn a_signed_document_snapshots_without_asking() {
         let model = open(pdfs::SIGNED);
-        assert!(model.output_snapshot_bytes().is_ok());
+        assert!(model.export_snapshot_bytes().is_ok());
     }
 
     #[test]
@@ -261,7 +299,7 @@ mod tests {
             "this document does not permit extracting its pages as images"
         );
         assert_eq!(
-            model.output_snapshot_bytes().unwrap_err().kind,
+            model.export_snapshot_bytes().unwrap_err().kind,
             ErrorKind::UnsupportedOperation
         );
     }
@@ -296,6 +334,17 @@ mod tests {
         assert!(second.get(b"Annots").is_ok());
         assert!(model.can_undo());
         assert!(!model.can_redo());
+    }
+
+    #[test]
+    fn a_print_snapshot_is_drawn_no_finer_than_print_resolution_and_an_export_at_any() {
+        assert_eq!(PRINT_MAX_DPI, 150);
+        assert!(SnapshotUse::Print.check_dpi(PRINT_MAX_DPI).is_ok());
+        assert!(SnapshotUse::Print.check_dpi(96).is_ok());
+        let err = SnapshotUse::Print.check_dpi(PRINT_MAX_DPI + 1).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::UnsupportedOperation);
+        assert!(err.message.contains("150"));
+        assert!(SnapshotUse::Export.check_dpi(600).is_ok());
     }
 
     #[test]

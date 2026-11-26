@@ -142,7 +142,7 @@ export interface CoreEngine extends CoreText {
   openImageExport(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   exportPageImage(exportId: number, pageIndex: number, dpi: number, format: string): Uint8Array;
   closeImageExport(exportId: number): boolean;
-  /** `openImageExport`'s snapshot for printing: no permission asked. */
+  /** `openImageExport`'s snapshot for printing: no permission asked, drawn at 150 DPI at most. */
   openPrintSnapshot(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;

@@ -4,23 +4,30 @@
 // snapshot, so pending page edits, annotations, fills and watermarks print;
 // the on-screen preview leaves the session's annotations out.
 //
-// Print waits for the queued edits, opens the snapshot, checks no page is
-// over the raster ceiling at `PRINT_DPI`, then draws one page at a time into
-// an image (only the encoded file is kept; Cancel print stops after the page
-// in hand). The snapshot is closed before the dialog opens, however the
-// drawing ended. The sheets go into a hidden print frame inside the editor
-// (`printFrame.ts`), which prints itself and is taken away, with its images,
-// once the dialog closes — or by the next print, a new document or the
-// editor going away, whichever comes first. No permission is asked: the core
-// has no rule for the print bit and no native shell asks one. Container
+// Print waits for the queued edits, opens the snapshot, picks the resolution
+// (`printDpi`: 150 DPI, lowered for a long document so every page together
+// stays within a pixel budget, never below 96), checks no page is over the
+// raster ceiling at it, then draws one page at a time into an image (only the
+// encoded file is kept). The snapshot lifecycle and the drawing loop are the
+// shared snapshot job's (`features/snapshot`), as for Export images. The
+// snapshot is closed before the dialog opens, however the drawing ended.
+// Cancel print is heard before each page, after the last one, and while the
+// frame gets its pages ready: until the dialog opens, a cancel means no
+// dialog and nothing kept. The sheets go into a hidden print frame inside the
+// editor (`printFrame.ts`), which prints itself and is taken away, with its
+// images, once the dialog closes — or by the next print, a new document or
+// the editor going away, whichever comes first. No permission is asked: the
+// core has no rule for the print bit and no native shell asks one. Container
 // logic only, no markup.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { errorMessage, type Engine } from '@vitela/core';
 import { sentence } from '../../ui/text';
 import type { OpenDocument } from '../document/useDocument';
+import { PageNotDrawn, drawPages, withSnapshot } from '../snapshot/snapshotJob';
+import { useSnapshotJob } from '../snapshot/useSnapshotJob';
 import { iframeSurface, type PrintJob, type PrintSurface } from './printFrame';
-import { PRINT_DPI, pngSize, sheetOf, type PrintSheet } from './printSheets';
+import { pngSize, printDpi, sheetOf, type PrintSheet } from './printSheets';
 import { NO_PAGES, PRINT_CANCELLED, pageFailed, pageTooLarge, printFailed } from './printText';
 
 export type PrintActivity =
@@ -58,12 +65,6 @@ export function usePrint(engine: Engine, document: OpenDocument | null, { settle
   const generation = document?.generation;
   const [activity, setActivity] = useState<PrintActivity>(IDLE);
   const [forGeneration, setForGeneration] = useState(generation);
-  /** The document on screen: a print for an old document is dropped. */
-  const shown = useRef(generation);
-  const mounted = useRef(true);
-  const busy = useRef(false);
-  /** Set by Cancel print: drawing stops after the page in hand. */
-  const stopRequested = useRef(false);
   /** The frame handed to the print dialog, until it is taken away. */
   const printed = useRef<{ readonly job: PrintJob; readonly urls: readonly string[] } | null>(null);
 
@@ -75,108 +76,82 @@ export function usePrint(engine: Engine, document: OpenDocument | null, { settle
     for (const url of last.urls) URL.revokeObjectURL(url);
   }, []);
 
-  // A new document starts clean (adjusting state while rendering).
+  // A new document starts clean (adjusting state while rendering); the frame goes with the old one.
   if (forGeneration !== generation) {
     setForGeneration(generation);
     setActivity(IDLE);
   }
-  useEffect(() => {
-    shown.current = generation;
-    busy.current = false;
-    takeAway();
-  }, [generation, takeAway]);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      takeAway();
-    };
-  }, [takeAway]);
-
-  const stop = useCallback(() => {
-    stopRequested.current = true;
-  }, []);
-
-  /** Draws every page of the snapshot; `null` when the print was cancelled or dropped. */
-  const draw = useCallback(
-    async (snapshot: number, pageCount: number, current: () => boolean, urls: string[]): Promise<PrintSheet[] | null> => {
-      const sheets: PrintSheet[] = [];
-      for (let page = 0; page < pageCount; page++) {
-        if (!current()) return null;
-        if (stopRequested.current) {
-          setActivity({ kind: 'done', message: PRINT_CANCELLED });
-          return null;
-        }
-        setActivity({ kind: 'preparing', page: page + 1, total: pageCount });
-        let bytes: Uint8Array;
-        try {
-          bytes = await engine.exportPageImage(snapshot, page, PRINT_DPI, 'png');
-        } catch (error) {
-          throw new Refused(pageFailed(page + 1, sentence(errorMessage(error))));
-        }
-        const size = pngSize(bytes);
-        if (!size) throw new Refused(pageFailed(page + 1, 'The page was not drawn as an image.'));
-        const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
-        urls.push(url);
-        sheets.push(sheetOf(url, size, PRINT_DPI));
-      }
-      return sheets;
-    },
-    [engine],
-  );
+  const job = useSnapshotJob(generation, takeAway);
 
   const print = useCallback(async () => {
-    if (!document || busy.current) return;
-    busy.current = true;
+    if (!document || !job.claim()) return;
     // One print frame at a time: a dialog that never reported closing gives way.
     takeAway();
-    const running = document.generation;
-    const current = () => mounted.current && shown.current === running;
-    stopRequested.current = false;
+    const guard = job.guard(document.generation);
+    const cancelled = () => setActivity({ kind: 'done', message: PRINT_CANCELLED });
     setActivity({ kind: 'preparing', page: 0, total: document.info.pageCount });
     const urls: string[] = [];
     let handedOver = false;
     try {
-      // The edits asked for before the click go in.
-      await settleEdits();
-      if (!current()) return;
-      const opened = await engine.openPrintSnapshot(document.handle);
-      let sheets: PrintSheet[] | null;
-      try {
-        if (opened.pageCount === 0) throw new Refused(NO_PAGES);
-        const pages = Array.from({ length: opened.pageCount }, (_, page) => page);
-        const oversized = await engine.firstPageTooLargeToExport(document.handle, pages, PRINT_DPI);
-        if (oversized !== null) throw new Refused(pageTooLarge(oversized + 1));
-        sheets = await draw(opened.handle, opened.pageCount, current, urls);
-      } finally {
-        // The snapshot is the engine's memory: freed before the dialog, however the drawing ended.
-        await engine.closeImageExport(opened.handle).catch(() => false);
-      }
-      if (!sheets || !current()) return;
+      // The snapshot is closed before the frame is built, however the drawing ended.
+      const drawn = await withSnapshot(
+        engine,
+        guard,
+        settleEdits,
+        () => engine.openPrintSnapshot(document.handle),
+        async ({ handle, pageCount }) => {
+          if (pageCount === 0) throw new Refused(NO_PAGES);
+          const pages = Array.from({ length: pageCount }, (_, page) => page);
+          const dpi = printDpi(document.info.pages, pageCount);
+          const oversized = await engine.firstPageTooLargeToExport(document.handle, pages, dpi);
+          if (oversized !== null) throw new Refused(pageTooLarge(oversized + 1));
+          const sheets: PrintSheet[] = [];
+          const end = await drawPages(engine, handle, pages, dpi, 'png', guard, {
+            starting: (page) => setActivity({ kind: 'preparing', page: page + 1, total: pageCount }),
+            drawn: (bytes, page) => {
+              const size = pngSize(bytes);
+              if (!size) throw new Refused(pageFailed(page + 1, 'The page was not drawn as an image.'));
+              const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
+              urls.push(url);
+              sheets.push(sheetOf(url, size, dpi));
+            },
+          });
+          return end === 'finished' ? sheets : end;
+        },
+      );
+      if (drawn === undefined || drawn === 'dropped' || !guard.current()) return;
+      // A cancel pressed while the last page was drawn still stops the print.
+      if (drawn === 'stopped' || guard.stopped()) return cancelled();
       const host = frameHost();
       if (!host) return;
-      const job = await surface(host, titleOf(document.name), sheets);
-      if (!current()) {
-        job.remove();
-        return;
+      const frame = await surface(host, titleOf(document.name), drawn, guard.stopped);
+      if (!guard.current()) return frame.remove();
+      // A cancel pressed while the frame got its pages ready: no dialog.
+      if (guard.stopped()) {
+        frame.remove();
+        return cancelled();
       }
-      const entry = { job, urls };
+      const entry = { job: frame, urls };
       printed.current = entry;
       handedOver = true;
-      job.afterPrint(() => {
+      frame.afterPrint(() => {
         if (printed.current === entry) takeAway();
       });
       setActivity(IDLE);
-      job.print();
+      frame.print();
     } catch (error) {
-      if (current()) {
-        setActivity({ kind: 'failed', message: error instanceof Refused ? error.message : printFailed(sentence(errorMessage(error))) });
-      }
+      if (guard.current()) setActivity({ kind: 'failed', message: failureOf(error) });
     } finally {
       if (!handedOver) for (const url of urls) URL.revokeObjectURL(url);
-      if (current()) busy.current = false;
+      if (guard.current()) job.release();
     }
-  }, [engine, document, settleEdits, frameHost, surface, draw, takeAway]);
+  }, [engine, document, settleEdits, frameHost, surface, takeAway, job]);
 
-  return { activity, print, stop };
+  return { activity, print, stop: job.stop };
+}
+
+function failureOf(error: unknown): string {
+  if (error instanceof Refused) return error.message;
+  if (error instanceof PageNotDrawn) return pageFailed(error.pageIndex + 1, sentence(errorMessage(error.cause)));
+  return printFailed(sentence(errorMessage(error)));
 }

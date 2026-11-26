@@ -2936,6 +2936,43 @@ que condiciona lo que sigue:
   `object-fit: contain`); sin vista previa propia ni elección de páginas (son del diálogo del
   navegador); un anfitrión con CSP `style-src` estricta bloquearía el `<style>` del marco (la app no
   tiene CSP); el bit de impresión de `/P` no se honra (ver arriba).
+- **Revisión de T-257 (rama `fix/web-print-review`).**
+  - **Cancel print** se oía solo antes de cada página. Ahora también tras la última y mientras el
+    marco decodifica (`decodeInOrder` corta, y `usePrint` mira la parada antes de `job.print()`):
+    hasta que se abre el diálogo, cancelar = sin diálogo, marco quitado, blobs revocados.
+  - **Memoria: DPI adaptativo (elegido frente a rechazar).** `printDpi`: 150 DPI mientras todas las
+    páginas sumen ≤ 128 Mpx (`PRINT_PIXEL_BUDGET`; el marco las retiene decodificadas, ~512 MB, ≈ 60
+    Letter a 150), si no la mayor que cabe, con suelo de 96 (`PRINT_MIN_DPI`, ≈ 148 Letter). Por
+    encima del suelo **se sigue imprimiendo** a 96: el usuario espera que imprimir funcione, y
+    rechazar dejaría sin imprimir documentos de 200 páginas; la memoria crece entonces ~3,4 MB
+    decodificados por Letter, como en la impresión del propio navegador. Las páginas sin tamaño
+    conocido (instantánea con una edición pendiente) cuentan como la media. La decodificación es
+    secuencial (antes `Promise.all`). El techo de raster se pregunta al DPI elegido.
+  - **Duplicación:** `features/snapshot/` — `snapshotJob.ts` (`withSnapshot`: cola → abrir →
+    trabajo → cerrar pase lo que pase; `drawPages`: una página cada vez, parada antes de cada una,
+    `PageNotDrawn`) y `useSnapshotJob` (uno a la vez, descartado al cambiar de documento o
+    desmontar, `stop`). Lo usan `useExportImages` (entrega por página y su Cancel, sin cambios de
+    comportamiento) y `usePrint` (el marco).
+  - **`openPrintSnapshot` solo para imprimir:** documentado en `types.ts` y el README del core; en
+    `pdf-wasm` cada instantánea recuerda su uso (`SnapshotUse::{Export, Print}`) y
+    `exportPageImage` sobre una de impresión rechaza más de `PRINT_MAX_DPI` (150) con
+    `UnsupportedOperation`: no es una vía para saltarse el permiso de extracción. Renombrado:
+    `export_snapshot_bytes` (puerta + `snapshot_bytes`) y `print_snapshot_bytes` (=
+    `snapshot_bytes`), así la llamada se lee hacia delante; `output_snapshot_bytes` ya no existe.
+  - **Menores:** fuera `printShortcut` (sin uso); orden de imports en `WatermarkControls.test.tsx`.
+  - **Tests:** Rust 1 nativo (`SnapshotUse::check_dpi`, visto en rojo) + 1 `wasm-bindgen-test`
+    (no corrido en local); `@vitela/core` 1 Vitest pdfium real (150 pasa, 151 rechaza, export a 300
+    pasa; escrito con el wasm ya recompilado, no visto en rojo); `@vitela/viewer` 23 nuevos
+    (`snapshotJob` 9, `useSnapshotJob` 5, `printDpi` 4, `decodeInOrder` 2, `PrintControls` 3:
+    cancelar en la última página, cancelar mientras se monta el marco, documento largo a menos DPI),
+    todos vistos en rojo antes de implementar.
+  - **Verificado en local (Windows):** `cargo fmt --all -- --check`; clippy `pdf-wasm` nativo y
+    wasm32 (`--all-targets -D warnings`, con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+    142 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 212, `build`.
+    `@vitela/viewer`: `tsc -b`, Vitest 93 / 907, `build`. `apps/web`: `typecheck`, Vitest 6 / 19,
+    `build`. Playwright (`CI=1`, 3 navegadores) print + export-images + phone-bar + embed +
+    zero-network **70 pasan, 2 omitidos**; suite completa **317 pasan, 22 omitidos, 0 fallos**.
+    No corridos: los `wasm-bindgen-test`.
 
 ## Verificación
 

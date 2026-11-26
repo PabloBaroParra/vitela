@@ -6,7 +6,7 @@ import { fakeEngine } from '../../test/fakeEngine';
 import type { EditorScope } from '../document/editorScope';
 import type { OpenDocument } from '../document/useDocument';
 import type { PrintJob, PrintSurface } from './printFrame';
-import type { PrintSheet } from './printSheets';
+import { printDpi, type PrintSheet } from './printSheets';
 import { PrintControls } from './PrintControls';
 import { usePrint, printBusy, type PrintHost } from './usePrint';
 import { usePrintKey } from './usePrintKey';
@@ -84,10 +84,11 @@ function printEngine({ pageCount = 2, oversized = null, failing, gate }: EngineO
   return { engine, log };
 }
 
-function fakeSurface(log: string[]) {
+function fakeSurface(log: string[], frameGate?: () => Promise<void>) {
   const jobs: { sheets: readonly PrintSheet[]; title: string; host: HTMLElement; closed: () => void; removed: boolean }[] = [];
   const surface: PrintSurface = async (host, title, sheets) => {
     log.push('frame');
+    await frameGate?.();
     let closed = () => {};
     const entry = { sheets, title, host, closed: () => closed(), removed: false };
     jobs.push(entry);
@@ -174,6 +175,57 @@ describe('Print', () => {
     expect(revoked).toEqual(created);
     expect(screen.queryByRole('button', { name: 'Cancel print' })).toBeNull();
     expect(printButton().getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('hears Cancel print pressed while the last page is drawn: no frame, no dialog, nothing kept', async () => {
+    const releases: (() => void)[] = [];
+    const gate = () => new Promise<void>((resolve) => releases.push(resolve));
+    const { engine, log } = printEngine({ pageCount: 1, gate });
+    const { surface } = fakeSurface(log);
+    render(<Harness engine={engine} host={{ settleEdits: async () => {}, surface }} />);
+    fireEvent.click(printButton());
+    expect(await screen.findByText('Preparing page 1 of 1 for printing…')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel print' }));
+    await act(async () => releases.shift()!());
+    expect(await screen.findByText('Print cancelled.')).toBeTruthy();
+    expect(log).toContain('close:40');
+    expect(log).not.toContain('frame');
+    expect(log).not.toContain('print');
+    expect(created).toHaveLength(1);
+    expect(revoked).toEqual(created);
+    expect(printButton().getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('hears Cancel print pressed while the frame gets its pages ready: the frame goes, the dialog never opens', async () => {
+    const releases: (() => void)[] = [];
+    const frameGate = () => new Promise<void>((resolve) => releases.push(resolve));
+    const { engine, log } = printEngine();
+    const { surface, jobs } = fakeSurface(log, frameGate);
+    render(<Harness engine={engine} host={{ settleEdits: async () => {}, surface }} />);
+    fireEvent.click(printButton());
+    await waitFor(() => expect(releases).toHaveLength(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel print' }));
+    await act(async () => releases.shift()!());
+    expect(await screen.findByText('Print cancelled.')).toBeTruthy();
+    expect(log).not.toContain('print');
+    expect(jobs[0]!.removed).toBe(true);
+    expect(revoked).toEqual(created);
+    expect(printButton().getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('draws a long document at a lower resolution, so all its pages fit the print budget', async () => {
+    const { engine, log } = printEngine({ pageCount: 100 });
+    const { surface, jobs } = fakeSurface(log);
+    render(<Harness engine={engine} host={{ settleEdits: async () => {}, surface }} />);
+    fireEvent.click(printButton());
+    await waitFor(() => expect(log).toContain('print'));
+    const dpi = printDpi(document.info.pages, 100);
+    expect(dpi).toBeLessThan(150);
+    expect(log).toContain(`ceiling:7:${Array.from({ length: 100 }, (_, i) => i).join(',')}:${dpi}`);
+    expect(log.filter((line) => line.startsWith('draw'))).toHaveLength(100);
+    expect(log.every((line) => !line.startsWith('draw') || line.endsWith(`:${dpi}:png`))).toBe(true);
+    // The sheet is still the page's size: the fewer pixels are spread over it.
+    expect(jobs[0]!.sheets[0]!.widthPt).toBeCloseTo((1275 * 72) / dpi, 1);
   });
 
   it('refuses a page over the raster ceiling before drawing any', async () => {
