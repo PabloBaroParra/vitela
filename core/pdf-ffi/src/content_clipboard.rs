@@ -19,9 +19,7 @@ use pdf_edit::Selection;
 use pdf_save::PastedMembers;
 
 use crate::content_selection::{remove_content_selection, FfiContentSelection};
-use crate::document::{
-    content_editing_is_allowed, text_extraction_is_allowed, DocumentHandle, DocumentState,
-};
+use crate::document::{text_extraction_is_allowed, DocumentHandle, DocumentState};
 use crate::error::FfiError;
 use crate::types::FfiRect;
 
@@ -85,10 +83,8 @@ pub fn cut_content_selection(
 ) -> Result<FfiContentClip, FfiError> {
     let clip = {
         let state = handle.lock();
-        if !text_extraction_is_allowed(state.document())
-            || !content_editing_is_allowed(state.document())
-        {
-            return Err(unsupported("cutting content is not permitted"));
+        if !pdf_save::content_cut_allowed(state.document().security.as_ref()) {
+            return Err(pdf_save::ContentEditRefusal::Cut.into());
         }
         copy(&state, selection.clone())?
     };
@@ -110,9 +106,7 @@ pub fn paste_content(
         return Err(unsupported("Paste coordinates must be finite."));
     }
     let mut state = handle.lock();
-    if !content_editing_is_allowed(state.document()) {
-        return Err(unsupported("content editing is not permitted"));
-    }
+    pdf_save::ensure_content_editing(state.document().security.as_ref())?;
     let page = state.page_id(page)?;
     state.record(|document, base, sources| {
         pdf_save::record_paste(document, base, sources, page, clip.into(), left, top)

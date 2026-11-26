@@ -23,6 +23,10 @@
 //!   time, and reports whether the rewrite invalidates existing signatures.
 //! - [`clipboard`] (B25 T-209): the content clipboard's queue rules — copy,
 //!   paste, and what a selection edit does with a pending paste.
+//! - [`content_edit`] (T-258a): the questions asked around a page-content
+//!   edit — whether it is allowed at all, whether an image could be
+//!   replaced, whether a run has a pending move — and recording one through
+//!   a checkpointing session.
 //! - [`record`] (B25): how a page-content edit joins the pending queue —
 //!   folded into the queued edit of the same item, or validated and
 //!   appended. Every shell records through it.
@@ -59,6 +63,7 @@ pub mod clock;
 pub mod comments;
 pub mod compress;
 pub mod content;
+pub mod content_edit;
 pub mod edit_gate;
 pub mod error;
 pub mod export;
@@ -99,6 +104,10 @@ pub use compress::{
 pub use content::{
     has_content_edits, replay_content_edits, validate_content_command,
     validate_content_command_after_pending,
+};
+pub use content_edit::{
+    check_image_replacement, content_cut_allowed, content_editing_allowed, ensure_content_editing,
+    text_run_has_pending_move, ContentEditRefusal,
 };
 pub use edit_gate::{
     check_edit, form_field_editing_allowed, form_fill_allowed, EditClass, EditRefusal,
