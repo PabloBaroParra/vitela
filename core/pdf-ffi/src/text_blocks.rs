@@ -6,11 +6,9 @@
 //! happens when a block's runs already have an edit queued is
 //! `pdf_save::record`'s to decide.
 
-use std::collections::{HashMap, HashSet};
+use pdf_document::{Command, TextRun};
 
-use pdf_document::{Command, ContentItemId, FontKind, TextRun};
-
-use crate::document::{content_editing_is_allowed, DocumentHandle, DocumentState};
+use crate::document::{DocumentHandle, DocumentState};
 use crate::error::FfiError;
 use crate::types::{FfiContentTextRun, FfiTextBlock, FfiTextLine};
 
@@ -36,50 +34,14 @@ pub fn read_page_text_blocks(
 ///
 /// A paragraph with a composite-font run reads one block per line instead:
 /// such a run is retyped in an inserted standard font, which a paragraph
-/// retype refuses, so splitting it keeps that one-line path working.
+/// retype refuses, so splitting it keeps that one-line path working
+/// (`pdf_edit::group_text_paragraphs`).
 #[uniffi::export]
 pub fn read_page_paragraph_blocks(
     handle: &DocumentHandle,
     page: u32,
 ) -> Result<Vec<FfiTextBlock>, FfiError> {
-    read_blocks(handle, page, paragraph_blocks)
-}
-
-/// [`pdf_edit::group_text_runs`], with every paragraph that holds a
-/// composite-font run split back into its lines.
-fn paragraph_blocks(runs: &[TextRun]) -> Vec<pdf_edit::TextBlock> {
-    // Each run's place in paint order, and the composite ones, looked up once.
-    let order: HashMap<ContentItemId, usize> = runs
-        .iter()
-        .enumerate()
-        .map(|(index, run)| (run.id, index))
-        .collect();
-    let composite: HashSet<ContentItemId> = runs
-        .iter()
-        .filter(|run| run.font_kind == FontKind::EmbeddedComposite)
-        .map(|run| run.id)
-        .collect();
-    pdf_edit::group_text_runs(runs)
-        .into_iter()
-        .flat_map(|block| {
-            if block.lines.len() > 1 && block.runs.iter().any(|id| composite.contains(id)) {
-                // In paint order, as the page lists them.
-                let mut members: Vec<usize> = block
-                    .runs
-                    .iter()
-                    .filter_map(|id| order.get(id).copied())
-                    .collect();
-                members.sort_unstable();
-                let members: Vec<TextRun> = members
-                    .into_iter()
-                    .map(|index| runs[index].clone())
-                    .collect();
-                pdf_edit::group_text_lines(&members)
-            } else {
-                vec![block]
-            }
-        })
-        .collect()
+    read_blocks(handle, page, pdf_edit::group_text_paragraphs)
 }
 
 fn read_blocks(
@@ -202,9 +164,7 @@ pub(crate) fn apply_batch_edit(
     let mut state = handle.lock();
     // One question, two answers, as in `apply_edit`: whether the document
     // permits it and whether a rewrite could ever keep it.
-    if !content_editing_is_allowed(state.document()) {
-        return Err(unsupported("content editing is not permitted"));
-    }
+    pdf_save::ensure_content_editing(state.document().security.as_ref())?;
     let command = build(&state)?;
     // Tried as it stands first, as `apply_edit` does: a checkpoint costs a
     // rewrite, and most batches never need one.

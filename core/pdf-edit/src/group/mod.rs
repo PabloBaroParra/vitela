@@ -20,7 +20,9 @@ mod retype;
 
 pub use retype::retype_paragraph;
 
-use pdf_document::{Command, ContentItemId, Rect, TextRun};
+use std::collections::{HashMap, HashSet};
+
+use pdf_document::{Command, ContentItemId, FontKind, Rect, TextRun};
 
 /// The widest gap, as a fraction of the line's height, that still reads as
 /// the space between two words. A space is about a quarter to a third of an
@@ -322,6 +324,48 @@ pub fn retype_block(runs: &[TextRun], text: &str, with_inserted_font: bool) -> O
     batch(children)
 }
 
+/// [`group_text_runs`], with every paragraph that holds a composite-font run
+/// split back into its lines ([`group_text_lines`]) — the blocks a shell
+/// with a multi-line editor reads.
+///
+/// A composite-font run is retyped in an inserted standard font, which a
+/// paragraph retype refuses, so reading such a paragraph one block per line
+/// keeps that one-line retype path working.
+pub fn group_text_paragraphs(runs: &[TextRun]) -> Vec<TextBlock> {
+    // Each run's place in paint order, and the composite ones, looked up once.
+    let order: HashMap<ContentItemId, usize> = runs
+        .iter()
+        .enumerate()
+        .map(|(index, run)| (run.id, index))
+        .collect();
+    let composite: HashSet<ContentItemId> = runs
+        .iter()
+        .filter(|run| run.font_kind == FontKind::EmbeddedComposite)
+        .map(|run| run.id)
+        .collect();
+    group_text_runs(runs)
+        .into_iter()
+        .flat_map(|block| {
+            if block.lines.len() > 1 && block.runs.iter().any(|id| composite.contains(id)) {
+                // In paint order, as the page lists them.
+                let mut members: Vec<usize> = block
+                    .runs
+                    .iter()
+                    .filter_map(|id| order.get(id).copied())
+                    .collect();
+                members.sort_unstable();
+                let members: Vec<TextRun> = members
+                    .into_iter()
+                    .map(|index| runs[index].clone())
+                    .collect();
+                group_text_lines(&members)
+            } else {
+                vec![block]
+            }
+        })
+        .collect()
+}
+
 pub(super) fn batch(children: Vec<Command>) -> Option<Command> {
     (!children.is_empty()).then_some(Command::Batch(children))
 }
@@ -349,6 +393,53 @@ mod tests {
 
     fn ids(block: &TextBlock) -> Vec<u64> {
         block.runs.iter().map(|id| id.0).collect()
+    }
+
+    /// A run on `baseline` in the parser's box convention, one em tall.
+    fn stacked(id: u64, baseline: f64, text: &str, font_kind: FontKind) -> TextRun {
+        TextRun {
+            id: ContentItemId(id),
+            page: PageId(0),
+            bbox: Rect {
+                x: 100.0,
+                y: baseline - 2.5,
+                width: 150.0,
+                height: 10.0,
+            },
+            resource_font_name: "F1".to_string(),
+            font_kind,
+            text: text.to_string(),
+        }
+    }
+
+    fn paragraph(font_kind: FontKind) -> [TextRun; 3] {
+        [
+            stacked(1, 700.0, "first line of", font_kind),
+            stacked(2, 686.0, "the paragraph and", font_kind),
+            stacked(3, 672.0, "its end.", font_kind),
+        ]
+    }
+
+    #[test]
+    fn a_paragraph_without_a_composite_run_reads_as_one_block() {
+        let runs = paragraph(FontKind::Standard14);
+        let blocks = group_text_paragraphs(&runs);
+        assert_eq!(blocks, group_text_runs(&runs));
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].lines.len(), 3);
+    }
+
+    #[test]
+    fn a_paragraph_with_a_composite_run_reads_one_block_per_line() {
+        let mut runs = paragraph(FontKind::Standard14);
+        runs[1].font_kind = FontKind::EmbeddedComposite;
+        assert_eq!(group_text_runs(&runs).len(), 1, "a paragraph to split");
+
+        let blocks = group_text_paragraphs(&runs);
+
+        assert_eq!(blocks, group_text_lines(&runs));
+        assert_eq!(blocks.len(), 3);
+        assert!(blocks.iter().all(|block| block.lines.len() == 1));
     }
 
     /// The reference file's heading: three operators, one phrase.

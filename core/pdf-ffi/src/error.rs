@@ -178,6 +178,14 @@ impl From<pdf_save::EditRefusal> for FfiError {
     }
 }
 
+impl From<pdf_save::ContentEditRefusal> for FfiError {
+    fn from(refusal: pdf_save::ContentEditRefusal) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: refusal.to_string(),
+        }
+    }
+}
+
 impl From<pdf_save::ImportError> for FfiError {
     fn from(err: pdf_save::ImportError) -> Self {
         use pdf_save::ImportError as E;

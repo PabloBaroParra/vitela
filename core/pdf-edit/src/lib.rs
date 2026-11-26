@@ -79,8 +79,8 @@ pub use edit::{
 };
 pub use error::EditError;
 pub use group::{
-    group_text_lines, group_text_runs, move_block, remove_block, retype_block, retype_paragraph,
-    Alignment, TextBlock, TextLine,
+    group_text_lines, group_text_paragraphs, group_text_runs, move_block, remove_block,
+    retype_block, retype_paragraph, Alignment, TextBlock, TextLine,
 };
 pub use insert::{insert_image, insert_text_run, inserted_text_run_bbox};
 pub use insert_like::insert_text_run_like;
