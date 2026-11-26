@@ -409,7 +409,8 @@
 
   /* Hidden, not just moved: out of the tab order and the accessibility tree too. */
   .workspace__bar .compress-button,
-  .workspace__bar .export-images-button {
+  .workspace__bar .export-images-button,
+  .workspace__bar .protect-button {
     display: none;
   }
 

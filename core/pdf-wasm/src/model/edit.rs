@@ -19,7 +19,9 @@
 //! both the log and the document that owns it).
 
 use pdf_document::{Command, Document, EditLog};
-use pdf_save::{EditClass, ImportedSources, SaveInput, SaveIntent, SignatureAcknowledgement};
+use pdf_save::{
+    EditClass, ImportedSources, SaveInput, SaveIntent, SaveSource, SignatureAcknowledgement,
+};
 
 use super::DocumentModel;
 use crate::error::{EngineError, ErrorKind};
@@ -183,13 +185,21 @@ impl DocumentModel {
         } else {
             SignatureAcknowledgement::Unacknowledged
         };
+        self.with_save_source(|source| {
+            save(source.input_for(source.document, SaveIntent::Default, signatures))
+        })
+    }
+
+    /// This session's model, base, original bytes and imported PDFs as the
+    /// `pdf_save::SaveSource` the core's orchestrations that pick their own
+    /// intent take (`pdf_save::protected_bytes`) — as `pdf-ffi`'s
+    /// `with_save_source` builds it.
+    pub(super) fn with_save_source<T>(&self, run: impl FnOnce(SaveSource<'_>) -> T) -> T {
         let sources = self.imported.pairs();
-        save(SaveInput {
+        run(SaveSource {
             document: &self.document,
             base: &self.base,
             original_bytes: Some(&self.original_bytes),
-            intent: SaveIntent::Default,
-            signatures,
             imported_sources: ImportedSources::new(&sources),
         })
     }

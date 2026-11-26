@@ -94,6 +94,7 @@ What reaches `onSave`, told apart by name and `type`:
 |---|---|---|---|
 | Save, Save anyway, Save a copy | the document's name | `application/pdf` | yes |
 | Compress | `<name>-compressed.pdf` | `application/pdf` | no |
+| Protect | `<name>-protected.pdf` (encrypted: it needs the open password chosen in the dialog) | `application/pdf` | no |
 | Export images | one call per page, named by the engine: `<name>-<page>.png` or `.jpg`, the page number zero-padded to the page count (`report-03.jpg`) | `image/png` or `image/jpeg` | no |
 
 An image export calls `onSave` once per page, in page order, waiting for each
@@ -175,7 +176,7 @@ editor's container.
 - Telling saves apart in `onSave`: when saving would break a signature, the
   editor asks, and both "Save anyway" and "Save a copy" hand the bytes to
   `onSave` under the document's name. The other files (a compressed copy,
-  page images) are told apart by their name and `type` (see the table
+  a protected copy, page images) are told apart by their name and `type` (see the table
   under Options).
 - Editing a page's existing text (it comes with the engine's content editing).
 

@@ -339,6 +339,38 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('protects a copy through the real core: it needs a password, either one opens it, the edits are in, the session is not', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const vector = readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf'));
+    const { handle, info } = await engine.open(new Uint8Array(vector));
+    expect(info.pageCount).toBe(3);
+    expect(await engine.protectionRefusal(handle)).toBeNull();
+    expect(await engine.protectionInvalidatesSignatures(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+
+    const passwords = { openPassword: 'open-pw', permissionsPassword: 'permissions-pw' };
+    await expect(engine.protectToBytes(handle, { ...passwords, permissionsPassword: 'open-pw' }, false)).rejects.toMatchObject({
+      name: 'InvalidPasswords',
+      message: 'the open and permissions passwords must be different',
+    });
+    const bytes = await engine.protectToBytes(handle, passwords, false);
+    await expect(engine.open(bytes.slice())).rejects.toMatchObject({ name: 'PasswordRequired' });
+    for (const password of [passwords.openPassword, passwords.permissionsPassword]) {
+      const copy = await engine.open(bytes.slice(), password);
+      expect(copy.info.pageCount).toBe(2);
+      expect(copy.info.textExtractionAllowed).toBe(true);
+      expect(copy.info.documentAssemblyAllowed).toBe(true);
+      expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+      await engine.close(copy.handle);
+    }
+    // Not an edit: the removal is still the one step to undo.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+    await engine.close(handle);
+  });
+
   it('exports pages through the real core: the pending edits drawn, sized by the DPI, named and encoded by the core', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);

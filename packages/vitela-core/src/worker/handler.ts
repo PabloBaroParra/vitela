@@ -84,6 +84,17 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
           transfer: [compressed.bytes.buffer as ArrayBuffer],
         };
       }
+      // The protect questions are a sentence and a yes/no: copied.
+      case 'protectionRefusal':
+        return result(id, await engine.protectionRefusal(request.document));
+      case 'protectionInvalidatesSignatures':
+        return result(id, await engine.protectionInvalidatesSignatures(request.document));
+      case 'protect': {
+        const { document, openPassword, permissionsPassword, invalidateSignatures } = request;
+        const bytes = await engine.protectToBytes(document, { openPassword, permissionsPassword }, invalidateSignatures);
+        // A whole PDF: handed over, not copied.
+        return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
+      }
       // The image-export questions are lists of numbers and names: copied.
       case 'imageExportFormats':
         return result(id, await engine.imageExportFormats());

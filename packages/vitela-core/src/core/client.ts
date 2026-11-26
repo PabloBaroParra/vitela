@@ -29,6 +29,7 @@ import type {
   PagePoint,
   PageRect,
   PreparedImport,
+  ProtectionPasswords,
   RenderedPage,
   SearchHit,
   TextSelection,
@@ -152,6 +153,22 @@ export class EngineClient implements Engine {
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument> {
     return this.send({ kind: 'saveCompressed', document, preset, invalidateSignatures });
+  }
+
+  protectionRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'protectionRefusal', document });
+  }
+
+  protectionInvalidatesSignatures(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'protectionInvalidatesSignatures', document });
+  }
+
+  protectToBytes(
+    document: DocumentHandle,
+    { openPassword, permissionsPassword }: ProtectionPasswords,
+    invalidateSignatures: boolean,
+  ): Promise<Uint8Array> {
+    return this.send({ kind: 'protect', document, openPassword, permissionsPassword, invalidateSignatures });
   }
 
   imageExportFormats(): Promise<ImageExportFormat[]> {

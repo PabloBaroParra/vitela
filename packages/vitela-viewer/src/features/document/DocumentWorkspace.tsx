@@ -13,6 +13,8 @@ import { CompressControls } from '../compress/CompressControls';
 import { compressBusy, useCompress } from '../compress/useCompress';
 import { ExportImagesControls } from '../exportImages/ExportImagesControls';
 import { exportBusy, useExportImages } from '../exportImages/useExportImages';
+import { ProtectControls } from '../protect/ProtectControls';
+import { protectBusy, useProtect } from '../protect/useProtect';
 import { ToolsMenu } from '../../ui/ToolsMenu';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
@@ -109,6 +111,8 @@ export function DocumentWorkspace({
   const moreButton = useRef<HTMLButtonElement | null>(null);
   const focusMore = useCallback(() => moreButton.current?.focus(), []);
   const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
+  // A protected copy goes where a compressed one goes, after the same queued edits.
+  const protect = useProtect(engine, document, delivery ?? browserDelivery, save.settleEdits);
   useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
   const picker = filePicker && (
@@ -135,6 +139,7 @@ export function DocumentWorkspace({
             <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
             <CompressControls session={compress} documentName={document.name} focusFallback={focusMore} />
             <ExportImagesControls session={exportImages} focusFallback={focusMore} />
+            <ProtectControls session={protect} documentName={document.name} focusFallback={focusMore} />
             {/*
               The same tools as one menu button: what a phone shows instead
               of the buttons above (CSS), at the same place in the DOM, so
@@ -148,6 +153,7 @@ export function DocumentWorkspace({
               tools={[
                 { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
                 { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: () => void exportImages.open() },
+                { label: 'Protect', disabled: protectBusy(protect.activity), onSelect: () => void protect.open() },
               ]}
             />
             <SaveControls session={save} documentName={document.name} />

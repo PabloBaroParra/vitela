@@ -82,6 +82,15 @@ export type EngineRequest =
       readonly preset: CompressPreset;
       readonly invalidateSignatures: boolean;
     }
+  | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'protectionInvalidatesSignatures'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'protect';
+      readonly document: DocumentHandle;
+      readonly openPassword: string;
+      readonly permissionsPassword: string;
+      readonly invalidateSignatures: boolean;
+    }
   | { readonly kind: 'imageExportFormats' }
   | { readonly kind: 'parsePageSelection'; readonly input: string; readonly totalPages: number }
   | {
@@ -130,6 +139,9 @@ export interface EngineResults {
   compressionRefusal: CompressRefusal | null;
   compressionInvalidatesSignatures: boolean;
   saveCompressed: CompressedDocument;
+  protectionRefusal: string | null;
+  protectionInvalidatesSignatures: boolean;
+  protect: Uint8Array;
   imageExportFormats: ImageExportFormat[];
   parsePageSelection: number[];
   pageImageFileNames: string[];

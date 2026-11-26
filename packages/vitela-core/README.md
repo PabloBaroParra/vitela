@@ -128,6 +128,19 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `refusals`. When `reduced` is false the bytes are the ordinary save: there
   is no smaller copy. It records no edit, and rejects with
   `SignaturesWouldBeInvalidated` unless told the user agreed.
+  Protect: `protectionRefusal(handle)` says why a document cannot be
+  protected (the core's clause: today only a document whose permissions
+  withhold modification — the Windows and Android gate) or `null`;
+  `protectionInvalidatesSignatures(handle)` asks whether the protected copy
+  breaks a signature. `protectToBytes(handle, { openPassword,
+  permissionsPassword }, invalidateSignatures)` answers the PDF with every
+  edit under new AES-128 protection, every permission granted (the bytes are
+  transferred). Both passwords are required and must differ — the core's
+  rule: it rejects with `InvalidPasswords` (`INVALID_PASSWORDS`) and its
+  sentence, so the UI need not repeat it. It also rejects with
+  `EditNotPermitted`, `SignaturesWouldBeInvalidated` (unless told the user
+  agreed) and `SaveFailed`. It records no edit, the open document's own
+  protection does not change, and the engine keeps neither password.
   Export images: `imageExportFormats()` (`png`, `jpeg`; there is no JPEG
   quality — the core's encoder has none), `parsePageSelection(input,
   totalPages)` reads `"1-3,7"` into zero-based pages by the core's grammar

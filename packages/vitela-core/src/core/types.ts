@@ -389,6 +389,16 @@ export interface CompressRefusal {
   readonly message: string;
 }
 
+/**
+ * The two passwords of a new protection (the PDF's two roles): the one the
+ * file asks for when it is opened, and the one that lifts its permissions.
+ * Both are required and must differ — the core's rule.
+ */
+export interface ProtectionPasswords {
+  readonly openPassword: string;
+  readonly permissionsPassword: string;
+}
+
 /** A compressed save: the bytes and what compression did to them. */
 export interface CompressedDocument {
   /** The PDF. Never larger than an ordinary save; exactly it when `reduced` is false. */
@@ -543,6 +553,32 @@ export interface Engine {
     preset: CompressPreset,
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument>;
+  /**
+   * Why `document` cannot be protected, as the core's lower-case clause, or
+   * `null` when it can (today only a document whose permissions withhold
+   * modification). Ask before offering to run.
+   */
+  protectionRefusal(document: DocumentHandle): Promise<string | null>;
+  /**
+   * Whether the protected copy breaks a signature the file carries. When
+   * `true`, `protectToBytes` rejects with `SignaturesWouldBeInvalidated`
+   * unless `invalidateSignatures` says the user agreed.
+   */
+  protectionInvalidatesSignatures(document: DocumentHandle): Promise<boolean>;
+  /**
+   * The document with every edit applied, written under new AES-128
+   * protection with every permission granted (the bytes, transferred, not
+   * copied). Records no edit, and the open document's own protection does
+   * not change. Rejects with `InvalidPasswords` (one is missing, or both are
+   * the same: the core's sentence), `EditNotPermitted` (see
+   * `protectionRefusal`), `SignaturesWouldBeInvalidated` or `SaveFailed`.
+   * The engine keeps neither password.
+   */
+  protectToBytes(
+    document: DocumentHandle,
+    passwords: ProtectionPasswords,
+    invalidateSignatures: boolean,
+  ): Promise<Uint8Array>;
   /** Every format an image export may write (`png`, `jpeg`): the core's own list. */
   imageExportFormats(): Promise<ImageExportFormat[]>;
   /**

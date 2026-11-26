@@ -14,7 +14,8 @@
 //! `refreshPreview`, `previewStale`) is in [`edit`]; import and the
 //! Documents view's blocks are in [`import`]; annotations, comments and the
 //! free-text and stamp geometry are in [`annotation`]; the form fields and
-//! filling them in are in [`form`]; the compressed save is in [`compress`]; image export is in
+//! filling them in are in [`form`]; the compressed save is in
+//! [`compress`]; the protected copy is in [`protect`]; image export is in
 //! [`export`].
 
 use std::collections::HashMap;
@@ -34,6 +35,7 @@ mod edit;
 mod export;
 mod form;
 mod import;
+mod protect;
 
 pub use annotation::{free_text_layout, stamp_placement};
 pub use compress::compress_presets;

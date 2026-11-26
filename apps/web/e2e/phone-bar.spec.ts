@@ -23,6 +23,7 @@ test('at 390 px the bar is one row: Open, the name, the view switch, More tools 
   await expect(bar(page).getByRole('button', { name: 'Save', exact: true })).toBeVisible();
   await expect(bar(page).getByRole('button', { name: 'Compress', exact: true })).toBeHidden();
   await expect(bar(page).getByRole('button', { name: 'Export images', exact: true })).toBeHidden();
+  await expect(bar(page).getByRole('button', { name: 'Protect', exact: true })).toBeHidden();
 
   // Every visible child of the bar, in DOM order.
   const boxes = await bar(page).evaluate((node) =>
@@ -54,7 +55,7 @@ test('More tools works from the keyboard and gives the focus back after the dial
   const menu = page.getByRole('menu', { name: 'More tools' });
   await expect(menu).toBeVisible();
   await expect(more(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images', 'Protect']);
   await expect(menu.getByRole('menuitem', { name: 'Compress' })).toBeFocused();
 
   await page.keyboard.press('ArrowDown');
@@ -97,4 +98,19 @@ test('after an export run from More tools, the focus is on More tools, not on th
   await expect(dialog).toHaveCount(0);
   await expect(more(page)).toBeFocused();
   await expect(page.getByText('Exported 1 page as PNG.')).toBeAttached();
+});
+
+test('Protect from More tools: its dialog fits the phone, and the focus comes back to More tools', async ({ page }) => {
+  await openOnPhone(page);
+  await more(page).click();
+  await page.getByRole('menuitem', { name: 'Protect' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Protect with a password' });
+  await expect(dialog).toBeVisible({ timeout: 30_000 });
+  const box = (await dialog.boundingBox())!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await expect(dialog.getByLabel('Password to open the document')).toBeFocused();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(more(page)).toBeFocused();
 });
