@@ -41,6 +41,9 @@ import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentSelection
 import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
+import dev.vitela.pdf.core.TextRunLook
+import dev.vitela.pdf.core.TextRunLookState
+import dev.vitela.pdf.core.TextRunRestyle
 import dev.vitela.pdf.core.DocumentBlock
 import dev.vitela.pdf.core.DocumentInfo
 import dev.vitela.pdf.core.FieldFont
@@ -64,6 +67,8 @@ import dev.vitela.pdf.core.WatermarkLook
 import dev.vitela.pdf.text.UiText
 import dev.vitela.pdf.uniffi.DocumentHandle
 import dev.vitela.pdf.uniffi.FfiException
+import dev.vitela.pdf.uniffi.FfiTextRunLook
+import dev.vitela.pdf.uniffi.FfiTextRunRestyle
 import dev.vitela.pdf.uniffi.FfiAnnotationKind
 import dev.vitela.pdf.uniffi.FfiPageRotation
 import dev.vitela.pdf.uniffi.FfiBlockSource
@@ -112,6 +117,8 @@ import dev.vitela.pdf.uniffi.readPageParagraphBlocks as ffiReadPageParagraphBloc
 import dev.vitela.pdf.uniffi.retypeTextBlock as ffiRetypeTextBlock
 import dev.vitela.pdf.uniffi.moveTextBlock as ffiMoveTextBlock
 import dev.vitela.pdf.uniffi.removeTextBlock as ffiRemoveTextBlock
+import dev.vitela.pdf.uniffi.textRunLook as ffiTextRunLook
+import dev.vitela.pdf.uniffi.restyleTextRuns as ffiRestyleTextRuns
 import dev.vitela.pdf.uniffi.moveContentSelection as ffiMoveContentSelection
 import dev.vitela.pdf.uniffi.removeContentSelection as ffiRemoveContentSelection
 import dev.vitela.pdf.uniffi.copyContentSelection as ffiCopyContentSelection
@@ -457,6 +464,34 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(PdfCoreError.Failed(textBlockRefusal(error.detail, R.string.error_content_text_not_deleted)))
     } catch (error: Throwable) {
         PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The look the Bold, Italic and Underline toggles show, a restyle queued but
+    // not saved included; null when the core cannot read it.
+    override fun textRunLook(run: ContentTextRun): PdfCoreResult<TextRunLookState?> = try {
+        PdfCoreResult.Success(ffiTextRunLook(handle, run.toFfi())?.let { TextRunLookState(it.look.toLook(), it.canRemoveBold, it.canRemoveItalic) })
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // One entry is an ordinary restyle, several (a block, a selection) one batch:
+    // either way one undo step. The core picks a sibling face or a synthetic one,
+    // and refuses to un-bold a font that is bold with no regular sibling.
+    override fun restyleTextRuns(restyles: List<TextRunRestyle>): PdfCoreResult<Unit> = try {
+        ffiRestyleTextRuns(handle, restyles.map { FfiTextRunRestyle(it.run.toFfi(), it.from.toFfi(), it.to.toFfi()) })
+        PdfCoreResult.Success(Unit)
+    } catch (error: FfiException.UnsupportedOperation) {
+        PdfCoreResult.Failure(PdfCoreError.Failed(restyleRefusal(error.detail)))
+    } catch (error: Throwable) {
+        PdfCoreResult.Failure(error.toPdfCoreError())
+    }
+
+    // The core's "cannot be made non-bold" is the app's own sentence, translated;
+    // the rest as for any text block edit.
+    private fun restyleRefusal(detail: String): UiText = when {
+        "cannot be made non-bold" in detail -> UiText.Resource(R.string.error_content_text_bold_fixed)
+        "cannot be made non-italic" in detail -> UiText.Resource(R.string.error_content_text_italic_fixed)
+        else -> textBlockRefusal(detail, R.string.error_content_text_not_restyled)
     }
 
     // The core's sentences are a developer's, except the one that tells the reader
@@ -1058,6 +1093,10 @@ private fun ContentSelection.toFfi() = FfiContentSelection(
 )
 
 private fun ContentImage.toFfi() = FfiContentImageItem(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceName)
+
+private fun FfiTextRunLook.toLook() = TextRunLook(bold, italic, underline, strike)
+
+private fun TextRunLook.toFfi() = FfiTextRunLook(bold, italic, underline, strike)
 
 private fun ContentTextRun.toFfi() = FfiContentTextRun(id.toULong(), pageIndex.toUInt(), bounds.toFfi(), resourceFontName, fontKind.toFfi(), text)
 

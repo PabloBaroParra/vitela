@@ -29,6 +29,7 @@
     <string name="error_unavailable_form_rename">El cambio de nombre de los campos de formulario no está disponible en este núcleo PDF.</string>
     <string name="error_unavailable_form_style">El cambio de estilo de los campos de formulario no está disponible en este núcleo PDF.</string>
     <string name="error_unavailable_content">La edición del contenido de las páginas no está disponible en este núcleo PDF.</string>
+    <string name="error_unavailable_text_style">La negrita, la cursiva y el subrayado no están disponibles en este núcleo PDF.</string>
     <string name="error_unavailable_watermarks">Las marcas de agua no están disponibles en este núcleo PDF.</string>
     <string name="error_unavailable_picture_watermarks">Las marcas de agua con imagen no están disponibles en este núcleo PDF.</string>
     <string name="error_unavailable_text_selection">La selección de texto no está disponible en este núcleo PDF.</string>
@@ -55,6 +56,11 @@
     <!-- Edit content: text, images, shapes and insertions -->
     <string name="error_content_read_forbidden">Este documento no permite leer su texto.</string>
     <string name="error_content_text_not_edited">Este texto no se puede editar.</string>
+    <string name="error_content_text_not_restyled">No se puede cambiar el estilo de este texto.</string>
+    <string name="error_content_text_bold_fixed">La fuente de este texto es negrita y la página no tiene una versión normal, así que no se puede quitar la negrita.</string>
+    <string name="error_content_text_italic_fixed">La fuente de este texto es cursiva y la página no tiene una versión recta, así que no se puede quitar la cursiva.</string>
+    <string name="error_content_text_style_unreadable">No se puede leer el estilo de este texto. Guarda el documento antes de cambiarle el estilo.</string>
+    <string name="error_content_text_gone">Este texto ya no está en la página.</string>
     <string name="error_content_text_not_moved">Este texto no se puede mover.</string>
     <string name="error_content_text_not_deleted">Este texto no se puede eliminar.</string>
     <string name="error_content_text_not_added">Este texto no se puede añadir aquí.</string>

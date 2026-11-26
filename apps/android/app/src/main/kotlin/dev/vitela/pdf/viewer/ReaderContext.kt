@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationColor
 import dev.vitela.pdf.core.AnnotationKind
+import dev.vitela.pdf.core.TextStyleToggle
 
 /** What can be done to the current selection — an annotation, a text run being moved. Selected text has its own toolbar. */
 internal data class ContextActions(
@@ -48,6 +49,8 @@ internal data class ContextActions(
     val onClearSelection: () -> Unit,
     val onCopySelection: () -> Unit,
     val onCutSelection: () -> Unit,
+    /** Bold, Italic or Underline for the selection's text, one undo step. */
+    val onTextStyle: (TextStyleToggle) -> Unit,
 ) {
     fun run(chip: ContextChip) = when (chip) {
         ContextChip.ReadNote -> onReadNote()
@@ -59,6 +62,9 @@ internal data class ContextActions(
         ContextChip.CutSelection -> onCutSelection()
         ContextChip.DeleteSelection -> onDeleteSelection()
         ContextChip.ClearSelection -> onClearSelection()
+        ContextChip.Bold -> onTextStyle(TextStyleToggle.Bold)
+        ContextChip.Italic -> onTextStyle(TextStyleToggle.Italic)
+        ContextChip.Underline -> onTextStyle(TextStyleToggle.Underline)
         ContextChip.Grow -> onGrow()
         ContextChip.Resize -> onResize()
         ContextChip.MoveTo -> onPosition()
@@ -87,7 +93,21 @@ internal enum class ContextChip(@StringRes val label: Int?) {
     CutSelection(R.string.reader_selection_cut),
     DeleteSelection(R.string.reader_selection_delete),
     ClearSelection(R.string.reader_selection_clear),
+
+    /** A selection's text toggles: pressed when its first run has the style. */
+    Bold(R.string.content_text_bold),
+    Italic(R.string.content_text_italic),
+    Underline(R.string.content_text_underline),
 }
+
+/** The style a text toggle chip presses, null for every other chip. */
+private val ContextChip.textStyle: TextStyleToggle?
+    get() = when (this) {
+        ContextChip.Bold -> TextStyleToggle.Bold
+        ContextChip.Italic -> TextStyleToggle.Italic
+        ContextChip.Underline -> TextStyleToggle.Underline
+        else -> null
+    }
 
 internal fun selectedCount(state: ViewerState): Int = state.contentEdit?.selection?.count ?: 0
 
@@ -108,7 +128,11 @@ internal fun contextChips(state: ViewerState, controls: AnnotationControls): Lis
     if (selected?.kind == AnnotationKind.FreeText && state.annotationEditingAllowed) add(ContextChip.EditText)
     if (state.contentEdit?.moving != null) add(ContextChip.CancelMove)
     if (state.contentEdit?.adding != null) add(ContextChip.CancelInsert)
-    if (state.contentEdit?.selection != null) addAll(listOf(ContextChip.Selected, ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection))
+    state.contentEdit?.selection?.let { selection ->
+        add(ContextChip.Selected)
+        if (selection.blocks.isNotEmpty()) addAll(listOf(ContextChip.Bold, ContextChip.Italic, ContextChip.Underline))
+        addAll(listOf(ContextChip.CopySelection, ContextChip.CutSelection, ContextChip.DeleteSelection, ContextChip.ClearSelection))
+    }
     if (controls.canGrow) add(ContextChip.Grow)
     if (controls.canResize) add(ContextChip.Resize)
     if (controls.canMove) add(ContextChip.MoveTo)
@@ -130,8 +154,11 @@ internal fun ContextChips(state: ViewerState, controls: AnnotationControls, acti
         verticalAlignment = Alignment.CenterVertically,
     ) {
         chips.forEach { chip ->
+            val style = chip.textStyle
             // The count is a label, not a button: tapping it would only look like it did something.
-            if (chip == ContextChip.Selected) {
+            if (style != null) {
+                TextStyleChip(style, state.contentEdit?.selectionButtons, actions.onTextStyle)
+            } else if (chip == ContextChip.Selected) {
                 Text(chip.text(state), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 4.dp))
             } else {
                 AssistChip(onClick = { actions.run(chip) }, label = { Text(chip.text(state)) })

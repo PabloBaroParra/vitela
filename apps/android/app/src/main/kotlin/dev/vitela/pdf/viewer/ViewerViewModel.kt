@@ -18,6 +18,7 @@ import dev.vitela.pdf.core.PdfDocument
 import dev.vitela.pdf.core.RenderedPage
 import dev.vitela.pdf.core.SaveSnapshot
 import dev.vitela.pdf.core.SigningCertificate
+import dev.vitela.pdf.core.TextStyleToggle
 import dev.vitela.pdf.home.NoRecentStore
 import dev.vitela.pdf.home.RecentDocument
 import dev.vitela.pdf.home.RecentStore
@@ -573,6 +574,10 @@ class ViewerViewModel(
     fun dismissTextBlockEditor() = contentEditing.text.dismissEditor()
     /** Swaps the retype dialog for an armed move of its block; [documentId] is the document the dialog was built for. */
     fun armTextMove(documentId: Long) = contentEditing.text.armMove(documentId)
+    /** Presses Bold, Italic or Underline for the open dialog's block, keeping [typed]; [documentId] is the document the dialog was built for. */
+    fun toggleEditorTextStyle(documentId: Long, style: TextStyleToggle, typed: String) = contentEditing.styles.toggleInEditor(documentId, style, typed)
+    /** Presses Bold, Italic or Underline for every text block of the selection, one undo step. */
+    fun toggleSelectionTextStyle(style: TextStyleToggle) = contentEditing.styles.toggleSelection(style)
     /** Resizes the open resizer's image to the typed size, in points; [documentId] is the document the dialog was built for. */
     fun resizeImage(documentId: Long, width: String, height: String) = contentEditing.images.resize(documentId, width, height)
     fun dismissImageResizer() = contentEditing.images.dismissResizer()

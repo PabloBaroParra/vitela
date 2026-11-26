@@ -76,6 +76,7 @@
     <string name="status_content_forbidden">This document does not permit content changes.</string>
     <string name="status_content_move_cancelled">Move cancelled.</string>
     <string name="status_content_text_updated">Text updated. Save to keep the change.</string>
+    <string name="status_content_text_restyled">Text restyled. Save to keep the change.</string>
     <string name="status_content_text_deleted">Text deleted. Save to keep the change.</string>
     <string name="status_content_text_moved">Text moved. Save to keep the change.</string>
     <string name="status_content_text_position_unchanged">Text position unchanged.</string>

@@ -197,6 +197,19 @@ interface PdfDocument : AutoCloseable {
      */
     fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_content)
     /**
+     * How [run] looks with every pending edit in place, a restyle queued but not
+     * saved included, and which styles can come off it; null when its look cannot
+     * be read. [run] is exactly as [pageContent] last reported it.
+     */
+    fun textRunLook(run: ContentTextRun): PdfCoreResult<TextRunLookState?> = unavailable(R.string.error_unavailable_text_style)
+    /**
+     * Queues every one of [restyles] as one undoable step: a sibling face where
+     * the page has one in the same family that encodes the text, else a synthetic
+     * bold or italic; un-bolding a run whose font is bold with no regular sibling
+     * is refused, never faked. The page shows it only after [refreshPreview].
+     */
+    fun restyleTextRuns(restyles: List<TextRunRestyle>): PdfCoreResult<Unit> = unavailable(R.string.error_unavailable_text_style)
+    /**
      * Queues one undoable move of every run of [block] by ([dx], [dy]) points,
      * its text, font and size kept. Moved again before a save it stays one
      * step. The page shows it only after [refreshPreview].
