@@ -126,6 +126,12 @@ pub fn sign_document(
         // /Fields (PDF 32000-1 §12.7.2) as well as the page's /Annots;
         // register the field there too, with SigFlags = SignaturesExist |
         // AppendOnly (3), same as every signed fixture in the test corpus.
+        //
+        // The /AcroForm may be inline in the catalog or an indirect object
+        // (what `pdf_save` writes after any form-fill save), and its /Fields
+        // inline or indirect too. Each indirect one is updated in place as a
+        // new revision of the same object, so every earlier field — earlier
+        // signatures included — and keys like /DR stay.
         writer.opt_clone_object_to_new_document(catalog_id)?;
         let acro_form_entry = writer
             .new_document
@@ -133,22 +139,46 @@ pub fn sign_document(
             .and_then(Object::as_dict)?
             .get(b"AcroForm")
             .cloned();
-        let mut acro_form = match acro_form_entry {
-            Ok(Object::Dictionary(existing)) => existing,
-            _ => Dictionary::new(),
+        let acro_form_id = match acro_form_entry {
+            Ok(Object::Reference(id)) => {
+                writer.opt_clone_object_to_new_document(id)?;
+                Some(id)
+            }
+            _ => None,
         };
-        let mut fields = match acro_form.get(b"Fields") {
-            Ok(Object::Array(existing)) => existing.clone(),
-            _ => Vec::new(),
+        let mut acro_form = match (acro_form_id, acro_form_entry) {
+            (Some(id), _) => writer
+                .new_document
+                .get_object(id)
+                .and_then(Object::as_dict)?
+                .clone(),
+            (None, Ok(Object::Dictionary(existing))) => existing,
+            (None, _) => Dictionary::new(),
         };
-        fields.push(Object::Reference(field_id));
-        acro_form.set("Fields", fields);
+        match acro_form.get(b"Fields").cloned() {
+            Ok(Object::Reference(fields_id)) => {
+                writer.opt_clone_object_to_new_document(fields_id)?;
+                writer
+                    .new_document
+                    .get_object_mut(fields_id)
+                    .and_then(Object::as_array_mut)?
+                    .push(Object::Reference(field_id));
+            }
+            Ok(Object::Array(mut existing)) => {
+                existing.push(Object::Reference(field_id));
+                acro_form.set("Fields", existing);
+            }
+            _ => acro_form.set("Fields", vec![Object::Reference(field_id)]),
+        }
         acro_form.set("SigFlags", 3);
-        writer
-            .new_document
-            .get_object_mut(catalog_id)
-            .and_then(Object::as_dict_mut)?
-            .set("AcroForm", Object::Dictionary(acro_form));
+        match acro_form_id {
+            Some(id) => *writer.new_document.get_object_mut(id)? = Object::Dictionary(acro_form),
+            None => writer
+                .new_document
+                .get_object_mut(catalog_id)
+                .and_then(Object::as_dict_mut)?
+                .set("AcroForm", Object::Dictionary(acro_form)),
+        }
         Ok(())
     })
     .map_err(|error| SignError::IncrementalWrite {
@@ -468,6 +498,141 @@ mod tests {
             2,
             "a second signature must add to /Fields, not replace the first entry"
         );
+    }
+
+    /// A one-page document whose catalog `/AcroForm` is an indirect object
+    /// holding one text field, `/DR` and `/NeedAppearances` — the shape
+    /// `pdf_save::forms::ensure_acroform` writes after any form-fill save.
+    /// With `indirect_fields`, `/Fields` is itself a reference to an array.
+    fn document_with_indirect_acroform(indirect_fields: bool) -> Vec<u8> {
+        let (base, _) = pdf_manip::open_document_from_bytes(&blank_document_bytes(), None).unwrap();
+        let mut document = base.into_lopdf();
+        let text_field = document.add_object(Dictionary::from_iter([
+            ("FT", Object::Name(b"Tx".to_vec())),
+            ("T", Object::string_literal("full_name")),
+            ("V", Object::string_literal("Ada")),
+        ]));
+        let fields = vec![Object::Reference(text_field)];
+        let fields = if indirect_fields {
+            Object::Reference(document.add_object(Object::Array(fields)))
+        } else {
+            Object::Array(fields)
+        };
+        let acro_form = document.add_object(Dictionary::from_iter([
+            ("Fields", fields),
+            ("DR", Object::Dictionary(Dictionary::new())),
+            ("NeedAppearances", Object::Boolean(true)),
+        ]));
+        let root_id = document
+            .trailer
+            .get(b"Root")
+            .and_then(Object::as_reference)
+            .unwrap();
+        document
+            .get_object_mut(root_id)
+            .and_then(Object::as_dict_mut)
+            .unwrap()
+            .set("AcroForm", Object::Reference(acro_form));
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        bytes
+    }
+
+    /// The reopened document's `/AcroForm`, following a reference if it is one.
+    fn reopened_acro_form(bytes: &[u8]) -> (lopdf::Document, Dictionary) {
+        let (document, _) = pdf_manip::open_document_from_bytes(bytes, None).unwrap();
+        let lopdf = document.into_lopdf();
+        let root_id = lopdf
+            .trailer
+            .get(b"Root")
+            .and_then(Object::as_reference)
+            .unwrap();
+        let entry = lopdf
+            .get_object(root_id)
+            .and_then(Object::as_dict)
+            .and_then(|catalog| catalog.get(b"AcroForm"))
+            .unwrap()
+            .clone();
+        let acro_form = match entry {
+            Object::Reference(id) => lopdf
+                .get_object(id)
+                .and_then(Object::as_dict)
+                .unwrap()
+                .clone(),
+            Object::Dictionary(dict) => dict,
+            other => panic!("/AcroForm must be a dictionary, got {other:?}"),
+        };
+        (lopdf, acro_form)
+    }
+
+    fn field_names(document: &lopdf::Document, acro_form: &Dictionary) -> Vec<String> {
+        let fields = match acro_form.get(b"Fields").unwrap() {
+            Object::Reference(id) => document.get_object(*id).and_then(Object::as_array).unwrap(),
+            other => other.as_array().unwrap(),
+        };
+        fields
+            .iter()
+            .map(|field| {
+                let id = field.as_reference().unwrap();
+                let name = document
+                    .get_object(id)
+                    .and_then(Object::as_dict)
+                    .unwrap()
+                    .get(b"T")
+                    .unwrap();
+                String::from_utf8_lossy(name.as_str().unwrap()).into_owned()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn signing_over_an_indirect_acroform_keeps_its_fields() {
+        for indirect_fields in [false, true] {
+            let source = FakeCertificateSource::new();
+            let bytes = document_with_indirect_acroform(indirect_fields);
+
+            let once = sign_document(
+                bytes.clone(),
+                None,
+                1,
+                "Signature_1",
+                &source,
+                &source.identity.id,
+            )
+            .expect("first signature must succeed");
+            let twice = sign_document(
+                once.clone(),
+                None,
+                1,
+                "Signature_2",
+                &source,
+                &source.identity.id,
+            )
+            .expect("second signature must succeed");
+            assert!(
+                once.starts_with(&bytes) && twice.starts_with(&once),
+                "signing stays incremental"
+            );
+
+            let (document, acro_form) = reopened_acro_form(&twice);
+            assert_eq!(
+                field_names(&document, &acro_form),
+                ["full_name", "Signature_1", "Signature_2"],
+                "indirect /Fields: {indirect_fields}"
+            );
+            assert_eq!(
+                acro_form.get(b"SigFlags").and_then(Object::as_i64).unwrap(),
+                3
+            );
+            assert!(acro_form.get(b"DR").is_ok(), "/DR must survive signing");
+            assert!(
+                acro_form
+                    .get(b"NeedAppearances")
+                    .and_then(Object::as_bool)
+                    .unwrap(),
+                "/NeedAppearances must survive signing"
+            );
+        }
     }
 
     #[test]
