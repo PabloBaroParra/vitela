@@ -49,6 +49,12 @@ export interface OpenDocument {
    */
   readonly formFields?: readonly FormField[];
   /**
+   * The engine's repaint of the pages in place as the last edit, undo or
+   * redo reported it (a watermark; see `EditedDocument.paintRevision`). Unset
+   * (0) until then: the pixels are the file's.
+   */
+  readonly paintRevision?: number;
+  /**
    * The file each PDF added to this document came from, by the block source
    * id the import reported (the engine never sees a file name). Unset until
    * the first import.
@@ -209,6 +215,7 @@ export function useDocument(engine: Engine) {
               canRedo: edited.canRedo,
               annotations: edited.annotations,
               formFields: edited.formFields,
+              paintRevision: edited.paintRevision ?? 0,
             },
           }
         : s,

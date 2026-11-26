@@ -1,8 +1,7 @@
 // What the last properties change did, and the Document properties dialog.
 // It sits in the workspace bar, so its status survives a switch to
-// Organize; the way in is `PropertiesToggle` (the end of the viewer's View toolbar)
-// or a phone's More tools. Presentational: the state lives in
-// `useDocumentProperties`, owned by the workspace.
+// Organize; the way in is the workspace's Tools menu. Presentational: the
+// state lives in `useDocumentProperties`, owned by the workspace.
 
 import { useEffect, useRef, type RefObject } from 'react';
 import { focusShown } from '../../ui/focusShown';
@@ -12,22 +11,20 @@ import type { PropertiesActivity, PropertiesSession } from './useDocumentPropert
 
 interface PropertiesControlsProps {
   readonly session: PropertiesSession;
-  /** The Properties button, which takes the focus back when the dialog closes. */
-  readonly trigger: RefObject<HTMLButtonElement | null>;
-  /** Where the focus goes instead while that button is not shown (a phone's More tools). */
-  readonly focusFallback?: () => void;
+  /** The Tools menu button that opened the dialog: it takes the focus back when the dialog closes. */
+  readonly trigger: RefObject<HTMLElement | null>;
 }
 
-export function PropertiesControls({ session, trigger, focusFallback }: PropertiesControlsProps) {
+export function PropertiesControls({ session, trigger }: PropertiesControlsProps) {
   const { activity, edit, cancel, apply } = session;
 
   // The dialog gives the focus back when it goes away, whatever the answer.
   const wasEditing = useRef(false);
   useEffect(() => {
     const editing = activity.kind === 'editing';
-    if (wasEditing.current && !editing) focusShown(trigger.current, focusFallback);
+    if (wasEditing.current && !editing) focusShown(trigger.current);
     wasEditing.current = editing;
-  }, [activity.kind, trigger, focusFallback]);
+  }, [activity.kind, trigger]);
 
   return (
     <>

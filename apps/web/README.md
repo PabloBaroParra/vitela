@@ -376,10 +376,29 @@ picker are covered the same way). **Not covered:** the browser's own permission
 prompt and a handle onto the real disk. The signature question and Save a copy
 are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
 
+## Tools menu
+
+The document tools — **Compress**, **Export images**, **Protect**,
+**Watermark** and **Document properties**, in that order — are one menu
+button, **Tools** (`ui/MenuButton.tsx`, the WAI-ARIA "menu button" pattern),
+in the workspace bar before Save, in both screens and at every width (T-256).
+They have no buttons of their own. A button each no longer fit: in an
+embedding host whose own button styles are larger the bar already took 1191
+of its 1200 px, and Document properties had to move to the viewer's View
+toolbar; one menu is also one code path for the desktop and the phone, where
+these tools were already a "More tools" menu. On a phone (≤ 600 px) the
+button shows three dots instead of the word (its name stays "Tools"), so the
+bar keeps one row. Choosing an item gives the focus back to Tools before the
+dialog opens, so every dialog hands it back there; each tool's status line
+and dialog stay in the bar, so they survive a switch between View and
+Organize. `e2e/phone-bar.spec.ts` checks the single row at 390 px, the DOM
+and Tab order, and the menu's keys; `e2e/properties.spec.ts` checks the bar
+is one row at 1280 px; `e2e/embed.spec.ts` keeps the host's page in frame.
+
 ## Compress
 
 `features/compress/` (T-250), the native Compress tiles' order. **Compress**,
-next to Save in both screens, first asks the engine the two gates
+in the **Tools** menu in both screens, first asks the engine the two gates
 (`compressionRefusal`, then — only when there is none —
 `compressionInvalidatesSignatures`) and opens the dialog with the core's presets
 (`compressPresets`, Balanced chosen). An encrypted document is refused there
@@ -396,9 +415,9 @@ nothing is written. The status reports sizes as "uncompressed → compressed"
 percentage truncated, and appends any refusal the core reports. The open
 document, its unsaved edits and its undo history are untouched. No predicted
 saving is shown: the core cannot answer that without running. On a phone
-(≤ 600 px) the button folds into the bar's **More tools** menu (with Export
-images, T-252) and the bar's controls tighten, so the bar stays one row: a taller bar takes its height from the pages and the
-Comments panel under them, whose first row then hides under its sticky head.
+(≤ 600 px) the bar's controls tighten, so the bar stays one row: a taller bar
+takes its height from the pages and the Comments panel under them, whose
+first row then hides under its sticky head.
 
 E2E (`e2e/compress.spec.ts`, all three browsers): a scan from
 `tests/fixtures/compress` comes out smaller, downloads under its name and
@@ -411,7 +430,7 @@ save itself writes loosely enough that the repack always wins something).
 ## Export images
 
 `features/exportImages/` (T-252), the native Export images' order: choices, a
-plan, then one file per page. **Export images**, next to Compress in both
+plan, then one file per page. **Export images**, in **Tools** in both
 screens, opens a dialog with the native shells' three questions: pages (All
 pages, Current page — the page the viewer last showed — or a typed range such
 as `1-3,7`; typing one picks it), PNG or JPEG, and a resolution from 72 to 400
@@ -451,12 +470,6 @@ browser; if fewer arrived, allow multiple downloads for the site and export
 again, or export one page at a time. That prompt is not covered by the tests
 (Playwright accepts every download).
 
-On a phone (≤ 600 px) both tools live in **More tools** (`ui/MenuButton.tsx`), a
-menu button in the WAI-ARIA pattern placed where the tools sit in the DOM, so
-the tab order is the order on screen (`e2e/phone-bar.spec.ts` checks the single
-row, that order, Tab, and the menu's keys). Tools that come later join it as
-one more entry.
-
 E2E (`e2e/export-images.spec.ts`, all three browsers): the current page (after
 scrolling to page 3) as PNG at 144 DPI is one download, `vector_only-3.png`,
 1224 × 1584; pages `2-3` as JPEG at 72 DPI are `vector_only-2.jpg` and
@@ -468,8 +481,8 @@ range refusal, with nothing downloaded.
 ## Protect
 
 `features/protect/` (T-251), the native Protect commands' order: the gates,
-two passwords, then the protected file. **Protect**, next to Export images in
-both screens (in **More tools** on a phone), first asks the engine the two
+two passwords, then the protected file. **Protect**, in **Tools** in both
+screens, first asks the engine the two
 gates (`protectionRefusal` — a document whose permissions withhold
 modification, the Windows and Android gate — then, only when there is none,
 `protectionInvalidatesSignatures`) and opens **Protect with a password**: the
@@ -507,8 +520,8 @@ show the core's sentences with nothing downloaded, and the dialog forgets what
 was typed; a signed PDF asks and "Protect anyway" downloads a copy that opens;
 `aes_128_user_and_owner.pdf` opened with its user password (its `/P` withholds
 modification) is refused in the dialog. `e2e/phone-bar.spec.ts` checks Protect
-is hidden from the bar at 390 px, listed in More tools, its dialog fits, and
-the focus comes back to More tools.
+is listed in Tools at 390 px, its dialog fits, and the focus comes back to
+Tools.
 
 ## Document properties
 
@@ -517,16 +530,10 @@ Windows and Linux shells show the same keys in a panel): **Title**,
 **Author**, **Subject**, **Keywords**, **Creator** and **Producer**, as the
 next save would write them (`documentProperties`: the last pending change,
 else the file's `/Info`). The dates are neither shown nor edited (as on
-Android); every change keeps them. **Properties** sits at the end of the
-viewer's View toolbar (zoom and page), and in **More tools** on a phone (in
-both screens). It is not in the workspace bar: the bar has no width left in an
-embedding host whose own button styles are larger (`e2e/embed.spec.ts` drops
-onto a page that a second bar row would push out of the frame). Nor beside
-Comments and Forms (where Windows and Linux keep the panel): at 1280 px that
-row would no longer fit beside Draw and History, and the extra toolbar row
-pushed a drawing test's stroke out of Firefox's viewport. The View toolbar
-grows to fill the row it shares with Text, so the button takes room that row
-already had (`e2e/properties.spec.ts` pins both rows).
+Android); every change keeps them. **Document properties** is in **Tools**,
+in both screens (T-255 first put a Properties button at the end of the
+viewer's View toolbar, because the bar had no width left in an embedding
+host; T-256 folded every tool into the menu, see "Tools menu").
 
 **Apply** waits for the queued edits, reads the properties again (an undo may
 have landed) and records only a real change: an emptied box is an absent key,
@@ -541,14 +548,61 @@ refused apply keeps the dialog and what was typed. No XMP stream is written
 (no shell syncs one).
 
 E2E (`e2e/properties.spec.ts`, all three browsers): title and author typed
-into a new PDF, applied (unsaved, focus back on Properties), undone and redone
+into a new PDF, applied (unsaved, focus back on Tools), undone and redone
 (the dialog shows each state), saved — the downloaded file's `/Info` has them
 (`Ana Peña` included) and no `/Subject` — and reopened, where the dialog shows
 them and an unchanged Apply records nothing; a PDF whose `/P` withholds
 modification, opened with its user password, is read-only with only Close; on
-a phone, More tools opens it, it fits 390 px and the focus comes back to More
-tools; at 1280 px View still shares its row with Text and Annotations with
-Draw. `e2e/phone-bar.spec.ts` lists it in More tools.
+a phone, Tools opens it, it fits 390 px and the focus comes back to Tools; at
+1280 px the bar is one row, View still shares its row with Text and
+Annotations with Draw. `e2e/phone-bar.spec.ts` lists it in Tools.
+
+## Watermark
+
+`features/watermark/` (T-256), the native **Add watermark** (Android's
+dialog and labels; GTK's and Windows' ranges): the same text or picture
+stamped on the pages the reader picks, as **one** undo step. **Watermark**,
+in **Tools** in both screens, asks the engine the core's starting look
+(`watermarkDefaults`: diagonal grey text at 60 pt, 30 %, 45°, over the
+content; a picture upright at half the page, behind it) and the gate
+(`watermarkRefusal`: the modify-contents permission, then whether the
+rewrite a stamp forces can keep the document's encryption — the gate every
+native shell asks). A refused document gets the core's sentence and only
+**Close**.
+
+The dialog asks **Text** or **Picture**; the text (DRAFT to start) or a PNG
+or JPEG (**Choose picture…**, its name and size shown; decoding is the
+core's); **Size** (8–200 pt, or 5–100 % of the page), **Opacity** (5–100 %)
+and **Angle** (−180…180°) as sliders; **Placement** (over or behind the
+page's content); and **Pages** (all, the page the viewer last showed, or a
+typed range read by the core's grammar). Switching kind resets only the
+angle and the placement to that kind's defaults, as the natives do. No
+colour choice and no live preview: no native shell has either. **Add** waits
+for the queued edits, resolves the pages against the page count the last
+edit left and records one `addWatermark` edit; a character Helvetica cannot
+show (`EncodingGap`, with a hint), a picture that does not decode
+(`InvalidImage`) or a bad range keeps the dialog open on the draft. The
+stamp is page content: it marks the document unsaved, Undo and Redo take it
+off and back on every page at once, and Save paints it into each page's
+content stream (one shared image object for a picture).
+
+**Repaint in place.** A stamp changes what a page shows while its id and turn
+stay the same, which the viewer's bitmaps and Organize's thumbnail cache are
+keyed on. Every edit answer now carries the engine's `paintRevision` (the
+newest page-content step still applied, from `pdf-wasm`'s preview marks), and
+both keys include it: a stamp, its undo and its redo repaint the pages; a
+move, a rotation or an annotation still repaint nothing.
+
+E2E (`e2e/watermark.spec.ts`, all three browsers): text on every page of a
+three-page PDF (focus back on Tools, unsaved, the page's ink changes and Undo
+takes it back, Redo returns it), saved — each page's content has the
+`Tj` and a `/Watermark` artifact — and found three times by the app's search
+in the reopened file; a picture behind the content of pages `1,3` is one
+`/Image` object painted twice (and Add without a picture is refused); text
+Helvetica cannot show and a range past the end keep the dialog; a PDF whose
+`/P` withholds modification is refused with only Close; in Organize the
+thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
+390 px.
 
 ## Organize
 

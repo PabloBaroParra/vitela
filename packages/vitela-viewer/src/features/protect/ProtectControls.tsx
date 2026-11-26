@@ -1,46 +1,34 @@
-// The Protect button, what the last protection did, and its dialog.
-// Presentational: the state lives in `useProtect`, owned by the workspace.
+// What the last protection did, and its dialog. It is opened from the
+// workspace's Tools menu. Presentational: the state lives in `useProtect`,
+// owned by the workspace.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { focusShown } from '../../ui/focusShown';
 import { StatusLine } from '../../ui/StatusLine';
 import { ProtectDialog } from './ProtectDialog';
 import { protectStatus } from './protectText';
-import { protectBusy, type ProtectActivity, type ProtectSession } from './useProtect';
+import { type ProtectActivity, type ProtectSession } from './useProtect';
 
 interface ProtectControlsProps {
   readonly session: ProtectSession;
   readonly documentName: string;
-  /** Where the focus goes when the dialog closes while this button is not shown (a phone's More tools). */
-  readonly focusFallback?: () => void;
+  /** The Tools menu button that opened the dialog: it takes the focus back when the dialog closes. */
+  readonly trigger: RefObject<HTMLElement | null>;
 }
 
-export function ProtectControls({ session, documentName, focusFallback }: ProtectControlsProps) {
-  const { activity, open, cancel, protect } = session;
-  const busy = protectBusy(activity);
-  const button = useRef<HTMLButtonElement>(null);
+export function ProtectControls({ session, documentName, trigger }: ProtectControlsProps) {
+  const { activity, cancel, protect } = session;
 
   // The dialog gives the focus back when it goes away, whatever the answer.
   const wasChoosing = useRef(false);
   useEffect(() => {
     const choosing = activity.kind === 'choosing';
-    if (wasChoosing.current && !choosing) focusShown(button.current, focusFallback);
+    if (wasChoosing.current && !choosing) focusShown(trigger.current);
     wasChoosing.current = choosing;
-  }, [activity.kind, focusFallback]);
+  }, [activity.kind, trigger]);
 
   return (
     <>
-      {/* Not `disabled`: a disabled button drops the keyboard focus to the page. */}
-      <button
-        ref={button}
-        type="button"
-        className="protect-button"
-        title="Protect with a password"
-        onClick={busy ? undefined : () => void open()}
-        aria-disabled={busy}
-      >
-        Protect
-      </button>
       <ProtectStatus activity={activity} documentName={documentName} />
       {activity.kind === 'choosing' && (
         <ProtectDialog

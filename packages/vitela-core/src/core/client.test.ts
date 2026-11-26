@@ -238,6 +238,32 @@ describe('EngineClient', () => {
     await expect(protectedBytes).resolves.toBe(bytes);
   });
 
+  it('sends the watermark requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const defaults = client.watermarkDefaults();
+    const refusal = client.watermarkRefusal(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'watermarkDefaults' },
+      { kind: 'watermarkRefusal', document: 4 },
+    ]);
+    const look = {
+      fontSize: 60,
+      textOpacity: 0.3,
+      textRotationDegrees: 45,
+      textBehind: false,
+      pictureScale: 0.5,
+      pictureOpacity: 0.3,
+      pictureRotationDegrees: 0,
+      pictureBehind: true,
+    };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: look });
+    reply({ type: 'result', id: ids[1]!, value: null });
+    await expect(defaults).resolves.toEqual(look);
+    await expect(refusal).resolves.toBeNull();
+  });
+
   it('sends the document-properties requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

@@ -16,17 +16,20 @@ export interface CardPage {
   readonly pageIndex: number;
   readonly pageId: number;
   readonly page: PageSize;
+  /** The engine's repaint in place (a watermark), 0 as opened. */
+  readonly paintRevision: number;
   readonly devicePixelRatio: number;
   /** No new renders while an edit is in flight (see `useThumbnail`). */
   readonly paused: boolean;
 }
 
 /** Container logic: the page's thumbnail state and the box it is drawn in. */
-export function useCardThumbnail({ engine, document, cache, pageIndex, pageId, page, devicePixelRatio, paused }: CardPage) {
+export function useCardThumbnail(props: CardPage) {
+  const { engine, document, cache, pageIndex, pageId, page, paintRevision, devicePixelRatio, paused } = props;
   const size = thumbnailSize(page, devicePixelRatio);
   const thumbnail = useThumbnail(
     cache,
-    thumbnailKey(pageId, page, size.dpi),
+    thumbnailKey(pageId, page, size.dpi, paintRevision),
     () => engine.renderPage(document, pageIndex, size.dpi),
     paused,
   );

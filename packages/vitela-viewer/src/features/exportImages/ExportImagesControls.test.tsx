@@ -4,8 +4,9 @@ import { EngineError, type Engine, type ImageExportFormat } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import type { DeliverRequest, Delivery } from '../save/delivery';
+import { useRef } from 'react';
 import { ExportImagesControls } from './ExportImagesControls';
-import { useExportImages } from './useExportImages';
+import { exportBusy, useExportImages } from './useExportImages';
 
 function openDocument(textExtractionAllowed = true): OpenDocument {
   return {
@@ -98,17 +99,25 @@ function Harness({
   document = openDocument(),
   settle,
   currentPage,
-  focusFallback,
 }: {
   engine: Engine;
   delivery: Delivery;
   document?: OpenDocument;
   settle?: () => Promise<unknown>;
   currentPage?: () => number;
-  focusFallback?: () => void;
 }) {
   const session = useExportImages(engine, document, delivery, settle, currentPage);
-  return <ExportImagesControls session={session} focusFallback={focusFallback} />;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const busy = exportBusy(session.activity);
+  // Stands in for the Tools menu's entry, which the workspace wires the same way.
+  return (
+    <>
+      <button ref={trigger} type="button" aria-disabled={busy} onClick={busy ? undefined : () => void session.open()}>
+        Export images
+      </button>
+      <ExportImagesControls session={session} trigger={trigger} />
+    </>
+  );
 }
 
 const exportButton = () => screen.getByRole('button', { name: 'Export images' });
@@ -327,16 +336,14 @@ describe('ExportImagesControls', () => {
     expect(delivered).toHaveLength(1);
   });
 
-  it('gives the focus to the fallback when its own button is not shown (a phone shows More tools instead)', async () => {
+  it('gives the focus back to what opened it (the Tools menu button)', async () => {
     const { engine } = exportEngine();
     const { delivery } = recording();
-    let fallback = 0;
-    render(<Harness engine={engine} delivery={delivery} focusFallback={() => void fallback++} />);
+    render(<Harness engine={engine} delivery={delivery} />);
     const button = exportButton();
-    Object.defineProperty(button, 'checkVisibility', { value: () => false });
     fireEvent.click(button);
     fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(fallback).toBe(1);
+    expect(button).toBe(window.document.activeElement);
   });
 });

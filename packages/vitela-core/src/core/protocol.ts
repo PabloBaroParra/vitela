@@ -11,6 +11,7 @@ import type {
   CompressRefusal,
   DocumentHandle,
   DocumentProperties,
+  WatermarkDefaults,
   ImageExport,
   ImageExportFormat,
   ImageExportHandle,
@@ -86,6 +87,8 @@ export type EngineRequest =
     }
   | { readonly kind: 'documentProperties'; readonly document: DocumentHandle }
   | { readonly kind: 'metadataRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'watermarkDefaults' }
+  | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionInvalidatesSignatures'; readonly document: DocumentHandle }
   | {
@@ -149,6 +152,8 @@ export interface EngineResults {
   saveCompressed: CompressedDocument;
   documentProperties: DocumentProperties;
   metadataRefusal: string | null;
+  watermarkDefaults: WatermarkDefaults;
+  watermarkRefusal: string | null;
   protectionRefusal: string | null;
   protectionInvalidatesSignatures: boolean;
   protect: Uint8Array;

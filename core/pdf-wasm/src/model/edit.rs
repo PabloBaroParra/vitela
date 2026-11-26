@@ -134,6 +134,7 @@ impl DocumentModel {
     /// rejection, recording nothing. Shared by every kind of edit.
     pub(super) fn record(&mut self, command: Command) -> Result<(), EngineError> {
         let shows = pdf_save::shows_in_session_preview(&command);
+        let paints_in_place = command.is_content_edit();
         if !step_log(&mut self.document, |log, document| {
             log.apply(document, command)
         }) {
@@ -142,7 +143,7 @@ impl DocumentModel {
                 "this edit command was rejected against the open document",
             ));
         }
-        self.preview.recorded(shows);
+        self.preview.recorded(shows, paints_in_place);
         Ok(())
     }
 
@@ -170,6 +171,15 @@ impl DocumentModel {
     /// Annotation edits never make it stale: the preview leaves them out.
     pub fn preview_stale(&self) -> bool {
         self.preview.stale()
+    }
+
+    /// Which repaint of the pages in place the history stands at: the
+    /// newest page-content step still applied (a watermark), 0 for the file
+    /// as opened. A shell that keys a page's bitmap on its id and turn adds
+    /// this, so a stamp — and its undo — paints the page again, while a page
+    /// move, a rotation or an annotation leaves it as it is.
+    pub fn paint_revision(&self) -> u64 {
+        self.preview.paint_revision()
     }
 
     /// Records that the render side was just reopened from

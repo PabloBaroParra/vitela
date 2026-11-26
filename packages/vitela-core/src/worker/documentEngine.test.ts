@@ -30,6 +30,17 @@ const annotationFunctions = {
   // A 2:1 image: 144 x 72 pt with its top-left at the anchor.
   stampPlacement: (_image: Uint8Array, x: number, y: number) => new Float64Array([x, y - 72, 144, 72]),
   compressPresets: () => ['lossless', 'balanced', 'small'],
+  watermarkDefaults: () => ({
+    fontSize: 60,
+    textOpacity: 0.3,
+    textRotationDegrees: 45,
+    textBehind: false,
+    pictureScale: 0.5,
+    pictureOpacity: 0.3,
+    pictureRotationDegrees: 0,
+    pictureBehind: true,
+    free: () => {},
+  }),
   imageExportFormats: () => ['png', 'jpeg', 'gif'],
   parsePageSelection: (input: string, total: number) => {
     if (input === 'bad') throw named('InvalidPageSelection', 'Page selection is not valid');
@@ -98,7 +109,8 @@ type FakeEdit =
   | { kind: 'insertBlank'; index: number; landscape: boolean; free(): void }
   | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
   | { kind: 'fill'; op: string; id: number; value: unknown; free(): void }
-  | { kind: 'metadata'; keys: (string | undefined)[]; free(): void };
+  | { kind: 'metadata'; keys: (string | undefined)[]; free(): void }
+  | { kind: 'watermark'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -120,6 +132,8 @@ interface FakeStep {
   before: FakeState;
   /** Set when the preview shows the step: which state of the history it is. */
   mark: number | undefined;
+  /** Set when the step repaints pages in place (a watermark): its mark. */
+  paint?: number;
 }
 
 function named(name: string, message: string): Error {
@@ -191,9 +205,10 @@ function fakeCore(
   /** The mark of the newest shown step still applied, as the core's `PreviewMarks`. */
   const current = (entry: Doc) => [...entry.undo].reverse().find((step) => step.mark !== undefined)?.mark ?? 0;
   /** Records a step the way the core's log does. */
-  const record = (entry: Doc, next: FakeState, pixels: boolean) => {
+  const record = (entry: Doc, next: FakeState, pixels: boolean, inPlace = false) => {
     const mark = pixels ? ++entry.nextMark : undefined;
-    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark });
+    const paint = inPlace ? mark : undefined;
+    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark, paint });
     entry.redo = [];
     entry.pages = next.pages;
     entry.annotations = next.annotations;
@@ -203,7 +218,11 @@ function fakeCore(
   const step = (entry: Doc, from: FakeStep[], to: FakeStep[]) => {
     const taken = from.pop();
     if (!taken) return false;
-    to.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark: taken.mark });
+    to.push({
+      before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields },
+      mark: taken.mark,
+      paint: taken.paint,
+    });
     entry.pages = taken.before.pages;
     entry.annotations = taken.before.annotations;
     entry.fields = taken.before.fields;
@@ -238,6 +257,8 @@ function fakeCore(
     setFieldChecked: (id, value) => command({ kind: 'fill', op: 'setFieldChecked', id, value }),
     setFieldChoice: (id, value) => command({ kind: 'fill', op: 'setFieldChoice', id, value }),
     setDocumentProperties: (...keys) => command({ kind: 'metadata', keys }),
+    addTextWatermark: (...args) => command({ kind: 'watermark', op: 'addTextWatermark', args }),
+    addPictureWatermark: (...args) => command({ kind: 'watermark', op: 'addPictureWatermark', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -376,6 +397,7 @@ function fakeCore(
       }
     ),
     metadataRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit metadata changes' : undefined),
+    watermarkRefusal: (doc) => (known(doc), options.restricted ? 'content editing is not permitted' : undefined),
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
     protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
@@ -446,6 +468,12 @@ function fakeCore(
         const { next, added } = annotate(entry, edit.op, edit.args);
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
+      }
+      if (edit.kind === 'watermark') {
+        if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
+        // Page content: the step shows in the pixels, repainting pages in place.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
+        return undefined;
       }
       if (edit.kind === 'metadata') {
         if (options.restricted) throw named('EditNotPermitted', 'this document does not permit metadata changes');
@@ -550,6 +578,7 @@ function fakeCore(
       entry.shown = current(entry);
       entry.sticky = false;
     },
+    paintRevision: (doc) => [...known(doc).undo].reverse().find((taken) => taken.paint !== undefined)?.paint ?? 0,
     previewStale: (doc) => {
       const entry = known(doc);
       return options.stickyStale ? entry.sticky : current(entry) !== entry.shown;
@@ -1595,6 +1624,78 @@ describe('documentEngine forms', () => {
     expect(freed).toContain('properties');
     expect(await engine.metadataRefusal(handle)).toBeNull();
     await expect(engine.documentProperties(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it("answers the core's watermark defaults as plain values", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    expect(await engine.watermarkDefaults()).toEqual({
+      fontSize: 60,
+      textOpacity: 0.3,
+      textRotationDegrees: 45,
+      textBehind: false,
+      pictureScale: 0.5,
+      pictureOpacity: 0.3,
+      pictureRotationDegrees: 0,
+      pictureBehind: true,
+    });
+  });
+
+  it('records a text and a picture watermark as one step each, refreshing the preview', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.watermarkRefusal(handle)).toBeNull();
+    const edited = await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages: [0, 2],
+      mark: { kind: 'text', text: 'DRAFT', fontSize: 72 },
+      opacity: 0.4,
+      rotationDegrees: 30,
+      behind: false,
+    });
+    const last = applied.at(-1) as Extract<FakeEdit, { kind: 'watermark' }>;
+    expect(last.op).toBe('addTextWatermark');
+    expect(last.args).toEqual([new Uint32Array([0, 2]), 'DRAFT', 72, 0.4, 30, false]);
+    expect(freed).toContain('edit:watermark');
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    // The undo goes back to the pixels the file had; the redo to the stamp's.
+    expect((await engine.undo(handle)).paintRevision).toBe(0);
+    expect((await engine.redo(handle)).paintRevision).toBe(edited.paintRevision);
+
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages: [1],
+      mark: { kind: 'picture', image, scale: 0.6 },
+      opacity: 0.3,
+      rotationDegrees: 0,
+      behind: true,
+    });
+    const picture = applied.at(-1) as Extract<FakeEdit, { kind: 'watermark' }>;
+    expect(picture.op).toBe('addPictureWatermark');
+    expect(picture.args).toEqual([new Uint32Array([1]), image, 0.6, 0.3, 0, true]);
+  });
+
+  it("refuses a watermark in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.watermarkRefusal(handle)).toBe('content editing is not permitted');
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: 'DRAFT', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'EditNotPermitted' });
+    expect(core.canUndo(handle)).toBe(false);
+    await expect(engine.watermarkRefusal(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
   });
 
   it('records a properties change as one step, in the core order of its keys, null as absent', async () => {

@@ -2163,7 +2163,7 @@ Gates (Windows 11, local):
 | **T-253** ✓ | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
 | **T-254** ✓ | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
 | **T-255** ✓ | Metadatos. | Playwright: editar, guardar y releer. |
-| **T-256** | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
+| **T-256** ✓ | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
 | **T-257** | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
 | **T-258** | Modelo de contenido en wasm (`readPageContent`, `textRunLook`, familias de fuente, `CheckpointSession`). | `wasm-bindgen-test` + Vitest contra pdfium real. |
 | **T-259** | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
@@ -2748,6 +2748,103 @@ que sigue:
 - **No cubierto / pendiente:** sin fechas (Windows y Linux las editan); sin acceso a Properties
   desde Organize en escritorio; sin claves personalizadas ni `/Trapped` (fuera de alcance del
   core, decisión 2 del batch de metadatos); sin lector de pantalla real.
+
+### T-256 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Tools menu" y "Watermark") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **Parte A — menú Tools (decisión del orquestador).** La barra del workspace estaba llena (en el
+  host de `embed`, 1191 de 1200 px; Properties tuvo que irse a la barra View en T-255). Los botones
+  Compress, Export images y Protect de la barra y el Properties de la barra View desaparecen: hay
+  **un** botón de menú **Tools** (`ui/MenuButton`) en la barra, antes de Save, en las dos pantallas
+  y a **todos** los anchos, con Compress, Export images, Protect, Watermark y Document properties.
+  El "More tools" del teléfono es este mismo menú (un solo camino de código); en ≤ 600 px muestra
+  los tres puntos en vez de la palabra (su nombre accesible sigue siendo "Tools") y la barra sigue en
+  una fila. Cada `*Controls` ya no dibuja botón: recibe `trigger` (el botón Tools) y le devuelve el
+  foco al cerrarse su diálogo (`ui/focusShown`); el menú devuelve el foco al botón antes de abrir el
+  diálogo, como antes. Las líneas de estado y los diálogos siguen en la barra (sobreviven al cambio
+  View/Organize). Se borró `PropertiesToggle.tsx` y `ZoomControls` vuelve a no aceptar hijos. Save y
+  las líneas de estado no cambian.
+- **Paridad elegida (Android, con los rangos de GTK y Windows):** diálogo **Add watermark** con
+  Text/Picture, el texto (DRAFT) o un PNG/JPEG (**Choose picture…**), Size (8–200 pt o 5–100 % de la
+  página), Opacity (5–100 %), Angle (−180…180°), Placement (sobre o bajo el contenido) y Pages
+  (todas, la actual o un rango con la gramática del core). Cambiar de tipo solo reinicia ángulo y
+  capa a los del core para ese tipo (regla de los tres nativos). **Sin color ni vista previa en
+  vivo:** ningún nativo los tiene. El aspecto inicial es el del core (`Watermark::diagonal` /
+  `Watermark::picture`), nunca una copia de sus constantes.
+- **`pdf-wasm`** (`model/watermark.rs`, `engine/watermark.rs`, `dto/watermark.rs`): mismo orden que
+  `pdf-ffi` para `AddWatermark`/`AddImageWatermark`: `pdf_save::check_edit` con la clase de contenido
+  (permiso de modificar, luego si la reescritura completa puede conservar el cifrado) **antes** de
+  leer las páginas; posiciones → `PageId` una sola vez (el sello sigue a sus páginas tras mover);
+  `pdf_save::validate_content_command` (= `pdf_edit::check_watermark`) antes de registrar
+  (`EncodingGap`, `InvalidImage`); el modelo rechaza texto en blanco, páginas repetidas o fuera de
+  rango (`UnsupportedOperation`). Superficie: `watermarkDefaults()` (función libre →
+  `WatermarkLook`), `watermarkRefusal(doc)`, `EditCommand.addTextWatermark(pages, text, fontSize,
+  opacity, rotationDegrees, behind)` y `addPictureWatermark(pages, image, scale, …)` por `applyEdit`.
+  Nueva dependencia de ruta `pdf-edit` (ya estaba en el árbol vía `pdf-save`) solo para los tipos de
+  rechazo.
+- **Repintado en el sitio (`paintRevision`).** Un sello cambia lo que muestra una página sin cambiar
+  su id ni su giro, que es la clave de los bitmaps del visor y de la caché de miniaturas de Organize:
+  sin esto, la página seguía mostrando los píxeles viejos (visto en rojo en Playwright). Las marcas de
+  vista previa de `pdf-wasm` (`model/preview.rs`) ganan una segunda marca por paso de contenido
+  (`Command::is_content_edit`); `paintRevision(doc)` es la más nueva aplicada (0 = el archivo). En
+  una historia lineal esa marca nombra todo el conjunto aplicado: deshacer vuelve a la revisión
+  anterior (sus bitmaps vuelven a valer) y un paso nuevo en lugar de uno deshecho tiene la suya.
+  `EditedDocument.paintRevision` (opcional en el tipo: un motor que no la lleve cuenta como 0) entra
+  en el `paintKey` del visor y en `thumbnailKey`; un movimiento, un giro o una anotación siguen sin
+  repintar nada (la regla "un movimiento no renderiza miniaturas" se conserva).
+- **`@vitela/core`:** `Engine` gana `watermarkDefaults()` y `watermarkRefusal(handle)`; `Edit` gana
+  `WatermarkEdit` (`{ kind: 'addWatermark', pages, mark, opacity, rotationDegrees, behind }`, `mark`
+  texto o imagen); `worker/watermark.ts` traduce y libera. Hallazgo: en `reportlab_acroform.pdf` el
+  sello falla en el refresco de la vista previa (`SaveFailed`: flujo de contenido con cadena de
+  filtros, límite del core igual en los nativos) y `step` lo deshace; queda un paso rehacible que
+  volvería a fallar igual (comportamiento previo de `step` para cualquier edición, no se tocó).
+- **`@vitela/viewer` (`features/watermark/`):** puro con tests `watermarkText.ts` (borrador desde el
+  aspecto del core, rangos, cambio de tipo, rechazos de marca, la edición, textos); contenedor
+  `useWatermark` (lee aspecto y puerta al abrir; **Add** espera la cola, resuelve páginas contra
+  `pageCountNow` y la página actual recortada, registra una edición, `revise` + sucio; un rechazo deja
+  el diálogo y el borrador; se entrega a `useSave`); vistas `WatermarkDialog` y `WatermarkControls`.
+  El campo de texto se llama "Watermark text": "Text" chocaba con la radio Text.
+- **Tests:** `pdf-wasm` 8 nativos nuevos (6 de `model/watermark.rs`: defaults del core, texto en todas
+  las páginas como un paso deshecho/rehecho y guardado, el sello sigue a su página tras mover,
+  imagen, rechazos sin registrar, permiso antes que la página; 2 de `model/preview.rs`) y 3
+  `wasm-bindgen-test` (`tests/watermark.rs`). `@vitela/core` 6 Vitest nuevos (1 de `client`, 1 de
+  `handler`, 3 de `documentEngine`, 1 contra pdfium real: sello en `vector_only.pdf`, píxeles,
+  búsqueda, deshacer/rehacer, guardado, `EncodingGap`, y el fallo de refresco deshecho en el
+  formulario). `@vitela/viewer` 18 nuevos (6 de `watermarkText`, 9 de `WatermarkControls`, 1 del
+  workspace, 1 de `thumbnailKey`, 1 de `useDocument`) y uno quitado (el de `PropertiesToggle`);
+  los de Compress/Export/Protect/Properties abren ahora desde un disparador que hace de entrada del
+  menú y comprueban que el foco vuelve a él. Vistos en rojo antes de implementar: los de
+  `client`/`handler`/`documentEngine` (5), los de `thumbnailKey` y `useDocument` (2) y el E2E del
+  texto (la página no se repintaba). Los 5 del workspace fallaron al quitar los botones y se
+  actualizaron después. Los de `pdf-wasm`, pdfium real, `watermarkText` y `WatermarkControls` se
+  escribieron junto a su código.
+- **E2E (`e2e/watermark.spec.ts`, 6 × 3):** texto en las 3 páginas (foco a Tools, sin guardar, la
+  tinta de la página cambia, Undo la quita, Redo la devuelve), guardado: cada página tiene el `Tj` y
+  un artefacto `/Watermark` (helper nuevo `occurrences` en `e2e/pdfObjects.ts`), y la búsqueda de la
+  app lo encuentra 3 veces al reabrir; imagen detrás del contenido de `1,3`: un solo objeto `/Image`
+  pintado dos veces (y Add sin imagen se rechaza); texto que Helvetica no muestra y un rango fuera
+  dejan el diálogo; un PDF con `/P` sin el bit 4 (abierto con su contraseña de usuario) se rechaza con
+  solo Close; en Organize las miniaturas ganan el sello y lo pierden con Undo; en el móvil el diálogo
+  cabe en 390 px. `phone-bar`, `compress`, `export-images`, `protect` y `properties` abren las
+  herramientas por el menú (helpers `toolsButton`/`openTool` en `e2e/support.ts`); `phone-bar` ahora
+  exige que ninguna herramienta tenga botón propio y que se vean los tres puntos, y `properties`
+  que la barra sea una fila a 1280 px.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  --all-targets -- -D warnings` nativo y `cargo clippy --locked --target wasm32-unknown-unknown -p
+  pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+  139 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 209, `build`. `@vitela/viewer`:
+  `tsc -b`, Vitest 87 / 868, `build`. `apps/web`: `typecheck` (`tsc -b`), Vitest 6 / 19, `npm run
+  build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`) **301 pasan, 20 omitidos** (los
+  de File System Access fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32 y
+  los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** sin color ni vista previa en vivo (ningún nativo); un PDF cuyo flujo
+  de contenido el core no reescribe (cadena de filtros) rechaza el sello al refrescar (`SaveFailed`)
+  con el mensaje del core; el paso rehacible que deja ese rechazo es de `step`, no de esta tarea; sin
+  lector de pantalla real.
 
 ## Verificación
 

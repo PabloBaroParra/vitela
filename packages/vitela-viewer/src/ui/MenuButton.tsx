@@ -1,6 +1,6 @@
 // A menu button (WAI-ARIA APG "menu button" pattern): one button that opens
-// a list of actions. Generic and presentational: the workspace bar's phone
-// "More tools" menu and Organize's "Add blank page" menu are both this, and
+// a list of actions. Generic and presentational: the workspace bar's "Tools"
+// menu and Organize's "Add blank page" menu are both this, and
 // each item's action is the caller's.
 //
 // Keyboard: Enter, Space or Down opens on the first item, Up on the last;

@@ -7,7 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 import { cards, openOrganize, tool } from './organize';
-import { expectOpened, fixtureBytes, inkedPixelCount, loadApp, openBytes, openFixture } from './support';
+import { expectOpened, fixtureBytes, inkedPixelCount, loadApp, openBytes, openFixture, openTool, toolsButton } from './support';
 
 const SCAN = 'compress/scan_200dpi.pdf';
 const THREE_PAGES = 'compress/vector_only.pdf';
@@ -16,12 +16,10 @@ const SIGNED = 'signed/rsa2048_sha256.pdf';
 const ENCRYPTED = 'encrypted/aes_128_user_and_owner.pdf';
 const USER_PASSWORD = 'user-aes-pass';
 
-/** The workspace bar's Compress button (the dialog has one of its own). */
-const compressButton = (page: Page) => page.locator('.workspace__bar').getByRole('button', { name: 'Compress', exact: true });
 const compressDialog = (page: Page) => page.getByRole('dialog', { name: 'Compress PDF' });
 
 async function openDialog(page: Page): Promise<Locator> {
-  await compressButton(page).click();
+  await openTool(page, 'Compress');
   const dialog = compressDialog(page);
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   return dialog;
@@ -92,7 +90,7 @@ test('an encrypted document is refused in the dialog and nothing is written', as
   for (const radio of await dialog.getByRole('radio').all()) await expect(radio).toBeDisabled();
   await page.keyboard.press('Escape');
   await expect(compressDialog(page)).toHaveCount(0);
-  await expect(compressButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   expect(downloads).toBe(0);
 });
 

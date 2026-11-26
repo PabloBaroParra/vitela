@@ -47,6 +47,8 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     planSplit: unused('planSplit'),
     documentProperties: unused('documentProperties'),
     metadataRefusal: unused('metadataRefusal'),
+    watermarkDefaults: unused('watermarkDefaults'),
+    watermarkRefusal: unused('watermarkRefusal'),
     ...overrides,
   };
 }

@@ -69,7 +69,10 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `stampPlacement`.
   An edit answers with the document as it is now (`EditedDocument`: page
   sizes, page ids, blocks, undo/redo state, the session's annotations and the
-  id of the one it added, and the form fields), and the engine has already refreshed its preview
+  id of the one it added, the form fields, and `paintRevision`: the newest
+  page-content step still applied, 0 as opened — a viewer that keeps bitmaps
+  by page id and turn adds it to its key, so a watermark and its undo repaint
+  the pages), and the engine has already refreshed its preview
   when the step changed the pixels, so the next render shows it.
   `applyEdit` takes a page edit (`move`/`rotate`/`remove`, or `insertBlank`: one
   A4 page, `portrait` or `landscape`, at a position) or an annotation
@@ -154,6 +157,22 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   modification dates are kept, the values the document already has record
   nothing) and rejects with `EditNotPermitted` on a refused document; Save
   writes it into `/Info`. No XMP stream is written, as on the native shells.
+  Watermarks: `watermarkDefaults()` answers the core's starting looks (text:
+  size in points, opacity, angle, over the content; picture: scale, opacity,
+  angle, behind the content), and `watermarkRefusal(handle)` says why no
+  stamp can be added (the core's clause: the document withholds
+  modification, or its encryption cannot survive the rewrite) or `null`.
+  `applyEdit(handle, { kind: 'addWatermark', pages, mark, opacity,
+  rotationDegrees, behind })` stamps `mark` — `{ kind: 'text', text,
+  fontSize }` in Helvetica and the core's grey, or `{ kind: 'picture', image,
+  scale }` with PNG or JPEG bytes — on the 0-based `pages`, as one undo step
+  that refreshes the preview and that Save paints into each page's content
+  stream. It rejects with `EditNotPermitted` (or `UnsupportedOperation`) as
+  `watermarkRefusal` says, `PageIndexOutOfBounds`, `EncodingGap`,
+  `InvalidImage`, or `UnsupportedOperation` for blank text, a repeated page
+  or a look outside the core's ranges; nothing is recorded then. A page whose
+  content stream the core cannot rewrite (a chain of filters) fails the
+  preview refresh, and the stamp is taken back out (`SaveFailed`).
   Extract and Split: `extractionRefusal(handle)` says why no page can leave
   the document (the core's sentence: its `/P` withholds extraction — bit 5,
   not page assembly — or its encryption cannot survive the rewrite, e.g.
@@ -200,7 +219,8 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`, `FORM_FIELD_NOT_FOUND`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
   `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `FormEdit`,
-  `FieldValue`, `EditedDocument`, `Annotation`, `Comment`, `FormField`,
+  `FieldValue`, `WatermarkEdit`, `WatermarkMark`, `WatermarkDefaults`,
+  `EditedDocument`, `Annotation`, `Comment`, `FormField`,
   `RadioButton`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
   `PageRect`, `DocumentBlock`, `BlockSource`, `PreparedImport`,
   `ImportedDocument`, `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`,

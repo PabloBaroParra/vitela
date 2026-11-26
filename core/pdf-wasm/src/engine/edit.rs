@@ -19,21 +19,23 @@ use pdf_document::Orientation;
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
-use crate::model::{AnnotationEdit, DocumentProperties, FieldFill, PageEdit};
+use crate::model::{AnnotationEdit, DocumentProperties, FieldFill, PageEdit, WatermarkRequest};
 
 /// What an `EditCommand` carries: a page edit, an annotation edit, a form
-/// fill or a change of the document's properties.
+/// fill, a change of the document's properties or a watermark.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
     Annotation(AnnotationEdit),
     Form(FieldFill),
     Metadata(DocumentProperties),
+    Watermark(WatermarkRequest),
 }
 
 /// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
 /// (`engine/annotation.rs`), a form fill (`engine/form.rs`) or a change of
-/// the document's properties (`engine/metadata.rs`). Positions are
+/// the document's properties (`engine/metadata.rs`) or a watermark
+/// (`engine/watermark.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -100,7 +102,10 @@ impl Engine {
     /// annotation edit it makes `previewStale` true. A properties change is
     /// refused with `EditNotPermitted` when the document withholds
     /// modification (`metadataRefusal`); the values it already has record
-    /// nothing.
+    /// nothing. A watermark is refused as `watermarkRefusal` says (asked
+    /// first), then `PageIndexOutOfBounds`, `EncodingGap`, `InvalidImage` or
+    /// `UnsupportedOperation`; like a form fill it makes `previewStale`
+    /// true.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
@@ -116,6 +121,9 @@ impl Engine {
                     .model
                     .set_document_properties(properties.clone())
                     .map(|()| None),
+                Edit::Watermark(request) => {
+                    open.model.add_watermark(request.clone()).map(|()| None)
+                }
             })
             .map_err(js_error)
     }
@@ -165,6 +173,18 @@ impl Engine {
     #[wasm_bindgen(js_name = refreshPreview)]
     pub fn refresh_preview(&mut self, doc: u32) -> Result<(), JsValue> {
         self.reopen_render(doc).map_err(js_error)
+    }
+
+    /// Which repaint of the pages in place the history stands at: the
+    /// newest page-content step still applied (a watermark), 0 for the file
+    /// as opened. A page whose id and turn are unchanged shows the same
+    /// pixels at the same revision; a page move, a rotation or an annotation
+    /// leaves it as it is. A number, not a `BigInt`: it counts steps.
+    #[wasm_bindgen(js_name = paintRevision)]
+    pub fn paint_revision(&self, doc: u32) -> Result<f64, JsValue> {
+        self.document(doc)
+            .map(|open| open.model.paint_revision() as f64)
+            .map_err(js_error)
     }
 
     /// Whether the edit history stands at a state the pixels and the text,

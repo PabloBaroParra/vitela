@@ -21,8 +21,9 @@ import { splitBusy, useSplit } from '../extract/useSplit';
 import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
 import { PropertiesControls } from '../properties/PropertiesControls';
-import { PropertiesOpenerContext } from '../properties/PropertiesToggle';
 import { propertiesBusy, useDocumentProperties } from '../properties/useDocumentProperties';
+import { WatermarkControls } from '../watermark/WatermarkControls';
+import { useWatermark, watermarkBusy } from '../watermark/useWatermark';
 import { MenuButton } from '../../ui/MenuButton';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
@@ -115,10 +116,9 @@ export function DocumentWorkspace({
   useEffect(() => {
     currentPage.current = 0;
   }, [document?.generation]);
+  // The document tools are one menu: every dialog it opens hands the focus back to its button.
+  const toolsButton = useRef<HTMLButtonElement | null>(null);
   // Page images go where a compressed copy goes, after the same queued edits.
-  // On a phone the tool buttons are hidden: a dialog they opened hands the focus back to More tools.
-  const moreButton = useRef<HTMLButtonElement | null>(null);
-  const focusMore = useCallback(() => moreButton.current?.focus(), []);
   const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
   // A protected copy goes where a compressed one goes, after the same queued edits.
   const protect = useProtect(engine, document, delivery ?? browserDelivery, save.settleEdits);
@@ -133,13 +133,15 @@ export function DocumentWorkspace({
     onEdited: revise,
     markDirty: save.markDirty,
   });
-  const propertiesTrigger = useRef<HTMLButtonElement | null>(null);
-  const propertiesIdle = !propertiesBusy(properties.activity);
-  const openProperties = properties.open;
-  const propertiesOpener = useMemo(
-    () => ({ open: () => void openProperties(), busy: !propertiesIdle, trigger: propertiesTrigger }),
-    [openProperties, propertiesIdle],
-  );
+  // A watermark is an edit too, on the pages the reader picks.
+  const watermark = useWatermark(engine, document, {
+    settleEdits: save.settleEdits,
+    waitForEdits: save.waitForEdits,
+    onEdited: revise,
+    markDirty: save.markDirty,
+    currentPage: readCurrentPage,
+    pageCountNow,
+  });
   const pageToolsBusy = extractBusy(extract.activity) || splitBusy(split.activity);
   const openExtract = extract.open;
   const openSplit = split.open;
@@ -175,29 +177,36 @@ export function DocumentWorkspace({
               <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
             )}
             <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
-            <CompressControls session={compress} documentName={document.name} focusFallback={focusMore} />
-            <ExportImagesControls session={exportImages} focusFallback={focusMore} />
-            <ProtectControls session={protect} documentName={document.name} focusFallback={focusMore} />
-            {/* Opened from the viewer's View toolbar (PropertiesToggle) or More tools: here are its status and dialog. */}
-            <PropertiesControls session={properties} trigger={propertiesTrigger} focusFallback={focusMore} />
+            {/* Opened from the Tools menu below: here are their status lines and dialogs. */}
+            <CompressControls session={compress} documentName={document.name} trigger={toolsButton} />
+            <ExportImagesControls session={exportImages} trigger={toolsButton} />
+            <ProtectControls session={protect} documentName={document.name} trigger={toolsButton} />
+            <WatermarkControls session={watermark} trigger={toolsButton} />
+            <PropertiesControls session={properties} trigger={toolsButton} />
             {/* Extract and Split are opened from Organize: here are their status lines and dialogs. */}
             <ExtractControls session={extract} pageCount={document.info.pageCount} />
             <SplitControls session={split} pageCount={document.info.pageCount} />
             {/*
-              The same tools as one menu button: what a phone shows instead
-              of the buttons above (CSS), at the same place in the DOM, so
-              the tab order is the order on screen at every width.
+              The document tools as one menu button, at every width: the bar
+              has no room for a button each (an embedding host's larger
+              buttons already fill it), and one menu is one code path for the
+              desktop and the phone.
             */}
             <MenuButton
-              label="More tools"
-              buttonRef={moreButton}
-              className="workspace__more"
-              icon={<MoreIcon />}
+              label="Tools"
+              buttonRef={toolsButton}
+              className="workspace__tools"
+              icon={<ToolsIcon />}
               tools={[
                 { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
                 { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: () => void exportImages.open() },
                 { label: 'Protect', disabled: protectBusy(protect.activity), onSelect: () => void protect.open() },
-                { label: 'Properties', disabled: propertiesBusy(properties.activity), onSelect: () => void properties.open() },
+                { label: 'Watermark', disabled: watermarkBusy(watermark.activity), onSelect: () => void watermark.open() },
+                {
+                  label: 'Document properties',
+                  disabled: propertiesBusy(properties.activity),
+                  onSelect: () => void properties.open(),
+                },
               ]}
             />
             <SaveControls session={save} documentName={document.name} />
@@ -215,29 +224,27 @@ export function DocumentWorkspace({
         {document && (
           <MarkDirtyContext.Provider value={save.markDirty}>
             <SaveWaitsForEditsContext.Provider value={save.waitForEdits}>
-              <PropertiesOpenerContext.Provider value={propertiesOpener}>
-                {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
-                {screen === 'view' ? (
-                  <ReportCurrentPageContext.Provider value={reportCurrentPage}>
-                    <DocumentViewer
-                      key={document.generation}
-                      engine={engine}
-                      document={document}
-                      onEdited={revise}
-                      onStampImage={keepStampImage}
-                    />
-                  </ReportCurrentPageContext.Provider>
-                ) : (
-                  <OrganizeScreen
+              {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+              {screen === 'view' ? (
+                <ReportCurrentPageContext.Provider value={reportCurrentPage}>
+                  <DocumentViewer
                     key={document.generation}
                     engine={engine}
                     document={document}
                     onEdited={revise}
-                    onSourcesNamed={nameSources}
-                    pageTools={pageTools}
+                    onStampImage={keepStampImage}
                   />
-                )}
-              </PropertiesOpenerContext.Provider>
+                </ReportCurrentPageContext.Provider>
+              ) : (
+                <OrganizeScreen
+                  key={document.generation}
+                  engine={engine}
+                  document={document}
+                  onEdited={revise}
+                  onSourcesNamed={nameSources}
+                  pageTools={pageTools}
+                />
+              )}
             </SaveWaitsForEditsContext.Provider>
           </MarkDirtyContext.Provider>
         )}
@@ -261,14 +268,32 @@ export function DocumentWorkspace({
   );
 }
 
-/** Three dots in a row: more of the same kind. */
-function MoreIcon() {
+/**
+ * "Tools" and a chevron, or (on a phone, CSS) three dots in a row: the bar
+ * has no width there for the word.
+ */
+function ToolsIcon() {
   return (
-    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-      <circle cx="5" cy="12" r="1.9" />
-      <circle cx="12" cy="12" r="1.9" />
-      <circle cx="19" cy="12" r="1.9" />
-    </svg>
+    <>
+      <span className="workspace__tools-label">Tools</span>
+      <svg
+        className="workspace__tools-chevron"
+        viewBox="0 0 24 24"
+        width="14"
+        height="14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        aria-hidden="true"
+      >
+        <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <svg className="workspace__tools-dots" viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="12" r="1.9" />
+        <circle cx="12" cy="12" r="1.9" />
+        <circle cx="19" cy="12" r="1.9" />
+      </svg>
+    </>
   );
 }
 

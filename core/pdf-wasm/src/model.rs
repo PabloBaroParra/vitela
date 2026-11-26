@@ -144,6 +144,7 @@ mod import;
 mod metadata;
 mod preview;
 mod protect;
+mod watermark;
 
 pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
@@ -161,6 +162,7 @@ pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 pub use metadata::{DocumentProperties, METADATA_FORBIDDEN};
 pub use protect::PROTECTION_FORBIDDEN;
+pub use watermark::{watermark_defaults, WatermarkDefaults, WatermarkRequest, WatermarkStamp};
 
 // Declared at file level, not inside `mod tests`: there the path would be
 // resolved through `src/model/tests/`, a directory that does not exist, which

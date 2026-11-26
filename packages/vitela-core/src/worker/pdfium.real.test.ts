@@ -178,6 +178,66 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('stamps a text watermark through the real core: undone, redone, saved with the text on every page', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf')));
+    expect(await engine.watermarkRefusal(handle)).toBeNull();
+    const look = await engine.watermarkDefaults();
+    expect(look).toMatchObject({ fontSize: 60, textRotationDegrees: 45, textBehind: false, pictureBehind: true });
+    const pages = Array.from({ length: info.pageCount }, (_, index) => index);
+    const before = (await engine.renderPage(handle, 0, 36)).rgba;
+
+    const edited = await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages,
+      mark: { kind: 'text', text: 'VITELADRAFT', fontSize: look.fontSize },
+      opacity: look.textOpacity,
+      rotationDegrees: look.textRotationDegrees,
+      behind: look.textBehind,
+    });
+    expect(edited.canUndo).toBe(true);
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    // The preview was refreshed inside the request: the stamp is in the pixels.
+    expect((await engine.renderPage(handle, 0, 36)).rgba).not.toEqual(before);
+    expect((await engine.search(handle, 'VITELADRAFT')).length).toBe(info.pageCount);
+    expect((await engine.undo(handle)).paintRevision).toBe(0);
+    expect(await engine.search(handle, 'VITELADRAFT')).toEqual([]);
+    await engine.redo(handle);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    expect((await engine.search(reopened.handle, 'VITELADRAFT')).length).toBe(info.pageCount);
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: '日本', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'EncodingGap' });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+
+    // A page whose content stream the core cannot rewrite (a chain of
+    // filters) fails the preview refresh: the stamp is taken back out, not
+    // left queued for a save that would fail the same way.
+    const form = await engine.open(readFileSync(fixture));
+    await expect(
+      engine.applyEdit(form.handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: 'DRAFT', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'SaveFailed' });
+    expect(await engine.undo(form.handle)).toMatchObject({ canUndo: false });
+    await engine.close(form.handle);
+  });
+
   it('imports a PDF through the real core as one step, with its own block', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);

@@ -1,46 +1,33 @@
-// The Export images button, what the last export did (with Cancel export
-// while it runs), and its dialog. Presentational: the state lives in
-// `useExportImages`, owned by the workspace.
+// What the last export did (with Cancel export while it runs), and its
+// dialog. It is opened from the workspace's Tools menu. Presentational: the
+// state lives in `useExportImages`, owned by the workspace.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { focusShown } from '../../ui/focusShown';
 import { StatusLine } from '../../ui/StatusLine';
 import { ExportImagesDialog } from './ExportImagesDialog';
 import { exportProgress } from './exportText';
-import { exportBusy, type ExportActivity, type ExportImagesSession } from './useExportImages';
+import { type ExportActivity, type ExportImagesSession } from './useExportImages';
 
 interface ExportImagesControlsProps {
   readonly session: ExportImagesSession;
-  /** Where the focus goes when the dialog closes while this button is not shown (a phone's More tools). */
-  readonly focusFallback?: () => void;
+  /** The Tools menu button that opened the dialog: it takes the focus back when the dialog closes. */
+  readonly trigger: RefObject<HTMLElement | null>;
 }
 
-export function ExportImagesControls({ session, focusFallback }: ExportImagesControlsProps) {
-  const { activity, open, edit, cancel, stop, exportImages } = session;
-  const busy = exportBusy(activity);
-  const button = useRef<HTMLButtonElement>(null);
+export function ExportImagesControls({ session, trigger }: ExportImagesControlsProps) {
+  const { activity, edit, cancel, stop, exportImages } = session;
 
   // The dialog gives the focus back when it goes away, whatever the answer.
   const wasChoosing = useRef(false);
   useEffect(() => {
     const choosing = activity.kind === 'choosing';
-    if (wasChoosing.current && !choosing) focusShown(button.current, focusFallback);
+    if (wasChoosing.current && !choosing) focusShown(trigger.current);
     wasChoosing.current = choosing;
-  }, [activity.kind, focusFallback]);
+  }, [activity.kind, trigger]);
 
   return (
     <>
-      {/* Not `disabled`: a disabled button drops the keyboard focus to the page. */}
-      <button
-        ref={button}
-        type="button"
-        className="export-images-button"
-        title="Export images"
-        onClick={busy ? undefined : () => void open()}
-        aria-disabled={busy}
-      >
-        Export images
-      </button>
       <ExportStatus activity={activity} />
       {activity.kind === 'exporting' && (
         <button type="button" className="export-images-stop" onClick={stop}>

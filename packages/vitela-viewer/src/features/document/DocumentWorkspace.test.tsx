@@ -40,6 +40,14 @@ function openPdf(getByLabelText: (label: string) => HTMLElement) {
   fireEvent.change(getByLabelText('Open PDF'), { target: { files: [pdf] } });
 }
 
+type ByRole = (role: string, options: { name: string }) => HTMLElement;
+
+/** Opens `tool` from the bar's Tools menu, once the document is open. */
+async function chooseTool(getByRole: ByRole, tool: string) {
+  fireEvent.click(await waitFor(() => getByRole('button', { name: 'Tools' })));
+  fireEvent.click(getByRole('menuitem', { name: tool }));
+}
+
 describe('DocumentWorkspace', () => {
   it('opens a document in the viewer by default', async () => {
     const { getByLabelText, getByRole } = render(<DocumentWorkspace engine={engine} intro={(action) => action} />);
@@ -130,7 +138,7 @@ describe('DocumentWorkspace', () => {
     expect(delivered).toEqual([{ bytes: saved, name: 'from-host.pdf', destination: { kind: 'copy' } }]);
   });
 
-  it('offers Compress next to Save in both screens, delivering the smaller copy where saves go', async () => {
+  it('offers Compress in the Tools menu in both screens, delivering the smaller copy where saves go', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
     };
@@ -157,14 +165,14 @@ describe('DocumentWorkspace', () => {
     openPdf(getByLabelText);
     await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
 
-    fireEvent.click(getByRole('button', { name: 'Compress' }));
+    await chooseTool(getByRole, 'Compress');
     const dialog = await findByRole('dialog', { name: 'Compress PDF' });
     fireEvent.click(dialog.querySelector('button[type="submit"]')!);
     expect(await findByText('4 kB uncompressed → 1 kB compressed (75% smaller). Saved two-compressed.pdf.')).toBeTruthy();
     expect(delivered).toEqual([{ bytes, name: 'two-compressed.pdf', destination: { kind: 'newFile' } }]);
   });
 
-  it('offers Export images in the bar, delivering each page where saves go', async () => {
+  it('offers Export images in the Tools menu, delivering each page where saves go', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
     };
@@ -192,7 +200,7 @@ describe('DocumentWorkspace', () => {
     openPdf(getByLabelText);
     await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
 
-    fireEvent.click(getByRole('button', { name: 'Export images' }));
+    await chooseTool(getByRole, 'Export images');
     const dialog = await findByRole('dialog', { name: 'Export pages as images' });
     fireEvent.click(dialog.querySelector('button[type="submit"]')!);
     expect(await findByText('Exported 2 pages as PNG.')).toBeTruthy();
@@ -202,7 +210,7 @@ describe('DocumentWorkspace', () => {
     ]);
   });
 
-  it('offers Protect in the bar, delivering the protected copy where saves go after the queued edits', async () => {
+  it('offers Protect in the Tools menu, delivering the protected copy where saves go after the queued edits', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
     };
@@ -228,7 +236,7 @@ describe('DocumentWorkspace', () => {
     openPdf(getByLabelText);
     await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
 
-    fireEvent.click(getByRole('button', { name: 'Protect' }));
+    await chooseTool(getByRole, 'Protect');
     const dialog = await findByRole('dialog', { name: 'Protect with a password' });
     fireEvent.change(getByLabelText('Password to open the document'), { target: { value: 'o' } });
     fireEvent.change(getByLabelText('Permissions password'), { target: { value: 'p' } });
@@ -237,7 +245,7 @@ describe('DocumentWorkspace', () => {
     expect(delivered).toEqual([{ bytes, name: 'two-protected.pdf', destination: { kind: 'newFile' } }]);
   });
 
-  it('edits the document properties from the bar as an undoable edit that Save writes', async () => {
+  it('edits the document properties from the Tools menu as an undoable edit that Save writes', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
     };
@@ -262,7 +270,7 @@ describe('DocumentWorkspace', () => {
       <DocumentWorkspace engine={describing} intro={(action) => action} />,
     );
     openPdf(getByLabelText);
-    fireEvent.click(await waitFor(() => getByRole('button', { name: 'Properties' })));
+    await chooseTool(getByRole, 'Document properties');
     const dialog = await findByRole('dialog', { name: 'Document properties' });
     fireEvent.change(getByLabelText('Title'), { target: { value: 'Annual report' } });
     fireEvent.click(dialog.querySelector('button[type="submit"]')!);
@@ -275,6 +283,55 @@ describe('DocumentWorkspace', () => {
     await waitFor(() => expect(undo.disabled).toBe(false));
     fireEvent.click(undo);
     await waitFor(() => expect(properties).toBe(none));
+  });
+
+  it('stamps a watermark from the Tools menu as an undoable edit, and gives the focus back to Tools', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const applied: unknown[] = [];
+    const edited = { info, annotations: [], addedAnnotationId: null, formFields: [] };
+    const stamping = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      watermarkDefaults: async () => ({
+        fontSize: 60,
+        textOpacity: 0.3,
+        textRotationDegrees: 45,
+        textBehind: false,
+        pictureScale: 0.5,
+        pictureOpacity: 0.3,
+        pictureRotationDegrees: 0,
+        pictureBehind: true,
+      }),
+      watermarkRefusal: async () => null,
+      applyEdit: async (_handle, edit) => (applied.push(edit), { ...edited, canUndo: true, canRedo: false }),
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={stamping} intro={(action) => action} />,
+    );
+    openPdf(getByLabelText);
+    await chooseTool(getByRole, 'Watermark');
+    const dialog = await findByRole('dialog', { name: 'Add watermark' });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Watermark added to 2 pages.')).toBeTruthy();
+    expect(await findByText('Unsaved changes.')).toBeTruthy();
+    expect(applied).toEqual([
+      {
+        kind: 'addWatermark',
+        pages: [0, 1],
+        mark: { kind: 'text', text: 'DRAFT', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      },
+    ]);
+    await waitFor(() => expect(getByRole('button', { name: 'Tools' })).toBe(document.activeElement));
+    const undo = getByRole('button', { name: 'Undo' }) as HTMLButtonElement;
+    await waitFor(() => expect(undo.disabled).toBe(false));
   });
 
   it("extracts Organize's selection and splits from Organize, each file delivered where saves go", async () => {
@@ -364,7 +421,7 @@ describe('DocumentWorkspace', () => {
     await waitFor(() => expect(getByRole('button', { name: 'Split' }).getAttribute('aria-disabled')).toBe('false'));
   });
 
-  it('also offers the document tools in a More tools menu, placed in the bar before Save', async () => {
+  it('offers the document tools in one Tools menu, placed in the bar before Save, with no button of their own', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
     };
@@ -375,24 +432,29 @@ describe('DocumentWorkspace', () => {
       <DocumentWorkspace engine={engine} intro={(action) => action} initialScreen="organize" />,
     );
     openPdf(getByLabelText);
-    const more = await waitFor(() => getByRole('button', { name: 'More tools' }));
-    // DOM order is the order on screen at every width: the menu sits where the tools do, before Save.
-    const bar = more.closest('.workspace__bar')!;
+    const tools = await waitFor(() => getByRole('button', { name: 'Tools' }));
+    // DOM order is the order on screen: the menu sits before Save, and the tools have no buttons of their own.
+    const bar = tools.closest('.workspace__bar')!;
     const order = [...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
-    expect(order.indexOf('Protect')).toBeGreaterThan(order.indexOf('Export images'));
-    expect(order.indexOf('More tools')).toBeGreaterThan(order.indexOf('Protect'));
-    expect(order.indexOf('More tools')).toBeLessThan(order.indexOf('Save'));
+    expect(order.indexOf('Tools')).toBeGreaterThan(order.indexOf('Organize'));
+    expect(order.indexOf('Tools')).toBeLessThan(order.indexOf('Save'));
+    for (const tool of ['Compress', 'Export images', 'Protect', 'Watermark', 'Properties', 'Document properties']) {
+      expect(order).not.toContain(tool);
+    }
 
-    fireEvent.click(more);
-    const menu = getByRole('menu', { name: 'More tools' });
+    fireEvent.click(tools);
+    const menu = getByRole('menu', { name: 'Tools' });
     expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual([
       'Compress',
       'Export images',
       'Protect',
-      'Properties',
+      'Watermark',
+      'Document properties',
     ]);
     fireEvent.click(getByRole('menuitem', { name: 'Export images' }));
     expect(queryByRole('menu')).toBeNull();
     expect(await findByRole('dialog', { name: 'Export pages as images' })).toBeTruthy();
+    // Nothing in the viewer's View toolbar opens a tool any more.
+    expect(queryByRole('button', { name: 'Properties' })).toBeNull();
   });
 });

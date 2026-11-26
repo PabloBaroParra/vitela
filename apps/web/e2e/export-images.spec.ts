@@ -6,16 +6,15 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type Download, type Locator, type Page } from '@playwright/test';
 import { cards, openOrganize, tool } from './organize';
-import { loadApp, openFixture } from './support';
+import { loadApp, openFixture, openTool, toolsButton } from './support';
 
 // Three US Letter pages (612 x 792 pt).
 const THREE_PAGES = 'compress/vector_only.pdf';
 
-const exportButton = (page: Page) => page.locator('.workspace__bar').getByRole('button', { name: 'Export images', exact: true });
 const exportDialog = (page: Page) => page.getByRole('dialog', { name: 'Export pages as images' });
 
 async function openDialog(page: Page): Promise<Locator> {
-  await exportButton(page).click();
+  await openTool(page, 'Export images');
   const dialog = exportDialog(page);
   await expect(dialog).toBeVisible({ timeout: 30_000 });
   return dialog;
@@ -74,7 +73,7 @@ test('the current page exports as one PNG, sized by the DPI and named by the cor
   expect(pngSize(image!.bytes)).toEqual([1224, 1584]);
   await expect(exportDialog(page)).toHaveCount(0);
   await expect(page.getByText('Exported 1 page as PNG.')).toBeVisible();
-  await expect(exportButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
 });
 
 test('a range exports as one JPEG per page', async ({ page }) => {
@@ -132,6 +131,6 @@ test('a range the core cannot read and a resolution out of range are refused in 
 
   await page.keyboard.press('Escape');
   await expect(exportDialog(page)).toHaveCount(0);
-  await expect(exportButton(page)).toBeFocused();
+  await expect(toolsButton(page)).toBeFocused();
   expect(downloads).toBe(0);
 });

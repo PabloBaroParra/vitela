@@ -1,46 +1,34 @@
-// The Compress button, what the last compression did, and its dialog.
-// Presentational: the state lives in `useCompress`, owned by the workspace.
+// What the last compression did, and its dialog. It is opened from the
+// workspace's Tools menu. Presentational: the state lives in `useCompress`,
+// owned by the workspace.
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 import { focusShown } from '../../ui/focusShown';
 import { StatusLine } from '../../ui/StatusLine';
 import { CompressDialog } from './CompressDialog';
 import { compressStatus } from './compressText';
-import { compressBusy, type CompressActivity, type CompressSession } from './useCompress';
+import { type CompressActivity, type CompressSession } from './useCompress';
 
 interface CompressControlsProps {
   readonly session: CompressSession;
   readonly documentName: string;
-  /** Where the focus goes when the dialog closes while this button is not shown (a phone's More tools). */
-  readonly focusFallback?: () => void;
+  /** The Tools menu button that opened the dialog: it takes the focus back when the dialog closes. */
+  readonly trigger: RefObject<HTMLElement | null>;
 }
 
-export function CompressControls({ session, documentName, focusFallback }: CompressControlsProps) {
-  const { activity, open, select, cancel, compress } = session;
-  const busy = compressBusy(activity);
-  const button = useRef<HTMLButtonElement>(null);
+export function CompressControls({ session, documentName, trigger }: CompressControlsProps) {
+  const { activity, select, cancel, compress } = session;
 
   // The dialog gives the focus back when it goes away, whatever the answer.
   const wasChoosing = useRef(false);
   useEffect(() => {
     const choosing = activity.kind === 'choosing';
-    if (wasChoosing.current && !choosing) focusShown(button.current, focusFallback);
+    if (wasChoosing.current && !choosing) focusShown(trigger.current);
     wasChoosing.current = choosing;
-  }, [activity.kind, focusFallback]);
+  }, [activity.kind, trigger]);
 
   return (
     <>
-      {/* Not `disabled`: a disabled button drops the keyboard focus to the page. */}
-      <button
-        ref={button}
-        type="button"
-        className="compress-button"
-        title="Compress"
-        onClick={busy ? undefined : () => void open()}
-        aria-disabled={busy}
-      >
-        Compress
-      </button>
       <CompressStatus activity={activity} documentName={documentName} />
       {activity.kind === 'choosing' && (
         <CompressDialog

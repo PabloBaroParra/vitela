@@ -1,7 +1,5 @@
-// The viewer's toolbar: zoom buttons, the zoom level and the current page,
-// then what the caller adds (the Properties button). Presentational.
-
-import type { ReactNode } from 'react';
+// The viewer's toolbar: zoom buttons, the zoom level and the current page.
+// Presentational.
 
 interface ZoomControlsProps {
   readonly zoom: number;
@@ -12,11 +10,10 @@ interface ZoomControlsProps {
   readonly onFitWidth: () => void;
   readonly canZoomIn: boolean;
   readonly canZoomOut: boolean;
-  readonly children?: ReactNode;
 }
 
 export function ZoomControls(props: ZoomControlsProps) {
-  const { zoom, page, pageCount, onZoomIn, onZoomOut, onFitWidth, canZoomIn, canZoomOut, children } = props;
+  const { zoom, page, pageCount, onZoomIn, onZoomOut, onFitWidth, canZoomIn, canZoomOut } = props;
   return (
     <div className="viewer-toolbar" role="toolbar" aria-label="View">
       <button type="button" onClick={onZoomOut} disabled={!canZoomOut} aria-label="Zoom out">
@@ -30,7 +27,6 @@ export function ZoomControls(props: ZoomControlsProps) {
         Fit width
       </button>
       <span className="viewer-toolbar__page" aria-live="polite">{`Page ${page} of ${pageCount}`}</span>
-      {children}
     </div>
   );
 }

@@ -4,8 +4,9 @@ import { EngineError, type Engine, type ProtectionPasswords } from '@vitela/core
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
 import type { DeliverRequest, Delivery } from '../save/delivery';
+import { useRef } from 'react';
 import { ProtectControls } from './ProtectControls';
-import { useProtect } from './useProtect';
+import { protectBusy, useProtect } from './useProtect';
 
 const document: OpenDocument = {
   name: 'a.pdf',
@@ -90,15 +91,23 @@ function Harness({
   engine,
   delivery,
   settle,
-  focusFallback,
 }: {
   engine: Engine;
   delivery: Delivery;
   settle?: () => Promise<unknown>;
-  focusFallback?: () => void;
 }) {
   const session = useProtect(engine, document, delivery, settle);
-  return <ProtectControls session={session} documentName={document.name} focusFallback={focusFallback} />;
+  const trigger = useRef<HTMLButtonElement>(null);
+  const busy = protectBusy(session.activity);
+  // Stands in for the Tools menu's entry, which the workspace wires the same way.
+  return (
+    <>
+      <button ref={trigger} type="button" aria-disabled={busy} onClick={busy ? undefined : () => void session.open()}>
+        Protect
+      </button>
+      <ProtectControls session={session} documentName={document.name} trigger={trigger} />
+    </>
+  );
 }
 
 const protectButton = () => screen.getByRole('button', { name: 'Protect' });
@@ -221,19 +230,12 @@ describe('ProtectControls', () => {
     expect(delivered).toEqual([]);
   });
 
-  it('gives the focus back to Protect, or to the fallback when Protect is not shown', async () => {
+  it('gives the focus back to what opened it (the Tools menu button)', async () => {
     const { engine } = protectEngine();
-    let fallback = 0;
-    render(<Harness engine={engine} delivery={recording().delivery} focusFallback={() => void fallback++} />);
+    render(<Harness engine={engine} delivery={recording().delivery} />);
     fireEvent.click(protectButton());
     fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(protectButton()).toBe(window.document.activeElement);
-
-    Object.defineProperty(protectButton(), 'checkVisibility', { value: () => false });
-    fireEvent.click(protectButton());
-    fireEvent.click(within(await dialog()).getByRole('button', { name: 'Cancel' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(fallback).toBe(1);
   });
 });

@@ -130,6 +130,15 @@ export function documentInfo(bytes: Buffer): Record<string, string> {
   return keys;
 }
 
+/**
+ * How many times `needle` appears in the saved file, its Flate streams
+ * inflated: a watermark's text shown by `Tj` on each page it stamped, or the
+ * image name each of them paints with `Do`.
+ */
+export function occurrences(bytes: Buffer, needle: string): number {
+  return texts(bytes).reduce((count, text) => count + text.split(needle).length - 1, 0);
+}
+
 /** The dictionary of object `number` when it lives in an object stream (`/Type /ObjStm`). */
 function objectStreamMember(bytes: Buffer, number: number): string | null {
   const file = bytes.toString('latin1');

@@ -140,6 +140,16 @@ export interface EditedDocument {
    * undo or a page move can change them.
    */
   readonly formFields: readonly FormField[];
+  /**
+   * Which repaint of the pages in place the history stands at: the newest
+   * page-content step still applied (a watermark), 0 for the file as opened.
+   * A page with the same id and turn shows the same pixels at the same
+   * revision, so a viewer that keeps bitmaps by page adds it to its key: a
+   * stamp, its undo and its redo paint the pages again, a page move or an
+   * annotation does not. Absent from an engine that does not track it (read
+   * it as 0).
+   */
+  readonly paintRevision?: number;
 }
 
 /** A colour, each channel 0-255. */
@@ -247,8 +257,55 @@ export interface MetadataEdit {
   readonly properties: DocumentProperties;
 }
 
+/**
+ * What a watermark paints: a line of text in Helvetica (the core's grey;
+ * `fontSize` in points), or a PNG or JPEG fitted, aspect kept, inside each
+ * page's visible box shrunk by `scale` (`0` exclusive to `1`).
+ */
+export type WatermarkMark =
+  | { readonly kind: 'text'; readonly text: string; readonly fontSize: number }
+  | { readonly kind: 'picture'; readonly image: Uint8Array; readonly scale: number };
+
+/**
+ * Stamps the same mark on every page `pages` names (0-based positions), as
+ * one undo step: page content, painted into each page's content stream by
+ * the next save and shown by the pixels at once. The pages are resolved
+ * once, so the stamp stays on them through a later reorder. `opacity` is
+ * `0` exclusive to `1`, `rotationDegrees` counter-clockwise, `behind` paints
+ * it under the page's content. Rejects with `EditNotPermitted` (or
+ * `UnsupportedOperation`) as `watermarkRefusal` says, then
+ * `PageIndexOutOfBounds`, `EncodingGap` for a character Helvetica cannot
+ * show, `InvalidImage` for bytes that are not a picture, or
+ * `UnsupportedOperation` for blank text, a repeated page or a look outside
+ * the core's ranges.
+ */
+export interface WatermarkEdit {
+  readonly kind: 'addWatermark';
+  readonly pages: readonly number[];
+  readonly mark: WatermarkMark;
+  readonly opacity: number;
+  readonly rotationDegrees: number;
+  readonly behind: boolean;
+}
+
+/**
+ * The looks the core starts every shell's first stamp from: a large grey
+ * diagonal over the content for text, an upright half-page picture behind
+ * it. Opacities and the scale are `0..1`.
+ */
+export interface WatermarkDefaults {
+  readonly fontSize: number;
+  readonly textOpacity: number;
+  readonly textRotationDegrees: number;
+  readonly textBehind: boolean;
+  readonly pictureScale: number;
+  readonly pictureOpacity: number;
+  readonly pictureRotationDegrees: number;
+  readonly pictureBehind: boolean;
+}
+
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -611,6 +668,15 @@ export interface Engine {
    * (the gate the native shells ask). Ask before offering to edit.
    */
   metadataRefusal(document: DocumentHandle): Promise<string | null>;
+  /** The core's starting looks for a text and a picture watermark. */
+  watermarkDefaults(): Promise<WatermarkDefaults>;
+  /**
+   * Why no watermark can be stamped on `document`, as the core's lower-case
+   * clause, or `null` when one can: its permissions withhold modification,
+   * or its encryption cannot survive the rewrite a stamp forces (the gate
+   * the native shells ask). Ask before offering to stamp.
+   */
+  watermarkRefusal(document: DocumentHandle): Promise<string | null>;
   /**
    * Why `document` cannot be protected, as the core's lower-case clause, or
    * `null` when it can (today only a document whose permissions withhold
