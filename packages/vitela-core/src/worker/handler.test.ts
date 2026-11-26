@@ -56,6 +56,9 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     openImageExport: async () => ({ handle: 9, pageCount: 3 }),
     exportPageImage: async () => new Uint8Array([0x89, 0x50]),
     closeImageExport: async () => true,
+    protectionRefusal: async () => null,
+    protectionInvalidatesSignatures: async () => false,
+    protectToBytes: async () => new Uint8Array(0),
     ...overrides,
   };
 }
@@ -249,6 +252,56 @@ describe('handleRequest', () => {
       message: { type: 'result', id: 6, value: compressed },
       transfer: [compressed.bytes.buffer],
     });
+  });
+
+  it('answers the protect questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      protectionRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+      protectionInvalidatesSignatures: async (document) => (calls.push(['signed', document]), true),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'protectionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: 'no' },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 2, request: { kind: 'protectionInvalidatesSignatures', document: 5 } }),
+    ).toEqual({ message: { type: 'result', id: 2, value: true }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+    ]);
+  });
+
+  it('answers a protect request with the protected PDF, transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const engine = fakeEngine({ protectToBytes: async (...args) => (calls.push(args), bytes) });
+    const reply = await handleRequest(engine, {
+      id: 7,
+      request: { kind: 'protect', document: 5, openPassword: 'o', permissionsPassword: 'p', invalidateSignatures: true },
+    });
+    expect(calls).toEqual([[5, { openPassword: 'o', permissionsPassword: 'p' }, true]]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('forwards InvalidPasswords by name, and its reply carries no password', async () => {
+    const engine = fakeEngine({
+      protectToBytes: async () => {
+        throw Object.assign(new Error('the open and permissions passwords must be different'), { name: 'InvalidPasswords' });
+      },
+    });
+    const reply = await handleRequest(engine, {
+      id: 8,
+      request: { kind: 'protect', document: 5, openPassword: 'secret-1', permissionsPassword: 'secret-1', invalidateSignatures: false },
+    });
+    expect(reply.message).toEqual({
+      type: 'error',
+      id: 8,
+      name: 'InvalidPasswords',
+      message: 'the open and permissions passwords must be different',
+    });
+    expect(JSON.stringify(reply)).not.toContain('secret-1');
   });
 
   it('answers the image-export questions with what the engine says, copied', async () => {

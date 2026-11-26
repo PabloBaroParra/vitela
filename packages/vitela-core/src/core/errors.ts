@@ -19,6 +19,9 @@ export const FORM_FIELD_NOT_FOUND = 'FormFieldNotFound';
 /** A typed page selection (`"1-3,7"`) the core cannot read; the message is its sentence for the typist. */
 export const INVALID_PAGE_SELECTION = 'InvalidPageSelection';
 
+/** The two passwords of a new protection: one is missing, or both are the same; the message is the core's. */
+export const INVALID_PASSWORDS = 'InvalidPasswords';
+
 /** A failure reported by the engine, carrying the core's kind as `name`. */
 export class EngineError extends Error {
   constructor(name: string, message: string) {

@@ -465,6 +465,51 @@ turned in Organize and not saved exports landscape and stays unsaved and
 undoable; a range past the last page shows the core's sentence and 600 DPI the
 range refusal, with nothing downloaded.
 
+## Protect
+
+`features/protect/` (T-251), the native Protect commands' order: the gates,
+two passwords, then the protected file. **Protect**, next to Export images in
+both screens (in **More tools** on a phone), first asks the engine the two
+gates (`protectionRefusal` — a document whose permissions withhold
+modification, the Windows and Android gate — then, only when there is none,
+`protectionInvalidatesSignatures`) and opens **Protect with a password**: the
+PDF's two password roles, as on every shell — **Password to open the
+document** and **Permissions password**, which lifts the permissions — with
+no confirmation fields (none of the native shells has them). A refused
+document says why and offers only Cancel; a signed one warns that its
+signature will no longer verify and the button reads **Protect anyway**:
+confirming is the consent. A failed gate refuses rather than guessing.
+
+Every password rule is the core's (`pdf_save::protect`): the dialog sends what
+was typed and, when the core refuses (one missing, or both the same:
+`InvalidPasswords`), shows its sentence with the dialog still open and what
+was typed still there. The passwords live only in the dialog's own fields
+(`type="password"`, `autocomplete="new-password"`), never in React state; they
+cross to the worker in the one protect request and are kept nowhere, and the
+fields are emptied when the dialog goes. The run waits for the queued edits
+(like Save), then `protectToBytes`: AES-128, every permission granted, the
+unsaved edits in. The copy is always a new file, `<name>-protected.pdf`
+(`Placement` `newFile`: a download, or the host's `onSave`).
+
+**Not reopened in place.** The native shells reopen the protected file as the
+session (under both passwords). The web cannot: the copy is a download, not
+the file the session came from, so the open document — unprotected, with its
+unsaved edits and undo history — stays as it was, and the status says so. To
+work on the protected copy, open it: the app asks for its password, and either
+one opens it.
+
+E2E (`e2e/protect.spec.ts`, all three browsers): a page deleted in Organize and
+protected downloads as `vector_only-protected.pdf` with an `/Encrypt`, the edit
+still unsaved and undoable; the copy refuses a wrong password, opens with the
+open password (2 pages, painted, Organize's Delete enabled: every permission
+granted) and with the permissions password; a missing and a repeated password
+show the core's sentences with nothing downloaded, and the dialog forgets what
+was typed; a signed PDF asks and "Protect anyway" downloads a copy that opens;
+`aes_128_user_and_owner.pdf` opened with its user password (its `/P` withholds
+modification) is refused in the dialog. `e2e/phone-bar.spec.ts` checks Protect
+is hidden from the bar at 390 px, listed in More tools, its dialog fits, and
+the focus comes back to More tools.
+
 ## Organize
 
 `features/organize/`, reached with the **View / Organize** switch in the bar

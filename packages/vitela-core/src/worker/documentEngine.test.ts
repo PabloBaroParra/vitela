@@ -153,6 +153,8 @@ function fakeCore(
   const saves: [number, boolean][] = [];
   /** Every compressed save the core ran: document, preset, acknowledgement. */
   const compressions: [number, string, boolean][] = [];
+  /** Every protected save the core ran: document, both passwords, acknowledgement. */
+  const protections: [number, string, string, boolean][] = [];
   /** Open image exports: id -> the marker and page ids of the document at the moment it was opened. */
   const exports = new Map<number, { marker: number; ids: number[] }>();
   let nextExport = 50;
@@ -346,6 +348,16 @@ function fakeCore(
         : undefined;
     },
     compressionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
+    protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
+      const { marker, pages } = known(doc);
+      if (!openPassword || !permissionsPassword) throw named('InvalidPasswords', 'both open and permissions passwords are required');
+      if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
+      protections.push([doc, openPassword, permissionsPassword, invalidate]);
+      // One byte per page, after the marker: the protected copy of what the session holds now.
+      return new Uint8Array([marker, ...pages.map((page) => page.id)]);
+    },
     // Over 400 DPI the first asked page is too large, like a Letter page at 600.
     firstPageTooLargeToExport: (doc, pages, dpi) => (known(doc), dpi > 400 ? pages[0] : undefined),
     openImageExport: (doc) => {
@@ -569,7 +581,7 @@ function fakeCore(
       };
     },
   };
-  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, exports };
+  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, protections, exports };
 }
 
 describe('documentEngine', () => {
@@ -669,6 +681,66 @@ describe('documentEngine', () => {
       engine.compressionRefusal(handle),
       engine.compressionInvalidatesSignatures(handle),
       engine.saveCompressedToBytes(handle, 'lossless', false),
+    ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it('asks the protect gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.protectionRefusal(handle)).toBeNull();
+    expect(await engine.protectionInvalidatesSignatures(handle)).toBe(false);
+
+    const restricted = fakeCore({ restricted: true, signed: true });
+    const other = documentEngine(restricted.core, geometry, restricted.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.protectionRefusal(opened.handle)).toBe('this document does not permit protection changes');
+    expect(await other.protectionInvalidatesSignatures(opened.handle)).toBe(true);
+  });
+
+  it('protects the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, protections, refreshed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const bytes = await engine.protectToBytes(handle, { openPassword: 'o', permissionsPassword: 'p' }, false);
+    expect(protections).toEqual([[handle, 'o', 'p', false]]);
+    expect(bytes).toEqual(new Uint8Array([10, ...removed.info.pageIds]));
+    expect(refreshed.length).toBe(refreshes);
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+  });
+
+  it("passes the signature acknowledgement and forwards the core's refusals by name", async () => {
+    const { core, edits, protections } = fakeCore({ signed: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const passwords = { openPassword: 'o', permissionsPassword: 'p' };
+    await expect(engine.protectToBytes(handle, passwords, false)).rejects.toMatchObject({
+      name: 'SignaturesWouldBeInvalidated',
+    });
+    await expect(engine.protectToBytes(handle, { openPassword: '', permissionsPassword: 'p' }, true)).rejects.toMatchObject({
+      name: 'InvalidPasswords',
+      message: 'both open and permissions passwords are required',
+    });
+    await engine.protectToBytes(handle, passwords, true);
+    expect(protections).toEqual([[handle, 'o', 'p', true]]);
+  });
+
+  it('refuses every protect request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [
+      engine.protectionRefusal(handle),
+      engine.protectionInvalidatesSignatures(handle),
+      engine.protectToBytes(handle, { openPassword: 'o', permissionsPassword: 'p' }, false),
     ]) {
       await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
     }

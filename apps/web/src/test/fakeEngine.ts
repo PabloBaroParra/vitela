@@ -38,6 +38,9 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     openImageExport: unused('openImageExport'),
     exportPageImage: unused('exportPageImage'),
     closeImageExport: unused('closeImageExport'),
+    protectionRefusal: unused('protectionRefusal'),
+    protectionInvalidatesSignatures: unused('protectionInvalidatesSignatures'),
+    protectToBytes: unused('protectToBytes'),
     ...overrides,
   };
 }

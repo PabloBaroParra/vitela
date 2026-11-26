@@ -141,6 +141,7 @@ mod export;
 mod form;
 mod import;
 mod preview;
+mod protect;
 
 pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
@@ -155,6 +156,7 @@ pub use export::{
 };
 pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
+pub use protect::PROTECTION_FORBIDDEN;
 
 // Declared at file level, not inside `mod tests`: there the path would be
 // resolved through `src/model/tests/`, a directory that does not exist, which

@@ -212,6 +212,45 @@
   margin: 12px 0 0;
 }
 
+/* Protect with a password: the two password roles, the refusal or the signature warning. */
+.protect-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.protect-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.protect-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.protect-dialog__detail {
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.protect-dialog__refusal,
+.protect-dialog__signed,
+.protect-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.protect-dialog__signed,
+.protect-dialog__error {
+  margin: 12px 0 0;
+}
+
 /* Export pages as images: pages, format, resolution, and the last refusal. */
 .export-dialog {
   width: min(400px, calc(100vw - 32px));

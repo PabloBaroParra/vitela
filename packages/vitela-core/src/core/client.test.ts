@@ -217,6 +217,27 @@ describe('EngineClient', () => {
     await expect(compressed).resolves.toBe(document);
   });
 
+  it('sends the protect requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.protectionRefusal(4);
+    const signed = client.protectionInvalidatesSignatures(4);
+    const protectedBytes = client.protectToBytes(4, { openPassword: 'open-pw', permissionsPassword: 'perm-pw' }, true);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'protectionRefusal', document: 4 },
+      { kind: 'protectionInvalidatesSignatures', document: 4 },
+      { kind: 'protect', document: 4, openPassword: 'open-pw', permissionsPassword: 'perm-pw', invalidateSignatures: true },
+    ]);
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: null });
+    reply({ type: 'result', id: ids[1]!, value: true });
+    reply({ type: 'result', id: ids[2]!, value: bytes });
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(true);
+    await expect(protectedBytes).resolves.toBe(bytes);
+  });
+
   it('sends the image-export requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

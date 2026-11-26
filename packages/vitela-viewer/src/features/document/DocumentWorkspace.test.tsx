@@ -202,6 +202,41 @@ describe('DocumentWorkspace', () => {
     ]);
   });
 
+  it('offers Protect in the bar, delivering the protected copy where saves go after the queued edits', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const delivered: DeliverRequest[] = [];
+    const delivery: Delivery = {
+      prepare: async () => ({ kind: 'copy' }),
+      deliver: async (request) => (delivered.push(request), { how: 'delivered', name: request.name }),
+    };
+    const bytes = new Uint8Array([7]);
+    const protecting = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      protectionRefusal: async () => null,
+      protectionInvalidatesSignatures: async () => false,
+      protectToBytes: async () => bytes,
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={protecting} intro={(action) => action} initialScreen="organize" delivery={delivery} />,
+    );
+    openPdf(getByLabelText);
+    await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
+
+    fireEvent.click(getByRole('button', { name: 'Protect' }));
+    const dialog = await findByRole('dialog', { name: 'Protect with a password' });
+    fireEvent.change(getByLabelText('Password to open the document'), { target: { value: 'o' } });
+    fireEvent.change(getByLabelText('Permissions password'), { target: { value: 'p' } });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Saved two-protected.pdf, protected with a password. The open document is not protected.')).toBeTruthy();
+    expect(delivered).toEqual([{ bytes, name: 'two-protected.pdf', destination: { kind: 'newFile' } }]);
+  });
+
   it('also offers the document tools in a More tools menu, placed in the bar before Save', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
@@ -217,12 +252,13 @@ describe('DocumentWorkspace', () => {
     // DOM order is the order on screen at every width: the menu sits where the tools do, before Save.
     const bar = more.closest('.workspace__bar')!;
     const order = [...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
-    expect(order.indexOf('More tools')).toBeGreaterThan(order.indexOf('Export images'));
+    expect(order.indexOf('Protect')).toBeGreaterThan(order.indexOf('Export images'));
+    expect(order.indexOf('More tools')).toBeGreaterThan(order.indexOf('Protect'));
     expect(order.indexOf('More tools')).toBeLessThan(order.indexOf('Save'));
 
     fireEvent.click(more);
     const menu = getByRole('menu', { name: 'More tools' });
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Compress', 'Export images']);
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Compress', 'Export images', 'Protect']);
     fireEvent.click(getByRole('menuitem', { name: 'Export images' }));
     expect(queryByRole('menu')).toBeNull();
     expect(await findByRole('dialog', { name: 'Export pages as images' })).toBeTruthy();

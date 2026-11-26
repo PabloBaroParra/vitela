@@ -2158,7 +2158,7 @@ Gates (Windows 11, local):
 |---|---|---|
 | **T-249** | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
 | **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
-| **T-251** | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
+| **T-251** ✓ | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
 | **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
 | **T-253** | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
 | **T-254** | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
@@ -2390,6 +2390,97 @@ nombres y `encode_rgba_image`, y `pdf_render` el techo de raster. Lo que condici
     12 de `ExportImagesControls`, el de `documentEngine`, el de foco de Compress y los
     `wasm-bindgen-test` (por no compilar); los dos Playwright de foco nuevos no se vieron
     en rojo por separado.
+
+### T-251 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Protect"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Ninguna regla nueva en el core: T-249 ya dejó en `pdf_save::protect` las dos
+contraseñas, AES-128 con `GRANTED_PROTECTION_PERMISSIONS` y la pregunta de firmas. Lo que
+condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/protect.rs`, `engine/protect.rs`): `protectionRefusal(doc)` → frase o
+  `undefined`, `protectionInvalidatesSignatures(doc)` y `protectToBytes(doc, openPassword,
+  permissionsPassword, invalidateSignatures)` → bytes, sobre un `SaveSource` como el de
+  `pdf-ffi` (`with_save_source`, nuevo en `model/edit.rs`; `with_save_input` pasa a usarlo), con
+  las ediciones pendientes. **La puerta de permiso vive en Rust**, no en TS: la de Windows y
+  Android (`content_editing_is_allowed`, el bit de modificar contenido; un propietario siempre
+  pasa), con la frase de los nativos ("this document does not permit protection changes");
+  `protectToBytes` la repite (`EditNotPermitted`). Tipo de error nuevo **`InvalidPasswords`**
+  para `ProtectError::MissingPassword`/`SamePasswords` con la frase del core (en `pdf-ffi` son
+  `InvalidSaveRequest`); `ProtectError::Save` conserva los tipos del guardado. Sin DTO: cruzan
+  texto, booleano y bytes.
+- **Documento ya cifrado:** como Windows y Android, decide el permiso de modificar, no el
+  cifrado. `aes_128_user_and_owner.pdf` con su contraseña de usuario (su `/P` no permite
+  modificar) se rechaza en el diálogo; con la de propietario, o un PDF cifrado que sí permite
+  modificar, se protege con las contraseñas nuevas (tests nativos). GTK pregunta además
+  `full_rewrite_refusal`; con un contexto nuevo completo el core no lo necesita, así que no se
+  añade.
+- **`@vitela/core`:** `Engine` gana `protectionRefusal`, `protectionInvalidatesSignatures` y
+  `protectToBytes(handle, { openPassword, permissionsPassword }, invalidateSignatures)` (un
+  objeto, para que las dos contraseñas no se crucen de sitio; los bytes transferidos). Tipo
+  `ProtectionPasswords` y constante `INVALID_PASSWORDS` exportados. Las contraseñas viajan en
+  la única petición `protect` y no se guardan en ningún lado; ni el cliente ni el worker
+  registran nada (un test comprueba que la respuesta de error no las lleva).
+- **`@vitela/viewer` (`features/protect/`):** puro con tests `protectText.ts`
+  (`<nombre>-protected.pdf` como Android, línea de estado); contenedor `useProtect`; vistas
+  `ProtectDialog` (`ModalShell`: los dos campos con `type="password"` y
+  `autocomplete="new-password"`, textos de Android) y `ProtectControls`. **El orden de los
+  nativos:** las dos preguntas al abrir (la de firmas solo si no hay rechazo; si falla, rechaza
+  en vez de suponer "sin firmar"), las contraseñas y la copia. **Ninguna regla de contraseñas
+  en TS:** el diálogo manda lo tecleado y, si el core lo rechaza (`InvalidPasswords`), muestra
+  su frase con el diálogo abierto y lo tecleado intacto (Android y Windows comprueban antes del
+  selector de archivo porque lo tienen; la web no tiene selector, así que la respuesta del core
+  llega antes de escribir nada). Sin campos de confirmación: ningún shell nativo los tiene.
+  **Contraseñas fuera del estado de React:** viven en los campos (no controlados) del diálogo,
+  salen solo en la llamada, y los campos se vacían al desmontarse. Con firmas el botón dice
+  "Protect anyway" y confirmar es el consentimiento. Espera a la cola de ediciones como Save.
+  Botón en la barra tras Export images y entrada **Protect** en **More tools** (oculto en
+  teléfono como los otros dos).
+- **No se reabre en sitio (diferencia con los nativos):** Android, Windows y GTK reabren el
+  archivo protegido como sesión con las dos contraseñas. En la web la copia es una descarga
+  (`newFile`), no el archivo de la sesión, así que el documento abierto sigue sin proteger, con
+  sus ediciones y su historial, y la línea de estado lo dice ("The open document is not
+  protected."). Para trabajar sobre la copia se abre: la app pide su contraseña y cualquiera de
+  las dos la abre (el `open` de la web solo admite una; la de permisos abre como propietario).
+- **Tests:** `pdf-wasm` 7 nativos nuevos (`model/protect.rs`) y 4 `wasm-bindgen-test`
+  (`tests/protect.rs`); `@vitela/core` 9 Vitest nuevos, uno contra pdfium real
+  (`vector_only.pdf` con una página borrada sin guardar → copia cifrada que pide contraseña, abre
+  con cada una con 2 páginas y todos los permisos, contraseñas iguales rechazadas con la frase
+  del core, el borrado aún se deshace); `@vitela/viewer` 12 nuevos (4 de `protectText`, 7 de
+  `ProtectControls`, 1 del workspace; y el del menú ahora espera tres entradas). Vistos en rojo
+  antes de implementar: los de Rust (por no compilar), los 8 de `client`/`handler`/
+  `documentEngine` y los de `features/protect/` (sin módulo) y del workspace (2 fallando). Los
+  `wasm-bindgen-test` y el de pdfium real se escribieron antes que su código pero no se vieron
+  en rojo por separado.
+- **E2E (`e2e/protect.spec.ts`, 4 × 3):** borrar una página en Organize y proteger descarga
+  `vector_only-protected.pdf` (empieza por `%PDF-`, lleva `/Encrypt`), el foco vuelve a Protect
+  y el borrado sigue sin guardar y deshacible; la copia rechaza una contraseña equivocada, abre
+  con la de apertura (2 páginas, pintada, Delete de Organize activo: todos los permisos) y con
+  la de permisos; contraseña ausente y repetida muestran las frases del core sin ninguna
+  descarga, y al reabrir el diálogo los campos están vacíos; firmado → aviso, Cancel, y
+  "Protect anyway" descarga una copia que abre con su contraseña;
+  `aes_128_user_and_owner.pdf` con la contraseña de usuario → alerta, Protect y los campos
+  desactivados, foco en Cancel, Escape lo devuelve a Protect. **`e2e/phone-bar.spec.ts`
+  (+1 × 3), a 390 × 600:** Protect oculto en la barra, el menú lista Compress, Export images y
+  Protect, el diálogo cabe en la pantalla con el foco en el primer campo y Cancel devuelve el
+  foco a More tools; la barra sigue en una fila.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test --locked -p pdf-wasm` 113 pasan. `@vitela/core`: `build:wasm`, `typecheck`,
+  Vitest 15 / 186. `@vitela/viewer`: `tsc -b`, Vitest 81 / 804. `apps/web`: `typecheck`,
+  Vitest 6 / 19, `build`; Playwright `protect` + `phone-bar` en los tres navegadores 24 / 24;
+  Playwright completo (Chromium, Firefox, WebKit, con `CI=1` para no reutilizar un servidor
+  ajeno) **247 pasan, 20 omitidos** (los de File System Access fuera de Chromium),
+  `zero-network` y `phone-bar` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** la herramienta `/protect` de la portada sigue en `web: false`,
+  igual que `/compress` y `/pdf-to-image`; sin editor de restricciones (`/P` siempre
+  abierto, como en todos los shells); sin lector de pantalla real.
 
 ## Verificación
 

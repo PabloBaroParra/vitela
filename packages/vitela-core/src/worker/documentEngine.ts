@@ -19,7 +19,8 @@
 // and its undo and redo, refresh inside the request like a page edit.
 //
 // A compressed save is not a step at all: it records nothing and refreshes
-// nothing, like an ordinary save. Neither is an image export: it draws from
+// nothing, like an ordinary save, and so is a protected copy (its passwords
+// go to the core and are kept nowhere). Neither is an image export: it draws from
 // its own snapshot of what a save would write, which the core keeps apart
 // from the document, so the preview and the history are left alone.
 
@@ -42,6 +43,7 @@ import type {
   PagePoint,
   PageSize,
   PreparedImport,
+  ProtectionPasswords,
   RenderedPage,
 } from '../core/types.js';
 import {
@@ -98,6 +100,10 @@ export interface CoreEngine extends CoreText {
   compressionRefusal(doc: number): CoreCompressRefusal | null | undefined;
   compressionInvalidatesSignatures(doc: number): boolean;
   saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
+  /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
+  protectionRefusal(doc: number): string | null | undefined;
+  protectionInvalidatesSignatures(doc: number): boolean;
+  protectToBytes(doc: number, openPassword: string, permissionsPassword: string, invalidateSignatures: boolean): Uint8Array;
   /** `undefined` (wasm-bindgen's `None`) when every page fits. */
   firstPageTooLargeToExport(doc: number, pages: Uint32Array, dpi: number): number | null | undefined;
   /** The export's snapshot: its id (its own namespace, not a document id) and page count. */
@@ -285,6 +291,18 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     async saveCompressedToBytes(document: DocumentHandle, preset: CompressPreset, invalidateSignatures: boolean) {
       assertOpen(document);
       return compressedDocument(core.saveCompressedToBytes(document, preset, invalidateSignatures));
+    },
+    async protectionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.protectionRefusal(document) ?? null;
+    },
+    async protectionInvalidatesSignatures(document: DocumentHandle) {
+      assertOpen(document);
+      return core.protectionInvalidatesSignatures(document);
+    },
+    async protectToBytes(document: DocumentHandle, passwords: ProtectionPasswords, invalidateSignatures: boolean) {
+      assertOpen(document);
+      return core.protectToBytes(document, passwords.openPassword, passwords.permissionsPassword, invalidateSignatures);
     },
     async imageExportFormats() {
       return imageExportFormats(functions.imageExportFormats());

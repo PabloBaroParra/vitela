@@ -56,6 +56,9 @@ pub enum ErrorKind {
     /// A typed page selection (`"1-3,7"`) the core cannot read. The message
     /// is the core's sentence for the person who typed it.
     InvalidPageSelection,
+    /// The two passwords of a new protection cannot be used: one is missing,
+    /// or both are the same. The message is the core's.
+    InvalidPasswords,
 }
 
 impl ErrorKind {
@@ -80,6 +83,7 @@ impl ErrorKind {
             Self::EncodingGap => "EncodingGap",
             Self::FormFieldNotFound => "FormFieldNotFound",
             Self::InvalidPageSelection => "InvalidPageSelection",
+            Self::InvalidPasswords => "InvalidPasswords",
         }
     }
 }
@@ -158,6 +162,18 @@ impl From<pdf_save::SaveError> for EngineError {
             _ => ErrorKind::SaveFailed,
         };
         Self::new(kind, err.to_string())
+    }
+}
+
+impl From<pdf_save::ProtectError> for EngineError {
+    /// A protection the core refused: the two passwords are their own kind
+    /// (`pdf-ffi` reports them as `InvalidSaveRequest`, with the same
+    /// message), and a failed save keeps the save's kinds.
+    fn from(err: pdf_save::ProtectError) -> Self {
+        match err {
+            pdf_save::ProtectError::Save(err) => err.into(),
+            refused => Self::new(ErrorKind::InvalidPasswords, refused.to_string()),
+        }
     }
 }
 
