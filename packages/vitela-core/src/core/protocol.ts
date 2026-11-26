@@ -12,6 +12,9 @@ import type {
   DocumentHandle,
   DocumentProperties,
   WatermarkDefaults,
+  PageContent,
+  TextBlock,
+  TextRunStyle,
   ImageExport,
   ImageExportFormat,
   ImageExportHandle,
@@ -87,6 +90,18 @@ export type EngineRequest =
     }
   | { readonly kind: 'documentProperties'; readonly document: DocumentHandle }
   | { readonly kind: 'metadataRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'contentEditingRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'readPageContent'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'readTextBlocks'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'readParagraphBlocks'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | {
+      readonly kind: 'textRunStyle';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
+  | { readonly kind: 'pageFontFamilies'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'contentBaseGeneration'; readonly document: DocumentHandle }
   | { readonly kind: 'watermarkDefaults' }
   | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
@@ -153,6 +168,13 @@ export interface EngineResults {
   saveCompressed: CompressedDocument;
   documentProperties: DocumentProperties;
   metadataRefusal: string | null;
+  contentEditingRefusal: string | null;
+  readPageContent: PageContent;
+  readTextBlocks: TextBlock[];
+  readParagraphBlocks: TextBlock[];
+  textRunStyle: TextRunStyle | null;
+  pageFontFamilies: Record<string, string>;
+  contentBaseGeneration: number;
   watermarkDefaults: WatermarkDefaults;
   watermarkRefusal: string | null;
   protectionRefusal: string | null;

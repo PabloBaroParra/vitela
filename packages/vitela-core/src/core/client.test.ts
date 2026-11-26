@@ -238,6 +238,37 @@ describe('EngineClient', () => {
     await expect(protectedBytes).resolves.toBe(bytes);
   });
 
+  it('sends the page-content requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.contentEditingRefusal(4);
+    const content = client.readPageContent(4, 1);
+    const lines = client.readTextBlocks(4, 1);
+    const paragraphs = client.readParagraphBlocks(4, 1);
+    const style = client.textRunStyle(4, 1, 7);
+    const fonts = client.pageFontFamilies(4, 1);
+    const generation = client.contentBaseGeneration(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'contentEditingRefusal', document: 4 },
+      { kind: 'readPageContent', document: 4, pageIndex: 1 },
+      { kind: 'readTextBlocks', document: 4, pageIndex: 1 },
+      { kind: 'readParagraphBlocks', document: 4, pageIndex: 1 },
+      { kind: 'textRunStyle', document: 4, pageIndex: 1, runId: 7 },
+      { kind: 'pageFontFamilies', document: 4, pageIndex: 1 },
+      { kind: 'contentBaseGeneration', document: 4 },
+    ]);
+    const page = { runs: [], images: [], paths: [] };
+    const values: EngineResults[keyof EngineResults][] = [null, page, [], [], null, { F1: 'Helvetica' }, 2];
+    sent.forEach(({ message }, index) => reply({ type: 'result', id: message.id, value: values[index] }));
+    await expect(refusal).resolves.toBeNull();
+    await expect(content).resolves.toEqual(page);
+    await expect(lines).resolves.toEqual([]);
+    await expect(paragraphs).resolves.toEqual([]);
+    await expect(style).resolves.toBeNull();
+    await expect(fonts).resolves.toEqual({ F1: 'Helvetica' });
+    await expect(generation).resolves.toBe(2);
+  });
+
   it('sends the watermark requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

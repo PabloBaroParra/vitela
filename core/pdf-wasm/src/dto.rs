@@ -13,6 +13,7 @@ use crate::model::PageSize;
 
 mod annotation;
 mod compress;
+mod content;
 mod export;
 mod extract;
 mod form;
@@ -22,6 +23,10 @@ mod watermark;
 
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
 pub use compress::{CompressRefusalEntry, CompressedSave};
+pub use content::{
+    ContentImageEntry, ContentPathEntry, ContentRunEntry, PageContentEntry, TextBlockEntry,
+    TextLineEntry, TextRunStyleEntry,
+};
 pub use export::OpenedImageExport;
 pub use extract::SplitPart;
 pub use form::FormFieldEntry;

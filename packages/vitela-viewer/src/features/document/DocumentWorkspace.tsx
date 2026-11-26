@@ -25,6 +25,7 @@ import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
 import { PropertiesControls } from '../properties/PropertiesControls';
 import { propertiesBusy, useDocumentProperties } from '../properties/useDocumentProperties';
+import { useContentGate } from '../content/useContentMode';
 import { WatermarkControls } from '../watermark/WatermarkControls';
 import { useWatermark, watermarkBusy } from '../watermark/useWatermark';
 import { MenuButton } from '../../ui/MenuButton';
@@ -152,6 +153,25 @@ export function DocumentWorkspace({
     currentPage: readCurrentPage,
     pageCountNow,
   });
+  // "Edit content" is a mode of the viewer, turned on and off from Tools
+  // (the viewer's toolbars have no room for its button). The gate is asked
+  // once per document: a refused one keeps the item, off, with the core's
+  // sentence. A new document, or Organize, turns the mode off.
+  const contentGate = useContentGate(engine, document?.handle ?? null);
+  const [contentFor, setContentFor] = useState<number | null>(null);
+  const contentEditing = contentFor === document?.generation && screen === 'view' && contentGate.status === 'allowed';
+  const toggleContentEditing = useCallback(() => {
+    setScreen('view');
+    setContentFor(contentEditing ? null : (document?.generation ?? null));
+  }, [contentEditing, document?.generation]);
+  const endContentEditing = useCallback(() => {
+    setContentFor(null);
+    toolsButton.current?.focus({ preventScroll: true });
+  }, []);
+  const changeScreen = useCallback((next: DocumentScreen) => {
+    setScreen(next);
+    if (next !== 'view') setContentFor(null);
+  }, []);
   const pageToolsBusy = extractBusy(extract.activity) || splitBusy(split.activity);
   const openExtract = extract.open;
   const openSplit = split.open;
@@ -186,7 +206,7 @@ export function DocumentWorkspace({
             {activity.kind === 'idle' && (
               <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
             )}
-            <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
+            <ViewSwitch views={SCREENS} current={screen} onChange={changeScreen} />
             {/* Opened from the Tools menu below: here are their status lines and dialogs. */}
             <CompressControls session={compress} documentName={document.name} trigger={toolsButton} />
             <ExportImagesControls session={exportImages} trigger={toolsButton} />
@@ -219,6 +239,13 @@ export function DocumentWorkspace({
                   disabled: propertiesBusy(properties.activity),
                   onSelect: () => void properties.open(),
                 },
+                {
+                  label: 'Edit content',
+                  checked: contentEditing,
+                  disabled: contentGate.status !== 'allowed',
+                  description: contentGate.status === 'refused' ? contentGate.reason : undefined,
+                  onSelect: toggleContentEditing,
+                },
               ]}
             />
             <SaveControls session={save} documentName={document.name} />
@@ -245,6 +272,8 @@ export function DocumentWorkspace({
                     document={document}
                     onEdited={revise}
                     onStampImage={keepStampImage}
+                    contentEditing={contentEditing}
+                    onContentEditingEnd={endContentEditing}
                   />
                 </ReportCurrentPageContext.Provider>
               ) : (

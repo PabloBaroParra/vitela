@@ -659,6 +659,47 @@ Helvetica cannot show and a range past the end keep the dialog; a PDF whose
 thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
 390 px.
 
+## Edit content
+
+`features/content/` (T-258b), read-only for now: the mode the text, image and
+shape edits of T-259 on will live in. **Edit content** is the last item of
+**Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
+Organize it switches to the viewer). The viewer's toolbar rows have no room
+for a button of its own: at 1280 px the first row (View, Text) and the second
+(Draw, History, Annotations) are full, and at 390 px another row would push
+the pages down. The workspace asks the engine once per document whether the
+mode may be offered (`contentEditingRefusal`: the modify permission and the
+rewrite a content edit forces, then the text permission the reads are
+behind). A refused document keeps the item, `aria-disabled`, described by
+the core's sentence ("Content editing is not permitted."). While the mode is
+on a row under the toolbars holds its status and **Done** (which hands the
+focus back to Tools); switching to Organize or opening another document turns
+it off too.
+
+While it is on, a layer over each page has the pointer (no text selection,
+no annotation picking, the drawing tool back to Select): the text run, image
+or shape under it is outlined — runs solid blue, images dashed amber, shapes
+dotted green — and a press selects the smallest item under it (a run over a
+picture, a rule within 3 pt) and the status line, a polite live region,
+names it ("Text “…” selected on page 2.", "Image selected on
+page 1.", "Shape selected on page 1."; a run whose font does not say what all
+its characters are says it cannot be retyped). Escape on the pages lets the
+selection go; an edit that repaints the page does too.
+
+**Only the pages in view and one on each side are parsed** (the Linux shell
+froze parsing every page of a 1619-page file), each parse kept by page id,
+`paintRevision` and `contentBaseGeneration` and dropped once its page is out
+of reach, so memory follows the view, not the document.
+
+E2E (`e2e/edit-content.spec.ts`, all three browsers): a run under the
+pointer is outlined around the pointer, a press selects it and the status
+names its text, nothing is selected as text, Escape lets it go, the menu
+item reads checked and Done turns the mode off with the focus on Tools; zoomed out on a 30-page PDF only the pages in view and the next
+are parsed and every farther mounted page waits; the scan of the compress
+corpus outlines and selects an image; a PDF whose `/P` withholds
+modification keeps the item off with the core's sentence as its
+description.
+
 ## Organize
 
 `features/organize/`, reached with the **View / Organize** switch in the bar

@@ -398,6 +398,74 @@ function fakeCore(
     ),
     metadataRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit metadata changes' : undefined),
     watermarkRefusal: (doc) => (known(doc), options.restricted ? 'content editing is not permitted' : undefined),
+    contentEditingRefusal: (doc) => (known(doc), options.restricted ? 'content editing is not permitted' : undefined),
+    readPageContent: (doc, page) => {
+      readable(doc);
+      if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
+      const runs = [
+        { id: 0, page, bbox: new Float64Array([72, 700, 30, 12]), fontName: 'F1', fontKind: 'standard14', text: 'Hello', editable: true },
+        { id: 1, page, bbox: new Float64Array([72, 600, 30, 12]), fontName: 'F2', fontKind: 'oddKind', text: 'A\uFFFD', editable: false },
+      ];
+      return {
+        takeRuns: () => runs.map((run) => ({ ...run, free: () => freed.push(`run:${run.id}`) })),
+        takeImages: () => [
+          { id: 0, page, bbox: new Float64Array([72, 500, 100, 50]), inline: false, free: () => freed.push('image:0') },
+        ],
+        takePaths: () => [
+          { id: 0, page, bbox: new Float64Array([72, 400, 200, 0]), paint: 'stroke', free: () => freed.push('path:0') },
+        ],
+        free: () => freed.push('content'),
+      };
+    },
+    readTextBlocks: (doc) => (
+      readable(doc),
+      [
+        {
+          runIds: new Float64Array([0]),
+          bbox: new Float64Array([72, 700, 30, 12]),
+          text: 'Hello',
+          lines: [
+            { runIds: new Float64Array([0]), bbox: new Float64Array([72, 700, 30, 12]), text: 'Hello', free: () => freed.push('line') },
+          ],
+          leading: undefined,
+          alignment: 'left',
+          free: () => freed.push('block'),
+        },
+      ]
+    ),
+    readParagraphBlocks: (doc) => (
+      readable(doc),
+      [
+        {
+          runIds: new Float64Array([0, 1]),
+          bbox: new Float64Array([72, 600, 30, 112]),
+          text: 'Hello\nA',
+          lines: [],
+          leading: 14,
+          alignment: 'center',
+          free: () => freed.push('paragraph'),
+        },
+      ]
+    ),
+    textRunStyle: (doc, _page, runId) => {
+      readable(doc);
+      if (runId > 1) throw named('UnsupportedOperation', 'the page has no text run with that id now');
+      return runId === 1
+        ? undefined
+        : {
+            baseFont: 'Helvetica',
+            fontSize: 12,
+            fillRgb: new Float64Array([1, 0.5, 0]),
+            charSpacing: 0,
+            horizontalScale: 1,
+            bold: false,
+            italic: true,
+            renderMode: 0,
+            free: () => freed.push('style'),
+          };
+    },
+    pageFontFamilies: (doc) => (readable(doc), ['F1', 'Helvetica', 'F2', 'ABCDEF+Vera']),
+    contentBaseGeneration: (doc) => (known(doc), 3),
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
     protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
@@ -1717,6 +1785,90 @@ describe('documentEngine forms', () => {
     ).rejects.toMatchObject({ name: 'EditNotPermitted' });
     expect(core.canUndo(handle)).toBe(false);
     await expect(engine.watermarkRefusal(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('reads a page\'s content on the page as drawn, freeing every entry', async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.contentEditingRefusal(handle)).toBeNull();
+    expect(await engine.contentBaseGeneration(handle)).toBe(3);
+
+    const content = await engine.readPageContent(handle, 0);
+    expect(content.runs).toEqual([
+      {
+        kind: 'run',
+        id: 0,
+        pageIndex: 0,
+        rect: { left: 72, top: 80, width: 30, height: 12 },
+        fontName: 'F1',
+        fontKind: 'standard14',
+        text: 'Hello',
+        editable: true,
+      },
+      expect.objectContaining({ id: 1, fontKind: 'embeddedComposite', editable: false }),
+    ]);
+    expect(content.images).toEqual([
+      { kind: 'image', id: 0, pageIndex: 0, rect: { left: 72, top: 242, width: 100, height: 50 }, inline: false },
+    ]);
+    expect(content.paths).toEqual([
+      { kind: 'path', id: 0, pageIndex: 0, rect: { left: 72, top: 392, width: 200, height: 0 }, paint: 'stroke' },
+    ]);
+    expect(freed).toEqual(expect.arrayContaining(['run:0', 'run:1', 'image:0', 'path:0', 'content']));
+  });
+
+  it('reads lines, paragraphs, a style and the fonts as plain values', async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+
+    expect(await engine.readTextBlocks(handle, 0)).toEqual([
+      {
+        runIds: [0],
+        rect: { left: 72, top: 80, width: 30, height: 12 },
+        text: 'Hello',
+        lines: [{ runIds: [0], rect: { left: 72, top: 80, width: 30, height: 12 }, text: 'Hello' }],
+        leadingPt: null,
+        alignment: 'left',
+      },
+    ]);
+    const [paragraph] = await engine.readParagraphBlocks(handle, 0);
+    expect(paragraph).toMatchObject({ runIds: [0, 1], leadingPt: 14, alignment: 'center' });
+    expect(await engine.textRunStyle(handle, 0, 0)).toEqual({
+      baseFont: 'Helvetica',
+      fontSizePt: 12,
+      color: { r: 255, g: 128, b: 0 },
+      charSpacingPt: 0,
+      horizontalScale: 1,
+      bold: false,
+      italic: true,
+      renderMode: 0,
+    });
+    expect(await engine.textRunStyle(handle, 0, 1)).toBeNull();
+    await expect(engine.textRunStyle(handle, 0, 7)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.pageFontFamilies(handle, 0)).toEqual({ F1: 'Helvetica', F2: 'ABCDEF+Vera' });
+    expect(freed).toEqual(expect.arrayContaining(['block', 'line', 'paragraph', 'style']));
+  });
+
+  it("passes the content gates' refusals through by name", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.contentEditingRefusal(handle)).toBe('content editing is not permitted');
+    await expect(engine.readPageContent(handle, 0)).rejects.toMatchObject({ name: 'TextExtractionDenied' });
+    await expect(engine.readParagraphBlocks(handle, 0)).rejects.toMatchObject({ name: 'TextExtractionDenied' });
+    await expect(engine.readPageContent(handle, 4)).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+    await expect(engine.readPageContent(99, 0)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    await expect(engine.contentBaseGeneration(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('answers every step with the content base generation', async () => {
+    const { core, edits } = fakeCore({ pages: 2 });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'move', from: 0, count: 1, to: 1 });
+    expect(edited.contentBaseGeneration).toBe(3);
+    expect((await engine.undo(handle)).contentBaseGeneration).toBe(3);
   });
 
   it('records a properties change as one step, in the core order of its keys, null as absent', async () => {

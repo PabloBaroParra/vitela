@@ -55,6 +55,12 @@ export interface OpenDocument {
    */
   readonly paintRevision?: number;
   /**
+   * The engine's in-memory base the page-content reads are valid against, as
+   * the last edit, undo or redo reported it (see
+   * `EditedDocument.contentBaseGeneration`). Unset (0) until then.
+   */
+  readonly contentBaseGeneration?: number;
+  /**
    * The file each PDF added to this document came from, by the block source
    * id the import reported (the engine never sees a file name). Unset until
    * the first import.
@@ -216,6 +222,7 @@ export function useDocument(engine: Engine) {
               annotations: edited.annotations,
               formFields: edited.formFields,
               paintRevision: edited.paintRevision ?? 0,
+              contentBaseGeneration: edited.contentBaseGeneration ?? 0,
             },
           }
         : s,

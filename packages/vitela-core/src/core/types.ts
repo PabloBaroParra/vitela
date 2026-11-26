@@ -150,6 +150,104 @@ export interface EditedDocument {
    * it as 0).
    */
   readonly paintRevision?: number;
+  /**
+   * Which in-memory base the page-content items are read against: changes
+   * when the core writes the pending content edits into a new base (a
+   * checkpoint) or undo or redo steps across one. Every `PageContent` read
+   * before the change is stale. Absent from an engine that does not track
+   * it (read it as 0).
+   */
+  readonly contentBaseGeneration?: number;
+}
+
+/** How a text run's font is held: the 14 standard fonts, an embedded simple font, or a composite (CID) font. */
+export type ContentFontKind = 'standard14' | 'embeddedSimple' | 'embeddedComposite';
+
+/**
+ * One run of text a page paints, as the reader sees it (every pending
+ * content edit laid on). `id` is valid against the read it came from: read
+ * again after an edit, or when `contentBaseGeneration` changes.
+ */
+export interface ContentRun {
+  readonly kind: 'run';
+  readonly id: number;
+  readonly pageIndex: number;
+  /** On the page as drawn (top-left origin, `/Rotate` applied). */
+  readonly rect: PageRect;
+  /** The font's key in the page's resources (`F1`); its `/BaseFont` is in `pageFontFamilies`. */
+  readonly fontName: string;
+  readonly fontKind: ContentFontKind;
+  readonly text: string;
+  /** Whether its text decoded fully, so it could be retyped (the core's rule). */
+  readonly editable: boolean;
+}
+
+/** One image a page paints. */
+export interface ContentImage {
+  readonly kind: 'image';
+  readonly id: number;
+  readonly pageIndex: number;
+  readonly rect: PageRect;
+  /** Its samples sit in the content stream rather than in an XObject. */
+  readonly inline: boolean;
+}
+
+/** One vector path a page paints: a rule, a border, a shaded box. */
+export interface ContentPath {
+  readonly kind: 'path';
+  readonly id: number;
+  readonly pageIndex: number;
+  /** The geometry's box without the stroke's width: a hairline rule's is zero high. */
+  readonly rect: PageRect;
+  readonly paint: 'stroke' | 'fill' | 'fillAndStroke';
+}
+
+export type ContentItem = ContentRun | ContentImage | ContentPath;
+
+/** Everything one page paints, each kind in paint order. */
+export interface PageContent {
+  readonly runs: readonly ContentRun[];
+  readonly images: readonly ContentImage[];
+  readonly paths: readonly ContentPath[];
+}
+
+/** One line of a `TextBlock`. */
+export interface TextLine {
+  /** The member runs' ids, left to right. */
+  readonly runIds: readonly number[];
+  readonly rect: PageRect;
+  readonly text: string;
+}
+
+/** Runs a reader sees as one piece of text: one line, or a paragraph of stacked lines. */
+export interface TextBlock {
+  /** The member runs' ids, line by line from the top. */
+  readonly runIds: readonly number[];
+  readonly rect: PageRect;
+  /** The lines' text joined with a line break. */
+  readonly text: string;
+  readonly lines: readonly TextLine[];
+  /** The mean baseline-to-baseline distance in points; `null` for one line. */
+  readonly leadingPt: number | null;
+  readonly alignment: 'left' | 'center' | 'right';
+}
+
+/** How a run looks on its page (the core's reading of the file). */
+export interface TextRunStyle {
+  /** The font's `/BaseFont`, raw (`ABCDEF+Vera-Bold`); empty when it names none. */
+  readonly baseFont: string;
+  /** The size a reader sees, in points. */
+  readonly fontSizePt: number;
+  /** The fill colour. */
+  readonly color: Rgb;
+  /** Extra space after each glyph, in points. */
+  readonly charSpacingPt: number;
+  /** 1 is unscaled. */
+  readonly horizontalScale: number;
+  readonly bold: boolean;
+  readonly italic: boolean;
+  /** The text rendering mode: 0 fills, 2 fills and strokes (a faked bold). */
+  readonly renderMode: number;
 }
 
 /** A colour, each channel 0-255. */
@@ -668,6 +766,36 @@ export interface Engine {
    * (the gate the native shells ask). Ask before offering to edit.
    */
   metadataRefusal(document: DocumentHandle): Promise<string | null>;
+  /**
+   * Why an editor of `document`'s page content cannot be offered, as the
+   * core's lower-case sentence, or `null` when it can: the content edit's own
+   * gate (its permissions withhold modification, or its encryption cannot
+   * survive the full rewrite a content edit forces), then the text
+   * permission every content read is behind.
+   */
+  contentEditingRefusal(document: DocumentHandle): Promise<string | null>;
+  /**
+   * What page `pageIndex` paints — its text runs, images and vector paths —
+   * as the reader sees it, every pending content edit laid on. Parsed on
+   * every call (cache by page id, `paintRevision` and
+   * `contentBaseGeneration`). Rejects with `TextExtractionDenied` or
+   * `PageIndexOutOfBounds`.
+   */
+  readPageContent(document: DocumentHandle, pageIndex: number): Promise<PageContent>;
+  /** The text blocks on a page, one line each. Same refusals as `readPageContent`. */
+  readTextBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]>;
+  /** The text blocks on a page, stacked lines joined into paragraphs. Same refusals as `readPageContent`. */
+  readParagraphBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]>;
+  /**
+   * How run `runId` on a page looks, or `null` when the file cannot say (a
+   * run only a pending insertion added). Rejects with `UnsupportedOperation`
+   * for an id the page does not hold now, else as `readPageContent`.
+   */
+  textRunStyle(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunStyle | null>;
+  /** Each font a page declares, `/BaseFont` by resource name (raw). Same refusals as `readPageContent`. */
+  pageFontFamilies(document: DocumentHandle, pageIndex: number): Promise<Record<string, string>>;
+  /** The base every content read is valid against (see `EditedDocument.contentBaseGeneration`). */
+  contentBaseGeneration(document: DocumentHandle): Promise<number>;
   /** The core's starting looks for a text and a picture watermark. */
   watermarkDefaults(): Promise<WatermarkDefaults>;
   /**

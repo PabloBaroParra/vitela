@@ -176,4 +176,38 @@ describe('MenuButton', () => {
     );
     expect(document.activeElement).toBe(outside);
   });
+
+  it('shows a toggle as a menuitemcheckbox, and reads a refused one with its reason', () => {
+    const chosen: string[] = [];
+    render(
+      <MenuButton
+        label="Tools"
+        tools={[
+          { label: 'Compress', onSelect: () => chosen.push('Compress') },
+          { label: 'Edit content', checked: false, disabled: true, description: 'Content editing is not permitted.', onSelect: () => chosen.push('Edit content') },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Compress']);
+    const toggle = screen.getByRole('menuitemcheckbox', { name: 'Edit content' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(toggle.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Content editing is not permitted.');
+    fireEvent.click(toggle);
+    expect(chosen).toEqual([]);
+    expect(screen.getByRole('menu')).toBeTruthy();
+  });
+
+  it('chooses a toggle like an action, checked or not', () => {
+    const chosen: boolean[] = [];
+    render(<MenuButton label="Tools" tools={[{ label: 'Edit content', checked: true, onSelect: () => chosen.push(true) }]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Tools' }));
+    const toggle = screen.getByRole('menuitemcheckbox', { name: 'Edit content' });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    expect(toggle.getAttribute('aria-describedby')).toBeNull();
+    fireEvent.click(toggle);
+    expect(chosen).toEqual([true]);
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });

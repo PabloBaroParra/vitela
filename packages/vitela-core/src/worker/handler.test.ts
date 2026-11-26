@@ -78,6 +78,13 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     metadataRefusal: async () => null,
     watermarkDefaults: async () => look,
     watermarkRefusal: async () => null,
+    contentEditingRefusal: async () => null,
+    readPageContent: async () => ({ runs: [], images: [], paths: [] }),
+    readTextBlocks: async () => [],
+    readParagraphBlocks: async () => [],
+    textRunStyle: async () => null,
+    pageFontFamilies: async () => ({}),
+    contentBaseGeneration: async () => 0,
     ...overrides,
   };
 }
@@ -271,6 +278,43 @@ describe('handleRequest', () => {
       message: { type: 'result', id: 6, value: compressed },
       transfer: [compressed.bytes.buffer],
     });
+  });
+
+  it('answers the page-content questions for the page they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const page = {
+      runs: [
+        {
+          kind: 'run' as const,
+          id: 3,
+          pageIndex: 1,
+          rect: { left: 1, top: 2, width: 3, height: 4 },
+          fontName: 'F1',
+          fontKind: 'standard14' as const,
+          text: 'Hi',
+          editable: true,
+        },
+      ],
+      images: [],
+      paths: [],
+    };
+    const engine = fakeEngine({
+      readPageContent: async (...args) => (calls.push(args), page),
+      textRunStyle: async (...args) => (calls.push(args), null),
+      pageFontFamilies: async (...args) => (calls.push(args), { F1: 'Helvetica' }),
+      contentBaseGeneration: async (...args) => (calls.push(args), 2),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'readPageContent', document: 5, pageIndex: 1 } })).toEqual({
+      message: { type: 'result', id: 1, value: page },
+      transfer: [],
+    });
+    await handleRequest(engine, { id: 2, request: { kind: 'textRunStyle', document: 5, pageIndex: 1, runId: 3 } });
+    expect(await handleRequest(engine, { id: 3, request: { kind: 'pageFontFamilies', document: 5, pageIndex: 0 } })).toEqual({
+      message: { type: 'result', id: 3, value: { F1: 'Helvetica' } },
+      transfer: [],
+    });
+    await handleRequest(engine, { id: 4, request: { kind: 'contentBaseGeneration', document: 5 } });
+    expect(calls).toEqual([[5, 1], [5, 1, 3], [5, 0], [5]]);
   });
 
   it('answers the watermark questions, copied', async () => {

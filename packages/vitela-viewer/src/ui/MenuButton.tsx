@@ -12,13 +12,21 @@
 // Turning it off while it is open closes it for good (turning it back on does
 // not reopen it), and the focus, when it was in the menu, goes back to the
 // button rather than to the page.
+//
+// An item that turns something on and off (`checked`) is a
+// `menuitemcheckbox`; an item may carry a `description` (why it is off, say),
+// read out after its name.
 
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 export interface MenuTool {
   readonly label: string;
-  /** Busy: listed, but choosing it does nothing. */
+  /** Busy or refused: listed, but choosing it does nothing. */
   readonly disabled?: boolean;
+  /** A toggle's state: the item is a `menuitemcheckbox`. Absent for an action. */
+  readonly checked?: boolean;
+  /** Read after the label (`aria-describedby`): why it is disabled, say. */
+  readonly description?: string;
   readonly onSelect: () => void;
 }
 
@@ -49,6 +57,7 @@ export function MenuButton({ label, tools, className, icon, buttonRef, disabled 
   const items = useRef<(HTMLLIElement | null)[]>([]);
   const menuId = useId();
   const buttonId = useId();
+  const descriptionId = useId();
 
   useEffect(() => {
     if (active !== null) items.current[active]?.focus();
@@ -149,9 +158,11 @@ export function MenuButton({ label, tools, className, icon, buttonRef, disabled 
               ref={(element) => {
                 items.current[index] = element;
               }}
-              role="menuitem"
+              role={tool.checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+              aria-checked={tool.checked}
               tabIndex={-1}
               aria-disabled={tool.disabled || undefined}
+              aria-describedby={tool.description ? `${descriptionId}-${index}` : undefined}
               className="menu-button__item"
               onClick={() => choose(tool)}
               onPointerMove={() => setActive(index)}
@@ -161,6 +172,15 @@ export function MenuButton({ label, tools, className, icon, buttonRef, disabled 
           ))}
         </ul>
       )}
+      {open &&
+        tools.map(
+          (tool, index) =>
+            tool.description && (
+              <span key={tool.label} id={`${descriptionId}-${index}`} className="visually-hidden">
+                {tool.description}
+              </span>
+            ),
+        )}
     </div>
   );
 }

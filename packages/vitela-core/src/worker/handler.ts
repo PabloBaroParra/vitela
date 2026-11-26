@@ -89,6 +89,24 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         return result(id, await engine.documentProperties(request.document));
       case 'metadataRefusal':
         return result(id, await engine.metadataRefusal(request.document));
+      // The page-content model is plain values (items, blocks, a style, a few
+      // names, a sentence, a number): copied.
+      case 'contentEditingRefusal':
+        return result(id, await engine.contentEditingRefusal(request.document));
+      case 'readPageContent':
+        return result(id, await engine.readPageContent(request.document, request.pageIndex));
+      case 'readTextBlocks':
+        return result(id, await engine.readTextBlocks(request.document, request.pageIndex));
+      case 'readParagraphBlocks':
+        return result(id, await engine.readParagraphBlocks(request.document, request.pageIndex));
+      case 'textRunStyle': {
+        const { document, pageIndex, runId } = request;
+        return result(id, await engine.textRunStyle(document, pageIndex, runId));
+      }
+      case 'pageFontFamilies':
+        return result(id, await engine.pageFontFamilies(request.document, request.pageIndex));
+      case 'contentBaseGeneration':
+        return result(id, await engine.contentBaseGeneration(request.document));
       // The looks are a few numbers, the gate a sentence: copied.
       case 'watermarkDefaults':
         return result(id, await engine.watermarkDefaults());

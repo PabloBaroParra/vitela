@@ -17,7 +17,9 @@
 //! filling them in are in [`form`]; the compressed save is in
 //! [`compress`]; the protected copy is in [`protect`]; image export is in
 //! [`export`]; extracting pages and splitting are in [`extract`]; the document's
-//! properties are in [`metadata`]; watermarks are in [`watermark`].
+//! properties are in [`metadata`]; watermarks are in [`watermark`]; the page
+//! content model (what a page paints, its text blocks, a run's style) is in
+//! [`content`].
 
 use std::collections::HashMap;
 
@@ -32,6 +34,7 @@ use crate::model::{DocumentModel, PreparedSources};
 
 mod annotation;
 mod compress;
+mod content;
 mod edit;
 mod export;
 mod extract;

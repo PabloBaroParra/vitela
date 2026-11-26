@@ -2165,7 +2165,8 @@ Gates (Windows 11, local):
 | **T-255** ✓ | Metadatos. | Playwright: editar, guardar y releer. |
 | **T-256** ✓ | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
 | **T-257** ✓ | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
-| **T-258** | Modelo de contenido en wasm (`readPageContent`, `textRunLook`, familias de fuente, `CheckpointSession`). | `wasm-bindgen-test` + Vitest contra pdfium real. |
+| **T-258a** ✓ (#666) | Core: la orquestación de la edición de contenido sale de `pdf-ffi` a `pdf-save` (`content_edit.rs`) y `pdf-edit` (`group_text_paragraphs`); `pdf-ffi` delega. | Nativo: cero cambio de comportamiento. |
+| **T-258b** ✓ | Modelo de contenido en wasm (`CheckpointSession`, `readPageContent`, bloques y párrafos, `textRunStyle`, familias de fuente, `contentBaseGeneration`) y modo **Edit content** de solo lectura en el visor. | `wasm-bindgen-test` + Vitest contra pdfium real; Playwright del modo. |
 | **T-259** | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
 | **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
 | **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
@@ -2973,6 +2974,130 @@ que condiciona lo que sigue:
     `build`. Playwright (`CI=1`, 3 navegadores) print + export-images + phone-bar + embed +
     zero-network **70 pasan, 2 omitidos**; suite completa **317 pasan, 22 omitidos, 0 fallos**.
     No corridos: los `wasm-bindgen-test`.
+
+### T-258 — resultado
+
+**T-258a** (#666, sin fusionar al empezar T-258b; su commit se tomó con `cherry-pick`): la
+orquestación de la edición de contenido que solo vivía en `pdf-ffi` pasó a
+`pdf_save::content_edit` (gates, `record_content`, comprobación de reemplazo de imagen) y
+`pdf_edit::group_text_paragraphs`; `pdf-ffi` delega. **T-258b** la usa desde `pdf-wasm`.
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **`CheckpointSession` en `pdf-wasm`** (`model/checkpoint.rs`, espejo de
+  `pdf-ffi/src/document/checkpoint.rs`): `DocumentModel` gana `checkpoints`
+  (`pdf_save::Checkpoints<(LopdfDocument, Vec<u8>)>`) y `has_password` (si la apertura llevó
+  contraseña); `original_bytes` es siempre `Some` (la web abre siempre desde bytes);
+  `has_imported_sources` = el registro de importados no está vacío; `replace_base` cambia base y
+  bytes. `undo`/`redo`/`canUndo`/`canRedo` pasan por `pdf_save::checkpoint::{undo, redo,
+  can_undo, can_redo}`: deshacer cruza un checkpoint paso a paso. Todas las ediciones de página,
+  anotación, formulario, metadatos y marca de agua siguen igual (sus tests, sin tocar, en verde).
+  `DocumentModel::record_content(command)` (aún sin UI: lo usarán T-259+) = `ensure_content_editing`
+  + `pdf_save::content_edit::record_content` con `record_content_command` o, para un
+  `Command::Batch`, `record_content_batch`. Nuevos `From<RecordError>` y
+  `From<ContentEditRefusal>` para `EngineError` (`EncodingGap`/`InvalidImage` conservan su tipo;
+  un permiso, `EditNotPermitted`; "guarda primero", `UnsupportedOperation`).
+- **`PreviewMarks` y la edición de contenido** (`model/preview.rs`). Dos casos nuevos:
+  - **Plegado (amend):** `record_content_command` puede reescribir una entrada ya encolada (segundo
+    retipeo de la misma línea, segundo movimiento de la misma imagen) sin añadir paso, y **no
+    siempre la última**: el segundo movimiento de una línea pliega en su movimiento aunque después
+    haya otra edición. `record_content` compara la cola antes y después, localiza la primera
+    entrada cambiada y `PreviewMarks::amended(n)` da marcas nuevas (vista previa y repintado) a
+    ese paso y a todos los posteriores, y vacía el lado de rehacer como hace `EditLog::amend`.
+    Dar marca nueva solo al último paso (lo que pedía la ficha) dejaría, tras deshacer el último,
+    una revisión de pintado que nombra píxeles anteriores al plegado: bitmaps viejos en caché.
+  - **Checkpoint:** si la generación de base cambió, el reintento es **un** paso nuevo
+    (`recorded`). Las marcas siguen siendo **una pila plana** a través de las bases, sin marco por
+    generación: cada deshacer/rehacer a través de un checkpoint es exactamente un paso del
+    historial del lector y el checkpoint no cambia cuántos pasos hay ni qué muestra cada uno, así
+    que la pila plana coincide paso a paso con la historia (lo comprueban los tests de deshacer y
+    rehacer a través del checkpoint). Desviación consciente de "push/pop a frame".
+- **Lecturas** (`model/content.rs`, `engine/content.rs`, `dto/content.rs`), con las puertas de
+  `pdf-ffi`: todas detrás del permiso de extracción (antes que la página), con los lectores que
+  superponen lo pendiente (`read_pending_page_content_of`, `text_run_style_of`,
+  `page_font_families_of`). Superficie: `contentEditingAllowed(doc)` =
+  `pdf_save::content_editing_allowed`; `contentEditingRefusal(doc)` = la frase de `check_edit`
+  para una edición de contenido y, si no, la del permiso de texto (un editor que no puede leer lo
+  que edita tampoco se ofrece); `readPageContent(doc, page)` → `PageContentEntry` (`takeRuns`,
+  `takeImages`, `takePaths`): runs con `id`, `bbox`, `fontName` (recurso), `fontKind`
+  (`standard14`/`embeddedSimple`/`embeddedComposite`), `text` y `editable`; imágenes con `inline`;
+  trazados con `paint`; `readTextBlocks`/`readParagraphBlocks` (`group_text_lines` /
+  `group_text_paragraphs`, miembros por id como `pdf-ffi`); `textRunStyle(doc, page, runId)` (por
+  id sobre la lectura pendiente: base font, tamaño, color, espaciado, escala, negrita, cursiva,
+  modo; `undefined` para un run que solo existe por una inserción pendiente; id desconocido →
+  `UnsupportedOperation`); `pageFontFamilies` (pares `[recurso, baseFont, …]`) y
+  `contentBaseGeneration` (también en `EditedDocument`). Los ids cruzan como `number`: el core los
+  mantiene < 2^53 (sintéticos `2^40 + índice + (parte << 24)`).
+- **`editable` es regla del core:** `pdf_save::text_run_text_is_decoded` (nuevo, en
+  `content_edit.rs`): un run cuyo texto lleva U+FFFD (código sin `/ToUnicode` utilizable) no se
+  puede retipear (el codificador rechazaría U+FFFD con `EncodingGap`). Ningún shell nativo lo
+  pregunta hoy.
+- **Tamaño y color no van en cada run:** `text_run_style` recorre el flujo de la página por cada
+  run (O(n²) por página); van en `textRunStyle`, que se pide para el run elegido.
+- **`@vitela/core`** (`worker/content.ts`): las entradas wasm pasan a valores planos con las cajas
+  en la página **dibujada** (`PageFrame.rectFromPdf`, como todas las del motor) y se liberan;
+  color 0–255. `Engine`: `contentEditingRefusal`, `readPageContent`, `readTextBlocks`,
+  `readParagraphBlocks`, `textRunStyle`, `pageFontFamilies`, `contentBaseGeneration`; tipos
+  `PageContent`, `ContentItem` (`ContentRun`/`ContentImage`/`ContentPath`), `ContentFontKind`,
+  `TextBlock`, `TextLine`, `TextRunStyle`. `textRunLook` (negrita/cursiva) queda para T-259 (los
+  botones de estilo).
+- **`@vitela/viewer` (`features/content/`):** puro con tests `contentModel.ts`
+  (`pagesToParse`: visibles ± 1, nunca el documento; `contentKey(pageId, paintRevision,
+  generation)`; `keepWanted`: solo se guardan las claves aún deseadas; `itemAt`: el elemento más
+  pequeño bajo el puntero, con 3 pt de holgura para reglas de alto 0; textos), contenedor
+  `useContentMode` (puerta una vez por documento; activo solo para el documento en que se activó;
+  lecturas que solo aterrizan en su clave si sigue esperándolas; hover y selección que caducan si
+  la página cambia de clave; mensaje de la página que no se pudo leer), vistas `ContentLayer`
+  (capa encima de todo en cada página: contornos por tipo — run sólido azul, imagen discontinuo
+  ámbar, trazado punteado verde — y la pulsación) y `ContentStatus` (fila de estado con **Done**).
+  Con el modo activo el texto, las anotaciones y el dibujo sueltan el puntero (herramienta a
+  Select, selección de texto y de anotación fuera); Escape en las páginas suelta la selección.
+- **Dónde va el interruptor: último elemento de Tools**, un `menuitemcheckbox` ("Edit content",
+  `aria-checked`; desde Organize cambia al visor). La puerta (`useContentGate`) se pregunta en el
+  workspace una vez por documento; rechazado, el elemento sigue en la lista `aria-disabled` y
+  descrito (`aria-describedby`) por la frase del core. `ui/MenuButton` gana `checked` y
+  `description` en `MenuTool`. Las barras del visor no tienen sitio (medido en Playwright): tras
+  History, a 1280 px Annotations bajaba a una tercera fila (`properties.spec.ts`, faltaban ~8 px);
+  tras View y Text cabía con 22 px de holgura, pero "Page 120 of 120" la desbordaba
+  (`comments.spec.ts`, las páginas se movían); y a 390 px una fila más tapaba la cabecera del panel
+  de comentarios (`comments.spec.ts:192`). La barra del workspace no cambia (una fila en `embed` y
+  a 390 px, `phone-bar` en verde: un `menuitemcheckbox` no cambia la lista de `menuitem` que
+  comprueba). Con el modo activo, una fila bajo las barras lleva el estado y **Done** (devuelve el
+  foco a Tools); Organize o abrir otro documento también lo apagan.
+- **Tests:** Rust 18 nativos nuevos (15 de `model/content`: los tres tipos, `editable`, puertas y
+  su orden, líneas y párrafos, estilo y fuentes, retipeo pendiente, plegado que repinta, plegado
+  de un paso antiguo, checkpoint como un paso con deshacer/rehacer a través, guardado tras
+  checkpoint, edición de página tras contenido, rechazo sin permiso; 2 de `model/preview`; 1 de
+  `pdf-save` `text_run_text_is_decoded`) y 2 `wasm-bindgen-test` (`tests/content.rs`).
+  `@vitela/core` 7 Vitest nuevos (1 `client`, 1 `handler`, 4 `documentEngine`, 1 pdfium real:
+  `reportlab_quote_paragraph.pdf` con acentos por `/ToUnicode`, párrafo de 4 líneas a 11 pt,
+  estilo Vera 14, fuentes, y la imagen del escaneo). `@vitela/viewer` 22 nuevos (9 de
+  `contentModel`, 2 de `useContentGate`, 5 de `useContentMode`, 2 de `ContentStatus`, 2 de
+  `MenuButton`, 2 del workspace: encender/apagar desde Tools en las dos pantallas, Done y Organize,
+  y el elemento rechazado con su frase). Vistos en rojo antes de
+  implementar: los de plegado (quitando `amended`, 2 caen). El resto se escribió junto a su código.
+- **E2E (`e2e/edit-content.spec.ts`, 4 × 3):** run bajo el puntero contorneado alrededor del
+  puntero, pulsación → estado "Text “Vitela content line” selected on page 1.", sin selección de
+  texto, Escape suelta, el elemento de Tools se lee marcado y Done apaga con el foco en Tools; alejado al mínimo en 30 páginas solo se leen las visibles y la
+  siguiente, y toda página montada más lejos queda `waiting`; el escaneo contornea y selecciona
+  una imagen; un PDF con `/P` sin modificar deja el elemento `aria-disabled` descrito por "Content
+  editing is not permitted." y pulsarlo no hace nada.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  -p pdf-save --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`), sin
+  avisos; `cargo test --locked -p pdf-wasm -p pdf-save` (con `PDFIUM_DYNAMIC_LIB_PATH`) todo en
+  verde (`pdf-wasm` lib 159, `pdf-save` lib 231, 0 fallos). `@vitela/core`: `build:wasm`,
+  `typecheck`, Vitest 15 / 219, `build`. `@vitela/viewer`: `tsc -b`, Vitest 95 / 929, `build`.
+  `apps/web`: `tsc -b`, Vitest 6 / 19, `vite build`. Playwright completo (Chromium, Firefox, WebKit,
+  `CI=1`) **328 pasan, 1 falla, 22 omitidos**: el fallo fue `watermark.spec.ts:103` en WebKit
+  (timeout, nada de contenido); aislado con `--repeat-each=5` pasa 5 / 5, y la pasada completa
+  anterior (con el interruptor aún en las barras) no lo tuvo. `zero-network`, `phone-bar` y
+  `embed` en verde.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32);
+  `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** ninguna edición (T-259+); Tab por los elementos de la página
+  (opcional en la ficha, no hecho); `textRunLook`; sin lector de pantalla real.
 
 ## Verificación
 

@@ -458,4 +458,66 @@ describe('DocumentWorkspace', () => {
     // Nothing in the viewer's View toolbar opens a tool any more.
     expect(queryByRole('button', { name: 'Properties' })).toBeNull();
   });
+
+  it('turns the Edit content mode on and off from the Tools menu, from either screen', async () => {
+    const reads: number[] = [];
+    const content = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      contentEditingRefusal: async () => null,
+      readPageContent: async (_document, pageIndex) => (reads.push(pageIndex), { runs: [], images: [], paths: [] }),
+    });
+    const { getByLabelText, getByRole, queryByRole } = render(
+      <DocumentWorkspace engine={content} intro={(action) => action} initialScreen="organize" />,
+    );
+    openPdf(getByLabelText);
+    const tools = await waitFor(() => getByRole('button', { name: 'Tools' }));
+    fireEvent.click(tools);
+    const item = await waitFor(() => {
+      const found = getByRole('menuitemcheckbox', { name: 'Edit content' });
+      expect(found.getAttribute('aria-disabled')).toBeNull();
+      return found;
+    });
+    expect(item.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(item);
+    // On from Organize: the viewer comes back with the mode on.
+    await waitFor(() => expect(getByRole('button', { name: 'View' }).getAttribute('aria-pressed')).toBe('true'));
+    expect(getByRole('group', { name: 'Edit content' })).toBeTruthy();
+    fireEvent.click(tools);
+    expect(getByRole('menuitemcheckbox', { name: 'Edit content' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(getByRole('menuitemcheckbox', { name: 'Edit content' }));
+    expect(queryByRole('group', { name: 'Edit content' })).toBeNull();
+
+    // Done turns it off and gives the focus back to Tools; Organize does too.
+    fireEvent.click(tools);
+    fireEvent.click(getByRole('menuitemcheckbox', { name: 'Edit content' }));
+    fireEvent.click(getByRole('button', { name: 'Done' }));
+    expect(queryByRole('group', { name: 'Edit content' })).toBeNull();
+    expect(document.activeElement).toBe(tools);
+    fireEvent.click(tools);
+    fireEvent.click(getByRole('menuitemcheckbox', { name: 'Edit content' }));
+    fireEvent.click(getByRole('button', { name: 'Organize' }));
+    fireEvent.click(getByRole('button', { name: 'View' }));
+    expect(queryByRole('group', { name: 'Edit content' })).toBeNull();
+  });
+
+  it("keeps Edit content off on a refused document, described by the core's sentence", async () => {
+    const refused = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      contentEditingRefusal: async () => 'content editing is not permitted',
+    });
+    const { getByLabelText, getByRole, queryByRole } = render(<DocumentWorkspace engine={refused} intro={(action) => action} />);
+    openPdf(getByLabelText);
+    fireEvent.click(await waitFor(() => getByRole('button', { name: 'Tools' })));
+    const item = await waitFor(() => {
+      const found = getByRole('menuitemcheckbox', { name: 'Edit content' });
+      expect(found.getAttribute('aria-describedby')).not.toBeNull();
+      return found;
+    });
+    expect(item.getAttribute('aria-disabled')).toBe('true');
+    expect(document.getElementById(item.getAttribute('aria-describedby')!)?.textContent).toBe('Content editing is not permitted.');
+    fireEvent.click(item);
+    expect(queryByRole('group', { name: 'Edit content' })).toBeNull();
+  });
 });

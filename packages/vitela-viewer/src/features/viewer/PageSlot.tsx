@@ -4,10 +4,11 @@
 // that, what makes the annotations selectable and editable — or, while a drawing tool is armed, the drawing layer over all of them. A
 // PNG or JPEG dropped on the page is stamped where it was dropped. The
 // viewer mounts only the slots near the viewport, so far-away pages hold no
-// canvas, no annotation layer and no text layer at all.
+// canvas, no annotation layer and no text layer at all. While the "Edit
+// content" mode is on, its layer is over all of them and has the pointer.
 
 import { memo, type DragEvent } from 'react';
-import type { Annotation, DocumentHandle, Engine, PageRect, PageRects, PageSize, Rgb } from '@vitela/core';
+import type { Annotation, ContentItem, DocumentHandle, Engine, PageRect, PageRects, PageSize, Rgb } from '@vitela/core';
 import { AnnotationEditLayer } from '../annotations/AnnotationEditLayer';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
 import { clampPoint, type ArmedTool, type Gesture } from '../annotations/drawing';
@@ -17,6 +18,8 @@ import { useAnnotationDrag } from '../annotations/useAnnotationDrag';
 import type { AnnotationInput } from '../annotations/useAnnotationEditing';
 import type { ImageDrop } from '../annotations/useStamps';
 import { AnnotationRing } from '../comments/AnnotationRing';
+import { ContentLayer, type ContentInput } from '../content/ContentLayer';
+import type { PageContentState } from '../content/contentModel';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import { toPagePoint } from '../text/pageRects';
@@ -57,6 +60,13 @@ interface PageSlotProps {
   readonly marked: PageRect | null;
   /** A PNG or JPEG dropped on the page, at the drop point (drawn points, kept on the page). */
   readonly onImageDrop: ImageDrop;
+  /** The "Edit content" mode's pointer handling; `null` while the mode is off. */
+  readonly content?: ContentInput | null;
+  /** This page's parse in the mode. */
+  readonly contentState?: PageContentState;
+  /** The item under the pointer on this page, and the selected one when it is on this page. */
+  readonly contentHovered?: ContentItem | null;
+  readonly contentSelected?: ContentItem | null;
 }
 
 /** What the drawing layer needs from the viewer, the same for every page. */
@@ -70,6 +80,7 @@ export interface DrawingInput {
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   const { engine, document, index, page, pageKey, paintKey, annotations, stampImages, slot, dpi, label, scale } = props;
   const { hits, currentHit, selection, textInput, drawing, editing, selectedId, marked, onImageDrop } = props;
+  const { content, contentState, contentHovered = null, contentSelected = null } = props;
   const render = usePageRender(engine, document, index, dpi, pageKey, paintKey);
   const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
@@ -126,6 +137,16 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
           color={drawing.color}
           busy={drawing.busy}
           onGesture={drawing.onGesture}
+        />
+      )}
+      {content && (
+        <ContentLayer
+          pageIndex={index}
+          scale={scale}
+          state={contentState}
+          hovered={contentHovered}
+          selected={contentSelected}
+          input={content}
         />
       )}
       {render.status === 'failed' && (
