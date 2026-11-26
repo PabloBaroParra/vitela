@@ -3,7 +3,7 @@
 // the native shells' (Android's strings, which are Windows' and GTK's).
 
 import type { ImageExportFormat } from '@vitela/core';
-import { sentence } from '../compress/compressText';
+import { sentence } from '../../ui/text';
 
 /** Which pages an export covers. */
 export type ExportPages = 'all' | 'current' | 'custom';
@@ -32,6 +32,7 @@ export const DEFAULT_DRAFT: ExportDraft = { pages: 'all', customRange: '', dpi: 
 
 export const EXPORT_FORBIDDEN = 'This document does not permit extracting its pages as images.';
 export const NO_PAGES = 'This document has no pages to export.';
+export const NO_FORMATS = 'This PDF engine offers no image format to export to.';
 
 /**
  * The resolution typed: a cleared box reads as the default, like the native
@@ -80,6 +81,10 @@ export function pageFailed(page: number, message: string, written: number): stri
 
 export function writeFailed(fileName: string, written: number): string {
   return `Could not write ${fileName}. ${written} written.`;
+}
+
+export function exportCancelled(written: number): string {
+  return written === 0 ? 'Export cancelled. No file was written.' : `Export cancelled. ${written} written.`;
 }
 
 export function openFailed(message: string): string {

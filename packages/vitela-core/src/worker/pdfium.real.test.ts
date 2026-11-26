@@ -378,7 +378,8 @@ async function exportFirstPage(
   dpi: number,
   format: 'png' | 'jpeg',
 ): Promise<Uint8Array> {
-  const exportHandle = await engine.openImageExport(handle);
+  const { handle: exportHandle, pageCount } = await engine.openImageExport(handle);
+  expect(pageCount).toBe(1);
   try {
     return await engine.exportPageImage(exportHandle, 0, dpi, format);
   } finally {

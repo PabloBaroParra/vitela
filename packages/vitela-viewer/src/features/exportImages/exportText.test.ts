@@ -4,6 +4,7 @@ import {
   MAX_EXPORT_DPI,
   MIN_EXPORT_DPI,
   dpiRangeRefusal,
+  exportCancelled,
   exportDone,
   exportProgress,
   formatLabel,
@@ -54,5 +55,7 @@ describe('export texts', () => {
     );
     expect(writeFailed('a-2.png', 1)).toBe('Could not write a-2.png. 1 written.');
     expect(openFailed('save failed')).toBe('Could not export: Save failed. No file was written.');
+    expect(exportCancelled(2)).toBe('Export cancelled. 2 written.');
+    expect(exportCancelled(0)).toBe('Export cancelled. No file was written.');
   });
 });

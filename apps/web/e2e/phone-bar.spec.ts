@@ -75,5 +75,26 @@ test('More tools works from the keyboard and gives the focus back after the dial
   await expect(more(page)).toBeFocused();
   await more(page).click();
   await menu.getByRole('menuitem', { name: 'Compress' }).click();
-  await expect(page.getByRole('dialog', { name: 'Compress PDF' })).toBeVisible({ timeout: 30_000 });
+  const compress = page.getByRole('dialog', { name: 'Compress PDF' });
+  await expect(compress).toBeVisible({ timeout: 30_000 });
+  // Closed with its own Cancel, the dialog hands the focus to the button the user can see.
+  await compress.getByRole('button', { name: 'Cancel' }).click();
+  await expect(compress).toHaveCount(0);
+  await expect(more(page)).toBeFocused();
+});
+
+test('after an export run from More tools, the focus is on More tools, not on the hidden Export images', async ({ page }) => {
+  await openOnPhone(page);
+  await more(page).click();
+  await page.getByRole('menuitem', { name: 'Export images' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Export pages as images' });
+  await dialog.getByRole('textbox', { name: 'Page range' }).fill('1');
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    dialog.getByRole('button', { name: 'Export', exact: true }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('plain-1.png');
+  await expect(dialog).toHaveCount(0);
+  await expect(more(page)).toBeFocused();
+  await expect(page.getByText('Exported 1 page as PNG.')).toBeAttached();
 });

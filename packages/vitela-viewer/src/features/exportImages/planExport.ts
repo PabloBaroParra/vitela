@@ -6,9 +6,15 @@
 // the web cannot disagree with the other shells about what "7-3" means or
 // what page 3 of report.pdf is called. Checked while the dialog is still
 // open, so a bad range is fixed where it was typed.
+//
+// The pages are counted from the export's snapshot (`openImageExport`), not
+// from the document as the shell last saw it: an edit still settling when
+// Export was pressed has changed the count by the time the snapshot exists.
+// What needs no snapshot (the resolution, the permission) is checked first,
+// so a choice that cannot work never costs one.
 
-import { errorKind, errorMessage, INVALID_PAGE_SELECTION, type DocumentHandle, type DocumentInfo, type Engine, type ImageExportFormat } from '@vitela/core';
-import { sentence } from '../compress/compressText';
+import { errorKind, errorMessage, INVALID_PAGE_SELECTION, type DocumentHandle, type Engine, type ImageExportFormat } from '@vitela/core';
+import { sentence } from '../../ui/text';
 import { EXPORT_FORBIDDEN, NO_PAGES, dpiRangeRefusal, pageTooLarge, readDpi, type ExportDraft } from './exportText';
 
 /** One file an export writes: the page, and the name the core gave it. */
@@ -31,7 +37,16 @@ type PlanningEngine = Pick<Engine, 'parsePageSelection' | 'firstPageTooLargeToEx
 interface PlannedDocument {
   readonly handle: DocumentHandle;
   readonly name: string;
-  readonly info: DocumentInfo;
+  readonly textExtractionAllowed: boolean;
+  /** The export snapshot's page count. */
+  readonly pageCount: number;
+}
+
+/** Why `draft` cannot be exported before any snapshot is taken, or `null`. */
+export function precheckExport(draft: ExportDraft, textExtractionAllowed: boolean): string | null {
+  if (readDpi(draft.dpi) === null) return dpiRangeRefusal();
+  if (!textExtractionAllowed) return EXPORT_FORBIDDEN;
+  return null;
 }
 
 /**
@@ -46,10 +61,10 @@ export async function planImageExport(
   currentPage: number,
 ): Promise<PlanResult> {
   const refused = (message: string): PlanResult => ({ kind: 'refused', message });
-  const dpi = readDpi(draft.dpi);
-  if (dpi === null) return refused(dpiRangeRefusal());
-  if (!document.info.textExtractionAllowed) return refused(EXPORT_FORBIDDEN);
-  const total = document.info.pageCount;
+  const early = precheckExport(draft, document.textExtractionAllowed);
+  if (early !== null) return refused(early);
+  const dpi = readDpi(draft.dpi)!;
+  const total = document.pageCount;
   if (total === 0) return refused(NO_PAGES);
 
   let pages: readonly number[];

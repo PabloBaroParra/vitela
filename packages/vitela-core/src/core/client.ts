@@ -16,6 +16,7 @@ import type {
   CompressPreset,
   CompressRefusal,
   DocumentHandle,
+  ImageExport,
   ImageExportFormat,
   ImageExportHandle,
   Edit,
@@ -174,7 +175,7 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'firstPageTooLargeToExport', document, pages, dpi });
   }
 
-  openImageExport(document: DocumentHandle): Promise<ImageExportHandle> {
+  openImageExport(document: DocumentHandle): Promise<ImageExport> {
     return this.send({ kind: 'openImageExport', document });
   }
 

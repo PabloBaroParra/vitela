@@ -353,7 +353,7 @@ function fakeCore(
       if (options.restricted) throw named('UnsupportedOperation', 'this document does not permit extracting its pages as images');
       const id = nextExport++;
       exports.set(id, { marker, ids: pages.map((page) => page.id) });
-      return id;
+      return { id, pageCount: pages.length, free: () => freed.push('export') };
     },
     exportPageImage: (exportId, pageIndex, dpi, format) => {
       const snapshot = exports.get(exportId);
@@ -710,10 +710,14 @@ describe('documentEngine', () => {
   });
 
   it('exports from a snapshot taken when the export opened, recording and refreshing nothing', async () => {
-    const { core, edits, refreshed, exports } = fakeCore({ pages: 3 });
+    const { core, edits, refreshed, exports, freed } = fakeCore({ pages: 3 });
     const engine = documentEngine(core, geometry, edits);
     const { handle, info } = await engine.open(new Uint8Array([10]));
-    const exportHandle = await engine.openImageExport(handle);
+    const opened = await engine.openImageExport(handle);
+    // The snapshot's own page count: what an export is planned against.
+    expect(opened).toEqual({ handle: 50, pageCount: 3 });
+    expect(freed).toContain('export');
+    const exportHandle = opened.handle;
     // An edit after the export opened does not reach it.
     await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
     const refreshes = refreshed.length;

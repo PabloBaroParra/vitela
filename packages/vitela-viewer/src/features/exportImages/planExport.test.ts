@@ -1,24 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { EngineError, type DocumentInfo } from '@vitela/core';
+import { EngineError } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { DEFAULT_DRAFT, type ExportDraft } from './exportText';
-import { planImageExport } from './planExport';
+import { planImageExport, precheckExport } from './planExport';
 
-function info(pageCount: number, textExtractionAllowed = true): DocumentInfo {
-  return {
-    pageCount,
-    pages: Array.from({ length: pageCount }, () => ({ widthPt: 612, heightPt: 792, rotationDegrees: 0 })),
-    pageIds: Array.from({ length: pageCount }, (_, i) => i),
-    textExtractionAllowed,
-    documentAssemblyAllowed: true,
-    blocks: [],
-    importRefusal: null,
-    annotationEditingAllowed: true,
-    formFillAllowed: true,
-  };
-}
-
-const document = { handle: 7, name: 'report.pdf', info: info(5) };
+/** The snapshot's page count is what the plan counts: 5 here. */
+const document = { handle: 7, name: 'report.pdf', textExtractionAllowed: true, pageCount: 5 };
 
 /** An engine whose answers are the core's shape: names, a grammar, a ceiling over 300 DPI. */
 function planningEngine() {
@@ -107,15 +94,21 @@ describe('planImageExport', () => {
 
   it('refuses a document that withholds extraction, and one with no pages', async () => {
     const { engine, asked } = planningEngine();
-    expect(await planImageExport(engine, { ...document, info: info(2, false) }, DEFAULT_DRAFT, 0)).toEqual({
+    expect(await planImageExport(engine, { ...document, pageCount: 2, textExtractionAllowed: false }, DEFAULT_DRAFT, 0)).toEqual({
       kind: 'refused',
       message: 'This document does not permit extracting its pages as images.',
     });
-    expect(await planImageExport(engine, { ...document, info: info(0) }, DEFAULT_DRAFT, 0)).toEqual({
+    expect(await planImageExport(engine, { ...document, pageCount: 0 }, DEFAULT_DRAFT, 0)).toEqual({
       kind: 'refused',
       message: 'This document has no pages to export.',
     });
     expect(asked).toEqual([]);
+  });
+
+  it('prechecks the choices that need no snapshot: the resolution, then the permission', () => {
+    expect(precheckExport(DEFAULT_DRAFT, true)).toBeNull();
+    expect(precheckExport(draft({ dpi: '600' }), false)).toBe('Choose a resolution between 72 and 400 DPI.');
+    expect(precheckExport(DEFAULT_DRAFT, false)).toBe('This document does not permit extracting its pages as images.');
   });
 
   it('lets any other engine failure through', async () => {

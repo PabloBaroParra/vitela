@@ -10,6 +10,7 @@ import type {
   CompressPreset,
   CompressRefusal,
   DocumentHandle,
+  ImageExport,
   ImageExportFormat,
   ImageExportHandle,
   Edit,
@@ -133,7 +134,7 @@ export interface EngineResults {
   parsePageSelection: number[];
   pageImageFileNames: string[];
   firstPageTooLargeToExport: number | null;
-  openImageExport: ImageExportHandle;
+  openImageExport: ImageExport;
   exportPageImage: Uint8Array;
   closeImageExport: boolean;
 }

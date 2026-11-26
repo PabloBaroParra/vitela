@@ -421,26 +421,34 @@ it. There is no JPEG quality setting: the core's encoder has none, nor do the
 other shells. A document that withholds extraction says so as the dialog opens
 and offers only Cancel.
 
-Export first waits for the queued edits (like Save), then checks everything
-while the dialog is still open (`planExport.ts`): the resolution, the
-permission, the range by the core's grammar (`parsePageSelection`, its
-sentence shown as is), the raster ceiling (`firstPageTooLargeToExport`) and the
-names (`pageImageFileNames`: `report.pdf` page 3 of 12 is `report-03.jpg`). A
-refusal keeps the dialog open on what was typed. Then `openImageExport` takes
-one snapshot of what a save would write now — so unsaved page edits,
-annotations and fills are in the images, as on Android and Windows, while the
-on-screen preview leaves annotations out — and each page is rendered, encoded
+The formats offered are the core's (`imageExportFormats`, PNG chosen first).
+Export checks the resolution and the permission, waits for the queued edits
+(like Save), then `openImageExport` takes one snapshot of what a save would
+write now — so unsaved page edits, annotations and fills are in the images, as
+on Android and Windows, while the on-screen preview leaves annotations out —
+and answers its page count. The rest is checked against that count while the
+dialog is still open (`planExport.ts`): the range by the core's grammar
+(`parsePageSelection`, its sentence shown as is), the raster ceiling
+(`firstPageTooLargeToExport`) and the names (`pageImageFileNames`: `report.pdf`
+page 3 of 12 is `report-03.jpg`). A refusal closes the snapshot and keeps the
+dialog open on what was typed. Then each page is rendered, encoded
 by the core (`exportPageImage`) and delivered at once as its own file
 (`Placement` `newFile` with the image's media type: a download, or the host's
-`onSave`). The export stops at the first page that fails and says how many
-were written; the snapshot is closed however it ends. Nothing about the open
+`onSave`). The export stops at the first page that fails, on **Cancel export**
+(shown while it runs; the page in hand still goes out) or when the editor
+unmounts, and says how many were written; the snapshot is closed however it
+ends. Nothing about the open
 document changes.
 
 **Several pages are several downloads, not a zip.** No zip writer is in the
 dependency tree (neither npm nor Cargo), and adding one would be the only
 reason for it; the native shells write one file per page into a folder, and
-one download per page is the browser's nearest equivalent. A browser can ask
-once whether the site may download multiple files; that prompt is not covered
+one download per page is the browser's nearest equivalent. **Blocked
+downloads:** a browser can ask once whether the site may download multiple
+files, or block them by its settings. A page cannot tell whether a download
+was allowed, so "Exported 3 pages" means the files were handed to the
+browser; if fewer arrived, allow multiple downloads for the site and export
+again, or export one page at a time. That prompt is not covered by the tests
 (Playwright accepts every download).
 
 On a phone (≤ 600 px) both tools live in **More tools** (`ui/ToolsMenu.tsx`), a

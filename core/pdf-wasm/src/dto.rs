@@ -13,11 +13,13 @@ use crate::model::PageSize;
 
 mod annotation;
 mod compress;
+mod export;
 mod form;
 mod import;
 
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
 pub use compress::{CompressRefusalEntry, CompressedSave};
+pub use export::OpenedImageExport;
 pub use form::FormFieldEntry;
 pub use import::{DocumentBlock, ImportedPages, PreparedImport};
 

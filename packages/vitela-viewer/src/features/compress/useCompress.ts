@@ -13,7 +13,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorMessage, type CompressPreset, type Engine } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
 import type { Delivery } from '../save/delivery';
-import { DEFAULT_PRESET, compressedName, sentence, type CompressResult } from './compressText';
+import { sentence } from '../../ui/text';
+import { DEFAULT_PRESET, compressedName, type CompressResult } from './compressText';
 
 export type CompressActivity =
   | { readonly kind: 'idle' }

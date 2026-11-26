@@ -9,7 +9,7 @@
 // an item closes the menu and gives the focus back to the button BEFORE the
 // action runs, so a dialog the action opens returns the focus there too.
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 export interface MenuTool {
   readonly label: string;
@@ -25,9 +25,11 @@ interface ToolsMenuProps {
   readonly className?: string;
   /** What the button shows; the label when not given. */
   readonly icon?: ReactNode;
+  /** The menu's button, for a caller that has to give it the focus. */
+  readonly buttonRef?: RefObject<HTMLButtonElement | null>;
 }
 
-export function ToolsMenu({ label, tools, className, icon }: ToolsMenuProps) {
+export function ToolsMenu({ label, tools, className, icon, buttonRef }: ToolsMenuProps) {
   /** The item that has the focus while open, or `null` when closed. */
   const [active, setActive] = useState<number | null>(null);
   const open = active !== null;
@@ -98,7 +100,10 @@ export function ToolsMenu({ label, tools, className, icon }: ToolsMenuProps) {
   return (
     <div ref={root} className={`tools-menu${className ? ` ${className}` : ''}`}>
       <button
-        ref={button}
+        ref={(element) => {
+          button.current = element;
+          if (buttonRef) buttonRef.current = element;
+        }}
         id={buttonId}
         type="button"
         className="tools-menu__button"
