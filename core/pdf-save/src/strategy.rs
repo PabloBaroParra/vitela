@@ -88,6 +88,47 @@ pub struct SaveInput<'a> {
     pub imported_sources: ImportedSources<'a, 'a>,
 }
 
+/// Everything a [`SaveInput`] is computed against except the two choices a
+/// caller makes per save (`intent` and `signatures`) — the shape taken by
+/// the orchestrations that decide those two themselves ([`crate::protect`],
+/// [`crate::extract`]).
+///
+/// `document` is the live model; those orchestrations clone it before
+/// changing anything, so a session handing this over never sees its own
+/// model or undo history touched.
+#[derive(Debug, Clone, Copy)]
+pub struct SaveSource<'a> {
+    pub document: &'a Document,
+    pub base: &'a LopdfDocument,
+    pub original_bytes: Option<&'a [u8]>,
+    pub imported_sources: ImportedSources<'a, 'a>,
+}
+
+impl<'a> SaveSource<'a> {
+    /// The save of `document` — a model derived from [`Self::document`] —
+    /// against this source's `base`, original bytes and imported PDFs: the
+    /// bytes a save is computed against never change just because the model
+    /// being saved does.
+    pub fn input_for<'b>(
+        &self,
+        document: &'b Document,
+        intent: SaveIntent,
+        signatures: SignatureAcknowledgement,
+    ) -> SaveInput<'b>
+    where
+        'a: 'b,
+    {
+        SaveInput {
+            document,
+            base: self.base,
+            original_bytes: self.original_bytes,
+            intent,
+            signatures,
+            imported_sources: self.imported_sources,
+        }
+    }
+}
+
 /// Whether the caller has dealt with the fact that a save will invalidate a
 /// signature already in the file.
 ///

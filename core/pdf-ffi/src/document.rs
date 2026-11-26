@@ -37,10 +37,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{
-    AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials, ImageItem,
-    PageId, Permissions, SecurityContext, SecurityHandler, TextRun,
-};
+use pdf_document::{AnnotationId, AnnotationKind, Command, Document, ImageItem, PageId, TextRun};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
@@ -50,7 +47,7 @@ use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiContentImageItem, FfiContentPathItem, FfiContentTextRun,
     FfiDocumentInfo, FfiEditCommand, FfiOrientation, FfiPageContent, FfiPageDimensions,
     FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun, GRANTED_PROTECTION_PERMISSIONS,
+    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -602,30 +599,21 @@ impl DocumentState {
         signatures: FfiSignatureAcknowledgement,
         f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
     ) -> R {
-        self.with_save_input_for(&self.document, intent, signatures, f)
+        self.with_save_source(|source| {
+            f(source.input_for(source.document, intent.into(), signatures.into()))
+        })
     }
 
-    /// The same save description [`Self::with_save_input`] builds, but
-    /// against a `document` the caller supplies instead of `self.document` —
-    /// what [`crate::extract::extract_pages_to_pdf`] needs to save a **pruned
-    /// clone** without mutating the live handle. `base`, `original_bytes`
-    /// and the imported sources still come from `self`: the source bytes a
-    /// save is computed against never change just because the page set being
-    /// saved does.
-    pub(crate) fn with_save_input_for<R>(
-        &self,
-        document: &Document,
-        intent: FfiSaveIntent,
-        signatures: FfiSignatureAcknowledgement,
-        f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
-    ) -> R {
+    /// This session's model, base, original bytes and imported PDFs as the
+    /// [`pdf_save::SaveSource`] the `pdf-save` orchestrations that pick their
+    /// own intent and signature policy take — [`protect_to_bytes`] and
+    /// [`crate::extract::extract_pages_to_pdf`].
+    pub(crate) fn with_save_source<R>(&self, f: impl FnOnce(pdf_save::SaveSource<'_>) -> R) -> R {
         self.with_imported_sources(|imported_sources| {
-            f(pdf_save::SaveInput {
-                document,
+            f(pdf_save::SaveSource {
+                document: &self.document,
                 base: &self.base,
                 original_bytes: self.original_bytes.as_deref(),
-                intent: intent.into(),
-                signatures: signatures.into(),
                 imported_sources,
             })
         })
@@ -2143,35 +2131,15 @@ pub fn protect_to_bytes(
     permissions_password: String,
     signatures: FfiSignatureAcknowledgement,
 ) -> Result<Vec<u8>, FfiError> {
-    if open_password.is_empty() || permissions_password.is_empty() {
-        return Err(FfiError::InvalidSaveRequest {
-            detail: "both open and permissions passwords are required".to_string(),
-        });
-    }
-    if open_password == permissions_password {
-        return Err(FfiError::InvalidSaveRequest {
-            detail: "the open and permissions passwords must be different".to_string(),
-        });
-    }
-
-    let state = handle.lock();
-    let mut document = state.document.clone();
-    document.security = Some(SecurityContext {
-        handler: SecurityHandler::Aes128,
-        credential: Credential::Owner,
-        credentials: EncryptionCredentials::both(open_password, permissions_password),
-        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
-    });
-    state
-        .with_imported_sources(|imported_sources| {
-            pdf_save::save_document(pdf_save::SaveInput {
-                document: &document,
-                base: &state.base,
-                original_bytes: state.original_bytes.as_deref(),
-                intent: pdf_save::SaveIntent::ApplyProtection,
-                signatures: signatures.into(),
-                imported_sources,
-            })
+    handle
+        .lock()
+        .with_save_source(|source| {
+            pdf_save::protected_bytes(
+                source,
+                &open_password,
+                &permissions_password,
+                signatures.into(),
+            )
         })
         .map_err(Into::into)
 }
@@ -2179,25 +2147,9 @@ pub fn protect_to_bytes(
 /// Whether applying new password protection would invalidate a signature.
 #[uniffi::export]
 pub fn protection_will_invalidate_signatures(handle: &DocumentHandle) -> Result<bool, FfiError> {
-    let state = handle.lock();
-    let mut document = state.document.clone();
-    document.security = Some(SecurityContext {
-        handler: SecurityHandler::Aes128,
-        credential: Credential::Owner,
-        credentials: EncryptionCredentials::both("probe-open", "probe-permissions"),
-        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
-    });
-    state
-        .with_imported_sources(|imported_sources| {
-            pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-                document: &document,
-                base: &state.base,
-                original_bytes: state.original_bytes.as_deref(),
-                intent: pdf_save::SaveIntent::ApplyProtection,
-                signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-                imported_sources,
-            })
-        })
+    handle
+        .lock()
+        .with_save_source(pdf_save::protection_will_invalidate_signatures)
         .map_err(Into::into)
 }
 
