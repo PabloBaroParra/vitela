@@ -4,7 +4,8 @@
 //! Every rule is the core's, asked in the order `pdf-ffi`'s `apply_edit`
 //! asks it: the permission gate (`pdf_save::check_edit`) first, then the
 //! command constructors that name an out-of-range position
-//! (`Command::move_pages`, `Command::rotate_pages`, `Command::remove_pages`),
+//! (`Command::move_pages`, `Command::rotate_pages`, `Command::remove_pages`,
+//! and `pdf-ffi`'s own bound check before `Command::insert_blank_page`),
 //! then the model's own refusal on apply. Saving and the preview snapshot are
 //! `pdf_save::save_document` and `pdf_save::session_preview` over the bytes
 //! the document was opened from and its imported-source registry, exactly as
@@ -18,7 +19,7 @@
 //! state and the `EditLog` borrow dance (`EditLog::apply` needs `&mut` to
 //! both the log and the document that owns it).
 
-use pdf_document::{Command, Document, EditLog};
+use pdf_document::{Command, Document, EditLog, Orientation, PageSize};
 use pdf_save::{
     EditClass, ImportedSources, SaveInput, SaveIntent, SaveSource, SignatureAcknowledgement,
 };
@@ -43,6 +44,15 @@ pub enum PageEdit {
     /// Removes the `count` pages starting at `index`, with whatever is
     /// anchored to them, as one undo step.
     Remove { index: u32, count: u32 },
+    /// Inserts one blank A4 page so it ends up at position `index` (the
+    /// page there now and every one after it move one later; the page count
+    /// appends). A4 in either orientation is what every native shell offers
+    /// through `pdf-ffi`'s `InsertBlankPage`; the page's id is minted by the
+    /// document (`Command::insert_blank_page`).
+    InsertBlank {
+        index: u32,
+        orientation: Orientation,
+    },
 }
 
 impl PageEdit {
@@ -53,7 +63,7 @@ impl PageEdit {
     /// (`each_edit_classifies_like_the_command_it_builds`).
     pub fn class(self) -> EditClass {
         let page_structure = match self {
-            PageEdit::Move { .. } | PageEdit::Remove { .. } => true,
+            PageEdit::Move { .. } | PageEdit::Remove { .. } | PageEdit::InsertBlank { .. } => true,
             // A turn changes neither membership nor order: it stays on the
             // incremental writer.
             PageEdit::Rotate { .. } => false,
@@ -67,7 +77,8 @@ impl PageEdit {
 
     /// The core command for this edit against `document` as it is now, or
     /// the position that does not exist — named the way `pdf-ffi` names it.
-    fn command(self, document: &Document) -> Result<Command, EngineError> {
+    /// `&mut` because an insert takes its new page's id from the document.
+    fn command(self, document: &mut Document) -> Result<Command, EngineError> {
         match self {
             PageEdit::Move { from, count, to } => Ok(Command::move_pages(
                 document,
@@ -91,6 +102,21 @@ impl PageEdit {
                 Command::remove_pages(document, index as usize, count as usize)
                     .ok_or_else(|| EngineError::page_out_of_bounds(index))
             }
+            PageEdit::InsertBlank { index, orientation } => {
+                // `pdf-ffi`'s order: the bound (`len`, so one past the last
+                // page appends) is checked before an id is minted, so a bad
+                // position spends none.
+                if index as usize > document.pages.len() {
+                    return Err(EngineError::page_out_of_bounds(index));
+                }
+                Command::insert_blank_page(document, index as usize, PageSize::A4, orientation)
+                    .ok_or_else(|| {
+                        EngineError::new(
+                            ErrorKind::UnsupportedOperation,
+                            "the document has no page id left to give a new page",
+                        )
+                    })
+            }
         }
     }
 }
@@ -100,7 +126,7 @@ impl DocumentModel {
     /// recorded when any step refuses.
     pub fn apply_edit(&mut self, edit: PageEdit) -> Result<(), EngineError> {
         pdf_save::check_edit(self.document.security.as_ref(), edit.class())?;
-        let command = edit.command(&self.document)?;
+        let command = edit.command(&mut self.document)?;
         self.record(command)
     }
 
@@ -273,13 +299,48 @@ mod tests {
             .collect()
     }
 
+    /// Each saved page's `/MediaBox` and whether it draws anything, in page
+    /// order, read back with lopdf — independent of this crate.
+    fn saved_pages(bytes: &[u8]) -> Vec<([f32; 4], bool)> {
+        let document = lopdf::Document::load_mem(bytes).expect("saved bytes parse");
+        document
+            .get_pages()
+            .into_values()
+            .map(|page| {
+                let dictionary = document.get_dictionary(page).expect("a page dictionary");
+                let media_box: Vec<f32> = dictionary
+                    .get(b"MediaBox")
+                    .and_then(lopdf::Object::as_array)
+                    .expect("its own /MediaBox")
+                    .iter()
+                    .map(|value| value.as_float().expect("a number"))
+                    .collect();
+                let draws = document
+                    .get_and_decode_page_content(page)
+                    .map(|content| !content.operations.is_empty())
+                    .unwrap_or(false);
+                (media_box.try_into().expect("four numbers"), draws)
+            })
+            .collect()
+    }
+
+    fn insert_blank(index: u32) -> PageEdit {
+        PageEdit::InsertBlank {
+            index,
+            orientation: Orientation::Portrait,
+        }
+    }
+
     #[test]
     fn each_edit_classifies_like_the_command_it_builds() {
-        let model = three_pages();
+        let mut model = three_pages();
         // Exhaustive by construction: a new `PageEdit` variant fails to
         // compile here until it is added to the parity check.
         let every_edit = |edit: PageEdit| match edit {
-            PageEdit::Move { .. } | PageEdit::Rotate { .. } | PageEdit::Remove { .. } => edit,
+            PageEdit::Move { .. }
+            | PageEdit::Rotate { .. }
+            | PageEdit::Remove { .. }
+            | PageEdit::InsertBlank { .. } => edit,
         };
         for edit in [
             PageEdit::Move {
@@ -293,10 +354,11 @@ mod tests {
                 delta_degrees: 90,
             },
             PageEdit::Remove { index: 0, count: 2 },
+            insert_blank(1),
         ]
         .map(every_edit)
         {
-            let command = edit.command(&model.document).expect("builds");
+            let command = edit.command(&mut model.document).expect("builds");
             assert_eq!(edit.class(), EditClass::of(&command), "{edit:?}");
         }
     }
@@ -341,6 +403,86 @@ mod tests {
 
         let saved = model.save_to_bytes(false).expect("saves");
         assert_eq!(page_texts(&saved), ["three"]);
+    }
+
+    #[test]
+    fn a_blank_page_is_inserted_where_asked_and_saved_empty_on_a4() {
+        let mut model = three_pages();
+        let ids = model.page_ids();
+        model.apply_edit(insert_blank(1)).expect("inserts");
+
+        assert_eq!(model.page_count(), 4);
+        let now = model.page_ids();
+        assert_eq!([now[0], now[2], now[3]], [ids[0], ids[1], ids[2]]);
+        assert!(!ids.contains(&now[1]), "the new page has an id of its own");
+        let size = &model.page_sizes()[1];
+        assert_eq!((size.width_pt, size.height_pt), (595.0, 842.0));
+
+        let saved = model.save_to_bytes(false).expect("saves");
+        let letter = [0.0, 0.0, 612.0, 792.0];
+        assert_eq!(
+            saved_pages(&saved),
+            [
+                (letter, true),
+                ([0.0, 0.0, 595.0, 842.0], false),
+                (letter, true),
+                (letter, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_landscape_blank_page_lies_on_its_side_and_one_past_the_end_appends() {
+        let mut model = three_pages();
+        model
+            .apply_edit(PageEdit::InsertBlank {
+                index: 3,
+                orientation: Orientation::Landscape,
+            })
+            .expect("appends");
+        let size = &model.page_sizes()[3];
+        assert_eq!(
+            (size.width_pt, size.height_pt, size.rotation_degrees),
+            (842.0, 595.0, 0)
+        );
+
+        let saved = model.save_to_bytes(false).expect("saves");
+        assert_eq!(saved_pages(&saved)[3], ([0.0, 0.0, 842.0, 595.0], false));
+    }
+
+    #[test]
+    fn an_insert_undoes_and_redoes_as_one_step_keeping_its_id() {
+        let mut model = three_pages();
+        model.apply_edit(insert_blank(0)).unwrap();
+        let inserted = model.page_ids()[0];
+        assert!(model.preview_stale(), "the preview must show the new page");
+
+        assert!(model.undo());
+        assert_eq!(model.page_count(), 3);
+        assert!(!model.can_undo(), "one step");
+        assert_eq!(
+            page_texts(&model.save_to_bytes(false).unwrap()),
+            ["one", "two", "three"]
+        );
+
+        assert!(model.redo());
+        assert_eq!(model.page_ids()[0], inserted);
+        assert_eq!(saved_pages(&model.save_to_bytes(false).unwrap()).len(), 4);
+    }
+
+    #[test]
+    fn an_insert_is_refused_when_the_encryption_could_not_survive_the_rewrite() {
+        // Opened with the user password only: assembly is granted, but a page
+        // structure edit forces a full rewrite that could not re-encrypt.
+        let mut model = DocumentModel::open(
+            &pdfs::locked_document(&["one"]),
+            &OpenCredentials::Password(pdfs::USER_PASSWORD.into()),
+        )
+        .unwrap();
+        assert!(model.document_assembly_allowed());
+        let err = model.apply_edit(insert_blank(1)).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::UnsupportedOperation, "{err:?}");
+        assert!(!model.can_undo());
     }
 
     #[test]
@@ -393,6 +535,8 @@ mod tests {
                 index: u32::MAX,
                 count: 2,
             },
+            // One past the last page appends; two past it does not exist.
+            insert_blank(4),
         ] {
             let err = model.apply_edit(edit).expect_err("out of range");
             assert_eq!(err.kind, ErrorKind::PageIndexOutOfBounds, "{edit:?}");
@@ -432,9 +576,11 @@ mod tests {
                 delta_degrees: 90,
             },
             PageEdit::Remove { index: 0, count: 1 },
+            insert_blank(1),
             // The permission is asked first: an out-of-range position on a
             // refusing document is still a permission refusal.
             PageEdit::Remove { index: 9, count: 1 },
+            insert_blank(9),
         ] {
             let err = model.apply_edit(edit).expect_err("refused");
             assert_eq!(err.kind, ErrorKind::EditNotPermitted, "{edit:?}");

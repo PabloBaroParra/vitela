@@ -2160,7 +2160,7 @@ Gates (Windows 11, local):
 | **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
 | **T-251** ✓ | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
 | **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
-| **T-253** | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
+| **T-253** ✓ | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
 | **T-254** | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
 | **T-255** | Metadatos. | Playwright: editar, guardar y releer. |
 | **T-256** | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
@@ -2481,6 +2481,78 @@ condiciona lo que sigue:
 - **No cubierto / pendiente:** la herramienta `/protect` de la portada sigue en `web: false`,
   igual que `/compress` y `/pdf-to-image`; sin editor de restricciones (`/P` siempre
   abierto, como en todos los shells); sin lector de pantalla real.
+
+### T-253 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize", **Add blank page**) y
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Ninguna regla
+nueva en el core: `Command::insert_blank_page` ya mintaba el `PageId` desde el `Document` y
+`pdf_save::check_edit` ya clasificaba la inserción. Lo que condiciona lo que sigue:
+
+- **Semántica copiada de `pdf-ffi` (`FfiEditCommand::InsertBlankPage`):** una página A4
+  (595 × 842), vertical u horizontal — lo único que ofrecen Windows (`PdfCoreEdit.InsertBlankPage`
+  siempre con `FfiPageSize.A4`) y Android (`PageEdit.InsertBlank(index, landscape)`) —, insertada
+  para quedar en la posición `index`; `index == pageCount` añade al final. El límite (`len`, no
+  `len - 1`) se comprueba **antes** de mintar el id, como `pdf-ffi`, así que una posición mala no
+  gasta ninguno; `PageIndexOutOfBounds` nombra la posición. Espacio de ids agotado →
+  `UnsupportedOperation` (en `pdf-ffi` es `InvalidSaveRequest`, que la web no tiene). Un paso de
+  deshacer; el redo conserva el mismo id.
+- **Puerta:** la misma de Move/Remove, sin código nuevo: `PageEdit::InsertBlank` es
+  `document_assembly + page_structure` (`EditClass`, verificado contra `EditClass::of` del
+  comando construido en el test de paridad), así que `check_edit` pide el permiso de ensamblado
+  (`EditNotPermitted`) y después `full_rewrite_blocker` (`UnsupportedOperation`: p. ej. un PDF
+  cifrado abierto solo con la contraseña de usuario, aunque conceda ensamblado). `previewStale`
+  queda en `true` y el worker refresca la vista dentro de la misma petición.
+- **`pdf-wasm`** (`model/edit.rs`, `engine/edit.rs`): variante `PageEdit::InsertBlank { index,
+  orientation }`; `PageEdit::command` pasa a `&mut Document` porque la inserción minta el id.
+  JS: `EditCommand.insertBlankPage(index, landscape)`.
+- **`@vitela/core`:** `PageEdit` gana `{ kind: 'insertBlank', at, orientation }` y se exporta el
+  tipo `PageOrientation` (`'portrait' | 'landscape'`). Sin petición nueva: viaja por `applyEdit`.
+- **`@vitela/viewer` (`features/organize/`):** **UX.** Los nativos ponen "+" en cada tarjeta
+  ("insertar antes", con Vertical/Horizontal en Android y Windows) y un "añadir al final"
+  (tarjeta final en Android, dos botones en la cabecera de Windows); GTK no tiene la acción en
+  Organize. La web no tiene botones dentro de las tarjetas (son opciones de un `listbox` con la
+  selección como sujeto de toda la barra), así que la acción es un botón-menú **Add blank page**
+  en la barra (`ToolsMenu`, que gana `disabled`: `aria-disabled` y no se abre) con **Portrait
+  A4** / **Landscape A4**, que inserta **después** de la selección (tras la última página de los
+  bloques elegidos en Documents) o al final si no hay selección, y selecciona la tarjeta nueva.
+  Así cubre los dos casos de los nativos (después de la página N = antes de la N+1; al final)
+  en las dos vistas; en Documents la página sale como bloque "Blank pages". Sin el permiso el
+  botón está desactivado como los demás y el aviso dice ahora "added, moved, rotated or deleted".
+- **Tests:** `pdf-wasm` 4 nativos nuevos (inserción con `/MediaBox` A4 y sin contenido leídos
+  con lopdf, horizontal añadida al final, un paso de deshacer/rehacer con el mismo id, rechazo
+  por reescritura) y casos nuevos en paridad de `EditClass`, fuera de rango y sin permiso; 1
+  `wasm-bindgen-test` nuevo (`tests/engine.rs`: id propio, render 595 × 842 sin tinta, 842 × 595
+  la horizontal, guardar y reabrir) más casos en `page_edits_are_refused_by_kind`.
+  `@vitela/core` 3 Vitest nuevos (2 de `documentEngine`, 1 contra pdfium real: id y bloque
+  `blank` propios, render blanco, `/MediaBox` al reabrir, posición fuera de rango).
+  `@vitela/viewer` 5 nuevos (4 de `OrganizeScreen`: después de una página, después de un rango
+  en horizontal, deshacer, vista Documents; 1 de `ToolsMenu` desactivado) y el de documento
+  bloqueado ampliado. Vistos en rojo antes de implementar: los de `documentEngine` (2), los de
+  `OrganizeScreen` (5) y el de `ToolsMenu`. Los de Rust y el de pdfium real se escribieron
+  junto a su código y no se vieron en rojo por separado.
+- **E2E (`e2e/insert-blank.spec.ts`, 2 × 3):** con la página 1 seleccionada, Portrait A4 → 3
+  tarjetas (`300`, `500` = A4, `400`), la nueva seleccionada ("Page 2 of 3 selected") y el foco
+  de vuelta en el botón; Undo → 2, Redo → 3; el guardado tiene 3 páginas con exactamente un
+  `/MediaBox [0 0 595 842]`, y al reabrirlo "3 pages", la página 2 sin un píxel de tinta y con
+  proporción A4, la 1 con su texto. Documents → Landscape A4 → bloque "Blank pages, 1 page"
+  seleccionado, guardado con un `/MediaBox [0 0 842 595]`. **`e2e/organize.spec.ts`:** el PDF
+  sin permiso de ensamblado tiene Add blank page desactivado y forzar el clic no abre menú ni
+  añade página. Helper nuevo `pageMediaBoxes` en `e2e/pdfObjects.ts`.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test --locked -p pdf-wasm` 117 pasan. `@vitela/core`: `build:wasm`, `typecheck`,
+  Vitest 15 / 189, `build`. `@vitela/viewer`: `tsc -b`, Vitest 81 / 809, `build`. `apps/web`:
+  `tsc -b`, Vitest 6 / 19, `vite build`; Playwright completo (Chromium, Firefox, WebKit, con
+  `CI=1`) **253 pasan, 20 omitidos** (los de File System Access fuera de Chromium),
+  `zero-network` y `phone-bar` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** sin tamaño Carta ni personalizado (ningún shell nativo lo ofrece
+  en Organize, aunque `FfiPageSize` lo admite); sin "insertar antes" por tarjeta (se cubre con
+  seleccionar la página anterior); sin lector de pantalla real.
 
 ## Verificación
 

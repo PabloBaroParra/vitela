@@ -46,6 +46,7 @@ export type {
   MarkupKind,
   OpenedDocument,
   PageEdit,
+  PageOrientation,
   PagePoint,
   PageRect,
   PageRects,

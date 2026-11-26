@@ -73,6 +73,7 @@ export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
+  insertBlankPage(index: number, landscape: boolean): Owned;
 }
 
 /** core/pdf-wasm's free functions: placement, and the geometry asked before an annotation exists. */
@@ -447,7 +448,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
 }
 
 function isPageEdit(edit: Edit): edit is PageEdit {
-  return edit.kind === 'move' || edit.kind === 'rotate' || edit.kind === 'remove';
+  return edit.kind === 'move' || edit.kind === 'rotate' || edit.kind === 'remove' || edit.kind === 'insertBlank';
 }
 
 function isFormEdit(edit: Edit): edit is FormEdit {
@@ -469,6 +470,8 @@ function pageCommand(edits: CoreEdits, edit: PageEdit): Owned {
       return edits.rotatePages(edit.from, edit.count, edit.degrees);
     case 'remove':
       return edits.removePages(edit.from, edit.count);
+    case 'insertBlank':
+      return edits.insertBlankPage(edit.at, edit.orientation === 'landscape');
   }
 }
 

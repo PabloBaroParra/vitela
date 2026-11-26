@@ -1,11 +1,15 @@
-// The Organize screen's toolbar: the Pages / Documents view, Add PDFs, what
-// can be done to the selection, and undo/redo. Presentational.
+// The Organize screen's toolbar: the Pages / Documents view, Add PDFs, Add
+// blank page (an A4 page, portrait or landscape — what the native shells
+// offer — after the selection), what can be done to the selection, and
+// undo/redo. Presentational.
 //
 // The buttons are `aria-disabled`, not `disabled`: a button that turns
 // disabled under the keyboard focus (Undo after the last undo) would drop the
 // focus to the page.
 
+import type { PageOrientation } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
+import { ToolsMenu } from '../../ui/ToolsMenu';
 import { historyShortcuts, isApplePlatform } from '../document/historyKeys';
 import { ViewSwitch } from '../../ui/ViewSwitch';
 import type { OrganizeView } from './units';
@@ -46,10 +50,13 @@ interface OrganizeToolbarProps {
   /** The selection as text, e.g. "Pages 2–3 of 5 selected". */
   readonly summary: string;
   readonly canEdit: boolean;
+  /** Add blank page is on: the document permits it and no edit is in flight. */
+  readonly canInsert: boolean;
   readonly canMoveEarlier: boolean;
   readonly canMoveLater: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
+  readonly onInsertBlank: (orientation: PageOrientation) => void;
   readonly onRotateLeft: () => void;
   readonly onRotateRight: () => void;
   readonly onDelete: () => void;
@@ -71,6 +78,15 @@ export function OrganizeToolbar(props: OrganizeToolbarProps) {
         onPickFiles={props.onAddFiles}
         disabled={props.addRefusal !== null || props.adding}
         disabledReason={props.addRefusal ?? undefined}
+      />
+      <ToolsMenu
+        label="Add blank page"
+        className="organize__insert"
+        disabled={!props.canInsert}
+        tools={[
+          { label: 'Portrait A4', onSelect: () => props.onInsertBlank('portrait') },
+          { label: 'Landscape A4', onSelect: () => props.onInsertBlank('landscape') },
+        ]}
       />
       <ToolButton label="Rotate left" enabled={canEdit} onPress={props.onRotateLeft} />
       <ToolButton label="Rotate right" enabled={canEdit} onPress={props.onRotateRight} />

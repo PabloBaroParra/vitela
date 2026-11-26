@@ -27,12 +27,17 @@ interface ToolsMenuProps {
   readonly icon?: ReactNode;
   /** The menu's button, for a caller that has to give it the focus. */
   readonly buttonRef?: RefObject<HTMLButtonElement | null>;
+  /**
+   * Off: the button stays shut. `aria-disabled`, not `disabled`, so it keeps
+   * the focus when it turns off under it.
+   */
+  readonly disabled?: boolean;
 }
 
-export function ToolsMenu({ label, tools, className, icon, buttonRef }: ToolsMenuProps) {
+export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled = false }: ToolsMenuProps) {
   /** The item that has the focus while open, or `null` when closed. */
   const [active, setActive] = useState<number | null>(null);
-  const open = active !== null;
+  const open = active !== null && !disabled;
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLLIElement | null)[]>([]);
@@ -67,6 +72,7 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef }: ToolsMen
   const last = tools.length - 1;
 
   const onButtonKey = (event: KeyboardEvent) => {
+    if (disabled) return;
     const at = { Enter: 0, ' ': 0, ArrowDown: 0, ArrowUp: last }[event.key];
     if (at === undefined) return;
     event.preventDefault();
@@ -112,7 +118,8 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef }: ToolsMen
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        onClick={() => (open ? setActive(null) : setActive(0))}
+        aria-disabled={disabled || undefined}
+        onClick={() => (open || disabled ? setActive(null) : setActive(0))}
         onKeyDown={onButtonKey}
         // Space is handled on its keydown; the keyup that follows (also the
         // one of a Space that chose an item and sent the focus back here)

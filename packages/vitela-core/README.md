@@ -5,7 +5,7 @@ pdfium, both as WebAssembly, running in a module Web Worker behind a typed,
 framework-agnostic client. No server: documents never leave the page.
 
 Today the engine opens (with or without a password), renders pages to RGBA,
-moves, rotates and removes pages (with undo/redo),
+moves, rotates, removes and inserts blank pages (with undo/redo),
 searches, selects text, and saves the document back to bytes.
 
 ## Install
@@ -71,7 +71,8 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   sizes, page ids, blocks, undo/redo state, the session's annotations and the
   id of the one it added, and the form fields), and the engine has already refreshed its preview
   when the step changed the pixels, so the next render shows it.
-  `applyEdit` takes a page edit (`move`/`rotate`/`remove`) or an annotation
+  `applyEdit` takes a page edit (`move`/`rotate`/`remove`, or `insertBlank`: one
+  A4 page, `portrait` or `landscape`, at a position) or an annotation
   edit (`AnnotationEdit`: add markup, a shape, ink, a note, free text or an
   image stamp; move, resize, recolour, retext or remove one by id), each one
   undo step. Annotation edits change no pixels — the preview leaves the

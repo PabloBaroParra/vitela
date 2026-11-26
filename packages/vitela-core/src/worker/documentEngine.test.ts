@@ -87,6 +87,7 @@ type FakeEdit =
   | { kind: 'move'; from: number; count: number; to: number; free(): void }
   | { kind: 'rotate'; from: number; count: number; delta: number; free(): void }
   | { kind: 'remove'; from: number; count: number; free(): void }
+  | { kind: 'insertBlank'; index: number; landscape: boolean; free(): void }
   | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
   | { kind: 'fill'; op: string; id: number; value: unknown; free(): void };
 
@@ -208,6 +209,7 @@ function fakeCore(
     movePages: (from, count, to) => command({ kind: 'move', from, count, to }),
     rotatePages: (from, count, delta) => command({ kind: 'rotate', from, count, delta }),
     removePages: (from, count) => command({ kind: 'remove', from, count }),
+    insertBlankPage: (index, landscape) => command({ kind: 'insertBlank', index, landscape }),
     addHighlight: annotation('addHighlight'),
     addUnderline: annotation('addUnderline'),
     addStrikeout: annotation('addStrikeout'),
@@ -419,6 +421,10 @@ function fakeCore(
         for (let i = edit.from; i < edit.from + edit.count; i++) {
           pages[i] = { ...pages[i]!, rotationDegrees: (pages[i]!.rotationDegrees + edit.delta + 360) % 360 };
         }
+      } else if (edit.kind === 'insertBlank') {
+        if (edit.index > pages.length) throw named('PageIndexOutOfBounds', `page ${edit.index} does not exist`);
+        // Blank pages are their own source (none of the opened ones).
+        pages.splice(edit.index, 0, { id: nextPageId++, widthPt: edit.landscape ? 842 : 595, rotationDegrees: 0, source: -1 });
       } else {
         pages.splice(edit.from, edit.count);
       }
@@ -930,6 +936,35 @@ describe('documentEngine', () => {
     const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 2 });
     expect(removed.info.pageIds).toEqual([100]);
     expect(refreshed).toHaveLength(3);
+  });
+
+  it('inserts a blank page where asked as one refreshed step with a new page id', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore({ pages: 2 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+
+    const inserted = await engine.applyEdit(handle, { kind: 'insertBlank', at: 1, orientation: 'landscape' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'insertBlank', index: 1, landscape: true });
+    expect(freed).toContain('edit:insertBlank');
+    expect(inserted.info.pageCount).toBe(3);
+    expect(inserted.info.pageIds).toEqual([100, 200, 101]);
+    expect(inserted.info.pages[1]).toEqual({ widthPt: 842, heightPt: 792, rotationDegrees: 0 });
+    expect(inserted).toMatchObject({ canUndo: true, canRedo: false });
+    expect(refreshed).toEqual([handle]);
+
+    await engine.applyEdit(handle, { kind: 'insertBlank', at: 3, orientation: 'portrait' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'insertBlank', index: 3, landscape: false });
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageIds).toEqual([100, 200, 101]);
+  });
+
+  it('passes the core refusal of an insert through by name', async () => {
+    const { core, edits } = fakeCore({ pages: 1, assembly: false });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'insertBlank', at: 0, orientation: 'portrait' })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
   });
 
   it('steps back and forth through the edits, refreshing the preview each time', async () => {

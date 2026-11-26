@@ -13,7 +13,7 @@ import { OrganizeScreen } from './OrganizeScreen';
 const VIEWPORT = { width: 2 * GRID_PADDING + 4 * CARD.width + 3 * GRID_GAP, height: 600 };
 const bitmap: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 
-/** One page of the fake document: its id, turn, and the PDF it came from (0: the opened one). */
+/** One page of the fake document: its id, turn, and the PDF it came from (0: the opened one, -1: an inserted blank page). */
 interface FakePage {
   readonly id: number;
   readonly turn: number;
@@ -24,8 +24,9 @@ function info(pages: readonly FakePage[], allowed = true, importRefusal: string 
   const blocks: DocumentBlock[] = [];
   pages.forEach((page, index) => {
     const last = blocks.at(-1);
-    const source: DocumentBlock['source'] = page.source === 0 ? { kind: 'base' } : { kind: 'imported', id: page.source };
-    const same = last && (last.source.kind === 'base' ? 0 : (last.source as { id: number }).id) === page.source;
+    const source: DocumentBlock['source'] =
+      page.source === 0 ? { kind: 'base' } : page.source === -1 ? { kind: 'blank' } : { kind: 'imported', id: page.source };
+    const same = last && index > 0 && pages[index - 1]!.source === page.source;
     if (same) blocks[blocks.length - 1] = { ...last, count: last.count + 1 };
     else blocks.push({ source, part: null, start: index, count: 1 });
   });
@@ -81,6 +82,7 @@ function pagesEngine(count: number, allowed = true, importRefusal: string | null
       else if (edit.kind === 'rotate')
         for (let i = edit.from; i < edit.from + edit.count; i++)
           next[i] = { ...next[i]!, turn: (next[i]!.turn + edit.degrees + 360) % 360 };
+      else if (edit.kind === 'insertBlank') next.splice(edit.at, 0, { id: nextPageId++, turn: 0, source: -1 });
       else next.splice(edit.from, edit.count);
       record(next);
       return answer();
@@ -468,10 +470,12 @@ describe('OrganizeScreen', () => {
 
   it('is blocked when the document withholds the assembly permission', async () => {
     const { edits, order, cards, grid } = setup(3, false);
-    expect(screen.getByText(/does not allow its pages to be/)).toBeTruthy();
-    for (const name of ['Rotate left', 'Rotate right', 'Delete', 'Move earlier', 'Move later']) {
+    expect(screen.getByText(/does not allow its pages to be added, moved/)).toBeTruthy();
+    for (const name of ['Rotate left', 'Rotate right', 'Delete', 'Move earlier', 'Move later', 'Add blank page']) {
       expect(button(name).getAttribute('aria-disabled')).toBe('true');
     }
+    fireEvent.click(button('Add blank page'));
+    expect(screen.queryByRole('menu')).toBeNull();
     fireEvent.click(button('Delete'));
     await act(async () => fireEvent.keyDown(grid(), { key: 'Delete' }));
     fireEvent.pointerDown(cards()[0]!, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
@@ -481,5 +485,52 @@ describe('OrganizeScreen', () => {
     expect(order()).toEqual([0, 1, 2]);
     // Looking around still works.
     fireEvent.keyDown(grid(), { key: 'ArrowRight' });
+  });
+  describe('Add blank page', () => {
+    async function addBlank(orientation: 'Portrait A4' | 'Landscape A4') {
+      fireEvent.click(button('Add blank page'));
+      await act(async () => fireEvent.click(screen.getByRole('menuitem', { name: orientation })));
+    }
+
+    it('inserts an A4 page after the selected page as one edit, selects it and marks the document dirty', async () => {
+      const { edits, order, selected, markDirty } = setup(3);
+      expect(button('Add blank page').getAttribute('aria-haspopup')).toBe('menu');
+      await addBlank('Portrait A4');
+      expect(edits).toEqual([{ kind: 'insertBlank', at: 1, orientation: 'portrait' }]);
+      expect(order()).toEqual([0, 100, 1, 2]);
+      expect(selected()).toEqual([1]);
+      expect(markDirty).toHaveBeenCalledTimes(1);
+      // The focus goes back to the menu button, not to the page.
+      expect(document.activeElement).toBe(button('Add blank page'));
+    });
+
+    it('inserts a landscape page after the last page of a selected run', async () => {
+      const { edits, order, grid } = setup(4);
+      fireEvent.keyDown(grid(), { key: 'ArrowRight' });
+      fireEvent.keyDown(grid(), { key: 'ArrowRight', shiftKey: true });
+      await addBlank('Landscape A4');
+      expect(edits).toEqual([{ kind: 'insertBlank', at: 3, orientation: 'landscape' }]);
+      expect(order()).toEqual([0, 1, 2, 100, 3]);
+    });
+
+    it('undoes the insert as one step', async () => {
+      const { order } = setup(2);
+      await addBlank('Portrait A4');
+      expect(order()).toEqual([0, 100, 1]);
+      await act(async () => fireEvent.click(button('Undo')));
+      expect(order()).toEqual([0, 1]);
+    });
+
+    it('in the Documents view, inserts after the selected block and selects the new blank block', async () => {
+      const { edits, blocks, selected } = setup(3);
+      await addPdfs([pdf('b.pdf', 2)]);
+      await act(async () => fireEvent.click(button('Documents')));
+      expect(blocks()).toEqual(['a.pdf, 3 pages', 'b.pdf, 2 pages']);
+      // The import selected the added block: the page goes in after it.
+      await addBlank('Portrait A4');
+      expect(edits).toEqual([{ kind: 'insertBlank', at: 5, orientation: 'portrait' }]);
+      expect(blocks()).toEqual(['a.pdf, 3 pages', 'b.pdf, 2 pages', 'Blank pages, 1 page']);
+      expect(selected()).toEqual([2]);
+    });
   });
 });

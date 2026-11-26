@@ -113,10 +113,16 @@ test('a PDF that withholds the assembly permission is blocked', async ({ page })
   await expect(page.getByText('locked.pdf — 4 pages')).toBeVisible({ timeout: 30_000 });
 
   await openOrganize(page);
-  await expect(page.getByText('This PDF does not allow its pages to be moved, rotated or deleted.', { exact: false })).toBeVisible();
-  for (const name of ['Rotate left', 'Rotate right', 'Delete', 'Move earlier', 'Move later']) {
+  await expect(
+    page.getByText('This PDF does not allow its pages to be added, moved, rotated or deleted.', { exact: false }),
+  ).toBeVisible();
+  for (const name of ['Add blank page', 'Rotate left', 'Rotate right', 'Delete', 'Move earlier', 'Move later']) {
     await expect(tool(page, name)).toHaveAttribute('aria-disabled', 'true');
   }
+  // Add blank page stays shut: no menu, so no blank page.
+  await tool(page, 'Add blank page').click({ force: true });
+  await expect(page.getByRole('menu')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(4);
   // Adding pages is an assembly edit too: the core's import refusal turns Add PDFs off.
   await expect(toolbar(page).getByText('Add PDFs')).toHaveAttribute('aria-disabled', 'true');
   await expect(page.getByLabel('Add PDFs')).toBeDisabled();

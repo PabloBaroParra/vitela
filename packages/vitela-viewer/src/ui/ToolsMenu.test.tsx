@@ -128,4 +128,16 @@ describe('ToolsMenu', () => {
     document.removeEventListener('keydown', count);
     expect(reached).toBe(0);
   });
+  it('stays shut while disabled, focusable and said to be off', () => {
+    const chosen: string[] = [];
+    render(<ToolsMenu label="Add blank page" disabled tools={[{ label: 'Portrait A4', onSelect: () => chosen.push('p') }]} />);
+    const button = screen.getByRole('button', { name: 'Add blank page' });
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.click(button);
+    fireEvent.keyDown(button, { key: 'Enter' });
+    fireEvent.keyDown(button, { key: 'ArrowDown' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+    expect(chosen).toEqual([]);
+  });
 });

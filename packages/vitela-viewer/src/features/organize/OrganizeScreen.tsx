@@ -1,14 +1,14 @@
 // Container: the Organize screen — every page (Pages view) or every block of
 // pages from one PDF (Documents view) as a thumbnail, to reorder (drag, or
-// Ctrl+Shift+arrow), rotate and delete, plus Add PDFs (picker or drop), with
-// undo/redo. The selection is one contiguous run of cards, which is always one
+// Ctrl+Shift+arrow), rotate and delete, plus Add PDFs (picker or drop) and
+// Add blank page (after the selection, or at the end), with undo/redo. The selection is one contiguous run of cards, which is always one
 // contiguous run of pages, so each operation is one core command and one undo
 // step in either view. The rules (permission, positions, what an import may
 // carry) are the core's; this screen keeps the selection in step with what an
 // edit did.
 
 import { useCallback, useContext, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
-import type { DocumentHandle, EditedDocument, Engine, ImportedDocument, PageEdit } from '@vitela/core';
+import type { DocumentHandle, EditedDocument, Engine, ImportedDocument, PageEdit, PageOrientation } from '@vitela/core';
 import { StatusLine } from '../../ui/StatusLine';
 import type { OpenDocument } from '../document/useDocument';
 import { carriesFiles } from '../document/droppedFile';
@@ -75,6 +75,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
   const run = selection && runOf(selection);
   const pages = run && units.pageRun(run);
   const canEdit = organize.allowed && !organize.pending && pages !== null;
+  const canInsert = organize.allowed && !organize.pending;
 
   /**
    * Applies `edit` and, once the core took it, selects what `next` says in the
@@ -125,6 +126,18 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
     // The card after the removed run takes its place, or the new last card.
     void edit({ kind: 'remove', ...pages }, (_edited, after) =>
       after.count > 0 ? selectOnly(Math.min(run.from, after.count - 1)) : null,
+    );
+  };
+  /**
+   * A blank page goes in after the selected pages (the last page of the
+   * selected blocks, in the Documents view), or at the end when nothing is
+   * selected; then it is selected, as the card that holds it.
+   */
+  const insertBlank = (orientation: PageOrientation) => {
+    if (!canInsert) return;
+    const at = pages ? pages.from + pages.count : info.pageCount;
+    void edit({ kind: 'insertBlank', at, orientation }, (_edited, after) =>
+      selectRun(after.covering({ from: at, count: 1 })),
     );
   };
   const move = (pageEdit: MoveEdit | null) => {
@@ -226,10 +239,12 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
         onAddFiles={addFiles}
         summary={summary(view, run, pages, units.count, info.pageCount)}
         canEdit={canEdit}
+        canInsert={canInsert}
         canMoveEarlier={!!run && run.from > 0}
         canMoveLater={!!run && run.from + run.count < units.count}
         canUndo={organize.canUndo && !organize.pending}
         canRedo={organize.canRedo && !organize.pending}
+        onInsertBlank={insertBlank}
         onRotateLeft={() => rotate(-90)}
         onRotateRight={() => rotate(90)}
         onDelete={remove}
@@ -240,7 +255,7 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
       />
       {!organize.allowed && (
         <p className="organize__blocked">
-          This PDF does not allow its pages to be moved, rotated or deleted. Open it with its owner password to
+          This PDF does not allow its pages to be added, moved, rotated or deleted. Open it with its owner password to
           organize it.
         </p>
       )}

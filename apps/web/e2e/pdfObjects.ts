@@ -1,5 +1,5 @@
 // Reads saved PDF bytes back in the E2E specs, just far enough to find
-// annotation dictionaries: in the file's plain objects and inside its
+// annotation and page dictionaries: in the file's plain objects and inside its
 // Flate-compressed streams (object streams), without a PDF library.
 
 import { inflateSync } from 'node:zlib';
@@ -85,4 +85,22 @@ export function subtypeDictionaries(bytes: Buffer, subtype: string): string[] {
     }
   }
   return found;
+}
+
+/**
+ * The `/MediaBox` of every page dictionary (`/Type /Page`) the saved bytes
+ * hold, in file order (not page order), as x0, y0, x1, y1 in PDF points.
+ * A page that inherits its box from `/Pages` is not listed.
+ */
+export function pageMediaBoxes(bytes: Buffer): number[][] {
+  const boxes: number[][] = [];
+  const pattern = /\/Type\s*\/Page(?![A-Za-z0-9])/g;
+  for (const text of texts(bytes)) {
+    for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+      const dictionary = enclosingDictionary(text, match.index);
+      const box = dictionary && /\/MediaBox\s*\[([^\]]*)\]/.exec(dictionary);
+      if (box) boxes.push(box[1]!.trim().split(/\s+/).map(Number));
+    }
+  }
+  return boxes;
 }
