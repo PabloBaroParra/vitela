@@ -99,8 +99,6 @@ internal fun PageList(
     // The pinch detector outlives recompositions, so it reads these rather than the parameters.
     val laidOutZoom by rememberUpdatedState(state.zoomFactor)
     val currentOnPinch by rememberUpdatedState(onPinch)
-    // Where the list stood when the fingers lifted, to scroll back under them once the new zoom is laid out.
-    var pinchAnchor by remember { mutableStateOf<PinchAnchor?>(null) }
     val stampBitmaps = rememberStampBitmaps(state.stampImages)
 
     BoxWithConstraints(modifier = modifier) {
@@ -114,7 +112,6 @@ internal fun PageList(
 
         LaunchedEffect(columns, state.documentId) {
             preferredPage = state.pageIndex
-            pinchAnchor = null
             pinch.clear()
             horizontalScrollState.scrollTo(0)
             if (rows.count > 0) listState.scrollToItem(rows.row(preferredPage))
@@ -191,7 +188,8 @@ internal fun PageList(
                     },
                     pinch = pinch,
                 ) { target, from, to ->
-                    pinchAnchor = PinchAnchor(
+                    // Where the list stood when the fingers lifted, to scroll back under them once the new zoom is laid out.
+                    val anchor = PinchAnchor(
                         fromZoom = laidOutZoom,
                         toZoom = target,
                         firstItem = listState.firstVisibleItemIndex,
@@ -201,11 +199,11 @@ internal fun PageList(
                         from = from,
                         to = to,
                     )
+                    pinch.land(anchor)
                     if (target != laidOutZoom) currentOnPinch(target)
                 }
-                .landPinch(anchor = { pinchAnchor }, laidOutZoom = { laidOutZoom }, list = listState, horizontal = horizontalScrollState) {
-                    pinchAnchor = null
-                    pinch.clear()
+                .landPinch(anchor = { pinch.pending }, laidOutZoom = { laidOutZoom }, list = listState, horizontal = horizontalScrollState) {
+                    pinch.settle()
                 }
                 .horizontalScroll(horizontalScrollState),
             contentAlignment = Alignment.TopCenter,
