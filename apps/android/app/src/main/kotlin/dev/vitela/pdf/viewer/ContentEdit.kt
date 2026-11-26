@@ -3,7 +3,6 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.R
 import dev.vitela.pdf.core.AnnotationPoint
 import dev.vitela.pdf.core.AnnotationRect
-import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentPath
 import dev.vitela.pdf.core.ContentSelection
@@ -179,12 +178,12 @@ internal fun textMovePrompt(pageIndex: Int): UiText = UiText.Resource(R.string.s
 internal val FONT_SUBSTITUTED: UiText = UiText.Resource(R.string.content_text_font_substituted)
 
 /**
- * The core cannot re-encode a composite (CID) font, so a retype of a block whose
- * first run is one — the run that takes all the text — swaps in a standard font.
- * Worth saying before the reader types: nothing on the page tells that block
- * apart from any other.
+ * The core cannot re-encode a composite (CID) font, so a retype of a one-line
+ * block whose first run is one — the run that takes all the text — swaps in a
+ * standard font ([ContentTextBlock.retypesInInsertedFont]). Worth saying before
+ * the reader types: nothing on the page tells that block apart from any other.
  */
-internal val ContentTextBlock.substitutesFont: Boolean get() = runs.first().fontKind == ContentFontKind.EmbeddedComposite
+internal val ContentTextBlock.substitutesFont: Boolean get() = retypesInInsertedFont
 
 /**
  * The block a tap at [point] meant: one it lands inside — on any of its runs or

@@ -166,6 +166,8 @@ class ViewerViewModelContentCheckpointTest {
     fun theTextDialogWarnsOfASaveOnlyWhereTheCoreCannotCheckpoint() = runTest {
         for (canCheckpoint in listOf(true, false)) {
             val viewModel = editing(CheckpointingDocument(canCheckpoint = canCheckpoint))
+            retypeHello(viewModel, "Howdy")
+            assertTrue(viewModel.state.value.isDirty)
             viewModel.tapContent(0, onHello, reach = 0.0)
             advanceUntilIdle()
 
@@ -173,6 +175,20 @@ class ViewerViewModelContentCheckpointTest {
             assertEquals(canCheckpoint, editor?.canCheckpoint)
             assertEquals(!canCheckpoint, "needs a save first" in textDialogHelp(editor?.canCheckpoint == true).english())
         }
+    }
+
+    @Test
+    fun theTextDialogOfAnUneditedDocumentWarnsOfNoSave() = runTest {
+        // The core answers no while nothing is queued (there is nothing to
+        // checkpoint), but with nothing unsaved no edit can need a save first.
+        val viewModel = editing(CheckpointingDocument(canCheckpoint = false))
+        assertFalse(viewModel.state.value.isDirty)
+        viewModel.tapContent(0, onHello, reach = 0.0)
+        advanceUntilIdle()
+
+        val editor = viewModel.state.value.contentEdit?.editor
+        assertEquals(true, editor?.canCheckpoint)
+        assertFalse("needs a save first" in textDialogHelp(editor?.canCheckpoint == true).english())
     }
 
     private suspend fun TestScope.readPageOne(viewModel: ViewerViewModel) {

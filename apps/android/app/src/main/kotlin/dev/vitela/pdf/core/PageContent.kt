@@ -23,15 +23,19 @@ data class ContentTextRun(
 )
 
 /**
- * Text runs that read as one line — on one line, in one font, no more than a
- * word gap apart — as the core grouped them (B25 T-207). A report generator
- * paints one phrase with several show-text operators; the reader sees, selects,
- * moves, retypes and deletes it as one piece, each an undo step of its own.
+ * Text runs that read as one piece of text, as the core grouped them: runs on
+ * one line, in one font, no more than a word gap apart (B25 T-207), and lines
+ * stacked a steady leading apart joined into a paragraph (PR #568). A report
+ * generator paints one phrase with several show-text operators; the reader
+ * sees, selects, moves, retypes and deletes it as one piece, each an undo step
+ * of its own.
  *
- * [runs] are left to right, exactly as the page's content read them, and every
- * run of a page is in exactly one block. [bounds] is the union of their boxes and
- * [text] their text joined, with a space put back where the file left a word gap
- * out of it. A one-run block is just a block.
+ * [runs] are line by line from the top, each line left to right, exactly as the
+ * page's content read them, and every run of a page is in exactly one block.
+ * [bounds] is the union of their boxes and [text] their text joined, with a
+ * space put back where the file left a word gap out of it and a paragraph's
+ * lines joined with `'\n'`. [lineCount] is how many lines it has: one unless it
+ * is a paragraph. A one-run block is just a block.
  *
  * Handed back unchanged to [PdfDocument.retypeTextBlock],
  * [PdfDocument.moveTextBlock] and [PdfDocument.removeTextBlock]: the core
@@ -41,12 +45,29 @@ data class ContentTextBlock(
     val runs: List<ContentTextRun>,
     val bounds: AnnotationRect,
     val text: String,
+    val lineCount: Int = 1,
 ) {
     /** The first run's id, which names the block: a retyped or moved block keeps it. */
     val id: Long get() = runs.first().id
 
     /** The page the block is on, its runs' page. */
     val pageIndex: Int get() = runs.first().pageIndex
+
+    /**
+     * Lines stacked a steady leading apart, retyped as a whole: the core wraps
+     * the new text to the paragraph's width, every `'\n'` a line break the
+     * reader typed, so the block's runs change and must be read again after.
+     */
+    val isParagraph: Boolean get() = lineCount > 1
+
+    /**
+     * Whether a retype paints the block in the core's inserted standard font:
+     * a one-line block whose first run — the one that takes all the text — is a
+     * composite (CID) font, which cannot be re-encoded. Never a paragraph: the
+     * core reads a composite-font paragraph line by line, and refuses the
+     * inserted font for a paragraph retype.
+     */
+    val retypesInInsertedFont: Boolean get() = !isParagraph && runs.first().fontKind == ContentFontKind.EmbeddedComposite
 }
 
 /**

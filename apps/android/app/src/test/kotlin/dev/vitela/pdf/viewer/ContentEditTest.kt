@@ -6,6 +6,8 @@ import dev.vitela.pdf.core.ContentFontKind
 import dev.vitela.pdf.core.ContentImage
 import dev.vitela.pdf.core.ContentTextBlock
 import dev.vitela.pdf.core.ContentTextRun
+import dev.vitela.pdf.text.english
+import dev.vitela.pdf.text.spanish
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -61,6 +63,41 @@ class ContentEditTest {
         assertFalse(block(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.Standard14).substitutesFont)
         assertFalse(block(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.EmbeddedSimple).substitutesFont)
         assertTrue(block(1, 0.0, 0.0, 1.0, 1.0, ContentFontKind.EmbeddedComposite).substitutesFont)
+    }
+
+    @Test
+    fun aBlockOfMoreThanOneLineIsAParagraph() {
+        val first = run(1, 10.0, 60.0, 50.0, 12.0)
+        val second = run(2, 10.0, 46.0, 55.0, 12.0)
+
+        assertFalse(ContentTextBlock(listOf(first), first.bounds, first.text).isParagraph)
+        assertTrue(ContentTextBlock(listOf(first, second), AnnotationRect(10.0, 46.0, 55.0, 26.0), "a\nb", lineCount = 2).isParagraph)
+    }
+
+    @Test
+    fun aParagraphIsNeverRetypedInTheInsertedFont() {
+        // The core reads a composite-font paragraph line by line, and refuses the inserted font for a paragraph.
+        val first = run(1, 10.0, 60.0, 50.0, 12.0, ContentFontKind.EmbeddedComposite)
+        val second = run(2, 10.0, 46.0, 55.0, 12.0, ContentFontKind.EmbeddedComposite)
+        val paragraph = ContentTextBlock(listOf(first, second), AnnotationRect(10.0, 46.0, 55.0, 26.0), "a\nb", lineCount = 2)
+
+        assertFalse(paragraph.retypesInInsertedFont)
+        assertFalse(paragraph.substitutesFont)
+        assertTrue(block(3, 0.0, 0.0, 1.0, 1.0, ContentFontKind.EmbeddedComposite).retypesInInsertedFont)
+    }
+
+    @Test
+    fun onlyAParagraphsDialogExplainsItsLineBreaks() {
+        assertTrue("line break" in textDialogHelp(canCheckpoint = true, paragraph = true).english())
+        assertFalse("line break" in textDialogHelp(canCheckpoint = true, paragraph = false).english())
+        assertTrue("salto de línea" in textDialogHelp(canCheckpoint = true, paragraph = true).spanish())
+    }
+
+    @Test
+    fun aParagraphsFieldOpensWithALinePerLineUpToItsMaximum() {
+        assertEquals(2, paragraphFieldLines(2))
+        assertEquals(4, paragraphFieldLines(4))
+        assertEquals(PARAGRAPH_FIELD_MAX_LINES, paragraphFieldLines(40))
     }
 
     @Test
