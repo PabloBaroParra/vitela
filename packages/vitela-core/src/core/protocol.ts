@@ -10,6 +10,8 @@ import type {
   CompressPreset,
   CompressRefusal,
   DocumentHandle,
+  ImageExportFormat,
+  ImageExportHandle,
   Edit,
   EditedDocument,
   FormField,
@@ -78,7 +80,31 @@ export type EngineRequest =
       readonly document: DocumentHandle;
       readonly preset: CompressPreset;
       readonly invalidateSignatures: boolean;
-    };
+    }
+  | { readonly kind: 'imageExportFormats' }
+  | { readonly kind: 'parsePageSelection'; readonly input: string; readonly totalPages: number }
+  | {
+      readonly kind: 'pageImageFileNames';
+      readonly documentName: string;
+      readonly pages: readonly number[];
+      readonly totalPages: number;
+      readonly format: ImageExportFormat;
+    }
+  | {
+      readonly kind: 'firstPageTooLargeToExport';
+      readonly document: DocumentHandle;
+      readonly pages: readonly number[];
+      readonly dpi: number;
+    }
+  | { readonly kind: 'openImageExport'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'exportPageImage';
+      readonly export: ImageExportHandle;
+      readonly pageIndex: number;
+      readonly dpi: number;
+      readonly format: ImageExportFormat;
+    }
+  | { readonly kind: 'closeImageExport'; readonly export: ImageExportHandle };
 
 export interface EngineResults {
   open: OpenedDocument;
@@ -103,6 +129,13 @@ export interface EngineResults {
   compressionRefusal: CompressRefusal | null;
   compressionInvalidatesSignatures: boolean;
   saveCompressed: CompressedDocument;
+  imageExportFormats: ImageExportFormat[];
+  parsePageSelection: number[];
+  pageImageFileNames: string[];
+  firstPageTooLargeToExport: number | null;
+  openImageExport: ImageExportHandle;
+  exportPageImage: Uint8Array;
+  closeImageExport: boolean;
 }
 
 /** UI -> worker. `id` correlates the reply. */

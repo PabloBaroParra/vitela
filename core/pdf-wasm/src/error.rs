@@ -53,6 +53,9 @@ pub enum ErrorKind {
     EncodingGap,
     /// No form field of the document answers to that id.
     FormFieldNotFound,
+    /// A typed page selection (`"1-3,7"`) the core cannot read. The message
+    /// is the core's sentence for the person who typed it.
+    InvalidPageSelection,
 }
 
 impl ErrorKind {
@@ -76,6 +79,7 @@ impl ErrorKind {
             Self::InvalidImage => "InvalidImage",
             Self::EncodingGap => "EncodingGap",
             Self::FormFieldNotFound => "FormFieldNotFound",
+            Self::InvalidPageSelection => "InvalidPageSelection",
         }
     }
 }

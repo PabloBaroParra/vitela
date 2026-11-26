@@ -29,6 +29,13 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     compressionRefusal: unused('compressionRefusal'),
     compressionInvalidatesSignatures: unused('compressionInvalidatesSignatures'),
     saveCompressedToBytes: unused('saveCompressedToBytes'),
+    imageExportFormats: unused('imageExportFormats'),
+    parsePageSelection: unused('parsePageSelection'),
+    pageImageFileNames: unused('pageImageFileNames'),
+    firstPageTooLargeToExport: unused('firstPageTooLargeToExport'),
+    openImageExport: unused('openImageExport'),
+    exportPageImage: unused('exportPageImage'),
+    closeImageExport: unused('closeImageExport'),
     ...overrides,
   };
 }

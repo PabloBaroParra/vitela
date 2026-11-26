@@ -49,6 +49,13 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     compressionRefusal: async () => null,
     compressionInvalidatesSignatures: async () => false,
     saveCompressedToBytes: async () => compressed,
+    imageExportFormats: async () => ['png', 'jpeg'],
+    parsePageSelection: async () => [0, 2],
+    pageImageFileNames: async () => ['a-1.png'],
+    firstPageTooLargeToExport: async () => null,
+    openImageExport: async () => 9,
+    exportPageImage: async () => new Uint8Array([0x89, 0x50]),
+    closeImageExport: async () => true,
     ...overrides,
   };
 }
@@ -242,6 +249,66 @@ describe('handleRequest', () => {
       message: { type: 'result', id: 6, value: compressed },
       transfer: [compressed.bytes.buffer],
     });
+  });
+
+  it('answers the image-export questions with what the engine says, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      parsePageSelection: async (...args) => (calls.push(['parse', ...args]), [0, 2]),
+      pageImageFileNames: async (...args) => (calls.push(['names', ...args]), ['r-1.png', 'r-3.png']),
+      firstPageTooLargeToExport: async (...args) => (calls.push(['ceiling', ...args]), 2),
+      openImageExport: async (...args) => (calls.push(['open', ...args]), 9),
+      closeImageExport: async (...args) => (calls.push(['close', ...args]), true),
+    });
+    const value = async (id: number, request: Parameters<typeof handleRequest>[1]['request']) =>
+      (await handleRequest(engine, { id, request })).message;
+    expect(await value(1, { kind: 'imageExportFormats' })).toEqual({ type: 'result', id: 1, value: ['png', 'jpeg'] });
+    expect(await value(2, { kind: 'parsePageSelection', input: '1,3', totalPages: 3 })).toEqual({
+      type: 'result',
+      id: 2,
+      value: [0, 2],
+    });
+    expect(
+      await value(3, { kind: 'pageImageFileNames', documentName: 'r.pdf', pages: [0, 2], totalPages: 3, format: 'png' }),
+    ).toEqual({ type: 'result', id: 3, value: ['r-1.png', 'r-3.png'] });
+    expect(await value(4, { kind: 'firstPageTooLargeToExport', document: 5, pages: [0, 2], dpi: 600 })).toEqual({
+      type: 'result',
+      id: 4,
+      value: 2,
+    });
+    expect(await value(5, { kind: 'openImageExport', document: 5 })).toEqual({ type: 'result', id: 5, value: 9 });
+    expect(await value(6, { kind: 'closeImageExport', export: 9 })).toEqual({ type: 'result', id: 6, value: true });
+    expect(calls).toEqual([
+      ['parse', '1,3', 3],
+      ['names', 'r.pdf', [0, 2], 3, 'png'],
+      ['ceiling', 5, [0, 2], 600],
+      ['open', 5],
+      ['close', 9],
+    ]);
+  });
+
+  it('answers an exported page with its bytes transferred instead of copied', async () => {
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({ exportPageImage: async (...args) => (calls.push(args), image) });
+    const reply = await handleRequest(engine, {
+      id: 7,
+      request: { kind: 'exportPageImage', export: 9, pageIndex: 1, dpi: 150, format: 'jpeg' },
+    });
+    expect(calls).toEqual([[9, 1, 150, 'jpeg']]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: image }, transfer: [image.buffer] });
+  });
+
+  it("forwards InvalidPageSelection by name with the core's sentence", async () => {
+    const failure = new Error('Page 9 does not exist');
+    failure.name = 'InvalidPageSelection';
+    const engine = fakeEngine({
+      parsePageSelection: async () => {
+        throw failure;
+      },
+    });
+    const reply = await handleRequest(engine, { id: 8, request: { kind: 'parsePageSelection', input: '9', totalPages: 3 } });
+    expect(reply.message).toMatchObject({ type: 'error', id: 8, name: 'InvalidPageSelection', message: 'Page 9 does not exist' });
   });
 
   it('forwards SignaturesWouldBeInvalidated by name', async () => {

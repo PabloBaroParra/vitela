@@ -30,6 +30,13 @@ const annotationFunctions = {
   // A 2:1 image: 144 x 72 pt with its top-left at the anchor.
   stampPlacement: (_image: Uint8Array, x: number, y: number) => new Float64Array([x, y - 72, 144, 72]),
   compressPresets: () => ['lossless', 'balanced', 'small'],
+  imageExportFormats: () => ['png', 'jpeg', 'gif'],
+  parsePageSelection: (input: string, total: number) => {
+    if (input === 'bad') throw named('InvalidPageSelection', 'Page selection is not valid');
+    return new Uint32Array([0, total - 1]);
+  },
+  pageImageFileName: (name: string, index: number, total: number, format: string) =>
+    `${name}#${index + 1}of${total}.${format}`,
 };
 
 /** Placement that only marks its output, so a test sees it was applied. */
@@ -146,6 +153,9 @@ function fakeCore(
   const saves: [number, boolean][] = [];
   /** Every compressed save the core ran: document, preset, acknowledgement. */
   const compressions: [number, string, boolean][] = [];
+  /** Open image exports: id -> the marker and page ids of the document at the moment it was opened. */
+  const exports = new Map<number, { marker: number; ids: number[] }>();
+  let nextExport = 50;
   const refreshed: number[] = [];
   /** Every `applyEdit` the core received, as the fake command it was. */
   const applied: FakeEdit[] = [];
@@ -336,6 +346,23 @@ function fakeCore(
         : undefined;
     },
     compressionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    // Over 400 DPI the first asked page is too large, like a Letter page at 600.
+    firstPageTooLargeToExport: (doc, pages, dpi) => (known(doc), dpi > 400 ? pages[0] : undefined),
+    openImageExport: (doc) => {
+      const { marker, pages } = known(doc);
+      if (options.restricted) throw named('UnsupportedOperation', 'this document does not permit extracting its pages as images');
+      const id = nextExport++;
+      exports.set(id, { marker, ids: pages.map((page) => page.id) });
+      return id;
+    },
+    exportPageImage: (exportId, pageIndex, dpi, format) => {
+      const snapshot = exports.get(exportId);
+      if (!snapshot) throw named('DocumentNotFound', `no open image export with id ${exportId}`);
+      const id = snapshot.ids[pageIndex];
+      if (id === undefined) throw named('PageIndexOutOfBounds', `page index ${pageIndex} is out of bounds`);
+      return new Uint8Array([snapshot.marker, id, dpi, format === 'png' ? 1 : 2]);
+    },
+    closeImageExport: (exportId) => exports.delete(exportId),
     saveCompressedToBytes: (doc, preset, invalidate) => {
       const { marker, pages } = known(doc);
       if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
@@ -542,7 +569,7 @@ function fakeCore(
       };
     },
   };
-  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions };
+  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, exports };
 }
 
 describe('documentEngine', () => {
@@ -643,6 +670,74 @@ describe('documentEngine', () => {
       engine.compressionInvalidatesSignatures(handle),
       engine.saveCompressedToBytes(handle, 'lossless', false),
     ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it("lists the export formats this package knows, in the core's order", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.imageExportFormats()).toEqual(['png', 'jpeg']);
+  });
+
+  it("reads a page selection by the core's grammar and forwards its refusal by name", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const pages = await engine.parsePageSelection('1-4', 4);
+    expect(pages).toEqual([0, 3]);
+    expect(Array.isArray(pages)).toBe(true);
+    await expect(engine.parsePageSelection('bad', 4)).rejects.toMatchObject({
+      name: 'InvalidPageSelection',
+      message: 'Page selection is not valid',
+    });
+  });
+
+  it('names each exported page by the core', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.pageImageFileNames('report.pdf', [0, 2], 12, 'jpeg')).toEqual([
+      'report.pdf#1of12.jpeg',
+      'report.pdf#3of12.jpeg',
+    ]);
+  });
+
+  it('asks the raster ceiling of the document its handle names', async () => {
+    const { core, edits } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.firstPageTooLargeToExport(handle, [0, 2], 400)).toBeNull();
+    expect(await engine.firstPageTooLargeToExport(handle, [2, 0], 600)).toBe(2);
+  });
+
+  it('exports from a snapshot taken when the export opened, recording and refreshing nothing', async () => {
+    const { core, edits, refreshed, exports } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle, info } = await engine.open(new Uint8Array([10]));
+    const exportHandle = await engine.openImageExport(handle);
+    // An edit after the export opened does not reach it.
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    expect(await engine.exportPageImage(exportHandle, 0, 150, 'png')).toEqual(
+      new Uint8Array([10, info.pageIds[0]!, 150, 1]),
+    );
+    expect(await engine.exportPageImage(exportHandle, 2, 72, 'jpeg')).toEqual(
+      new Uint8Array([10, info.pageIds[2]!, 72, 2]),
+    );
+    expect(refreshed.length).toBe(refreshes);
+    expect(await engine.closeImageExport(exportHandle)).toBe(true);
+    expect(exports.size).toBe(0);
+    expect(await engine.closeImageExport(exportHandle)).toBe(false);
+    await expect(engine.exportPageImage(exportHandle, 0, 72, 'png')).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('forwards an export the document withholds, and refuses a closed document', async () => {
+    const restricted = fakeCore({ restricted: true });
+    const engine = documentEngine(restricted.core, geometry, restricted.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.openImageExport(handle)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    await engine.close(handle);
+    for (const request of [engine.openImageExport(handle), engine.firstPageTooLargeToExport(handle, [0], 150)]) {
       await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
     }
   });

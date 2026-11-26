@@ -35,6 +35,11 @@ export type CompressActivity =
 
 const IDLE: CompressActivity = { kind: 'idle' };
 
+/** From the click until the dialog closes or the run ends: Compress cannot be started again. */
+export function compressBusy(activity: CompressActivity): boolean {
+  return activity.kind === 'checking' || activity.kind === 'choosing' || activity.kind === 'compressing';
+}
+
 export type CompressSession = ReturnType<typeof useCompress>;
 
 export function useCompress(

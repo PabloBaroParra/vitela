@@ -37,8 +37,9 @@ export type Placement =
   /** A new copy, always downloaded: see saveCopy.ts for why. */
   | { readonly kind: 'copy' }
   /**
-   * A separate file under exactly the name given (a compressed copy): always
-   * downloaded, for the same reason as a copy. Needs no `prepare`.
+   * A separate file under exactly the name given (a compressed copy, an
+   * exported page image): always downloaded, for the same reason as a copy.
+   * Needs no `prepare`.
    */
   | { readonly kind: 'newFile' };
 
@@ -57,6 +58,8 @@ export interface SaveSource {
 export interface DeliverRequest {
   readonly bytes: Uint8Array;
   readonly name: string;
+  /** The file's media type; a PDF when unset. Only a `newFile` is ever anything else. */
+  readonly type?: string;
   readonly destination: Placement;
 }
 
@@ -106,12 +109,12 @@ async function prepare(intent: SaveIntent, source: SaveSource, accepted?: FileSt
     : { kind: 'unverified' };
 }
 
-async function deliver({ bytes, name, destination }: DeliverRequest): Promise<Delivered> {
+async function deliver({ bytes, name, type, destination }: DeliverRequest): Promise<Delivered> {
   switch (destination.kind) {
     case 'copy':
       return saveCopy({ bytes, name });
     case 'newFile':
-      downloadBytes(bytes, name);
+      downloadBytes(bytes, name, type);
       return { how: 'downloaded', name, fellBack: null };
     case 'unverified':
       downloadBytes(bytes, name);

@@ -137,6 +137,7 @@ fn degrees(rotation: Rotation) -> u32 {
 mod annotation;
 mod compress;
 mod edit;
+mod export;
 mod form;
 mod import;
 mod preview;
@@ -148,6 +149,10 @@ pub use compress::{
     compress_presets, preset_from_name, preset_name, CompressRefusal, CompressedCopy,
 };
 pub use edit::PageEdit;
+pub use export::{
+    encode_page_image, format_from_name, format_name, page_image_file_name, parse_page_selection,
+    EXPORT_FORMATS,
+};
 pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 

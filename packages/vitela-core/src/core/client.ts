@@ -16,6 +16,8 @@ import type {
   CompressPreset,
   CompressRefusal,
   DocumentHandle,
+  ImageExportFormat,
+  ImageExportHandle,
   Edit,
   EditedDocument,
   Engine,
@@ -149,6 +151,44 @@ export class EngineClient implements Engine {
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument> {
     return this.send({ kind: 'saveCompressed', document, preset, invalidateSignatures });
+  }
+
+  imageExportFormats(): Promise<ImageExportFormat[]> {
+    return this.send({ kind: 'imageExportFormats' });
+  }
+
+  parsePageSelection(input: string, totalPages: number): Promise<number[]> {
+    return this.send({ kind: 'parsePageSelection', input, totalPages });
+  }
+
+  pageImageFileNames(
+    documentName: string,
+    pages: readonly number[],
+    totalPages: number,
+    format: ImageExportFormat,
+  ): Promise<string[]> {
+    return this.send({ kind: 'pageImageFileNames', documentName, pages, totalPages, format });
+  }
+
+  firstPageTooLargeToExport(document: DocumentHandle, pages: readonly number[], dpi: number): Promise<number | null> {
+    return this.send({ kind: 'firstPageTooLargeToExport', document, pages, dpi });
+  }
+
+  openImageExport(document: DocumentHandle): Promise<ImageExportHandle> {
+    return this.send({ kind: 'openImageExport', document });
+  }
+
+  exportPageImage(
+    exportHandle: ImageExportHandle,
+    pageIndex: number,
+    dpi: number,
+    format: ImageExportFormat,
+  ): Promise<Uint8Array> {
+    return this.send({ kind: 'exportPageImage', export: exportHandle, pageIndex, dpi, format });
+  }
+
+  closeImageExport(exportHandle: ImageExportHandle): Promise<boolean> {
+    return this.send({ kind: 'closeImageExport', export: exportHandle });
   }
 
   /**

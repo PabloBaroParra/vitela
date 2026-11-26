@@ -128,6 +128,23 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `refusals`. When `reduced` is false the bytes are the ordinary save: there
   is no smaller copy. It records no edit, and rejects with
   `SignaturesWouldBeInvalidated` unless told the user agreed.
+  Export images: `imageExportFormats()` (`png`, `jpeg`; there is no JPEG
+  quality — the core's encoder has none), `parsePageSelection(input,
+  totalPages)` reads `"1-3,7"` into zero-based pages by the core's grammar
+  (rejects with `InvalidPageSelection`, whose message is a sentence for the
+  person who typed it), `pageImageFileNames(name, pages, totalPages, format)`
+  names each file (`report.pdf` page 3 of 12 as JPEG is `report-03.jpg`), and
+  `firstPageTooLargeToExport(handle, pages, dpi)` names the first page over
+  the raster ceiling (32 Mpx), or `null`. An export is a snapshot of what a
+  save would write now — every pending edit, annotation and fill drawn in,
+  no signature question since nothing is written — opened with
+  `openImageExport(handle)` (rejects with `UnsupportedOperation` when the
+  document withholds extraction), read one page at a time with
+  `exportPageImage(export, pageIndex, dpi, format)` (the encoded file,
+  transferred; rendered by the core's renderer and encoded by its
+  `encode_rgba_image`, not by a canvas) and freed with
+  `closeImageExport(export)`. Close it however the export ends: the snapshot
+  holds the engine's memory until then. It records no edit.
   `terminate()` stops the worker for good (every open document goes with it):
   pending and later calls fail with "the engine was terminated", and so does
   a `ready` still pending. Calling it again does nothing.

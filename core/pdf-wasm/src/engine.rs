@@ -14,7 +14,8 @@
 //! `refreshPreview`, `previewStale`) is in [`edit`]; import and the
 //! Documents view's blocks are in [`import`]; annotations, comments and the
 //! free-text and stamp geometry are in [`annotation`]; the form fields and
-//! filling them in are in [`form`]; the compressed save is in [`compress`].
+//! filling them in are in [`form`]; the compressed save is in [`compress`]; image export is in
+//! [`export`].
 
 use std::collections::HashMap;
 
@@ -30,12 +31,14 @@ use crate::model::{DocumentModel, PreparedSources};
 mod annotation;
 mod compress;
 mod edit;
+mod export;
 mod form;
 mod import;
 
 pub use annotation::{free_text_layout, stamp_placement};
 pub use compress::compress_presets;
 pub use edit::EditCommand;
+pub use export::{image_export_formats, page_image_file_name, parse_page_selection};
 
 struct OpenDocument {
     model: DocumentModel,
@@ -56,6 +59,10 @@ pub struct Engine {
     /// Import sources opened by `prepareImport` and not yet imported or
     /// discarded. They belong to no document until one imports them.
     prepared: PreparedSources,
+    /// Image exports started by `openImageExport` and not yet closed: each
+    /// one's own snapshot, separate from every document.
+    exports: HashMap<u32, export::ImageExport>,
+    next_export: u32,
 }
 
 #[wasm_bindgen]
@@ -72,6 +79,8 @@ impl Engine {
             documents: HashMap::new(),
             next_id: 0,
             prepared: PreparedSources::new(),
+            exports: HashMap::new(),
+            next_export: 0,
         })
     }
 

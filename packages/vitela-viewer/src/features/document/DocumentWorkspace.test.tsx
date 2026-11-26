@@ -163,4 +163,67 @@ describe('DocumentWorkspace', () => {
     expect(await findByText('4 kB uncompressed → 1 kB compressed (75% smaller). Saved two-compressed.pdf.')).toBeTruthy();
     expect(delivered).toEqual([{ bytes, name: 'two-compressed.pdf', destination: { kind: 'newFile' } }]);
   });
+
+  it('offers Export images in the bar, delivering each page where saves go', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const delivered: DeliverRequest[] = [];
+    const delivery: Delivery = {
+      prepare: async () => ({ kind: 'copy' }),
+      deliver: async (request) => (delivered.push(request), { how: 'delivered', name: request.name }),
+    };
+    const exporting = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      firstPageTooLargeToExport: async () => null,
+      pageImageFileNames: async (_name, pages) => pages.map((index) => `two-${index + 1}.png`),
+      openImageExport: async () => 3,
+      exportPageImage: async (_export, index) => new Uint8Array([index]),
+      closeImageExport: async () => true,
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={exporting} intro={(action) => action} initialScreen="organize" delivery={delivery} />,
+    );
+    openPdf(getByLabelText);
+    await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
+
+    fireEvent.click(getByRole('button', { name: 'Export images' }));
+    const dialog = await findByRole('dialog', { name: 'Export pages as images' });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Exported 2 pages as PNG.')).toBeTruthy();
+    expect(delivered.map(({ name, type, destination }) => [name, type, destination.kind])).toEqual([
+      ['two-1.png', 'image/png', 'newFile'],
+      ['two-2.png', 'image/png', 'newFile'],
+    ]);
+  });
+
+  it('also offers the document tools in a More tools menu, placed in the bar before Save', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const { getByLabelText, getByRole, findByRole, queryByRole } = render(
+      <DocumentWorkspace engine={engine} intro={(action) => action} initialScreen="organize" />,
+    );
+    openPdf(getByLabelText);
+    const more = await waitFor(() => getByRole('button', { name: 'More tools' }));
+    // DOM order is the order on screen at every width: the menu sits where the tools do, before Save.
+    const bar = more.closest('.workspace__bar')!;
+    const order = [...bar.querySelectorAll('button')].map((button) => button.getAttribute('aria-label') ?? button.textContent);
+    expect(order.indexOf('More tools')).toBeGreaterThan(order.indexOf('Export images'));
+    expect(order.indexOf('More tools')).toBeLessThan(order.indexOf('Save'));
+
+    fireEvent.click(more);
+    const menu = getByRole('menu', { name: 'More tools' });
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Compress', 'Export images']);
+    fireEvent.click(getByRole('menuitem', { name: 'Export images' }));
+    expect(queryByRole('menu')).toBeNull();
+    expect(await findByRole('dialog', { name: 'Export pages as images' })).toBeTruthy();
+  });
 });
