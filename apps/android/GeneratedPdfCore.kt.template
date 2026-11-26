@@ -108,7 +108,7 @@ import dev.vitela.pdf.uniffi.redo as ffiRedo
 import dev.vitela.pdf.uniffi.refreshPreview as ffiRefreshPreview
 import dev.vitela.pdf.uniffi.undo as ffiUndo
 import dev.vitela.pdf.uniffi.applyEdit as ffiApplyEdit
-import dev.vitela.pdf.uniffi.readPageTextBlocks as ffiReadPageTextBlocks
+import dev.vitela.pdf.uniffi.readPageParagraphBlocks as ffiReadPageParagraphBlocks
 import dev.vitela.pdf.uniffi.retypeTextBlock as ffiRetypeTextBlock
 import dev.vitela.pdf.uniffi.moveTextBlock as ffiMoveTextBlock
 import dev.vitela.pdf.uniffi.removeTextBlock as ffiRemoveTextBlock
@@ -402,7 +402,11 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         val content = handle.readPageContent(pageIndex.toUInt())
         // Separate reads, behind the same text-extraction gate, so one refusal covers all of them.
         val paths = handle.readPagePaths(pageIndex.toUInt())
-        val blocks = ffiReadPageTextBlocks(handle, pageIndex.toUInt())
+        // Paragraphs, not lines: the retype dialog is multi-line for a block of
+        // several, as the Linux and Windows editors are. The core still reads a
+        // composite-font paragraph line by line, so its one-line retype keeps
+        // the inserted font.
+        val blocks = ffiReadPageParagraphBlocks(handle, pageIndex.toUInt())
         PdfCoreResult.Success(
             PageContent(content.textRuns.map { it.toTextRun() }, content.images.map { it.toImage() }, paths.map { it.toPath() }, blocks.map { it.toBlock() }),
         )
@@ -413,14 +417,16 @@ private class GeneratedPdfDocument(private val handle: DocumentHandle) : PdfDocu
         PdfCoreResult.Failure(error.toPdfCoreError())
     }
 
-    // A composite (CID) font cannot be re-encoded, so a block whose first run is
-    // one is retyped in the core's inserted-text font; the viewer says so before
-    // the reader types. Every text edit goes through the block API, a one-run
-    // block included: once a block is retyped its first run's edit lives inside
-    // a batch, which a per-run edit would no longer see.
+    // A composite (CID) font cannot be re-encoded, so a one-line block whose first
+    // run is one is retyped in the core's inserted-text font; the viewer says so
+    // before the reader types. A paragraph never is: the core wraps its text, every
+    // '\n' a typed line break, and refuses the inserted font for it. Every text
+    // edit goes through the block API, a one-run block included: once a block is
+    // retyped its first run's edit lives inside a batch, which a per-run edit
+    // would no longer see. A paragraph's runs change with a retype, so the next
+    // edit sends the block as the page is read again after it.
     override fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> = try {
-        val insertedFont = block.runs.first().fontKind == ContentFontKind.EmbeddedComposite
-        ffiRetypeTextBlock(handle, block.runs.map { it.toFfi() }, text, insertedFont)
+        ffiRetypeTextBlock(handle, block.runs.map { it.toFfi() }, text, block.retypesInInsertedFont)
         PdfCoreResult.Success(Unit)
     } catch (error: FfiException.EncodingGap) {
         // Named, with the character in it: the one failure the reader can
@@ -1018,7 +1024,7 @@ private fun PageEdit.toFfi(): FfiEditCommand = when (this) {
     is PageEdit.InsertBlank -> FfiEditCommand.InsertBlankPage(index.toUInt(), FfiPageSize.A4, if (landscape) FfiOrientation.LANDSCAPE else FfiOrientation.PORTRAIT)
 }
 
-private fun FfiTextBlock.toBlock() = ContentTextBlock(runs.map { it.toTextRun() }, bbox.toRect(), text)
+private fun FfiTextBlock.toBlock() = ContentTextBlock(runs.map { it.toTextRun() }, bbox.toRect(), text, lineCount = lines.size.coerceAtLeast(1))
 
 private fun FfiContentTextRun.toTextRun() = ContentTextRun(id.toLong(), page.toInt(), bbox.toRect(), resourceFontName, fontKind.toFontKind(), text)
 

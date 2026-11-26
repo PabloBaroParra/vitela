@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -88,9 +90,11 @@ internal class ContentEditActions(
  * What the retype dialog says about its actions. The save warning is only for a
  * document the core cannot checkpoint — one with imported pages, signatures or
  * encryption; elsewhere it writes the earlier edit into memory and carries on.
+ * A [paragraph]'s dialog also says what a typed line break does.
  */
-internal fun textDialogHelp(canCheckpoint: Boolean): UiText = UiText.Sentences(
+internal fun textDialogHelp(canCheckpoint: Boolean, paragraph: Boolean = false): UiText = UiText.Sentences(
     listOfNotNull(
+        if (paragraph) UiText.Resource(R.string.content_text_help_paragraph) else null,
         UiText.Resource(R.string.content_text_help_move),
         if (canCheckpoint) null else UiText.Resource(R.string.content_text_help_save),
         UiText.Resource(R.string.content_text_help_delete),
@@ -98,28 +102,37 @@ internal fun textDialogHelp(canCheckpoint: Boolean): UiText = UiText.Sentences(
 )
 
 /**
- * The retype dialog: the text of the whole line — the block of runs the tap
- * landed in — ready to change; a block painted as several runs is retyped as one
- * piece of text. Keyed on the editor, so a refusal — which comes back with what
- * was typed — reopens with it rather than with the block's old text. Move leaves
- * it for a page tap that places the block, like an image's Move. Delete takes
- * the block off the page at once, like an image's Delete: it is one undoable entry.
+ * The retype dialog: the text of the whole block the tap landed in — a line, or
+ * a paragraph of several — ready to change; a block painted as several runs is
+ * retyped as one piece of text. A line is a one-line field; a paragraph is a
+ * multi-line one, its lines on lines of their own, where Enter types a line
+ * break the core keeps when it wraps the text back to the paragraph's width.
+ * Keyed on the editor, so a refusal — which comes back with what was typed —
+ * reopens with it rather than with the block's old text. Move leaves it for a
+ * page tap that places the block, like an image's Move. Delete takes the block
+ * off the page at once, like an image's Delete: it is one undoable entry.
+ *
+ * The column scrolls, so on a short screen with the keyboard up the field and
+ * its help stay reachable rather than pushed under it.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, actions: ContentEditActions) {
     var text by remember(editor) { mutableStateOf(editor.text) }
+    val paragraph = editor.block.isParagraph
     AlertDialog(
         onDismissRequest = actions.onDismiss,
         title = { Text(stringResource(R.string.content_text_title)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (editor.block.substitutesFont) Text(FONT_SUBSTITUTED.resolve(), style = MaterialTheme.typography.bodySmall)
-                Text(textDialogHelp(editor.canCheckpoint).resolve(), style = MaterialTheme.typography.bodySmall)
+                Text(textDialogHelp(editor.canCheckpoint, paragraph).resolve(), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    singleLine = true,
+                    singleLine = !paragraph,
+                    minLines = if (paragraph) paragraphFieldLines(editor.block.lineCount) else 1,
+                    maxLines = if (paragraph) PARAGRAPH_FIELD_MAX_LINES else 1,
                     isError = editor.error != null,
                     supportingText = editor.error?.let { error -> { Text(error.resolve()) } },
                 )
@@ -136,6 +149,12 @@ internal fun TextBlockEditorDialog(editor: TextBlockEditor, documentId: Long, ac
         },
     )
 }
+
+/** The tallest a paragraph's field grows before it scrolls, so Retype stays on a phone's screen. */
+internal const val PARAGRAPH_FIELD_MAX_LINES = 6
+
+/** How many lines a paragraph's field opens with: one per line it has, two to [PARAGRAPH_FIELD_MAX_LINES]. */
+internal fun paragraphFieldLines(lineCount: Int): Int = lineCount.coerceIn(2, PARAGRAPH_FIELD_MAX_LINES)
 
 /**
  * The resize dialog: the image's width and height in points, ready to change.

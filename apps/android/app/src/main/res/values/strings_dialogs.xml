@@ -54,6 +54,7 @@
     <string name="content_text_title">Edit text</string>
     <string name="content_text_retype">Retype</string>
     <string name="content_text_font_substituted">This text\'s font cannot be kept. What you type will use a standard font.</string>
+    <string name="content_text_help_paragraph">Each line break you type starts a new line; the text wraps to the paragraph\'s width.</string>
     <string name="content_text_help_move">Move lets you drag this text, or tap where it should go, keeping its font and size.</string>
     <string name="content_text_help_save">Moving a line you already retyped, or retyping one you already moved, needs a save first.</string>
     <string name="content_text_help_delete">Delete takes it off the page; Undo puts it back. It is not a secure redaction.</string>

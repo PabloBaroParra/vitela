@@ -26,6 +26,14 @@ import dev.vitela.pdf.core.SearchHit
  * "runs", a word gap apart. Page 0 also paints one image, clear of both runs.
  * Runs are read as blocks the way the core groups them, simply: runs on one page,
  * one baseline, one font kind and height, no more than 5 points apart.
+ *
+ * With [paragraphs], page 1 also paints a two-line paragraph, "First line" over
+ * "second line" (runs 23 and 24, left edges at x 10, baselines 14 points apart),
+ * and stacked lines are read as one paragraph block the way
+ * `read_page_paragraph_blocks` reads them: one font, one height, one left edge,
+ * baselines no more than one and a half heights apart. A paragraph retype puts
+ * each typed line in its line's first run, drops the rest, and paints lines it
+ * grows as new runs a leading further down — so a re-read reports new run ids.
  * Every block retype, delete or move, insert, resize, move, image delete, image replacement and path move, reshape or delete is
  * undoable, like the core's. An inserted image is placed the way the core
  * places one: 40 by 20 points, its top-left corner on the anchor.
@@ -41,13 +49,16 @@ internal class RetypableDocument(
     private val refusal: PdfCoreError? = null,
     /** Refuses only a paste, so a copy before it can still succeed. */
     private val pasteRefusal: PdfCoreError? = null,
+    private val paragraphs: Boolean = false,
 ) : PdfDocument {
-    private var runs = listOf(
+    private var runs = listOfNotNull(
         ContentTextRun(10, 0, AnnotationRect(10.0, 150.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "Hello"),
         ContentTextRun(11, 0, AnnotationRect(10.0, 120.0, 40.0, 12.0), "F2", ContentFontKind.EmbeddedComposite, "World"),
         ContentTextRun(20, 1, AnnotationRect(10.0, 150.0, 60.0, 12.0), "F1", ContentFontKind.Standard14, "Page two"),
         ContentTextRun(21, 1, AnnotationRect(10.0, 100.0, 30.0, 12.0), "F1", ContentFontKind.Standard14, "Two"),
         ContentTextRun(22, 1, AnnotationRect(42.0, 100.0, 40.0, 12.0), "F1", ContentFontKind.Standard14, "runs"),
+        ContentTextRun(23, 1, AnnotationRect(10.0, 60.0, 50.0, 12.0), "F1", ContentFontKind.Standard14, "First line").takeIf { paragraphs },
+        ContentTextRun(24, 1, AnnotationRect(10.0, 46.0, 55.0, 12.0), "F1", ContentFontKind.Standard14, "second line").takeIf { paragraphs },
     )
     private var images = listOf(
         ContentImage(30, 0, AnnotationRect(10.0, 20.0, 30.0, 30.0), "Im1"),
@@ -128,25 +139,55 @@ internal class RetypableDocument(
             val line = lines.lastOrNull()?.takeIf { it.last().joins(run) }
             if (line != null) line += run else lines += mutableListOf(run)
         }
-        return lines.map { line ->
-            val left = line.minOf { it.bounds.x }
-            val right = line.maxOf { it.bounds.x + it.bounds.width }
-            val first = line.first().bounds
-            ContentTextBlock(line, AnnotationRect(left, first.y, right - left, first.height), line.joinToString(" ") { it.text })
+        val stacks = mutableListOf<MutableList<List<ContentTextRun>>>()
+        for (line in lines) {
+            val stack = stacks.lastOrNull()?.takeIf { paragraphs && it.last().first().stacksOver(line.first()) }
+            if (stack != null) stack += line else stacks += mutableListOf<List<ContentTextRun>>(line)
+        }
+        return stacks.map { stack ->
+            val members = stack.flatten()
+            val left = members.minOf { it.bounds.x }
+            val right = members.maxOf { it.bounds.x + it.bounds.width }
+            val bottom = members.minOf { it.bounds.y }
+            val top = members.maxOf { it.bounds.y + it.bounds.height }
+            val text = stack.joinToString("\n") { line -> line.joinToString(" ") { it.text } }
+            ContentTextBlock(members, AnnotationRect(left, bottom, right - left, top - bottom), text, lineCount = stack.size)
         }
     }
+
+    private fun ContentTextRun.stacksOver(below: ContentTextRun) =
+        resourceFontName == below.resourceFontName && fontKind == below.fontKind && bounds.height == below.bounds.height &&
+            bounds.x == below.bounds.x && bounds.y - below.bounds.y in 0.0..(1.5 * bounds.height)
 
     private fun ContentTextRun.joins(next: ContentTextRun) =
         bounds.y == next.bounds.y && bounds.height == next.bounds.height && fontKind == next.fontKind &&
             next.bounds.x - (bounds.x + bounds.width) in 0.0..5.0
 
-    // The first run shows all the text and the others go, like the core's block retype.
+    // The first run shows all the text and the others go, like the core's block retype;
+    // a paragraph keeps one run per typed line, as the core's paragraph retype does.
     override fun retypeTextBlock(block: ContentTextBlock, text: String): PdfCoreResult<Unit> {
         refusal?.let { return PdfCoreResult.Failure(it) }
         retypes += block to text
+        if (block.isParagraph) {
+            record { runs = retypedParagraph(block, text.split('\n')) }
+            return PdfCoreResult.Success(Unit)
+        }
         val ids = block.runs.map { it.id }
         record { runs = runs.filter { it.id == ids.first() || it.id !in ids }.map { if (it.id == ids.first()) it.copy(text = text) else it } }
         return PdfCoreResult.Success(Unit)
+    }
+
+    private fun retypedParagraph(block: ContentTextBlock, typed: List<String>): List<ContentTextRun> {
+        val firsts = block.runs.distinctBy { it.bounds.y }
+        val leading = firsts[0].bounds.y - firsts[1].bounds.y
+        val kept = typed.zip(firsts) { line, first -> first.copy(text = line, bounds = first.bounds.copy(width = 5.0 * line.length)) }
+        val last = firsts.last().bounds
+        val grown = typed.drop(firsts.size).mapIndexed { index, line ->
+            firsts.last().copy(id = nextId++, text = line, bounds = last.copy(y = last.y - leading * (index + 1), width = 5.0 * line.length))
+        }
+        val ids = block.runs.map { it.id }.toSet()
+        val replaced = kept.associateBy { it.id }
+        return runs.mapNotNull { run -> if (run.id in ids) replaced[run.id] else run } + grown
     }
 
     override fun removeTextBlock(block: ContentTextBlock): PdfCoreResult<Unit> {

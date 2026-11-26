@@ -10,7 +10,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * The text half of Edit content: retyping, moving or deleting the block — a
- * line of runs — the open editor holds. Every edit goes through the block
+ * line of runs, or a paragraph of such lines — the open editor holds. Each edit
+ * lands through [ContentEditing.landed], which reads the page again, so the
+ * next one sends the block's runs as the core now reports them: a paragraph
+ * retype can grow or drop lines, and so runs. Every edit goes through the block
  * edits, a one-run block included: once a block is retyped its first run's
  * edit lives inside a batch, and a per-run edit would no longer see it.
  * [content] owns the mode, routes the page tap that places an armed move, and

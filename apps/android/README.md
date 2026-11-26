@@ -421,10 +421,18 @@ the mode. It is not offered over the Organize grid.
 Each page's text comes from the core's `read_page_content` as the page is
 shown, and is outlined by **block** (B25 T-207): a report generator paints one
 phrase with several show-text operators, so the adapter also reads
-`read_page_text_blocks`, which groups the runs on one line, in one font and a
-word gap apart. The outline is one box per block, and a tap on any run of it, or
-on the gap between them, opens the whole line — a run alone is just a block of
-one. The box is solid where the font is kept, dashed where the block's first
+`read_page_paragraph_blocks`, which groups the runs on one line, in one font and a
+word gap apart, and joins lines stacked a steady leading apart into one
+paragraph (PR #568), as Linux and Windows do. The outline is one box per block, and a tap on any run of it, or
+on the gap between them — a paragraph's line gaps included — opens the whole
+block — a run alone is just a block of one. A one-line block opens in a
+one-line field; a paragraph opens in a multi-line field holding its lines,
+where Enter types a line break, and the core wraps the retyped text back to the
+paragraph's width. A retype can change a paragraph's runs (a grown line is a
+new run), so the next edit — retype, move, delete, selection — is built from the
+page as it is read again after it, never from the runs the file held. A
+paragraph in a composite (CID) font is still read one block per line by the
+core, so its lines keep the inserted-font retype below. The box is solid where the font is kept, dashed where the block's first
 run is a composite (CID) font the core cannot re-encode, whose retype uses a
 standard font instead (`with_inserted_font`) — the dialog says so before anything
 is typed. The core reports pending edits in that read, so a retyped block keeps

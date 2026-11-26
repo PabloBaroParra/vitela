@@ -1,6 +1,6 @@
 //! Paragraph blocks through the FFI: `read_page_paragraph_blocks` reads a
 //! multi-line paragraph as one block, as the Linux shell does, for the
-//! shells whose editor is multi-line (Windows). `read_page_text_blocks`
+//! shells whose editor is multi-line (Windows, Android). `read_page_text_blocks`
 //! keeps reading one block per line (`paragraph_blocks.rs`).
 //!
 //! A paragraph in a composite (CID) font still reads one block per line:
@@ -9,8 +9,9 @@
 //! keeps that line-by-line path working.
 
 use pdf_ffi::{
-    open_from_bytes, read_page_paragraph_blocks, retype_text_block, save_to_bytes, undo,
-    FfiSaveIntent, FfiSignatureAcknowledgement, FfiTextBlock,
+    move_text_block, open_from_bytes, read_page_paragraph_blocks, remove_text_block,
+    retype_text_block, save_to_bytes, undo, FfiSaveIntent, FfiSignatureAcknowledgement,
+    FfiTextBlock,
 };
 
 fn fixture() -> Vec<u8> {
@@ -96,6 +97,37 @@ fn a_paragraph_retyped_to_more_lines_saves_and_reopens_as_one_paragraph() {
 
     let blocks = read_page_paragraph_blocks(&reopened, 0).expect("blocks");
     assert_eq!(spec_block(&blocks).text, text);
+}
+
+/// The Android flow: a dialog commits one retype that grows a line, the page
+/// is read again, and the next edit — a move, then a delete — sends every run
+/// of the paragraph as it now reads, the grown line's run included.
+#[test]
+fn a_regrown_paragraph_moves_and_deletes_from_re_read_blocks() {
+    let handle = open_from_bytes(fixture(), None).expect("open");
+    let text = format!("{}\nUna línea más", SPEC.join("\n"));
+    let block = spec_block(&read_page_paragraph_blocks(&handle, 0).unwrap()).clone();
+    retype_text_block(&handle, block.runs, text.clone(), false).expect("retyped");
+
+    let grown = spec_block(&read_page_paragraph_blocks(&handle, 0).unwrap()).clone();
+    assert_eq!(grown.lines.len(), 5);
+    move_text_block(&handle, grown.runs.clone(), 12.0, -6.0).expect("moved");
+
+    let moved = spec_block(&read_page_paragraph_blocks(&handle, 0).unwrap()).clone();
+    assert_eq!(moved.text, text, "a move keeps every line");
+    assert!(
+        (moved.bbox.x - (grown.bbox.x + 12.0)).abs() < 0.01,
+        "{moved:#?}"
+    );
+    remove_text_block(&handle, moved.runs).expect("deleted");
+
+    let blocks = read_page_paragraph_blocks(&handle, 0).expect("blocks");
+    assert!(
+        blocks
+            .iter()
+            .all(|block| !block.text.contains("Una línea más")),
+        "every line went, the grown one too: {blocks:#?}"
+    );
 }
 
 /// Plain Helvetica lines 40pt apart at 24pt read as one paragraph; the same
