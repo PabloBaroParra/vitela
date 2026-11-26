@@ -44,6 +44,11 @@
   margin: 8px 0;
 }
 
+/* Compress shows its word; on phones, only this icon (see below). */
+.compress-button__icon {
+  display: none;
+}
+
 .viewer {
   container: vitela-viewer / inline-size;
   display: flex;
@@ -326,11 +331,14 @@
 }
 
 /* Phones: the document bar and the toolbars stay compact so the page gets
-   the screen. The file name gives way first. */
+   the screen. The bar keeps ONE row: every pixel of height it takes comes off
+   the pages and the Comments panel under them (at 390 x 600 the panel's first
+   row must still clear its sticky head). So the controls tighten (Compress
+   shows only its icon) and the file name gives way first. */
 @media (max-width: 600px) {
   .workspace__bar {
     flex-wrap: nowrap;
-    gap: 10px;
+    gap: 6px;
   }
 
   .workspace__bar .status-line {
@@ -343,8 +351,35 @@
   }
 
   .workspace__bar > :last-child,
+  .workspace__bar > button,
   .workspace__bar .file-picker {
     flex: none;
+    white-space: nowrap;
+  }
+
+  .workspace__bar .file-picker {
+    padding-inline: 8px;
+  }
+
+  .workspace__bar button {
+    padding-inline: 8px;
+  }
+
+  .workspace__bar .compress-button {
+    padding-inline: 6px;
+  }
+
+  .compress-button__icon {
+    display: block;
+  }
+
+  /* Out of sight, still the button's name. */
+  .compress-button__label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
     white-space: nowrap;
   }
 

@@ -35,6 +35,7 @@ export const coreFunctions: CoreFunctions = {
   pointToPdf: core.pointToPdf,
   freeTextLayout: core.freeTextLayout,
   stampPlacement: core.stampPlacement,
+  compressPresets: core.compressPresets,
 };
 
 /** The core's `EditCommand` constructors, as `documentEngine` takes them. */

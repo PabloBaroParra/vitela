@@ -166,20 +166,32 @@ impl DocumentModel {
     /// `SignaturesWouldBeInvalidated` unless `invalidate_signatures` says the
     /// user was told.
     pub fn save_to_bytes(&self, invalidate_signatures: bool) -> Result<Vec<u8>, EngineError> {
+        Ok(self.with_save_input(invalidate_signatures, pdf_save::save_document)?)
+    }
+
+    /// Runs `save` over the `SaveInput` every save of this session is
+    /// computed from: the bytes it was opened from, its imported sources,
+    /// the default intent (keep the document's own encryption) and whether
+    /// the user agreed to break a signature — as `pdf-ffi` builds it.
+    pub(super) fn with_save_input<T>(
+        &self,
+        invalidate_signatures: bool,
+        save: impl FnOnce(SaveInput<'_>) -> T,
+    ) -> T {
         let signatures = if invalidate_signatures {
             SignatureAcknowledgement::ProceedAndInvalidate
         } else {
             SignatureAcknowledgement::Unacknowledged
         };
         let sources = self.imported.pairs();
-        Ok(pdf_save::save_document(SaveInput {
+        save(SaveInput {
             document: &self.document,
             base: &self.base,
             original_bytes: Some(&self.original_bytes),
             intent: SaveIntent::Default,
             signatures,
             imported_sources: ImportedSources::new(&sources),
-        })?)
+        })
     }
 
     /// The bytes pdfium is reopened from to show the unsaved edits

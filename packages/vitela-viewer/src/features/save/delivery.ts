@@ -35,7 +35,12 @@ export type Placement =
   /** The opened file could not be checked for outside changes, so it is not written over: download. */
   | { readonly kind: 'unverified' }
   /** A new copy, always downloaded: see saveCopy.ts for why. */
-  | { readonly kind: 'copy' };
+  | { readonly kind: 'copy' }
+  /**
+   * A separate file under exactly the name given (a compressed copy): always
+   * downloaded, for the same reason as a copy. Needs no `prepare`.
+   */
+  | { readonly kind: 'newFile' };
 
 /** What `prepare` found: a placement, or that the opened file changed on disk and the user must decide. */
 export type Destination = Placement | { readonly kind: 'changedOnDisk' };
@@ -105,6 +110,9 @@ async function deliver({ bytes, name, destination }: DeliverRequest): Promise<De
   switch (destination.kind) {
     case 'copy':
       return saveCopy({ bytes, name });
+    case 'newFile':
+      downloadBytes(bytes, name);
+      return { how: 'downloaded', name, fellBack: null };
     case 'unverified':
       downloadBytes(bytes, name);
       return { how: 'downloaded', name, fellBack: 'unverified' };

@@ -132,6 +132,16 @@ pub fn commented_document(pages: &[&str]) -> Vec<u8> {
 pub const ACROFORM: &[u8] =
     include_bytes!("../../../../tests/fixtures/forms/reportlab_acroform.pdf");
 
+/// The compression corpus's scan (`tests/fixtures/compress`, T-197): one
+/// US Letter page holding a 1700 x 2200 JPEG, far above every preset's DPI
+/// ceiling, so `balanced` and `small` resample it.
+pub const SCAN_200DPI: &[u8] =
+    include_bytes!("../../../../tests/fixtures/compress/scan_200dpi.pdf");
+
+/// A document signed once (`tests/fixtures/signed`): a compressed save
+/// would stop its signature from verifying.
+pub const SIGNED: &[u8] = include_bytes!("../../../../tests/fixtures/signed/rsa2048_sha256.pdf");
+
 /// [`ACROFORM`] encrypted with AES-128 under [`USER_PASSWORD`] and
 /// [`OWNER_PASSWORD`], printable only: a user-password open may read its
 /// fields but not fill them in (no bit 6).

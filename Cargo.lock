@@ -2015,6 +2015,7 @@ dependencies = [
  "js-sys",
  "lopdf",
  "pdf-annotate",
+ "pdf-compress",
  "pdf-document",
  "pdf-form",
  "pdf-manip",

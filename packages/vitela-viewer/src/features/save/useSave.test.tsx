@@ -116,6 +116,22 @@ describe('useSave', () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it('lends the wait for the edits to others (a compressed copy), settled at once with no screen', async () => {
+    const { engine } = savingEngine([]);
+    const { delivery } = deliveries([]);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    await expect(result.current.settleEdits()).resolves.toBeUndefined();
+    let land: () => void = () => {};
+    const edits = new Promise<void>((resolve) => (land = resolve));
+    act(() => void result.current.waitForEdits(() => edits));
+    let settled = false;
+    void result.current.settleEdits().then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    land();
+    await waitFor(() => expect(settled).toBe(true));
+  });
+
   it('stops waiting for the edits of a screen that has gone', async () => {
     const log: Log = [];
     const { engine } = savingEngine(log);

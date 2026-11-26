@@ -16,6 +16,14 @@ const info = {
 };
 const edited = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
 const opened = { handle: 5, info };
+const compressed = {
+  bytes: new Uint8Array([37, 80, 68, 70]),
+  beforeBytes: 10,
+  afterBytes: 4,
+  savedBytes: 6,
+  reduced: true,
+  refusals: [],
+};
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
   return {
@@ -37,6 +45,10 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     formFields: async () => [],
     freeTextLayout: async () => ({ fontSizePt: 12, lines: [], overflow: false }),
     stampPlacement: async () => ({ left: 0, top: 0, width: 144, height: 144 }),
+    compressPresets: async () => ['lossless', 'balanced', 'small'],
+    compressionRefusal: async () => null,
+    compressionInvalidatesSignatures: async () => false,
+    saveCompressedToBytes: async () => compressed,
     ...overrides,
   };
 }
@@ -191,6 +203,45 @@ describe('handleRequest', () => {
     });
     expect(calls).toEqual([[5, true]]);
     expect(reply).toEqual({ message: { type: 'result', id: 4, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('answers the compress questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      compressionRefusal: async (document) => (calls.push(['refusal', document]), { kind: 'other', message: 'no' }),
+      compressionInvalidatesSignatures: async (document) => (calls.push(['signed', document]), true),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'compressPresets' } })).toEqual({
+      message: { type: 'result', id: 1, value: ['lossless', 'balanced', 'small'] },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'compressionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: { kind: 'other', message: 'no' } },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 3, request: { kind: 'compressionInvalidatesSignatures', document: 5 } }),
+    ).toEqual({ message: { type: 'result', id: 3, value: true }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+    ]);
+  });
+
+  it('answers a compressed save with its report, the PDF transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      saveCompressedToBytes: async (...args) => (calls.push(args), compressed),
+    });
+    const reply = await handleRequest(engine, {
+      id: 6,
+      request: { kind: 'saveCompressed', document: 5, preset: 'balanced', invalidateSignatures: true },
+    });
+    expect(calls).toEqual([[5, 'balanced', true]]);
+    expect(reply).toEqual({
+      message: { type: 'result', id: 6, value: compressed },
+      transfer: [compressed.bytes.buffer],
+    });
   });
 
   it('forwards SignaturesWouldBeInvalidated by name', async () => {

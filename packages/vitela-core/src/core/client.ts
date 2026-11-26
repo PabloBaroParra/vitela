@@ -12,6 +12,9 @@ import { EngineError } from './errors.js';
 import type {
   Annotation,
   Comment,
+  CompressedDocument,
+  CompressPreset,
+  CompressRefusal,
   DocumentHandle,
   Edit,
   EditedDocument,
@@ -126,6 +129,26 @@ export class EngineClient implements Engine {
   stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect> {
     // Copied, not transferred: the caller still has a stamp to add with it.
     return this.send({ kind: 'stampPlacement', document, pageIndex, image, anchor });
+  }
+
+  compressPresets(): Promise<CompressPreset[]> {
+    return this.send({ kind: 'compressPresets' });
+  }
+
+  compressionRefusal(document: DocumentHandle): Promise<CompressRefusal | null> {
+    return this.send({ kind: 'compressionRefusal', document });
+  }
+
+  compressionInvalidatesSignatures(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'compressionInvalidatesSignatures', document });
+  }
+
+  saveCompressedToBytes(
+    document: DocumentHandle,
+    preset: CompressPreset,
+    invalidateSignatures: boolean,
+  ): Promise<CompressedDocument> {
+    return this.send({ kind: 'saveCompressed', document, preset, invalidateSignatures });
   }
 
   /**

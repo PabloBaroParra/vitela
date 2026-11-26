@@ -14,7 +14,7 @@
 //! `refreshPreview`, `previewStale`) is in [`edit`]; import and the
 //! Documents view's blocks are in [`import`]; annotations, comments and the
 //! free-text and stamp geometry are in [`annotation`]; the form fields and
-//! filling them in are in [`form`].
+//! filling them in are in [`form`]; the compressed save is in [`compress`].
 
 use std::collections::HashMap;
 
@@ -28,11 +28,13 @@ use crate::error::EngineError;
 use crate::model::{DocumentModel, PreparedSources};
 
 mod annotation;
+mod compress;
 mod edit;
 mod form;
 mod import;
 
 pub use annotation::{free_text_layout, stamp_placement};
+pub use compress::compress_presets;
 pub use edit::EditCommand;
 
 struct OpenDocument {

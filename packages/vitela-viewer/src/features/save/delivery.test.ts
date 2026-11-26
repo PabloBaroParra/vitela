@@ -225,3 +225,20 @@ describe('browserDelivery.prepare: carrying an accepted change', () => {
     expect(await browserDelivery.prepare('overwrite', source(fileHandle))).toEqual({ kind: 'unverified' });
   });
 });
+
+describe('browserDelivery.deliver: a new file', () => {
+  it('downloads the bytes under exactly the name given, never over the opened file', async () => {
+    const named: string[] = [];
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:vitela/2', revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      named.push(this.download);
+    });
+    const result = await browserDelivery.deliver({
+      bytes: new Uint8Array([37]),
+      name: 'a-compressed.pdf',
+      destination: { kind: 'newFile' },
+    });
+    expect(result).toEqual({ how: 'downloaded', name: 'a-compressed.pdf', fellBack: null });
+    expect(named).toEqual(['a-compressed.pdf']);
+  });
+});

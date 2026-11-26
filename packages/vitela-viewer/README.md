@@ -157,7 +157,9 @@ editor's container.
   was not tested.
 - Telling saves apart in `onSave`: when saving would break a signature, the
   editor asks, and both "Save anyway" and "Save a copy" hand the bytes to
-  `onSave` under the document's name.
+  `onSave` under the document's name. A smaller copy from **Compress** also
+  arrives in `onSave`, named `<name>-compressed.pdf`; it does not count the
+  edits as saved (the open document is not the copy).
 - Editing a page's existing text (it comes with the engine's content editing).
 
 ## Lower-level exports

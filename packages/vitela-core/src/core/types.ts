@@ -367,6 +367,44 @@ export interface RenderedPage {
   readonly rgba: Uint8ClampedArray;
 }
 
+/**
+ * How hard a compression tries (the core's `CompressPreset`): `lossless`
+ * repacks the file only, `balanced` also brings images down to 150 DPI,
+ * `small` to 96 DPI. The numbers behind each are the core's.
+ */
+export type CompressPreset = 'lossless' | 'balanced' | 'small';
+
+/** Why a compression could not do something, as the UI branches on it. */
+export type CompressRefusalKind =
+  /** The document is encrypted: no repack is possible while it stays protected. */
+  | 'encryptedDocumentNotRewritable'
+  /** The document is signed and the user was not asked. */
+  | 'signaturesWouldBeInvalidated'
+  /** A refusal this package does not model yet: show its `message`. */
+  | 'other';
+
+export interface CompressRefusal {
+  readonly kind: CompressRefusalKind;
+  /** The core's own words, lower-case and without a full stop. */
+  readonly message: string;
+}
+
+/** A compressed save: the bytes and what compression did to them. */
+export interface CompressedDocument {
+  /** The PDF. Never larger than an ordinary save; exactly it when `reduced` is false. */
+  readonly bytes: Uint8Array;
+  /** Size of the ordinary save of the session (edits included), not of the opened file. */
+  readonly beforeBytes: number;
+  /** Size of `bytes`. */
+  readonly afterBytes: number;
+  /** `beforeBytes - afterBytes`, or zero. */
+  readonly savedBytes: number;
+  /** Whether `bytes` are strictly smaller than the ordinary save: when not, there is no smaller copy to offer. */
+  readonly reduced: boolean;
+  /** What could not be done, in the order the core found it. */
+  readonly refusals: readonly CompressRefusal[];
+}
+
 /** What the UI may ask the engine to do. */
 export interface Engine {
   /**
@@ -461,4 +499,32 @@ export interface Engine {
    * is copied, not transferred. Rejects with `InvalidImage`.
    */
   stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect>;
+  /** Every preset a compress dialog may offer, strongest-preserving first: the core's own list. */
+  compressPresets(): Promise<CompressPreset[]>;
+  /**
+   * Why `document` cannot be compressed, or `null` when it can (today only
+   * an encrypted document: the web keeps a document's protection on every
+   * save). Ask before offering to run.
+   */
+  compressionRefusal(document: DocumentHandle): Promise<CompressRefusal | null>;
+  /**
+   * Whether compressing breaks a signature the file carries: `true` for a
+   * signed file even with nothing edited (a compressed save is always a full
+   * rewrite), where an ordinary save would not ask. When `true`,
+   * `saveCompressedToBytes` rejects with `SignaturesWouldBeInvalidated`
+   * unless `invalidateSignatures` says the user agreed.
+   */
+  compressionInvalidatesSignatures(document: DocumentHandle): Promise<boolean>;
+  /**
+   * The document with every edit applied, compressed as far as `preset`
+   * allows. Records no edit. A refused compression is not a rejection: it
+   * answers the ordinary save with `reduced` false and the reason in
+   * `refusals`. Rejects with `SignaturesWouldBeInvalidated`, `SaveFailed`,
+   * or `UnsupportedOperation` for a preset the core does not have.
+   */
+  saveCompressedToBytes(
+    document: DocumentHandle,
+    preset: CompressPreset,
+    invalidateSignatures: boolean,
+  ): Promise<CompressedDocument>;
 }

@@ -17,10 +17,14 @@
 // and undoing across a mixed history refreshes exactly on the page steps.
 // A form fill does change the pixels (pdfium paints the field), so a fill,
 // and its undo and redo, refresh inside the request like a page edit.
+//
+// A compressed save is not a step at all: it records nothing and refreshes
+// nothing, like an ordinary save.
 
 import type {
   Annotation,
   BlockSource,
+  CompressPreset,
   DocumentBlock,
   DocumentHandle,
   DocumentInfo,
@@ -48,6 +52,13 @@ import {
   type CoreComment,
   type CoreFreeTextLines,
 } from './annotations.js';
+import {
+  compressPresets,
+  compressRefusal,
+  compressedDocument,
+  type CoreCompressedSave,
+  type CoreCompressRefusal,
+} from './compress.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
@@ -63,6 +74,8 @@ export interface CoreFunctions extends CoreGeometry {
   freeTextLayout(contents: string, widthPt: number, heightPt: number): CoreFreeTextLines;
   /** `x, y, width, height` in PDF space. */
   stampPlacement(image: Uint8Array, anchorX: number, anchorY: number): Float64Array;
+  /** The core's preset names, strongest-preserving first. */
+  compressPresets(): string[];
 }
 
 /** The slice of core/pdf-wasm's `Engine` this module uses. */
@@ -77,6 +90,10 @@ export interface CoreEngine extends CoreText {
   annotationEditingAllowed(doc: number): boolean;
   formFillAllowed(doc: number): boolean;
   saveToBytes(doc: number, invalidateSignatures: boolean): Uint8Array;
+  /** `undefined` (wasm-bindgen's `None`) when the document can be compressed. */
+  compressionRefusal(doc: number): CoreCompressRefusal | null | undefined;
+  compressionInvalidatesSignatures(doc: number): boolean;
+  saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;
   undo(doc: number): boolean;
@@ -243,6 +260,21 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     async saveToBytes(document: DocumentHandle, invalidateSignatures: boolean) {
       assertOpen(document);
       return core.saveToBytes(document, invalidateSignatures);
+    },
+    async compressPresets() {
+      return compressPresets(functions.compressPresets());
+    },
+    async compressionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return compressRefusal(core.compressionRefusal(document));
+    },
+    async compressionInvalidatesSignatures(document: DocumentHandle) {
+      assertOpen(document);
+      return core.compressionInvalidatesSignatures(document);
+    },
+    async saveCompressedToBytes(document: DocumentHandle, preset: CompressPreset, invalidateSignatures: boolean) {
+      assertOpen(document);
+      return compressedDocument(core.saveCompressedToBytes(document, preset, invalidateSignatures));
     },
     async applyEdit(document: DocumentHandle, edit: Edit) {
       return step(

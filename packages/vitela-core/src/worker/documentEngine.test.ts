@@ -29,6 +29,7 @@ const annotationFunctions = {
   },
   // A 2:1 image: 144 x 72 pt with its top-left at the anchor.
   stampPlacement: (_image: Uint8Array, x: number, y: number) => new Float64Array([x, y - 72, 144, 72]),
+  compressPresets: () => ['lossless', 'balanced', 'small'],
 };
 
 /** Placement that only marks its output, so a test sees it was applied. */
@@ -123,6 +124,10 @@ function fakeCore(
     stickyStale?: boolean;
     /** Fields the opened file has: a text field `name` (id 0) and a checkbox `agree` (id 1), on the first page. */
     form?: boolean;
+    /** The opened file is encrypted: compressing it is refused. */
+    encrypted?: boolean;
+    /** The opened file is signed: compressing it breaks the signature. */
+    signed?: boolean;
   } = {},
 ) {
   interface Doc extends FakeState {
@@ -139,6 +144,8 @@ function fakeCore(
   const closed: number[] = [];
   const freed: string[] = [];
   const saves: [number, boolean][] = [];
+  /** Every compressed save the core ran: document, preset, acknowledgement. */
+  const compressions: [number, string, boolean][] = [];
   const refreshed: number[] = [];
   /** Every `applyEdit` the core received, as the fake command it was. */
   const applied: FakeEdit[] = [];
@@ -322,6 +329,29 @@ function fakeCore(
       return { width: 1, height: 1, takeRgba: () => new Uint8Array([marker, 0, 0, 255]), free: () => {} };
     },
     textExtractionAllowed: (doc) => (known(doc), !options.restricted),
+    compressionRefusal: (doc) => {
+      known(doc);
+      return options.encrypted
+        ? { kind: 'encryptedDocumentNotRewritable', message: 'protected', free: () => freed.push('refusal') }
+        : undefined;
+    },
+    compressionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    saveCompressedToBytes: (doc, preset, invalidate) => {
+      const { marker, pages } = known(doc);
+      if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
+      compressions.push([doc, preset, invalidate]);
+      // One byte per page, after the marker: the compressed copy of what the session holds now.
+      const bytes = new Uint8Array([marker, ...pages.map((page) => page.id)]);
+      return {
+        beforeBytes: 100,
+        afterBytes: bytes.length,
+        savedBytes: 100 - bytes.length,
+        reduced: true,
+        refusals: [],
+        takeBytes: () => bytes,
+        free: () => freed.push('compressed'),
+      };
+    },
     saveToBytes: (doc, invalidate) => {
       const { marker } = known(doc);
       saves.push([doc, invalidate]);
@@ -512,7 +542,7 @@ function fakeCore(
       };
     },
   };
-  return { core, edits, closed, freed, saves, refreshed, prepared, applied };
+  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions };
 }
 
 describe('documentEngine', () => {
@@ -550,6 +580,71 @@ describe('documentEngine', () => {
       [b.handle, false],
       [a.handle, true],
     ]);
+  });
+
+  it('lists the presets the core has', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.compressPresets()).toEqual(['lossless', 'balanced', 'small']);
+  });
+
+  it('asks the gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.compressionRefusal(handle)).toBeNull();
+    expect(await engine.compressionInvalidatesSignatures(handle)).toBe(false);
+
+    const locked = fakeCore({ encrypted: true, signed: true });
+    const other = documentEngine(locked.core, geometry, locked.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.compressionRefusal(opened.handle)).toEqual({ kind: 'encryptedDocumentNotRewritable', message: 'protected' });
+    expect(locked.freed).toContain('refusal');
+    expect(await other.compressionInvalidatesSignatures(opened.handle)).toBe(true);
+  });
+
+  it('compresses the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, compressions, refreshed, freed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const compressed = await engine.saveCompressedToBytes(handle, 'balanced', false);
+    expect(compressions).toEqual([[handle, 'balanced', false]]);
+    expect(compressed.bytes).toEqual(new Uint8Array([10, ...removed.info.pageIds]));
+    expect(compressed).toMatchObject({ beforeBytes: 100, afterBytes: 3, savedBytes: 97, reduced: true, refusals: [] });
+    expect(freed).toContain('compressed');
+    expect(refreshed.length).toBe(refreshes);
+    // The history is the one the edit left.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+  });
+
+  it('passes the signature acknowledgement and forwards the refusal by name', async () => {
+    const { core, edits, compressions } = fakeCore({ signed: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.saveCompressedToBytes(handle, 'small', false)).rejects.toMatchObject({
+      name: 'SignaturesWouldBeInvalidated',
+    });
+    await engine.saveCompressedToBytes(handle, 'small', true);
+    expect(compressions).toEqual([[handle, 'small', true]]);
+  });
+
+  it('refuses every compress request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [
+      engine.compressionRefusal(handle),
+      engine.compressionInvalidatesSignatures(handle),
+      engine.saveCompressedToBytes(handle, 'lossless', false),
+    ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
   });
 
   it('refuses to save a document once it was closed', async () => {
