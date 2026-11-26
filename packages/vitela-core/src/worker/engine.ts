@@ -46,6 +46,7 @@ export const coreEdits: CoreEdits = {
   movePages: (from, count, to) => core.EditCommand.movePages(from, count, to),
   rotatePages: (from, count, degrees) => core.EditCommand.rotatePages(from, count, degrees),
   removePages: (index, count) => core.EditCommand.removePages(index, count),
+  insertBlankPage: (index, landscape) => core.EditCommand.insertBlankPage(index, landscape),
   addHighlight: (page, x, y, w, h, rgb) => core.EditCommand.addHighlight(page, x, y, w, h, rgb),
   addUnderline: (page, x, y, w, h, rgb) => core.EditCommand.addUnderline(page, x, y, w, h, rgb),
   addStrikeout: (page, x, y, w, h, rgb) => core.EditCommand.addStrikeout(page, x, y, w, h, rgb),

@@ -140,3 +140,13 @@
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* Add blank page opens under itself, toward the grid's free side. */
+.organize__insert {
+  position: relative;
+}
+
+.organize__insert .tools-menu__list {
+  right: auto;
+  left: 0;
+}

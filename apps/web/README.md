@@ -516,7 +516,7 @@ the focus comes back to More tools.
 (every document opens in View; each screen mounts afresh on a switch).
 
 - **Engine:** `applyEdit(handle, edit)` (`move` / `rotate` / `remove` of a run
-  of pages), `undo`, `redo`. Each answers with the edited `DocumentInfo` plus
+  of pages, `insertBlank` of one page), `undo`, `redo`. Each answers with the edited `DocumentInfo` plus
   `canUndo`/`canRedo`, and the worker has already run the core's
   `refreshPreview` inside the same request, so no render can land between an
   edit and its refresh. If the refresh fails the step is taken back.
@@ -560,6 +560,16 @@ the focus comes back to More tools.
   `import_refusal`: modify-contents and assembly permissions, and whether the
   encryption survives the rewrite) turns Add PDFs off with the reason as its
   tooltip; the core asks again on `importPrepared`.
+- **Add blank page** (menu button in the toolbar: **Portrait A4** / **Landscape
+  A4**, the two pages every native shell offers): one `insertBlank` edit — the
+  core's `Command::insert_blank_page`, so the document mints the new page's
+  id — placed after the selected pages (after the last page of the selected
+  blocks in the Documents view, where it shows as a "Blank pages" block), or
+  at the end when nothing is selected; then the new card is selected. One undo
+  step. It is an assembly edit that changes the page structure, so the core's
+  gate is the one Move and Delete ask (`check_edit`: the assembly permission,
+  then whether the encryption survives the full rewrite); without the
+  permission the button is off and never opens.
 
 ## Zero-network
 

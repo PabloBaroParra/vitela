@@ -102,14 +102,23 @@ export interface ImportedDocument extends EditedDocument {
 
 /**
  * One page edit, recorded as one undo step. Positions are 0-based and name
- * pages as they are now; `count` pages starting at `from` take part.
+ * pages as they are now; `count` pages starting at `from` take part (one new
+ * page, for an insert).
  */
 export type PageEdit =
   /** Moves the run so its first page ends up at `to`. */
   | { readonly kind: 'move'; readonly from: number; readonly count: number; readonly to: number }
   /** Turns each page of the run clockwise by `degrees` (a multiple of 90). */
   | { readonly kind: 'rotate'; readonly from: number; readonly count: number; readonly degrees: number }
-  | { readonly kind: 'remove'; readonly from: number; readonly count: number };
+  | { readonly kind: 'remove'; readonly from: number; readonly count: number }
+  /**
+   * Inserts one blank A4 page so it ends up at position `at` (`pageCount`
+   * appends), as the native shells do. The new page gets its own page id.
+   */
+  | { readonly kind: 'insertBlank'; readonly at: number; readonly orientation: PageOrientation };
+
+/** Which way a new blank page stands. */
+export type PageOrientation = 'portrait' | 'landscape';
 
 /** The document after an edit, undo or redo, and where its history stands. */
 export interface EditedDocument {

@@ -128,6 +128,34 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('inserts a blank A4 page through the real core: its own id and block, drawn empty, saved', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+
+    const inserted = await engine.applyEdit(handle, { kind: 'insertBlank', at: 1, orientation: 'portrait' });
+    expect(inserted.info.pageCount).toBe(2);
+    expect(inserted.info.pageIds[0]).toBe(info.pageIds[0]);
+    expect(info.pageIds).not.toContain(inserted.info.pageIds[1]);
+    expect(inserted.info.pages[1]).toMatchObject({ widthPt: 595, heightPt: 842, rotationDegrees: 0 });
+    expect(inserted.info.blocks.map((block) => block.source.kind)).toEqual(['base', 'blank']);
+    const page = await engine.renderPage(handle, 1, 72);
+    expect([page.width, page.height]).toEqual([595, 842]);
+    expect(page.rgba.every((channel) => channel === 255)).toBe(true);
+
+    const saved = await engine.saveToBytes(handle, false);
+    const reopened = await engine.open(saved);
+    expect(reopened.info.pages.map((size) => [size.widthPt, size.heightPt])).toEqual([
+      [612, 792],
+      [595, 842],
+    ]);
+    await expect(engine.applyEdit(handle, { kind: 'insertBlank', at: 3, orientation: 'landscape' })).rejects.toMatchObject({
+      name: 'PageIndexOutOfBounds',
+    });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+  });
+
   it('imports a PDF through the real core as one step, with its own block', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);

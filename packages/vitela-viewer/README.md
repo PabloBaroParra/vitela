@@ -1,7 +1,7 @@
 # @vitela/viewer
 
 Vitela's PDF editor for any web page: view, organize (reorder, rotate,
-delete, add pages from other PDFs), annotate, stamp, search, select text and
+delete, add blank pages and pages from other PDFs), annotate, stamp, search, select text and
 save, all in the browser on top of [`@vitela/core`](../vitela-core/README.md)
 (the engine, as WebAssembly in a Web Worker). No server: documents never
 leave the page.

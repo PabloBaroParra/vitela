@@ -15,6 +15,7 @@
 //! `pdf_save::shows_in_session_preview`); a form fill does, because pdfium
 //! paints the field.
 
+use pdf_document::Orientation;
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
@@ -61,6 +62,19 @@ impl EditCommand {
     pub fn remove_pages(index: u32, count: u32) -> EditCommand {
         EditCommand(Edit::Page(PageEdit::Remove { index, count }))
     }
+
+    /// Inserts one blank A4 page — portrait, or `landscape` — so it ends up
+    /// at position `index` (`pageCount` appends), as one undo step. The new
+    /// page gets a `pageIds` entry of its own.
+    #[wasm_bindgen(js_name = insertBlankPage)]
+    pub fn insert_blank_page(index: u32, landscape: bool) -> EditCommand {
+        let orientation = if landscape {
+            Orientation::Landscape
+        } else {
+            Orientation::Portrait
+        };
+        EditCommand(Edit::Page(PageEdit::InsertBlank { index, orientation }))
+    }
 }
 
 #[wasm_bindgen]
@@ -72,8 +86,8 @@ impl Engine {
     /// withholds the assembly permission (asked first),
     /// `PageIndexOutOfBounds` naming a position that does not exist, or
     /// `UnsupportedOperation` when the edit cannot be recorded (a move onto
-    /// itself, an empty run, or a rewrite the document's encryption does not
-    /// allow). An annotation edit is refused with `EditNotPermitted` when
+    /// itself, an empty run, a rewrite the document's encryption does not
+    /// allow, or an insert with no page id left to give). An annotation edit is refused with `EditNotPermitted` when
     /// the document withholds the annotate permission (asked first), then
     /// `PageIndexOutOfBounds`, `AnnotationNotFound`, `EncodingGap`,
     /// `InvalidImage` or `UnsupportedOperation`; a retext to the text a box
