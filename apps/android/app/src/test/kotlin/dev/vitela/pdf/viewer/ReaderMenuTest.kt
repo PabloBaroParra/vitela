@@ -12,7 +12,7 @@ class ReaderMenuTest {
     fun theMenuListsEveryDocumentActionInItsGroups() {
         assertEquals(
             listOf(
-                DocumentMenuItem.Open, DocumentMenuItem.Save, DocumentMenuItem.SaveCopy, DocumentMenuItem.Print,
+                DocumentMenuItem.Open, DocumentMenuItem.Save, DocumentMenuItem.SaveCopy, DocumentMenuItem.Share, DocumentMenuItem.Print,
                 DocumentMenuItem.Compress, DocumentMenuItem.Protect, DocumentMenuItem.ExportImages,
                 DocumentMenuItem.ExtractPages, DocumentMenuItem.Split,
                 DocumentMenuItem.PreviousAnnotation, DocumentMenuItem.NextAnnotation, DocumentMenuItem.Properties,
@@ -28,6 +28,14 @@ class ReaderMenuTest {
         assertFalse(DocumentMenuItem.Save.enabled(open.copy(isDirty = true)))
         assertTrue(DocumentMenuItem.Save.enabled(open.copy(isDirty = true, saveTarget = "content://doc")))
         assertTrue(DocumentMenuItem.SaveCopy.enabled(open.copy(isDirty = true)))
+    }
+
+    @Test
+    fun shareNeedsAnOpenDocumentButNoChanges() {
+        assertTrue(DocumentMenuItem.Share.enabled(open))
+        assertTrue(DocumentMenuItem.Share.enabled(open.copy(isDirty = true)))
+        assertFalse(DocumentMenuItem.Share.enabled(ViewerState(canOpen = true)))
+        assertFalse(DocumentMenuItem.Share.enabled(open.copy(isLoading = true)))
     }
 
     @Test

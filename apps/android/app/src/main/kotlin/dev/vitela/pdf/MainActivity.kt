@@ -332,6 +332,7 @@ private fun VitelaApp(
             }
         },
         onSaveCopy = { savePdf.launch(state.title.ifBlank { "Document.pdf" }) },
+        onShare = { scope.launch { shareDocument(context, viewModel, state.documentId) } },
         onChooseStamp = { chooseStamp.launch("image/*") },
         onPasteStamp = {
             val clip = context.getSystemService(ClipboardManager::class.java).primaryClip
