@@ -89,7 +89,8 @@ internal class ContentEditActions(
 /**
  * What the retype dialog says about its actions. The save warning is only for a
  * document the core cannot checkpoint — one with imported pages, signatures or
- * encryption; elsewhere it writes the earlier edit into memory and carries on.
+ * encryption, and that has an edit queued; elsewhere it writes the earlier edit
+ * into memory and carries on.
  * A [paragraph]'s dialog also says what a typed line break does.
  */
 internal fun textDialogHelp(canCheckpoint: Boolean, paragraph: Boolean = false): UiText = UiText.Sentences(
