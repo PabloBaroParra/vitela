@@ -2159,7 +2159,7 @@ Gates (Windows 11, local):
 | **T-249** | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
 | **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
 | **T-251** | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
-| **T-252** | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
+| **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
 | **T-253** | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
 | **T-254** | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
 | **T-255** | Metadatos. | Playwright: editar, guardar y releer. |
@@ -2261,6 +2261,110 @@ nueva en el core: `pdf_save` ya tenía las tres llamadas. Lo que condiciona lo q
 - **No cubierto / pendiente:** la herramienta `/compress` de la portada sigue en `web: false`
   (como `annotate` y `forms`, que tampoco se han encendido: decisión aparte); sin lector de
   pantalla real.
+
+### T-252 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Export images"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Ninguna regla nueva en el core: `pdf_save` ya tenía la gramática de páginas, los
+nombres y `encode_rgba_image`, y `pdf_render` el techo de raster. Lo que condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/export.rs`, `engine/export.rs`): la superficie de `pdf-ffi`
+  (`export.rs` + `output.rs`) con una diferencia forzada por el target:
+  `pdf_save::export_page_as_image` es solo nativo (usa el renderer con hilos), así que la
+  página la pinta el `SyncRenderer` del engine y la codifica `encode_rgba_image` en Rust, no
+  un canvas. Funciones libres `imageExportFormats()` (`png`, `jpeg`), `parsePageSelection`
+  (rechazo nuevo `InvalidPageSelection`, con la frase del core) y `pageImageFileName`; en el
+  `Engine`, `firstPageTooLargeToExport`, `openImageExport` → id, `exportPageImage(export,
+  page, dpi, format)` → bytes y `closeImageExport`. El formato cruza como texto, como el
+  preset de T-250.
+- **Qué se dibuja: la instantánea de salida, como Android y Windows.** Lo que escribiría un
+  guardado ahora (`with_save_input` con la firma reconocida, como `pdf-ffi`
+  `output_snapshot`: no se escribe nada, solo se rasteriza), abierta una vez por exportación
+  en un mapa propio del engine, aparte de los documentos. Así entran las ediciones de página,
+  las anotaciones y los rellenos sin guardar (el preview en pantalla deja fuera las
+  anotaciones de la sesión). No es un paso: ni historial ni refresco. El permiso es el de
+  extracción de texto, con la frase de `pdf-ffi`.
+- **Sin calidad JPEG:** el codificador del core no la tiene, ni los otros shells. DPI 72–400,
+  150 por defecto, caja vacía = 150 (el mismo techo y la misma razón que los nativos: Letter
+  a 600 DPI pasa de 32 Mpx).
+- **`@vitela/core`:** `Engine` gana `imageExportFormats`, `parsePageSelection`,
+  `pageImageFileNames` (los nombres de varias páginas en una sola petición),
+  `firstPageTooLargeToExport`, `openImageExport`, `exportPageImage` (bytes transferidos, no
+  copiados) y `closeImageExport`. Tipos exportados `ImageExportFormat`, `ImageExportHandle` y
+  la constante `INVALID_PAGE_SELECTION`.
+- **`@vitela/viewer` (`features/exportImages/`):** puro con tests `exportText.ts` (borrador,
+  lectura del DPI, frases de Android) y `planExport.ts` (el plan en el orden de los nativos:
+  DPI, permiso, páginas, techo, nombres; un rechazo deja el diálogo abierto con lo tecleado);
+  contenedor `useExportImages`; vistas `ExportImagesDialog` (`ModalShell`: Pages, Format,
+  Resolution) y `ExportImagesControls`. El botón va en la barra, junto a Compress, en las dos
+  pantallas. Espera a la cola de ediciones como Save. "Current
+  page" es la última página que mostró el visor (`ReportCurrentPageContext`, nuevo), recortada
+  a la última. Se para en la primera página que falla y dice cuántas se escribieron; la
+  instantánea se cierra siempre. La caja de DPI es de texto (solo dígitos, tres como máximo,
+  como Android): con `type="number"` la validación del navegador frenaba el envío con su
+  globo antes de que el diálogo dijera por qué.
+- **Entrega: una descarga por página, no un zip.** No hay escritor zip en el árbol de
+  dependencias (ni npm ni Cargo) y meterlo sería solo para esto; los nativos escriben un
+  archivo por página en una carpeta, y una descarga por página es lo más parecido. Cada
+  imagen sale por el `Delivery` de siempre como `newFile`, que gana un `type` (tipo MIME;
+  PDF si falta) para etiquetar el blob. **Anfitrión:** `onSave` recibe ahora un tercer
+  argumento `type` (`application/pdf`, `image/png`, `image/jpeg`) y una llamada por página,
+  en orden, esperando a cada una; un rechazo para la exportación. Es aditivo: un `onSave` de
+  dos parámetros sigue funcionando. El README del viewer tiene la tabla de qué llega.
+- **Teléfono (≤ 600 px): menú "More tools".** Sobre el arreglo de T-250 (664dd20: la barra en
+  **una** fila, porque cada píxel de alto sale de las páginas y del panel de comentarios),
+  un segundo icono no cabía junto a Save. Un primer intento movía los iconos a otra fila con
+  `order`, que además dejaba el orden del tabulador distinto del visual (WCAG 2.4.3);
+  descartado. Ahora, en teléfono, Compress y Export images se ocultan (`display: none`: fuera
+  del tabulador y del árbol de accesibilidad) y en su lugar del DOM aparece un botón de menú
+  **More tools** (`ui/ToolsMenu.tsx`, patrón "menu button" de la APG: `aria-haspopup`,
+  `aria-expanded`, `aria-controls`; Enter, Espacio o ↓ abren en el primero, ↑ en el último;
+  ↑/↓ con vuelta, Inicio/Fin, Escape cierra y devuelve el foco, Tab cierra; un toque fuera
+  cierra; una herramienta ocupada sale con `aria-disabled`). Al elegir, el foco vuelve al
+  botón **antes** de la acción, así que el diálogo que abre lo devuelve allí también. Es el
+  sitio de las herramientas que vienen (Protect, Extract…): se añaden como una entrada más. En
+  escritorio no cambia nada. Los iconos de Compress de T-250 ya no se muestran en ningún
+  ancho y se quitaron.
+- **Tests:** `pdf-wasm` 8 nativos nuevos (`model/export.rs`) y 4 `wasm-bindgen-test`
+  (`tests/export.rs`); `@vitela/core` 11 Vitest nuevos, uno contra pdfium real (un subrayado
+  sin guardar cambia los bytes del PNG, un giro sin guardar da 1584 × 1224 a 144 DPI, JPEG
+  con su firma, rango rechazado por nombre, el historial intacto); `@vitela/viewer` 36
+  nuevos (8 de `ToolsMenu`, 1 del menú en `DocumentWorkspace`). Vistos en rojo antes de implementar: los de Rust (por no compilar), `documentEngine`
+  (6 fallando), `download`/`delivery`/`callbackDelivery` (3 fallando), los de
+  `features/exportImages/` y `ToolsMenu` (sin módulo), el menú del workspace (fallando) y la
+  caja de DPI (3 fallando con `type="number"`).
+  Los de `handler`, `client` y el de pdfium real se escribieron antes que su código pero no
+  se vieron en rojo por separado.
+- **E2E (`e2e/export-images.spec.ts`, 4 × 3):** la página actual (tras bajar a la 3) en PNG
+  a 144 DPI es una descarga `vector_only-3.png` de 1224 × 1584; el rango `2-3` en JPEG a
+  72 DPI son `vector_only-2.jpg` y `vector_only-3.jpg` de 612 × 792 (leídos de la cabecera
+  de cada archivo); una página girada en Organize sin guardar sale apaisada y la edición
+  sigue sin guardar y deshacible; `2-9` muestra la frase del core y 600 DPI el rechazo del
+  rango, sin ninguna descarga, y Escape devuelve el foco al botón. **`e2e/phone-bar.spec.ts`
+  (2 × 3), a 390 × 600:** la barra es una sola fila (todos sus hijos visibles comparten franja
+  y ninguno se sale), su orden en pantalla es el del DOM, Tab va Organize → More tools → Save,
+  Compress y Export images están ocultos y Save visible; el menú se maneja con teclado (Enter
+  abre en Compress, ↓, Enter abre Export images, Escape devuelve el foco a More tools; Escape
+  cierra el menú) y con un toque abre Compress.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test -p pdf-wasm` 106 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  177. `@vitela/viewer`: `build`, `tsc -b`, Vitest 78 / 784. `apps/web`: `typecheck`, Vitest
+  6 / 19, `build`; Playwright completo (Chromium, Firefox, WebKit) sobre 664dd20 **229 pasan,
+  20 omitidos** (los de File System Access fuera de Chromium), `zero-network` y `comments`
+  390 × 600 incluidos; `comments`, `phone-bar`, `compress` y `export-images` con
+  `--repeat-each=3`: 162 / 162. (Antes del menú, una ejecución completa tuvo un fallo de
+  `draw` en Chromium, una alerta de texto libre que no se repitió después.)
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`; el aviso del navegador de "varias descargas" (Playwright las acepta
+  todas).
+- **No cubierto / pendiente:** el rechazo por página demasiado grande solo se cubre con
+  Vitest y con el test nativo (a 400 DPI ningún fixture pasa del techo); la herramienta de
+  la portada (`/pdf-to-image`) sigue en `web: false`, como `/compress`.
 
 ## Verificación
 

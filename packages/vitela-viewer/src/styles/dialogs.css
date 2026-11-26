@@ -212,6 +212,55 @@
   margin: 12px 0 0;
 }
 
+/* Export pages as images: pages, format, resolution, and the last refusal. */
+.export-dialog {
+  width: min(400px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.export-dialog__refusal {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.export-dialog__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.export-dialog__group--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.export-dialog__legend {
+  display: block;
+  padding: 0;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.export-dialog__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-dialog__range,
+.export-dialog__dpi {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.export-dialog__dpi {
+  width: 8em;
+}
+
 /* Two typed lengths: Move to, Resize. */
 .lengths-dialog {
   width: min(320px, calc(100vw - 32px));

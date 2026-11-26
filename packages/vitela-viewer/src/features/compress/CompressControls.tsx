@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 import { StatusLine } from '../../ui/StatusLine';
 import { CompressDialog } from './CompressDialog';
 import { compressStatus } from './compressText';
-import type { CompressActivity, CompressSession } from './useCompress';
+import { compressBusy, type CompressActivity, type CompressSession } from './useCompress';
 
 interface CompressControlsProps {
   readonly session: CompressSession;
@@ -14,7 +14,7 @@ interface CompressControlsProps {
 
 export function CompressControls({ session, documentName }: CompressControlsProps) {
   const { activity, open, select, cancel, compress } = session;
-  const busy = activity.kind === 'checking' || activity.kind === 'choosing' || activity.kind === 'compressing';
+  const busy = compressBusy(activity);
   const button = useRef<HTMLButtonElement>(null);
 
   // The dialog gives the focus back when it goes away, whatever the answer.
@@ -36,9 +36,7 @@ export function CompressControls({ session, documentName }: CompressControlsProp
         onClick={busy ? undefined : () => void open()}
         aria-disabled={busy}
       >
-        {/* A narrow editor shows only the icon; the word stays the button's name. */}
-        <CompressIcon />
-        <span className="compress-button__label">Compress</span>
+        Compress
       </button>
       <CompressStatus activity={activity} documentName={documentName} />
       {activity.kind === 'choosing' && (
@@ -56,25 +54,6 @@ export function CompressControls({ session, documentName }: CompressControlsProp
   );
 }
 
-/** The home page's Compress icon: two arrows pressing on a line. */
-function CompressIcon() {
-  return (
-    <svg
-      className="compress-button__icon"
-      viewBox="0 0 24 24"
-      width="18"
-      height="18"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M3.5 12h17M12 3.5v5.6M8.7 5.8 12 9.1l3.3-3.3M12 20.5v-5.6M8.7 18.2 12 14.9l3.3 3.3" />
-    </svg>
-  );
-}
 
 function CompressStatus({ activity, documentName }: { readonly activity: CompressActivity; readonly documentName: string }) {
   switch (activity.kind) {

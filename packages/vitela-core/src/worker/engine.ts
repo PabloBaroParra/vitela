@@ -36,6 +36,9 @@ export const coreFunctions: CoreFunctions = {
   freeTextLayout: core.freeTextLayout,
   stampPlacement: core.stampPlacement,
   compressPresets: core.compressPresets,
+  imageExportFormats: core.imageExportFormats,
+  parsePageSelection: core.parsePageSelection,
+  pageImageFileName: core.pageImageFileName,
 };
 
 /** The core's `EditCommand` constructors, as `documentEngine` takes them. */

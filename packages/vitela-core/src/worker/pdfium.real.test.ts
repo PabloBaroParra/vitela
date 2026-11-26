@@ -338,7 +338,60 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(copy.handle);
     await engine.close(handle);
   });
+
+  it('exports pages through the real core: the pending edits drawn, sized by the DPI, named and encoded by the core', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    expect(await engine.imageExportFormats()).toEqual(['png', 'jpeg']);
+    expect(await engine.parsePageSelection('1', 1)).toEqual([0]);
+    await expect(engine.parsePageSelection('2', 1)).rejects.toMatchObject({ name: 'InvalidPageSelection' });
+    expect(await engine.pageImageFileNames('report.pdf', [0], 1, 'jpeg')).toEqual(['report-1.jpg']);
+
+    const { handle } = await engine.open(readFileSync(fixture));
+    expect(await engine.firstPageTooLargeToExport(handle, [0], 400)).toBeNull();
+    expect(await engine.firstPageTooLargeToExport(handle, [0], 600)).toBe(0);
+    const plain = await exportFirstPage(engine, handle, 72, 'png');
+    expect(pngSize(plain)).toEqual([612, 792]);
+
+    // An unsaved highlight: the preview leaves it out, the export draws it.
+    const band = { left: 72, top: 30, width: 200, height: 20 };
+    await engine.applyEdit(handle, { kind: 'addMarkup', page: 0, markup: 'highlight', rect: band, color: { r: 255, g: 255, b: 0 } });
+    const highlighted = await exportFirstPage(engine, handle, 72, 'png');
+    expect(Buffer.from(highlighted).equals(Buffer.from(plain))).toBe(false);
+
+    // An unsaved quarter turn: the image is landscape, and twice as large at 144 DPI.
+    await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    expect(pngSize(await exportFirstPage(engine, handle, 144, 'png'))).toEqual([1584, 1224]);
+    const jpeg = await exportFirstPage(engine, handle, 72, 'jpeg');
+    expect([...jpeg.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+
+    // Not an edit: both steps are still there to undo.
+    expect((await engine.undo(handle)).canUndo).toBe(true);
+    await engine.close(handle);
+  });
 });
+
+/** Opens an export of `handle`, encodes its first page and closes the export. */
+async function exportFirstPage(
+  engine: ReturnType<typeof documentEngine>,
+  handle: number,
+  dpi: number,
+  format: 'png' | 'jpeg',
+): Promise<Uint8Array> {
+  const exportHandle = await engine.openImageExport(handle);
+  try {
+    return await engine.exportPageImage(exportHandle, 0, dpi, format);
+  } finally {
+    expect(await engine.closeImageExport(exportHandle)).toBe(true);
+  }
+}
+
+/** A PNG's IHDR width and height, after checking its signature. */
+function pngSize(bytes: Uint8Array): [number, number] {
+  expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return [view.getUint32(16), view.getUint32(20)];
+}
 
 /** A 2 x 1 pixel PNG: a stamp twice as wide as it is tall. */
 const WIDE_PNG = Buffer.from(

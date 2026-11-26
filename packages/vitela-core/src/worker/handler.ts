@@ -84,6 +84,27 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
           transfer: [compressed.bytes.buffer as ArrayBuffer],
         };
       }
+      // The image-export questions are lists of numbers and names: copied.
+      case 'imageExportFormats':
+        return result(id, await engine.imageExportFormats());
+      case 'parsePageSelection':
+        return result(id, await engine.parsePageSelection(request.input, request.totalPages));
+      case 'pageImageFileNames': {
+        const { documentName, pages, totalPages, format } = request;
+        return result(id, await engine.pageImageFileNames(documentName, pages, totalPages, format));
+      }
+      case 'firstPageTooLargeToExport':
+        return result(id, await engine.firstPageTooLargeToExport(request.document, request.pages, request.dpi));
+      case 'openImageExport':
+        return result(id, await engine.openImageExport(request.document));
+      case 'exportPageImage': {
+        const { pageIndex, dpi, format } = request;
+        const image = await engine.exportPageImage(request.export, pageIndex, dpi, format);
+        // A whole image file: handed over, not copied.
+        return { message: { type: 'result', id, value: image }, transfer: [image.buffer as ArrayBuffer] };
+      }
+      case 'closeImageExport':
+        return result(id, await engine.closeImageExport(request.export));
     }
   } catch (error) {
     // The core names every failure kind (`WrongPassword`, ...): the UI

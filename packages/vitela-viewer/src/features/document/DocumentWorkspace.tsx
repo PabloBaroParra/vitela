@@ -2,7 +2,7 @@
 // open document: the viewer, or Organize. What shows before a document is
 // open is the caller's: it gets the open action (picker plus activity) to place.
 
-import { useImperativeHandle, useState, type ReactNode, type Ref } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
@@ -10,12 +10,16 @@ import { MarkDirtyContext, SaveWaitsForEditsContext } from '../save/MarkDirtyCon
 import { SaveControls } from '../save/SaveControls';
 import { browserDelivery, type Delivery } from '../save/delivery';
 import { CompressControls } from '../compress/CompressControls';
-import { useCompress } from '../compress/useCompress';
+import { compressBusy, useCompress } from '../compress/useCompress';
+import { ExportImagesControls } from '../exportImages/ExportImagesControls';
+import { exportBusy, useExportImages } from '../exportImages/useExportImages';
+import { ToolsMenu } from '../../ui/ToolsMenu';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
 import { ViewSwitch } from '../../ui/ViewSwitch';
 import { OrganizeScreen } from '../organize/OrganizeScreen';
 import { DocumentViewer } from '../viewer/DocumentViewer';
+import { ReportCurrentPageContext } from '../viewer/CurrentPageContext';
 import { PasswordDialog } from './PasswordDialog';
 import { useDocument, type Activity, type PdfSource } from './useDocument';
 import { EditorScopeContext, useEditorScope, type EventScope } from './editorScope';
@@ -92,6 +96,16 @@ export function DocumentWorkspace({
   // A compressed copy goes where saves go (a download, or the host's onSave)
   // and waits for the same queued edits.
   const compress = useCompress(engine, document, delivery ?? browserDelivery, save.settleEdits);
+  // The page the viewer last showed: Export images' "Current page", in either screen.
+  const currentPage = useRef(0);
+  const reportCurrentPage = useCallback((pageIndex: number) => void (currentPage.current = pageIndex), []);
+  const readCurrentPage = useCallback(() => currentPage.current, []);
+  // A new document starts on its first page, until its viewer says otherwise.
+  useEffect(() => {
+    currentPage.current = 0;
+  }, [document?.generation]);
+  // Page images go where a compressed copy goes, after the same queued edits.
+  const exportImages = useExportImages(engine, document, delivery ?? browserDelivery, save.settleEdits, readCurrentPage);
   useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
   const picker = filePicker && (
@@ -117,6 +131,21 @@ export function DocumentWorkspace({
             )}
             <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
             <CompressControls session={compress} documentName={document.name} />
+            <ExportImagesControls session={exportImages} />
+            {/*
+              The same tools as one menu button: what a phone shows instead
+              of the buttons above (CSS), at the same place in the DOM, so
+              the tab order is the order on screen at every width.
+            */}
+            <ToolsMenu
+              label="More tools"
+              className="workspace__more"
+              icon={<MoreIcon />}
+              tools={[
+                { label: 'Compress', disabled: compressBusy(compress.activity), onSelect: () => void compress.open() },
+                { label: 'Export images', disabled: exportBusy(exportImages.activity), onSelect: exportImages.open },
+              ]}
+            />
             <SaveControls session={save} documentName={document.name} />
           </div>
         ) : (
@@ -134,13 +163,15 @@ export function DocumentWorkspace({
             <SaveWaitsForEditsContext.Provider value={save.waitForEdits}>
               {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
               {screen === 'view' ? (
-                <DocumentViewer
-                  key={document.generation}
-                  engine={engine}
-                  document={document}
-                  onEdited={revise}
-                  onStampImage={keepStampImage}
-                />
+                <ReportCurrentPageContext.Provider value={reportCurrentPage}>
+                  <DocumentViewer
+                    key={document.generation}
+                    engine={engine}
+                    document={document}
+                    onEdited={revise}
+                    onStampImage={keepStampImage}
+                  />
+                </ReportCurrentPageContext.Provider>
               ) : (
                 <OrganizeScreen
                   key={document.generation}
@@ -170,6 +201,17 @@ export function DocumentWorkspace({
         )}
       </EditorScopeContext.Provider>
     </div>
+  );
+}
+
+/** Three dots in a row: more of the same kind. */
+function MoreIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="12" r="1.9" />
+      <circle cx="12" cy="12" r="1.9" />
+      <circle cx="19" cy="12" r="1.9" />
+    </svg>
   );
 }
 

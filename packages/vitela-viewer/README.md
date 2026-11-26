@@ -39,8 +39,12 @@ export function Editor() {
     <div style={{ height: 600 }}>
       <VitelaViewer
         source="/files/report.pdf"
-        onSave={async (bytes, name) => {
-          await fetch(`/api/files/${encodeURIComponent(name)}`, { method: 'PUT', body: bytes });
+        onSave={async (bytes, name, type) => {
+          await fetch(`/api/files/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': type },
+            body: bytes,
+          });
         }}
       />
     </div>
@@ -74,7 +78,7 @@ viewer.destroy();           // unmounts, closes the document, stops the editor's
 | `name` | the URL's file name, else `document.pdf` | The document's name (status line, and the name `onSave` receives). A `File` keeps its own unless you give one. |
 | `engine` | none | An engine you started with `createEngine()` from `@vitela/core`. It keeps running after the editor unmounts (the editor only closes its document). Passing a different engine closes the open document in the old one, drops its unsaved edits, and reopens the latest `source`/`open()` in the new one once it is ready. |
 | `engineOptions` | `{}` | Options for the engine the editor starts itself when given no `engine` (see `createEngine` in `@vitela/core`: `assetBaseUrl`, `workerUrl`, `loadTimeoutMs`). Read once, at mount. That engine is terminated when the editor unmounts. |
-| `onSave` | none | `(bytes, name) => void \| Promise<void>`: receives every save. A rejection fails the save and the editor says so; once it resolves the editor counts the edits as saved. Without it, a save writes over the opened file when the browser allows it (Chromium's file handles), else downloads. |
+| `onSave` | none | `(bytes, name, type) => void \| Promise<void>`: receives every file the editor writes — every save, and the other files below — with its media type. A rejection fails that write and the editor says so; once a save resolves the editor counts the edits as saved. Without it, a save writes over the opened file when the browser allows it (Chromium's file handles), else downloads, and every other file downloads. |
 | `filePicker` | `true` | Whether the editor offers its "Open PDF" button. Dropping a PDF on the editor still opens it. |
 | `initialScreen` | `'view'` | The screen every document opens in: `'view'` or `'organize'`. |
 | `eventScope` | `'editor'` | Which page events the editor takes; see [Keys and drops](#keys-and-drops). `'window'` is for a page that is all editor. |
@@ -83,6 +87,19 @@ viewer.destroy();           // unmounts, closes the document, stops the editor's
 `open` and `save` return nothing: the editor shows how the open or the save
 went in its own status line, and saved bytes arrive in `onSave`. Calls on a
 `mountViewer` handle after `destroy()` do nothing.
+
+What reaches `onSave`, told apart by name and `type`:
+
+| From | `name` | `type` | Counts the edits as saved |
+|---|---|---|---|
+| Save, Save anyway, Save a copy | the document's name | `application/pdf` | yes |
+| Compress | `<name>-compressed.pdf` | `application/pdf` | no |
+| Export images | one call per page, named by the engine: `<name>-<page>.png` or `.jpg`, the page number zero-padded to the page count (`report-03.jpg`) | `image/png` or `image/jpeg` | no |
+
+An image export calls `onSave` once per page, in page order, waiting for each
+call to settle; a rejection stops the export there and the editor says how
+many pages went out. The images show the document as a save would write it
+now, unsaved edits included.
 
 ## Bundler (Vite)
 
@@ -157,9 +174,9 @@ editor's container.
   was not tested.
 - Telling saves apart in `onSave`: when saving would break a signature, the
   editor asks, and both "Save anyway" and "Save a copy" hand the bytes to
-  `onSave` under the document's name. A smaller copy from **Compress** also
-  arrives in `onSave`, named `<name>-compressed.pdf`; it does not count the
-  edits as saved (the open document is not the copy).
+  `onSave` under the document's name. The other files (a compressed copy,
+  page images) are told apart by their name and `type` (see the table
+  under Options).
 - Editing a page's existing text (it comes with the engine's content editing).
 
 ## Lower-level exports

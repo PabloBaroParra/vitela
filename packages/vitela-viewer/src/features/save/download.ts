@@ -2,9 +2,12 @@
 // WebKit, or a file that arrived without one). The bytes never leave the
 // machine — a Blob URL is local to the page.
 
-/** Hands `bytes` to the browser as a file called `name`. */
-export function downloadBytes(bytes: Uint8Array, name: string): void {
-  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }));
+/** The media type of every file the editor writes, except an exported page image. */
+export const PDF_TYPE = 'application/pdf';
+
+/** Hands `bytes` to the browser as a file called `name`, of media type `type` (a PDF unless told). */
+export function downloadBytes(bytes: Uint8Array, name: string, type = PDF_TYPE): void {
+  const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
   const link = document.createElement('a');
   link.href = url;
   link.download = name;

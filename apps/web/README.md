@@ -396,8 +396,8 @@ nothing is written. The status reports sizes as "uncompressed → compressed"
 percentage truncated, and appends any refusal the core reports. The open
 document, its unsaved edits and its undo history are untouched. No predicted
 saving is shown: the core cannot answer that without running. On a phone
-(≤ 600 px) the button shows only its icon and the bar's controls tighten, so
-the bar stays one row: a taller bar takes its height from the pages and the
+(≤ 600 px) the button folds into the bar's **More tools** menu (with Export
+images, T-252) and the bar's controls tighten, so the bar stays one row: a taller bar takes its height from the pages and the
 Comments panel under them, whose first row then hides under its sticky head.
 
 E2E (`e2e/compress.spec.ts`, all three browsers): a scan from
@@ -407,6 +407,55 @@ undoable; an encrypted PDF is refused in the dialog with nothing downloaded;
 a signed PDF asks, and "Compress anyway" downloads the copy. "Nothing to gain"
 is covered by Vitest only: no fixture found reaches it through a real save (the
 save itself writes loosely enough that the repack always wins something).
+
+## Export images
+
+`features/exportImages/` (T-252), the native Export images' order: choices, a
+plan, then one file per page. **Export images**, next to Compress in both
+screens, opens a dialog with the native shells' three questions: pages (All
+pages, Current page — the page the viewer last showed — or a typed range such
+as `1-3,7`; typing one picks it), PNG or JPEG, and a resolution from 72 to 400
+DPI (150 by default; a cleared box reads as 150). The ceiling is the natives'
+too: the core refuses any raster over 32 Mpx and US Letter at 600 DPI is over
+it. There is no JPEG quality setting: the core's encoder has none, nor do the
+other shells. A document that withholds extraction says so as the dialog opens
+and offers only Cancel.
+
+Export first waits for the queued edits (like Save), then checks everything
+while the dialog is still open (`planExport.ts`): the resolution, the
+permission, the range by the core's grammar (`parsePageSelection`, its
+sentence shown as is), the raster ceiling (`firstPageTooLargeToExport`) and the
+names (`pageImageFileNames`: `report.pdf` page 3 of 12 is `report-03.jpg`). A
+refusal keeps the dialog open on what was typed. Then `openImageExport` takes
+one snapshot of what a save would write now — so unsaved page edits,
+annotations and fills are in the images, as on Android and Windows, while the
+on-screen preview leaves annotations out — and each page is rendered, encoded
+by the core (`exportPageImage`) and delivered at once as its own file
+(`Placement` `newFile` with the image's media type: a download, or the host's
+`onSave`). The export stops at the first page that fails and says how many
+were written; the snapshot is closed however it ends. Nothing about the open
+document changes.
+
+**Several pages are several downloads, not a zip.** No zip writer is in the
+dependency tree (neither npm nor Cargo), and adding one would be the only
+reason for it; the native shells write one file per page into a folder, and
+one download per page is the browser's nearest equivalent. A browser can ask
+once whether the site may download multiple files; that prompt is not covered
+(Playwright accepts every download).
+
+On a phone (≤ 600 px) both tools live in **More tools** (`ui/ToolsMenu.tsx`), a
+menu button in the WAI-ARIA pattern placed where the tools sit in the DOM, so
+the tab order is the order on screen (`e2e/phone-bar.spec.ts` checks the single
+row, that order, Tab, and the menu's keys). Tools that come later join it as
+one more entry.
+
+E2E (`e2e/export-images.spec.ts`, all three browsers): the current page (after
+scrolling to page 3) as PNG at 144 DPI is one download, `vector_only-3.png`,
+1224 × 1584; pages `2-3` as JPEG at 72 DPI are `vector_only-2.jpg` and
+`vector_only-3.jpg`, 612 × 792 each (read from the files' headers); a page
+turned in Organize and not saved exports landscape and stays unsaved and
+undoable; a range past the last page shows the core's sentence and 600 DPI the
+range refusal, with nothing downloaded.
 
 ## Organize
 

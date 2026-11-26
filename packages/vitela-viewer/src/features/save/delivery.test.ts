@@ -241,4 +241,18 @@ describe('browserDelivery.deliver: a new file', () => {
     expect(result).toEqual({ how: 'downloaded', name: 'a-compressed.pdf', fellBack: null });
     expect(named).toEqual(['a-compressed.pdf']);
   });
+
+  it('labels a file of another kind with its media type', async () => {
+    const types: string[] = [];
+    vi.stubGlobal('URL', { createObjectURL: (blob: Blob) => (types.push(blob.type), 'blob:vitela/4'), revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const result = await browserDelivery.deliver({
+      bytes: new Uint8Array([0xff, 0xd8]),
+      name: 'a-1.jpg',
+      type: 'image/jpeg',
+      destination: { kind: 'newFile' },
+    });
+    expect(result).toEqual({ how: 'downloaded', name: 'a-1.jpg', fellBack: null });
+    expect(types).toEqual(['image/jpeg']);
+  });
 });

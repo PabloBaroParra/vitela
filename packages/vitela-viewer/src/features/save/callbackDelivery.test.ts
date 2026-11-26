@@ -26,6 +26,17 @@ describe('callbackDelivery', () => {
     expect(calls).toEqual([[bytes, 'a.pdf']]);
   });
 
+  it('tells the callback what kind of file it is: a PDF unless the request says otherwise', async () => {
+    const calls: [string, string][] = [];
+    const delivery = callbackDelivery((_saved, name, type) => void calls.push([name, type]));
+    await delivery.deliver({ bytes, name: 'a.pdf', destination: { kind: 'copy' } });
+    await delivery.deliver({ bytes, name: 'a-1.png', type: 'image/png', destination: { kind: 'newFile' } });
+    expect(calls).toEqual([
+      ['a.pdf', 'application/pdf'],
+      ['a-1.png', 'image/png'],
+    ]);
+  });
+
   it('waits for an asynchronous callback, and a rejection fails the save', async () => {
     let finish!: () => void;
     const delivery = callbackDelivery(() => new Promise<void>((resolve) => (finish = resolve)));

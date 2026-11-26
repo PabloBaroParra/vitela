@@ -44,9 +44,49 @@
   margin: 8px 0;
 }
 
-/* Compress shows its word; on phones, only this icon (see below). */
-.compress-button__icon {
+/* The document tools as one menu button: only on phones (see below). */
+.workspace__more {
   display: none;
+  position: relative;
+}
+
+.tools-menu__button {
+  display: flex;
+  align-items: center;
+}
+
+.tools-menu__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 11em;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+}
+
+.tools-menu__item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tools-menu__item:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+
+.tools-menu__item[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: default;
 }
 
 .viewer {
@@ -333,8 +373,10 @@
 /* Phones: the document bar and the toolbars stay compact so the page gets
    the screen. The bar keeps ONE row: every pixel of height it takes comes off
    the pages and the Comments panel under them (at 390 x 600 the panel's first
-   row must still clear its sticky head). So the controls tighten (Compress
-   shows only its icon) and the file name gives way first. */
+   row must still clear its sticky head). So the controls tighten, the
+   document tools (Compress, Export images, ...) fold into one "More tools"
+   menu button, and the file name gives way first. The menu sits where the
+   tools sit in the DOM, so the tab order stays the order on screen. */
 @media (max-width: 600px) {
   .workspace__bar {
     flex-wrap: nowrap;
@@ -365,22 +407,19 @@
     padding-inline: 8px;
   }
 
-  .workspace__bar .compress-button {
-    padding-inline: 6px;
+  /* Hidden, not just moved: out of the tab order and the accessibility tree too. */
+  .workspace__bar .compress-button,
+  .workspace__bar .export-images-button {
+    display: none;
   }
 
-  .compress-button__icon {
+  .workspace__bar .workspace__more {
     display: block;
+    flex: none;
   }
 
-  /* Out of sight, still the button's name. */
-  .compress-button__label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
+  .workspace__bar .tools-menu__button {
+    padding-inline: 6px;
   }
 
   .viewer__toolbars {

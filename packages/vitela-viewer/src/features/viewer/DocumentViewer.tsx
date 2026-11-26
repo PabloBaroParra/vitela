@@ -46,6 +46,7 @@ import { useUndoKeys } from './useUndoKeys';
 import { useViewerZoom } from './useViewerZoom';
 import { MAX_ZOOM, MIN_ZOOM, zoomIn, zoomOut } from './zoom';
 import { ZoomControls } from './ZoomControls';
+import { ReportCurrentPageContext } from './CurrentPageContext';
 
 /** How long a zoom must hold still before pages re-render at its DPI. */
 const RENDER_SETTLE_MS = 150;
@@ -187,6 +188,8 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   // One viewport of overscan on each side keeps short scrolls painted.
   const range = visiblePages(layout, top, metrics.height, metrics.height);
   const current = (pageAt(layout, top + metrics.height / 2) ?? 0) + 1;
+  const reportCurrentPage = useContext(ReportCurrentPageContext);
+  useEffect(() => reportCurrentPage(current - 1), [reportCurrentPage, current]);
 
   const hits = hitsOf(search.state);
   const pageHits = useMemo(() => hitsByPage(hits), [hits]);

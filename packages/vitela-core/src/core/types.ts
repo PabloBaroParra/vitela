@@ -405,6 +405,12 @@ export interface CompressedDocument {
   readonly refusals: readonly CompressRefusal[];
 }
 
+/** The encoding of an exported page image (the core's `ExportFormat`). JPEG has no alpha: the page is flattened onto white. */
+export type ImageExportFormat = 'png' | 'jpeg';
+
+/** An image export opened by `openImageExport`: a snapshot of the document to draw pages from. */
+export type ImageExportHandle = number;
+
 /** What the UI may ask the engine to do. */
 export interface Engine {
   /**
@@ -527,4 +533,54 @@ export interface Engine {
     preset: CompressPreset,
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument>;
+  /** Every format an image export may write (`png`, `jpeg`): the core's own list. */
+  imageExportFormats(): Promise<ImageExportFormat[]>;
+  /**
+   * Reads a one-based page selection (`"1-3,7"`) into ascending,
+   * deduplicated zero-based positions — the core's grammar, the one every
+   * shell asks. Rejects with `InvalidPageSelection`, whose message is the
+   * core's sentence for the person who typed it.
+   */
+  parsePageSelection(input: string, totalPages: number): Promise<number[]>;
+  /**
+   * The file each of `pages` (zero-based) is exported under, named after the
+   * document by the core: `report.pdf` page 3 of 12 as JPEG is
+   * `report-03.jpg`. Always one path component.
+   */
+  pageImageFileNames(
+    documentName: string,
+    pages: readonly number[],
+    totalPages: number,
+    format: ImageExportFormat,
+  ): Promise<string[]>;
+  /**
+   * The first of `pages` (zero-based, the document's current order) whose
+   * whole page at `dpi` is over the raster ceiling every render enforces,
+   * or `null` when all fit. Ask before an export starts, so the page is
+   * named up front.
+   */
+  firstPageTooLargeToExport(document: DocumentHandle, pages: readonly number[], dpi: number): Promise<number | null>;
+  /**
+   * Starts an image export: a snapshot of what a save would write now (every
+   * pending edit, annotation and fill in it; a signature is not asked about,
+   * since nothing is written), which every page of the export is drawn from.
+   * Records no edit. Rejects with `UnsupportedOperation` when the document
+   * withholds extracting its pages. End it with `closeImageExport`.
+   */
+  openImageExport(document: DocumentHandle): Promise<ImageExportHandle>;
+  /**
+   * One page of an export, rendered at `dpi` and encoded as `format` by the
+   * core: the bytes of the image file (transferred, not copied). Rejects
+   * with `DocumentNotFound` for an export that is not open,
+   * `PageIndexOutOfBounds`, and `RenderFailed` for a page over the raster
+   * ceiling.
+   */
+  exportPageImage(
+    exportHandle: ImageExportHandle,
+    pageIndex: number,
+    dpi: number,
+    format: ImageExportFormat,
+  ): Promise<Uint8Array>;
+  /** Ends an export, freeing its snapshot. `false` if it was not open. */
+  closeImageExport(exportHandle: ImageExportHandle): Promise<boolean>;
 }

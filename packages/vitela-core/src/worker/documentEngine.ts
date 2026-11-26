@@ -19,7 +19,9 @@
 // and its undo and redo, refresh inside the request like a page edit.
 //
 // A compressed save is not a step at all: it records nothing and refreshes
-// nothing, like an ordinary save.
+// nothing, like an ordinary save. Neither is an image export: it draws from
+// its own snapshot of what a save would write, which the core keeps apart
+// from the document, so the preview and the history are left alone.
 
 import type {
   Annotation,
@@ -28,6 +30,7 @@ import type {
   DocumentBlock,
   DocumentHandle,
   DocumentInfo,
+  ImageExportFormat,
   Edit,
   EditedDocument,
   Engine,
@@ -60,6 +63,7 @@ import {
   type CoreCompressRefusal,
 } from './compress.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
+import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
@@ -70,7 +74,7 @@ export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
 }
 
 /** core/pdf-wasm's free functions: placement, and the geometry asked before an annotation exists. */
-export interface CoreFunctions extends CoreGeometry {
+export interface CoreFunctions extends CoreGeometry, CoreExportFunctions {
   freeTextLayout(contents: string, widthPt: number, heightPt: number): CoreFreeTextLines;
   /** `x, y, width, height` in PDF space. */
   stampPlacement(image: Uint8Array, anchorX: number, anchorY: number): Float64Array;
@@ -94,6 +98,12 @@ export interface CoreEngine extends CoreText {
   compressionRefusal(doc: number): CoreCompressRefusal | null | undefined;
   compressionInvalidatesSignatures(doc: number): boolean;
   saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
+  /** `undefined` (wasm-bindgen's `None`) when every page fits. */
+  firstPageTooLargeToExport(doc: number, pages: Uint32Array, dpi: number): number | null | undefined;
+  /** The id of the export's snapshot (its own namespace, not a document id). */
+  openImageExport(doc: number): number;
+  exportPageImage(exportId: number, pageIndex: number, dpi: number, format: string): Uint8Array;
+  closeImageExport(exportId: number): boolean;
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;
   undo(doc: number): boolean;
@@ -275,6 +285,31 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     async saveCompressedToBytes(document: DocumentHandle, preset: CompressPreset, invalidateSignatures: boolean) {
       assertOpen(document);
       return compressedDocument(core.saveCompressedToBytes(document, preset, invalidateSignatures));
+    },
+    async imageExportFormats() {
+      return imageExportFormats(functions.imageExportFormats());
+    },
+    async parsePageSelection(input: string, totalPages: number) {
+      return Array.from(functions.parsePageSelection(input, totalPages));
+    },
+    async pageImageFileNames(documentName: string, pages: readonly number[], totalPages: number, format: ImageExportFormat) {
+      return pages.map((page) => functions.pageImageFileName(documentName, page, totalPages, format));
+    },
+    async firstPageTooLargeToExport(document: DocumentHandle, pages: readonly number[], dpi: number) {
+      assertOpen(document);
+      return core.firstPageTooLargeToExport(document, Uint32Array.from(pages), dpi) ?? null;
+    },
+    async openImageExport(document: DocumentHandle) {
+      assertOpen(document);
+      return core.openImageExport(document);
+    },
+    // An export outlives nothing on this side: the core refuses an id it does
+    // not have (`DocumentNotFound`), whatever document it came from.
+    async exportPageImage(exportHandle: number, pageIndex: number, dpi: number, format: ImageExportFormat) {
+      return core.exportPageImage(exportHandle, pageIndex, dpi, format);
+    },
+    async closeImageExport(exportHandle: number) {
+      return core.closeImageExport(exportHandle);
     },
     async applyEdit(document: DocumentHandle, edit: Edit) {
       return step(

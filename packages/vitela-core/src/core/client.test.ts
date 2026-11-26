@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EngineClient } from './client.js';
 import { EngineError } from './errors.js';
-import type { MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol.js';
+import type { EngineResults, MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol.js';
 
 /** A port whose sent messages are recorded and whose replies the test drives. */
 function fakePort() {
@@ -215,6 +215,33 @@ describe('EngineClient', () => {
     await expect(refusal).resolves.toBeNull();
     await expect(signed).resolves.toBe(true);
     await expect(compressed).resolves.toBe(document);
+  });
+
+  it('sends the image-export requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const requests = [
+      client.imageExportFormats(),
+      client.parsePageSelection('1-2', 3),
+      client.pageImageFileNames('r.pdf', [0, 1], 3, 'png'),
+      client.firstPageTooLargeToExport(4, [0, 1], 150),
+      client.openImageExport(4),
+      client.exportPageImage(7, 1, 150, 'jpeg'),
+      client.closeImageExport(7),
+    ];
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'imageExportFormats' },
+      { kind: 'parsePageSelection', input: '1-2', totalPages: 3 },
+      { kind: 'pageImageFileNames', documentName: 'r.pdf', pages: [0, 1], totalPages: 3, format: 'png' },
+      { kind: 'firstPageTooLargeToExport', document: 4, pages: [0, 1], dpi: 150 },
+      { kind: 'openImageExport', document: 4 },
+      { kind: 'exportPageImage', export: 7, pageIndex: 1, dpi: 150, format: 'jpeg' },
+      { kind: 'closeImageExport', export: 7 },
+    ]);
+    const image = new Uint8Array([0xff, 0xd8]);
+    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, 7, image, true];
+    sent.forEach(({ message }, i) => reply({ type: 'result', id: message.id, value: values[i] }));
+    for (const [i, request] of requests.entries()) await expect(request).resolves.toEqual(values[i]);
   });
 
   it('rejects a save that would break a signature with that name', async () => {
