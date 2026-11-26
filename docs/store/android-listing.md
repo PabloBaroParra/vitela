@@ -5,8 +5,11 @@ are uploaded by
 [`android-release.yml`](../../.github/workflows/android-release.yml) from a
 release tag, and only replace the bundle. Edit the listing in Play Console.
 
-The UI is English only, so the default language is **English (United
-States) – en-US**, and that is the only listing.
+The UI is in English and Spanish. The default language is **English (United
+States) – en-US**; add a translation for **Spanish (Spain) – es-ES** with the
+texts in [Spanish store listing](#spanish-store-listing-spanish-spain) below.
+Release notes (`whatsnew`) are uploaded in en-US only, so Play shows them in
+English to Spanish users too.
 
 ## Testing first
 
@@ -103,8 +106,10 @@ Annotate and edit
 • Highlight, underline and strike out text
 • Draw freehand and add shapes
 • Move, resize and delete annotations, and step through them
-• Retype and move text, and insert new text
+• Retype and move text, whole paragraphs included, and insert new text
+• Make text bold, italic or underlined
 • Insert, move, resize, replace and delete images
+• Add a text or picture watermark
 • Edit document metadata: title, author, subject and keywords
 
 Forms
@@ -122,8 +127,74 @@ Protect, sign and share
 • Sign with a certificate from a .pfx file
 • Export pages as images
 • Compress a PDF to make it smaller
+• Share the open PDF, unsaved edits included, with any other app
+
+Available in English and Spanish.
 
 Vitela is open source and built on a shared Rust core with a native Jetpack Compose interface. It is also available for Windows and Linux.
+```
+
+## Spanish store listing (Spanish, Spain)
+
+Play Console → Main store listing → **Manage translations** → add
+**Spanish (Spain) – es-ES**, then paste these texts. The graphics can stay
+shared with the English listing.
+
+### App name (max 30)
+
+```
+Vitela
+```
+
+### Short description (max 80)
+
+```
+Editor de PDF privado y sin conexión. Edita, rellena, firma y comprime PDF.
+```
+
+### Full description (max 4000)
+
+```
+Vitela es un editor de PDF rápido y privado que funciona por completo en tu teléfono. Sin cuenta, sin subir nada a la nube, sin anuncios y sin rastreo: la aplicación no tiene permiso de acceso a internet, así que tus documentos nunca salen de tu dispositivo.
+
+BETA: esta es una versión temprana. Puede tener fallos; si algo no funciona, avísanos en el gestor de incidencias del proyecto.
+
+Leer
+• Abre PDF desde tus archivos, con «Abrir con», desde el menú de compartir o arrastrándolos desde otra aplicación
+• PDF protegidos con contraseña
+• Zoom con dos dedos, búsqueda y selección de texto
+• Imprime con el diálogo de impresión del sistema
+
+Anotar y editar
+• Resalta, subraya y tacha texto
+• Dibuja a mano alzada y añade formas
+• Mueve, cambia de tamaño y elimina anotaciones, y recórrelas una a una
+• Reescribe y mueve texto, también párrafos completos, e inserta texto nuevo
+• Pon el texto en negrita, cursiva o subrayado
+• Inserta, mueve, cambia de tamaño, sustituye y elimina imágenes
+• Añade una marca de agua de texto o de imagen
+• Edita los metadatos del documento: título, autor, asunto y palabras clave
+
+Formularios
+• Rellena los campos de formulario existentes
+• Añade campos de formulario nuevos a un documento
+
+Organizar
+• Reordena, gira y elimina páginas
+• Combina varios PDF en uno
+• Divide un documento en varios archivos
+
+Proteger, firmar y compartir
+• Cifra un PDF con contraseña
+• Dibuja tu firma con el dedo y, si quieres, recuérdala solo en este teléfono
+• Firma con un certificado de un archivo .pfx
+• Exporta páginas como imágenes
+• Comprime un PDF para que ocupe menos
+• Comparte el PDF abierto, con los cambios sin guardar, con cualquier otra aplicación
+
+Disponible en español e inglés.
+
+Vitela es de código abierto y está construido sobre un núcleo común en Rust con una interfaz nativa en Jetpack Compose. También está disponible para Windows y Linux.
 ```
 
 ### Graphics
