@@ -1,9 +1,11 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { EngineError } from '@vitela/core';
-import type { DocumentInfo, EditedDocument, PageEdit } from '@vitela/core';
+import type { DocumentInfo, EditedDocument, ImportedDocument, PageEdit } from '@vitela/core';
+import type { ReactNode } from 'react';
 import { fakeEngine } from '../../test/fakeEngine';
 import type { OpenDocument } from '../document/useDocument';
+import { SaveWaitsForEditsContext } from '../save/MarkDirtyContext';
 import { useOrganize } from './useOrganize';
 
 function info(pageCount: number, documentAssemblyAllowed = true): DocumentInfo {
@@ -139,6 +141,38 @@ describe('useOrganize', () => {
     });
     expect(steps).toEqual(['edit', 'import at 2']);
     expect(result.current.pending).toBe(false);
+  });
+
+  it('makes a save wait for an import queued behind the edit in flight, not only for that edit', async () => {
+    const edit = deferred<EditedDocument>();
+    const importDone = deferred<ImportedDocument>();
+    const engine = fakeEngine({ applyEdit: () => edit.promise, importPrepared: () => importDone.promise });
+    let settled: (() => Promise<unknown>) | null = null;
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <SaveWaitsForEditsContext.Provider value={(waitFor) => ((settled = waitFor), () => (settled = null))}>
+        {children}
+      </SaveWaitsForEditsContext.Provider>
+    );
+    const { result } = renderHook(() => useOrganize(engine, doc(), () => {}), { wrapper });
+
+    act(() => {
+      void result.current.apply({ kind: 'remove', from: 0, count: 1 });
+      void result.current.importPrepared([7]);
+    });
+    // A save asked for now, while the edit runs and the import waits its turn.
+    let saveMayRun = false;
+    const waiting = settled!().then(() => (saveMayRun = true));
+    await act(async () => {
+      edit.resolve({ info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] });
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(saveMayRun).toBe(false);
+    await act(async () => {
+      importDone.resolve({ info: info(3), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [], sourceIds: [1] });
+      await waiting;
+    });
+    expect(saveMayRun).toBe(true);
   });
 
   it('keeps the failure of the edit an import waited for on show', async () => {

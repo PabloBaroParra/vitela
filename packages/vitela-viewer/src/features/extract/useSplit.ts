@@ -5,14 +5,15 @@
 // (`planSplit`: "2,4" of five pages is report-part1..3.pdf on every shell),
 // and what it refuses is shown with the dialog still open.
 //
-// The parts are cut from the session as it is now, after the queued edits.
-// Every part is asked of the engine at once, right after the plan, so they
-// all come from the same state of the document even if an edit is made
-// while they go out (the worker answers requests in order). Each part goes
-// out as its own download the moment it is ready, like the pages of an
-// image export: the split stops at the first part that fails, when the user
-// cancels (after the part in hand), or when the editor goes away, and what
-// was written is counted. The native shells ask for a folder and one
+// The parts are cut from the session as it is, after the queued edits. The
+// engine is asked for at most one part ahead of the one being written, like
+// the pages of an image export: a cancel stops the work as well as the
+// downloads, and no more than two parts' bytes are held at once. So an edit
+// made while the split runs reaches the parts asked for after it lands (the
+// worker answers requests in order). Each part goes out as its own download
+// the moment it is ready: the split stops at the first part that fails, when
+// the user cancels (after the part in hand), or when the editor goes away,
+// and what was written is counted. The native shells ask for a folder and one
 // overwrite prompt; a browser download overwrites nothing, so there is no
 // prompt. Nothing about the open document changes. Container logic only, no
 // markup.
@@ -125,8 +126,10 @@ export function useSplit(
 
   /** Delivers the parts as they are made; the plan has already been checked. */
   const run = useCallback(
-    async (parts: readonly SplitPart[], made: readonly Promise<Uint8Array>[], signed: boolean, current: () => boolean) => {
+    async (parts: readonly SplitPart[], make: (part: SplitPart) => Promise<Uint8Array>, signed: boolean, current: () => boolean) => {
       let written = 0;
+      /** The part in hand, already asked for; the next one is asked for while it is written. */
+      let making: Promise<Uint8Array> | null = parts[0] ? make(parts[0]) : null;
       for (const [i, part] of parts.entries()) {
         if (!current()) return;
         if (stopRequested.current) {
@@ -136,12 +139,14 @@ export function useSplit(
         setActivity({ kind: 'splitting', index: i + 1, total: parts.length });
         let bytes: Uint8Array;
         try {
-          bytes = await made[i]!;
+          bytes = await making!;
         } catch (error) {
           if (current()) setActivity({ kind: 'failed', message: splitPartFailed(part.fileName, errorMessage(error), written) });
           return;
         }
         if (!current()) return;
+        const following = parts[i + 1];
+        making = following && !stopRequested.current ? make(following) : null;
         try {
           await delivery.deliver({ bytes, name: part.fileName, destination: { kind: 'newFile' } });
         } catch {
@@ -181,12 +186,14 @@ export function useSplit(
         return;
       }
       if (!current()) return;
-      // Every part is asked for now, in one go: see the header.
-      const made = parts.map((part) => engine.extractPages(document.handle, partPages(part)));
-      // A part the split never reaches (cancelled, failed earlier) must not reject unheard.
-      for (const pending of made) pending.catch(() => undefined);
+      const make = (part: SplitPart) => {
+        const made = engine.extractPages(document.handle, partPages(part));
+        // A part the split never reaches (cancelled, failed earlier) must not reject unheard.
+        made.catch(() => undefined);
+        return made;
+      };
       try {
-        await run(parts, made, activity.signed, current);
+        await run(parts, make, activity.signed, current);
       } finally {
         if (current()) busy.current = false;
       }

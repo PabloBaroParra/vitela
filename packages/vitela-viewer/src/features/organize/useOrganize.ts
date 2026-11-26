@@ -33,9 +33,15 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
   const busy = useRef(false);
   /** Settles once the step in flight has ended, whatever its outcome. */
   const settled = useRef<Promise<unknown>>(Promise.resolve());
+  /** Steps waiting their turn behind the one in flight (`runInTurn`). */
+  const waiting = useRef(0);
   // Save and the tools that write a copy (Compress, Protect, Export, Extract,
-  // Split) wait for the step in flight, as they wait for the viewer's edits.
-  const settledNow = useCallback(() => settled.current, []);
+  // Split) wait for the step in flight, as they wait for the viewer's edits,
+  // and for the steps queued behind it (an import waiting its turn): each
+  // ended step may have handed over to the next.
+  const settledNow = useCallback(async () => {
+    while (busy.current || waiting.current > 0) await settled.current;
+  }, []);
   useSaveWaitsFor(settledNow);
   const { handle } = document;
   const allowed = document.info.documentAssemblyAllowed && !denied;
@@ -81,9 +87,14 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
   const runInTurn = useCallback(
     async <Edited extends EditedDocument>(step: () => Promise<Edited>): Promise<Edited | null> => {
       let waited = false;
-      while (busy.current) {
-        waited = true;
-        await settled.current;
+      waiting.current++;
+      try {
+        while (busy.current) {
+          waited = true;
+          await settled.current;
+        }
+      } finally {
+        waiting.current--;
       }
       return run(step, !waited);
     },

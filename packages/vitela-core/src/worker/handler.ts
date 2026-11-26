@@ -84,6 +84,11 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
           transfer: [compressed.bytes.buffer as ArrayBuffer],
         };
       }
+      // The properties are a few strings, the gate a sentence: copied.
+      case 'documentProperties':
+        return result(id, await engine.documentProperties(request.document));
+      case 'metadataRefusal':
+        return result(id, await engine.metadataRefusal(request.document));
       // The protect questions are a sentence and a yes/no: copied.
       case 'protectionRefusal':
         return result(id, await engine.protectionRefusal(request.document));

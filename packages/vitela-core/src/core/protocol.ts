@@ -10,6 +10,7 @@ import type {
   CompressPreset,
   CompressRefusal,
   DocumentHandle,
+  DocumentProperties,
   ImageExport,
   ImageExportFormat,
   ImageExportHandle,
@@ -83,6 +84,8 @@ export type EngineRequest =
       readonly preset: CompressPreset;
       readonly invalidateSignatures: boolean;
     }
+  | { readonly kind: 'documentProperties'; readonly document: DocumentHandle }
+  | { readonly kind: 'metadataRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionInvalidatesSignatures'; readonly document: DocumentHandle }
   | {
@@ -144,6 +147,8 @@ export interface EngineResults {
   compressionRefusal: CompressRefusal | null;
   compressionInvalidatesSignatures: boolean;
   saveCompressed: CompressedDocument;
+  documentProperties: DocumentProperties;
+  metadataRefusal: string | null;
   protectionRefusal: string | null;
   protectionInvalidatesSignatures: boolean;
   protect: Uint8Array;

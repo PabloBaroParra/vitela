@@ -238,6 +238,23 @@ describe('EngineClient', () => {
     await expect(protectedBytes).resolves.toBe(bytes);
   });
 
+  it('sends the document-properties requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const read = client.documentProperties(4);
+    const refusal = client.metadataRefusal(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'documentProperties', document: 4 },
+      { kind: 'metadataRefusal', document: 4 },
+    ]);
+    const properties = { title: 'Report', author: null, subject: null, keywords: null, creator: null, producer: null };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: properties });
+    reply({ type: 'result', id: ids[1]!, value: 'no' });
+    await expect(read).resolves.toEqual(properties);
+    await expect(refusal).resolves.toBe('no');
+  });
+
   it('sends the extract and split requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

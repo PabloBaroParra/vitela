@@ -55,7 +55,7 @@ test('More tools works from the keyboard and gives the focus back after the dial
   const menu = page.getByRole('menu', { name: 'More tools' });
   await expect(menu).toBeVisible();
   await expect(more(page)).toHaveAttribute('aria-expanded', 'true');
-  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images', 'Protect']);
+  await expect(menu.getByRole('menuitem')).toHaveText(['Compress', 'Export images', 'Protect', 'Properties']);
   await expect(menu.getByRole('menuitem', { name: 'Compress' })).toBeFocused();
 
   await page.keyboard.press('ArrowDown');

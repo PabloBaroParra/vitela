@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DocumentInfo, RenderedPage } from '@vitela/core';
+import type { DocumentInfo, DocumentProperties, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { createRef } from 'react';
 import type { DeliverRequest, Delivery } from '../save/delivery';
@@ -237,6 +237,46 @@ describe('DocumentWorkspace', () => {
     expect(delivered).toEqual([{ bytes, name: 'two-protected.pdf', destination: { kind: 'newFile' } }]);
   });
 
+  it('edits the document properties from the bar as an undoable edit that Save writes', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const none: DocumentProperties = { title: null, author: null, subject: null, keywords: null, creator: null, producer: null };
+    let properties = none;
+    const edited = { info, annotations: [], addedAnnotationId: null, formFields: [] };
+    const describing = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      documentProperties: async () => properties,
+      metadataRefusal: async () => null,
+      applyEdit: async (_handle, edit) => {
+        if (edit.kind === 'setDocumentProperties') properties = edit.properties;
+        return { ...edited, canUndo: true, canRedo: false };
+      },
+      undo: async () => ((properties = none), { ...edited, canUndo: false, canRedo: true }),
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={describing} intro={(action) => action} />,
+    );
+    openPdf(getByLabelText);
+    fireEvent.click(await waitFor(() => getByRole('button', { name: 'Properties' })));
+    const dialog = await findByRole('dialog', { name: 'Document properties' });
+    fireEvent.change(getByLabelText('Title'), { target: { value: 'Annual report' } });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Document properties updated. Changes are pending save.')).toBeTruthy();
+    expect(await findByText('Unsaved changes.')).toBeTruthy();
+    expect(properties).toMatchObject({ title: 'Annual report' });
+
+    // The change is in the viewer's history: Undo takes it back.
+    const undo = getByRole('button', { name: 'Undo' }) as HTMLButtonElement;
+    await waitFor(() => expect(undo.disabled).toBe(false));
+    fireEvent.click(undo);
+    await waitFor(() => expect(properties).toBe(none));
+  });
+
   it("extracts Organize's selection and splits from Organize, each file delivered where saves go", async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');
@@ -345,7 +385,12 @@ describe('DocumentWorkspace', () => {
 
     fireEvent.click(more);
     const menu = getByRole('menu', { name: 'More tools' });
-    expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual(['Compress', 'Export images', 'Protect']);
+    expect([...menu.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)).toEqual([
+      'Compress',
+      'Export images',
+      'Protect',
+      'Properties',
+    ]);
     fireEvent.click(getByRole('menuitem', { name: 'Export images' }));
     expect(queryByRole('menu')).toBeNull();
     expect(await findByRole('dialog', { name: 'Export pages as images' })).toBeTruthy();

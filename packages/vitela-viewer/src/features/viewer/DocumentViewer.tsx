@@ -28,6 +28,7 @@ import type { OpenDocument } from '../document/useDocument';
 import { FormsPanel } from '../forms/FormsPanel';
 import { FormsToggle } from '../forms/FormsToggle';
 import { useForms } from '../forms/useForms';
+import { PropertiesToggle } from '../properties/PropertiesToggle';
 import { useMarkDirty, useSaveWaitsFor } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';
@@ -288,7 +289,9 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           onFitWidth={fitWidth}
           canZoomIn={zoom < MAX_ZOOM}
           canZoomOut={zoom > MIN_ZOOM}
-        />
+        >
+          <PropertiesToggle />
+        </ZoomControls>
         <TextToolbar
           allowed={textAllowed}
           search={search.state}

@@ -29,6 +29,7 @@ import type {
   PagePoint,
   PageRect,
   PreparedImport,
+  DocumentProperties,
   ProtectionPasswords,
   RenderedPage,
   SearchHit,
@@ -154,6 +155,14 @@ export class EngineClient implements Engine {
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument> {
     return this.send({ kind: 'saveCompressed', document, preset, invalidateSignatures });
+  }
+
+  documentProperties(document: DocumentHandle): Promise<DocumentProperties> {
+    return this.send({ kind: 'documentProperties', document });
+  }
+
+  metadataRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'metadataRefusal', document });
   }
 
   protectionRefusal(document: DocumentHandle): Promise<string | null> {

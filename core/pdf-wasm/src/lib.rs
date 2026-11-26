@@ -41,8 +41,8 @@ mod geometry;
 #[cfg(target_arch = "wasm32")]
 pub use dto::{
     AnnotationEntry, CommentEntry, CompressRefusalEntry, CompressedSave, DocumentBlock,
-    FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport, PageCharacters,
-    PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart, TextRun,
+    DocumentPropertiesEntry, FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport,
+    PageCharacters, PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart, TextRun,
 };
 #[cfg(target_arch = "wasm32")]
 pub use engine::{

@@ -52,6 +52,9 @@ export interface PdfOptions {
 /** `/P` granting everything but bit 5, copying or extracting text. */
 export const COPY_PROHIBITED = -4 & ~(1 << 4);
 
+/** `/P` granting everything but bit 4, modifying the document's contents. */
+export const MODIFY_PROHIBITED = -4 & ~(1 << 3);
+
 /** Size of the `lines` text, in points. */
 export const LINE_FONT_PT = 18;
 

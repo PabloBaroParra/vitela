@@ -221,8 +221,34 @@ export interface FormEdit {
   readonly value: FieldValue;
 }
 
+/**
+ * The text keys of the document's `/Info` (its properties, as the native
+ * shells' Document properties dialog shows them). `null` is an absent key.
+ */
+export interface DocumentProperties {
+  readonly title: string | null;
+  readonly author: string | null;
+  readonly subject: string | null;
+  readonly keywords: string | null;
+  readonly creator: string | null;
+  readonly producer: string | null;
+}
+
+/**
+ * Sets the document's properties as one undo step, written into `/Info` by
+ * the next save (no XMP is touched, as on the native shells). A `null` or
+ * empty key is removed; the creation and modification dates stay as they
+ * are. The values the document already has record nothing. Rejects with
+ * `EditNotPermitted` when the document withholds modification (see
+ * `metadataRefusal`).
+ */
+export interface MetadataEdit {
+  readonly kind: 'setDocumentProperties';
+  readonly properties: DocumentProperties;
+}
+
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -573,6 +599,18 @@ export interface Engine {
     preset: CompressPreset,
     invalidateSignatures: boolean,
   ): Promise<CompressedDocument>;
+  /**
+   * The document's properties as the next save would write them: the last
+   * pending change's, else the file's own. Answers however restricted the
+   * document is.
+   */
+  documentProperties(document: DocumentHandle): Promise<DocumentProperties>;
+  /**
+   * Why `document`'s properties cannot be changed, as the core's lower-case
+   * clause, or `null` when they can: its permissions withhold modification
+   * (the gate the native shells ask). Ask before offering to edit.
+   */
+  metadataRefusal(document: DocumentHandle): Promise<string | null>;
   /**
    * Why `document` cannot be protected, as the core's lower-case clause, or
    * `null` when it can (today only a document whose permissions withhold

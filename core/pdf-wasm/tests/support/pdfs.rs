@@ -142,6 +142,23 @@ pub const SCAN_200DPI: &[u8] =
 /// would stop its signature from verifying.
 pub const SIGNED: &[u8] = include_bytes!("../../../../tests/fixtures/signed/rsa2048_sha256.pdf");
 
+/// The `/CreationDate` [`described_document`] carries.
+pub const DESCRIBED_CREATED: &str = "D:20240102030405Z";
+
+/// A one-page [`text_document`] whose `/Info` has a title, an author, a
+/// creator and a creation date.
+pub fn described_document() -> Vec<u8> {
+    let mut doc = build(&["described"], 0);
+    let info = doc.add_object(dictionary! {
+        "Title" => Object::string_literal("Quarterly report"),
+        "Author" => Object::string_literal("Ana"),
+        "Creator" => Object::string_literal("Writer"),
+        "CreationDate" => Object::string_literal(DESCRIBED_CREATED),
+    });
+    doc.trailer.set("Info", info);
+    save(doc)
+}
+
 /// [`ACROFORM`] encrypted with AES-128 under [`USER_PASSWORD`] and
 /// [`OWNER_PASSWORD`], printable only: a user-password open may read its
 /// fields but not fill them in (no bit 6).

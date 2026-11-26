@@ -156,6 +156,28 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it("changes the document's properties through the real core: read back, undone, redone and saved", async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const before = await engine.documentProperties(handle);
+    expect(await engine.metadataRefusal(handle)).toBeNull();
+
+    const properties = { ...before, title: 'Quarterly report', author: 'Ana Peña', keywords: '' };
+    const edited = await engine.applyEdit(handle, { kind: 'setDocumentProperties', properties });
+    expect(edited.canUndo).toBe(true);
+    // The empty key is an absent one.
+    expect(await engine.documentProperties(handle)).toEqual({ ...properties, keywords: null });
+    await engine.undo(handle);
+    expect(await engine.documentProperties(handle)).toEqual(before);
+    await engine.redo(handle);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    expect(await engine.documentProperties(reopened.handle)).toMatchObject({ title: 'Quarterly report', author: 'Ana Peña', keywords: null });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+  });
+
   it('imports a PDF through the real core as one step, with its own block', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
