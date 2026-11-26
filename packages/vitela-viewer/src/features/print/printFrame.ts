@@ -18,14 +18,36 @@ export interface PrintJob {
   remove(): void;
 }
 
-/** Builds a print frame for `sheets` inside `host`, titled `title`. */
-export type PrintSurface = (host: HTMLElement, title: string, sheets: readonly PrintSheet[]) => Promise<PrintJob>;
+/**
+ * Builds a print frame for `sheets` inside `host`, titled `title`. `stopped`
+ * is Cancel print: once it says so, the frame stops getting its pages ready
+ * (the caller takes it away).
+ */
+export type PrintSurface = (
+  host: HTMLElement,
+  title: string,
+  sheets: readonly PrintSheet[],
+  stopped: () => boolean,
+) => Promise<PrintJob>;
 
 /** Hidden, but laid out (a `display: none` frame does not print in Firefox). */
 const FRAME_STYLE = 'position: absolute; width: 0; height: 0; border: 0; visibility: hidden;';
 const EMPTY = '<!doctype html><html><head><meta charset="utf-8"></head><body></body></html>';
 
-export const iframeSurface: PrintSurface = async (host, title, sheets) => {
+/**
+ * Decodes `images` one at a time, in page order, so a long document never
+ * has every page being decoded at once; a page that fails still prints its
+ * alt text. `false` when `stopped` said so before the last page.
+ */
+export async function decodeInOrder(images: readonly Pick<HTMLImageElement, 'decode'>[], stopped: () => boolean): Promise<boolean> {
+  for (const image of images) {
+    if (stopped()) return false;
+    await image.decode().catch(() => undefined);
+  }
+  return !stopped();
+}
+
+export const iframeSurface: PrintSurface = async (host, title, sheets, stopped) => {
   const frame = host.ownerDocument.createElement('iframe');
   frame.className = 'vitela-print-frame';
   frame.title = 'Print';
@@ -45,8 +67,8 @@ export const iframeSurface: PrintSurface = async (host, title, sheets) => {
     throw new Error('the print frame could not be opened');
   }
   const images = writePrintDocument(doc, title, sheets);
-  // Every page decoded before the dialog lays them out; one that fails still prints its alt text.
-  await Promise.all(images.map((image) => image.decode().catch(() => undefined)));
+  // Every page decoded before the dialog lays them out.
+  await decodeInOrder(images, stopped);
   return {
     print: () => view.print(),
     afterPrint: (listener) => view.addEventListener('afterprint', () => listener(), { once: true }),

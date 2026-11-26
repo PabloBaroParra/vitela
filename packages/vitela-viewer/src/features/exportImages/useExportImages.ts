@@ -12,15 +12,18 @@
 // same delivery as a compressed copy (a download, or the host's onSave). The
 // export stops at the first page that fails, when the user cancels it (after
 // the page in hand), or when the editor goes away; what was written is
-// counted, and the snapshot is closed however it ends. The formats offered
-// are the core's (`imageExportFormats`). Nothing about the open document
-// changes. Container logic only, no markup.
+// counted, and the snapshot is closed however it ends. The snapshot lifecycle
+// and the page loop are the shared snapshot job's (`features/snapshot`), as
+// for Print. The formats offered are the core's (`imageExportFormats`).
+// Nothing about the open document changes. Container logic only, no markup.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { errorMessage, type Engine, type ImageExportFormat } from '@vitela/core';
 import { sentence } from '../../ui/text';
 import type { OpenDocument } from '../document/useDocument';
 import type { Delivery } from '../save/delivery';
+import { PageNotDrawn, drawPages, withSnapshot, type JobGuard } from '../snapshot/snapshotJob';
+import { useSnapshotJob } from '../snapshot/useSnapshotJob';
 import {
   DEFAULT_DRAFT,
   EXPORT_FORBIDDEN,
@@ -76,34 +79,17 @@ export function useExportImages(
   const generation = document?.generation;
   const [activity, setActivity] = useState<ExportActivity>(IDLE);
   const [forGeneration, setForGeneration] = useState(generation);
-  /** The document on screen: an answer for an old document changes nothing. */
-  const shown = useRef(generation);
-  /** False once the editor is gone: a running export stops at its next step. */
-  const mounted = useRef(true);
-  /** Set by Cancel export: the running export stops after the page in hand. */
-  const stopRequested = useRef(false);
-  /** True from the click until the dialog closes or the export ends: one at a time. */
-  const busy = useRef(false);
+  /** Held from the click until the dialog closes or the export ends: one at a time. */
+  const job = useSnapshotJob(generation);
 
   // A new document starts clean (adjusting state while rendering).
   if (forGeneration !== generation) {
     setForGeneration(generation);
     setActivity(IDLE);
   }
-  useEffect(() => {
-    shown.current = generation;
-    busy.current = false;
-  }, [generation]);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const open = useCallback(async () => {
-    if (!document || busy.current) return;
-    busy.current = true;
+    if (!document || !job.claim()) return;
     const asking = document.generation;
     let formats: ImageExportFormat[] = [];
     let message: string | null = document.info.textExtractionAllowed ? null : EXPORT_FORBIDDEN;
@@ -114,7 +100,7 @@ export function useExportImages(
       // A failed question refuses rather than offering formats the core may not have.
       message ??= sentence(errorMessage(error));
     }
-    if (!mounted.current || shown.current !== asking) return;
+    if (!job.isCurrent(asking)) return;
     const format = formats.includes(DEFAULT_DRAFT.format) ? DEFAULT_DRAFT.format : (formats[0] ?? DEFAULT_DRAFT.format);
     setActivity({
       kind: 'choosing',
@@ -124,7 +110,7 @@ export function useExportImages(
       message,
       checking: false,
     });
-  }, [engine, document]);
+  }, [engine, document, job]);
 
   /** A changed choice clears the last refusal: it was about the old one. */
   const edit = useCallback((draft: ExportDraft) => {
@@ -134,45 +120,38 @@ export function useExportImages(
   const cancel = useCallback(() => {
     if (activity.kind !== 'choosing' || activity.checking) return;
     setActivity(IDLE);
-    busy.current = false;
-  }, [activity]);
-
-  /** Cancel export: the page in hand still goes out, then the export stops. */
-  const stop = useCallback(() => {
-    stopRequested.current = true;
-  }, []);
+    job.release();
+  }, [activity, job]);
 
   /** Writes the plan's files from the open export; the caller closes it. */
   const run = useCallback(
-    async (plan: ExportPlan, exportHandle: number, current: () => boolean) => {
+    async (plan: ExportPlan, exportHandle: number, guard: JobGuard) => {
       const { files, dpi, format } = plan;
       let written = 0;
-      for (const [i, { pageIndex, fileName }] of files.entries()) {
-        if (!current()) return;
-        if (stopRequested.current) {
-          setActivity({ kind: 'done', message: exportCancelled(written) });
-          return;
-        }
-        setActivity({ kind: 'exporting', page: pageIndex + 1, index: i + 1, total: files.length });
-        let bytes: Uint8Array;
-        try {
-          bytes = await engine.exportPageImage(exportHandle, pageIndex, dpi, format);
-        } catch (error) {
-          if (current()) setActivity({ kind: 'failed', message: pageFailed(pageIndex + 1, errorMessage(error), written) });
-          return;
-        }
-        if (!current()) return;
-        try {
-          await delivery.deliver({ bytes, name: fileName, type: imageMediaType(format), destination: { kind: 'newFile' } });
-        } catch {
-          if (current()) setActivity({ kind: 'failed', message: writeFailed(fileName, written) });
-          return;
-        }
-        written++;
+      try {
+        const end = await drawPages(engine, exportHandle, files.map(({ pageIndex }) => pageIndex), dpi, format, guard, {
+          starting: (pageIndex, i) => setActivity({ kind: 'exporting', page: pageIndex + 1, index: i + 1, total: files.length }),
+          drawn: async (bytes, _, i) => {
+            const { fileName } = files[i]!;
+            try {
+              await delivery.deliver({ bytes, name: fileName, type: imageMediaType(format), destination: { kind: 'newFile' } });
+            } catch {
+              throw new NotWritten(fileName);
+            }
+            written++;
+          },
+        });
+        if (end === 'stopped') setActivity({ kind: 'done', message: exportCancelled(written) });
+        // A cancel pressed during the last page came too late to save anything: it all went out.
+        if (end === 'finished' && guard.current()) setActivity({ kind: 'done', message: exportDone(written, format) });
+      } catch (error) {
+        if (!guard.current()) return;
+        if (error instanceof PageNotDrawn) {
+          setActivity({ kind: 'failed', message: pageFailed(error.pageIndex + 1, errorMessage(error.cause), written) });
+        } else if (error instanceof NotWritten) {
+          setActivity({ kind: 'failed', message: writeFailed(error.fileName, written) });
+        } else throw error;
       }
-      if (!current()) return;
-      // A cancel pressed during the last page came too late to save anything: it all went out.
-      setActivity({ kind: 'done', message: exportDone(written, format) });
     },
     [engine, delivery],
   );
@@ -185,43 +164,48 @@ export function useExportImages(
       setActivity({ ...activity, message: early });
       return;
     }
-    const running = document.generation;
-    const current = () => mounted.current && shown.current === running;
-    stopRequested.current = false;
+    const guard = job.guard(document.generation);
     setActivity({ ...activity, checking: true, message: null });
     /** A refusal keeps the dialog open: the export is still the user's to fix. */
     let keepDialog = false;
     try {
-      // The edits asked for before the click go in.
-      await settleEdits?.();
-      if (!current()) return;
-      const opened = await engine.openImageExport(document.handle);
-      try {
-        if (!current()) return;
-        const planned = await planImageExport(
-          engine,
-          { handle: document.handle, name: document.name, textExtractionAllowed: true, pageCount: opened.pageCount },
-          draft,
-          currentPage(),
-        );
-        if (!current()) return;
-        if (planned.kind === 'refused') {
-          keepDialog = true;
-          // Only the message changes: the dialog stays open on what was typed.
-          setActivity((a) => (a.kind === 'choosing' ? { ...a, checking: false, message: planned.message } : a));
-          return;
-        }
-        await run(planned.plan, opened.handle, current);
-      } finally {
-        // The snapshot is the engine's memory: freed however the export ended.
-        await engine.closeImageExport(opened.handle).catch(() => false);
-      }
+      // The edits asked for before the click go in; the snapshot is freed however the export ends.
+      await withSnapshot(
+        engine,
+        guard,
+        settleEdits,
+        () => engine.openImageExport(document.handle),
+        async ({ handle, pageCount }) => {
+          const planned = await planImageExport(
+            engine,
+            { handle: document.handle, name: document.name, textExtractionAllowed: true, pageCount },
+            draft,
+            currentPage(),
+          );
+          if (!guard.current()) return;
+          if (planned.kind === 'refused') {
+            keepDialog = true;
+            // Only the message changes: the dialog stays open on what was typed.
+            setActivity((a) => (a.kind === 'choosing' ? { ...a, checking: false, message: planned.message } : a));
+            return;
+          }
+          await run(planned.plan, handle, guard);
+        },
+      );
     } catch (error) {
-      if (current()) setActivity({ kind: 'failed', message: openFailed(errorMessage(error)) });
+      if (guard.current()) setActivity({ kind: 'failed', message: openFailed(errorMessage(error)) });
     } finally {
-      if (current() && !keepDialog) busy.current = false;
+      if (guard.current() && !keepDialog) job.release();
     }
-  }, [engine, document, settleEdits, currentPage, activity, run]);
+  }, [engine, document, settleEdits, currentPage, activity, run, job]);
 
-  return { activity, open, edit, cancel, stop, exportImages };
+  /** Cancel export: the page in hand still goes out, then the export stops. */
+  return { activity, open, edit, cancel, stop: job.stop, exportImages };
+}
+
+/** The page was drawn but its file could not be written. */
+class NotWritten extends Error {
+  constructor(readonly fileName: string) {
+    super(`${fileName} was not written`);
+  }
 }

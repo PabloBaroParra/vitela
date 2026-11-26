@@ -754,10 +754,14 @@ export interface Engine {
   /** Ends an export, freeing its snapshot. `false` if it was not open. */
   closeImageExport(exportHandle: ImageExportHandle): Promise<boolean>;
   /**
-   * Starts a print: the same snapshot as `openImageExport` (what a save would
-   * write now), drawn with `exportPageImage` and ended with
-   * `closeImageExport`, but asked no permission — no native shell asks one
-   * before printing, and the core has no rule for the print bit.
+   * Starts a print — **for printing only**, not a way to export: the same
+   * snapshot as `openImageExport` (what a save would write now), drawn with
+   * `exportPageImage` and ended with `closeImageExport`, but asked no
+   * permission — no native shell asks one before printing, and the core has
+   * no rule for the print bit. In exchange its pages are drawn at 150 DPI at
+   * most: a finer `exportPageImage` on it is refused with
+   * `UnsupportedOperation`, so a document that withholds extraction cannot
+   * be drawn at export quality through it.
    */
   openPrintSnapshot(document: DocumentHandle): Promise<ImageExport>;
   /**

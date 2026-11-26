@@ -3,10 +3,10 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { useRef } from 'react';
 import { EngineError, type Edit, type EditedDocument, type Engine, type WatermarkDefaults } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
+import { MAX_STAMP_BYTES } from '../annotations/stamps';
 import type { OpenDocument } from '../document/useDocument';
 import { WatermarkControls } from './WatermarkControls';
 import { useWatermark, watermarkBusy, type WatermarkHost } from './useWatermark';
-import { MAX_STAMP_BYTES } from '../annotations/stamps';
 
 const document: OpenDocument = {
   name: 'a.pdf',

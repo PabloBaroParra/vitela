@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRINT_DPI, pngSize, printStyles, sheetOf, writePrintDocument } from './printSheets';
+import { PRINT_DPI, PRINT_MIN_DPI, PRINT_PIXEL_BUDGET, pngSize, printDpi, printStyles, sheetOf, writePrintDocument } from './printSheets';
 
 /** The first 24 bytes of a PNG: signature, IHDR length and type, width, height. */
 function pngHeader(width: number, height: number): Uint8Array {
@@ -27,6 +27,40 @@ describe('sheetOf', () => {
     // US Letter at 150 DPI, upright and turned a quarter.
     expect(sheetOf('blob:a', { width: 1275, height: 1650 }, 150)).toEqual({ url: 'blob:a', widthPt: 612, heightPt: 792 });
     expect(sheetOf('blob:b', { width: 1650, height: 1275 }, 150)).toEqual({ url: 'blob:b', widthPt: 792, heightPt: 612 });
+  });
+});
+
+describe('printDpi', () => {
+  const letter = { widthPt: 612, heightPt: 792 };
+  const letters = (count: number) => Array.from({ length: count }, () => letter);
+  /** The pixels every page drawn at `dpi` adds up to. */
+  const pixels = (count: number, dpi: number) => count * ((612 / 72) * dpi) * ((792 / 72) * dpi);
+
+  it('prints a short document at the full print resolution', () => {
+    expect(PRINT_DPI).toBe(150);
+    expect(printDpi(letters(1), 1)).toBe(150);
+    expect(printDpi(letters(60), 60)).toBe(150);
+  });
+
+  it('lowers the resolution of a long document so every page together stays within the budget', () => {
+    expect(PRINT_PIXEL_BUDGET).toBe(128_000_000);
+    const dpi = printDpi(letters(100), 100);
+    expect(dpi).toBeLessThan(150);
+    expect(dpi).toBeGreaterThan(PRINT_MIN_DPI);
+    expect(pixels(100, dpi)).toBeLessThanOrEqual(PRINT_PIXEL_BUDGET);
+    expect(pixels(100, dpi + 1)).toBeGreaterThan(PRINT_PIXEL_BUDGET);
+  });
+
+  it('never goes below the floor, however long the document', () => {
+    expect(PRINT_MIN_DPI).toBe(96);
+    expect(printDpi(letters(2000), 2000)).toBe(96);
+  });
+
+  it('counts pages it has no size for as the average of the ones it has, or Letter', () => {
+    expect(printDpi(letters(2), 100)).toBe(printDpi(letters(100), 100));
+    expect(printDpi([], 100)).toBe(printDpi(letters(100), 100));
+    // A size list longer than the snapshot counts only the snapshot's pages.
+    expect(printDpi(letters(100), 1)).toBe(150);
   });
 });
 

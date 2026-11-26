@@ -13,11 +13,6 @@ export function printKey(event: KeyPress, apple: boolean): boolean {
   return apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
 }
 
-/** The `aria-keyshortcuts` of Print: the key `printKey` reads. */
-export function printShortcut(apple: boolean): string {
-  return apple ? 'Meta+P' : 'Control+P';
-}
-
 export const PRINT_STARTING = 'Preparing to print…';
 export const PRINT_CANCELLED = 'Print cancelled.';
 export const NO_PAGES = 'This document has no pages to print.';

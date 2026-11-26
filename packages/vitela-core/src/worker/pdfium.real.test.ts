@@ -561,6 +561,18 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect((await engine.undo(handle)).canUndo).toBe(false);
     await engine.close(handle);
   });
+
+  it('draws a print snapshot no finer than the print resolution, and an export finer', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const { handle: print } = await engine.openPrintSnapshot(handle);
+    expect(pngSize(await engine.exportPageImage(print, 0, 150, 'png'))).toEqual([1275, 1650]);
+    await expect(engine.exportPageImage(print, 0, 151, 'png')).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.closeImageExport(print)).toBe(true);
+    expect(pngSize(await exportFirstPage(engine, handle, 300, 'png'))).toEqual([2550, 3300]);
+    await engine.close(handle);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */

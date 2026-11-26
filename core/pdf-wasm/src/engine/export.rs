@@ -21,14 +21,16 @@ use crate::dto::OpenedImageExport;
 use crate::error::EngineError;
 use crate::model::{
     encode_page_image, format_from_name, page_image_file_name as file_name,
-    parse_page_selection as parse, EXPORT_FORMATS,
+    parse_page_selection as parse, SnapshotUse, EXPORT_FORMATS,
 };
 
-/// One export's snapshot: the pdfium handle it renders from and how many
-/// pages it has.
+/// One export's snapshot: the pdfium handle it renders from, how many pages
+/// it has, and what it was opened for (a print snapshot is drawn no finer
+/// than `PRINT_MAX_DPI`).
 pub(super) struct ImageExport {
     render: DocumentHandle,
     page_count: u32,
+    purpose: SnapshotUse,
 }
 
 /// The formats an export may write (`png`, `jpeg`): the core's own list.
@@ -88,23 +90,26 @@ impl Engine {
         self.open_export(doc).map_err(js_error)
     }
 
-    /// Starts a print (B26 T-257): the same snapshot as `openImageExport`,
-    /// pages drawn with `exportPageImage` and closed with
+    /// Starts a print (B26 T-257) — for printing only: the same snapshot as
+    /// `openImageExport`, pages drawn with `exportPageImage` and closed with
     /// `closeImageExport`, but asked no permission — no native shell asks
-    /// one before printing, and the core has no print-bit rule.
+    /// one before printing, and the core has no print-bit rule. In exchange,
+    /// its pages are drawn at `PRINT_MAX_DPI` (150) at most: a finer
+    /// `exportPageImage` is refused with `UnsupportedOperation`.
     #[wasm_bindgen(js_name = openPrintSnapshot)]
     pub fn open_print_snapshot(&mut self, doc: u32) -> Result<OpenedImageExport, JsValue> {
         let bytes = self
             .document(doc)
             .and_then(|open| open.model.print_snapshot_bytes())
             .map_err(js_error)?;
-        self.open_snapshot(doc, bytes).map_err(js_error)
+        self.open_snapshot(doc, bytes, SnapshotUse::Print)
+            .map_err(js_error)
     }
 
     /// One page of an export, rendered at `dpi` and encoded as `format`:
     /// the bytes of the file. Refused with `DocumentNotFound` for an export
     /// that is not open, `PageIndexOutOfBounds`, `UnsupportedOperation` for
-    /// an unknown format, and `RenderFailed` for a page over the raster
+    /// an unknown format or a DPI over a print snapshot's cap, and `RenderFailed` for a page over the raster
     /// ceiling (ask `firstPageTooLargeToExport` first).
     #[wasm_bindgen(js_name = exportPageImage)]
     pub fn export_page_image(
@@ -130,8 +135,8 @@ impl Engine {
 
 impl Engine {
     fn open_export(&mut self, doc: u32) -> Result<OpenedImageExport, EngineError> {
-        let bytes = self.document(doc)?.model.output_snapshot_bytes()?;
-        self.open_snapshot(doc, bytes)
+        let bytes = self.document(doc)?.model.export_snapshot_bytes()?;
+        self.open_snapshot(doc, bytes, SnapshotUse::Export)
     }
 
     /// Opens `bytes`, a snapshot of `doc`, as an export to draw pages from.
@@ -139,6 +144,7 @@ impl Engine {
         &mut self,
         doc: u32,
         bytes: Vec<u8>,
+        purpose: SnapshotUse,
     ) -> Result<OpenedImageExport, EngineError> {
         let open = self.document(doc)?;
         let page_count = open.model.page_count();
@@ -148,7 +154,14 @@ impl Engine {
             .open_document_from_bytes(bytes, password.as_deref())?;
         let id = self.next_export;
         self.next_export = self.next_export.wrapping_add(1);
-        self.exports.insert(id, ImageExport { render, page_count });
+        self.exports.insert(
+            id,
+            ImageExport {
+                render,
+                page_count,
+                purpose,
+            },
+        );
         Ok(OpenedImageExport::new(id, page_count))
     }
 
@@ -169,6 +182,7 @@ impl Engine {
         if page_index >= open.page_count {
             return Err(EngineError::page_out_of_bounds(page_index));
         }
+        open.purpose.check_dpi(dpi)?;
         let bitmap = self.renderer.render_page(
             open.render,
             page_index,
