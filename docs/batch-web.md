@@ -2225,9 +2225,16 @@ nueva en el core: `pdf_save` ya tenía las tres llamadas. Lo que condiciona lo q
   "the original").
 - **Teléfono (≤ 600 px):** con el botón nuevo los controles ya no cabían junto al nombre (a
   390 px el nombre quedaba en 0 px y fallaban 12 E2E de `comments` en los tres navegadores).
-  Ahora Compress muestra solo su icono (la palabra sigue siendo su nombre accesible) y las
-  líneas de estado (nombre, guardado, compresión) bajan a una segunda fila compartida; con una
-  fila por línea `comments` 390 × 600 seguía fallando.
+  Ahora Compress muestra solo su icono (la palabra sigue siendo su nombre accesible) y los
+  controles de la barra se aprietan (relleno lateral 8 px, hueco 6 px), así que la barra
+  **sigue en una fila** y el nombre vuelve a tener el sitio de antes. **No vale una segunda
+  fila para las líneas de estado** (se probó y entró en el PR #655): cada píxel de alto de la
+  barra sale de las páginas y del panel de Comments que va debajo (`max-height: 45 %`); a
+  390 × 600 la barra pasó de 42 a 64 px, el panel de 87 a 77 px y su primera fila quedó bajo
+  la cabecera fija (53 px), que se tragaba el clic: `comments.spec.ts:192` falló en CI en
+  los tres navegadores (en Windows pasaba por las fuentes). Con una fila la barra vuelve a
+  42 px y el panel a 87, lo mismo que antes de T-250. Ese margen (33 px bajo la cabecera para
+  una fila de 35) ya era justo antes de T-250 y no se toca aquí.
 - **Tests:** `pdf-wasm` 7 nativos nuevos (`model/compress.rs`) y 6 `wasm-bindgen-test`
   (`tests/compress.rs`); `@vitela/core` 16 Vitest nuevos, uno contra pdfium real (escaneo
   comprimido con un giro pendiente, reabierto girado, el giro aún se deshace, preset

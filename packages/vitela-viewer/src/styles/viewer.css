@@ -331,26 +331,18 @@
 }
 
 /* Phones: the document bar and the toolbars stay compact so the page gets
-   the screen. The controls keep one row (Compress shows only its icon); the
-   file name and what the last save or compression did go under them, one
-   ellipsized line each. */
+   the screen. The bar keeps ONE row: every pixel of height it takes comes off
+   the pages and the Comments panel under them (at 390 x 600 the panel's first
+   row must still clear its sticky head). So the controls tighten (Compress
+   shows only its icon) and the file name gives way first. */
 @media (max-width: 600px) {
   .workspace__bar {
-    flex-wrap: wrap;
-    gap: 0 8px;
-  }
-
-  /* The line break between the controls and the status lines. */
-  .workspace__bar::after {
-    content: '';
-    order: 1;
-    flex: 0 0 100%;
+    flex-wrap: nowrap;
+    gap: 6px;
   }
 
   .workspace__bar .status-line {
-    order: 2;
-    flex: 1 1 0;
-    margin: 2px 0;
+    flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     white-space: nowrap;
@@ -365,8 +357,16 @@
     white-space: nowrap;
   }
 
-  .workspace__bar .compress-button {
+  .workspace__bar .file-picker {
     padding-inline: 8px;
+  }
+
+  .workspace__bar button {
+    padding-inline: 8px;
+  }
+
+  .workspace__bar .compress-button {
+    padding-inline: 6px;
   }
 
   .compress-button__icon {

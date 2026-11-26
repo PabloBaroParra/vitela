@@ -396,8 +396,9 @@ nothing is written. The status reports sizes as "uncompressed → compressed"
 percentage truncated, and appends any refusal the core reports. The open
 document, its unsaved edits and its undo history are untouched. No predicted
 saving is shown: the core cannot answer that without running. On a phone
-(≤ 600 px) the button shows only its icon and the bar's status lines move to a
-second row under the controls, so the file name stays readable.
+(≤ 600 px) the button shows only its icon and the bar's controls tighten, so
+the bar stays one row: a taller bar takes its height from the pages and the
+Comments panel under them, whose first row then hides under its sticky head.
 
 E2E (`e2e/compress.spec.ts`, all three browsers): a scan from
 `tests/fixtures/compress` comes out smaller, downloads under its name and
