@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PageFrame } from './annotations.js';
+import { FORM_FIELD_NOT_FOUND } from '../core/errors.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
 import type { CoreGeometry, Owned } from './pageText.js';
 
@@ -124,15 +125,32 @@ describe('formFieldCommand', () => {
 
   it('sends each kind of value to its own constructor, nothing chosen as undefined', () => {
     sent.length = 0;
-    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 3, value: { kind: 'text', text: 'Ada' } });
-    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 4, value: { kind: 'checked', checked: false } });
-    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 5, value: { kind: 'choice', option: 'pro' } });
-    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 5, value: { kind: 'choice', option: null } });
+    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 3, value: { kind: 'text', text: 'Ada' } }, () => true);
+    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 4, value: { kind: 'checked', checked: false } }, () => true);
+    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 5, value: { kind: 'choice', option: 'pro' } }, () => true);
+    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: 5, value: { kind: 'choice', option: null } }, () => true);
     expect(sent).toEqual([
       ['text', 3, 'Ada'],
       ['checked', 4, false],
       ['choice', 5, 'pro'],
       ['choice', 5, undefined],
     ]);
+  });
+
+  it.each([-1, 1.5, Number.NaN, 2 ** 32])(
+    'refuses id %s as FormFieldNotFound before the core, which would wrap it onto a real id',
+    (fieldId) => {
+      sent.length = 0;
+      const fill = () =>
+        formFieldCommand(edits, { kind: 'setFieldValue', fieldId, value: { kind: 'text', text: 'Ada' } }, () => true);
+      expect(fill).toThrow(expect.objectContaining({ name: FORM_FIELD_NOT_FOUND }));
+      expect(sent).toEqual([]);
+    },
+  );
+
+  it('leaves a malformed id to the core when filling is not permitted, so the permission is named first', () => {
+    sent.length = 0;
+    formFieldCommand(edits, { kind: 'setFieldValue', fieldId: -1, value: { kind: 'checked', checked: true } }, () => false);
+    expect(sent).toHaveLength(1);
   });
 });

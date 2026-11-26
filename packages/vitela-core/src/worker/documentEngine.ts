@@ -252,7 +252,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
           const command = isPageEdit(edit)
             ? pageCommand(edits, edit)
             : isFormEdit(edit)
-              ? formFieldCommand(edits, edit)
+              ? formFieldCommand(edits, edit, () => core.formFillAllowed(document))
               : annotationCommand(
                   edits,
                   edit,

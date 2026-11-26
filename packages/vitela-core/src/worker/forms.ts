@@ -13,6 +13,7 @@
 // an absent `Option` as present in its `.d.ts` (T-227), and an entry of a kind
 // this package does not know is skipped rather than guessed at.
 
+import { EngineError, FORM_FIELD_NOT_FOUND } from '../core/errors.js';
 import type { FormEdit, FormField, RadioButton } from '../core/types.js';
 import type { PageFrame } from './annotations.js';
 import type { Owned } from './pageText.js';
@@ -47,9 +48,22 @@ export interface CoreFormField extends Owned {
   readonly selected: string | null | undefined;
 }
 
-/** The core command for `edit`. */
-export function formFieldCommand(edits: CoreFormEdits, edit: FormEdit): Owned {
+/** The largest id the core's `u32` field ids can hold. */
+const MAX_FIELD_ID = 2 ** 32 - 1;
+
+/**
+ * The core command for `edit`.
+ *
+ * An id that is not a whole `u32` never reaches the core: wasm-bindgen would
+ * wrap it (`1.5` → 1, `-1` → 4294967295) and fill a field nobody named. It is
+ * refused here with the core's `FormFieldNotFound` — after the permission,
+ * like annotations: when filling is not allowed (`fillable` is false) it is
+ * left to the core, which names the permission first.
+ */
+export function formFieldCommand(edits: CoreFormEdits, edit: FormEdit, fillable: () => boolean): Owned {
   const { fieldId, value } = edit;
+  const wellFormed = Number.isInteger(fieldId) && fieldId >= 0 && fieldId <= MAX_FIELD_ID;
+  if (!wellFormed && fillable()) throw new EngineError(FORM_FIELD_NOT_FOUND, `no form field with id ${fieldId}`);
   switch (value.kind) {
     case 'text':
       return edits.setFieldText(fieldId, value.text);
