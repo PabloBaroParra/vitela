@@ -7,7 +7,7 @@
 // canvas, no annotation layer and no text layer at all.
 
 import { memo, type DragEvent } from 'react';
-import type { Annotation, DocumentHandle, Engine, PageRects, PageSize, Rgb } from '@vitela/core';
+import type { Annotation, DocumentHandle, Engine, PageRect, PageRects, PageSize, Rgb } from '@vitela/core';
 import { AnnotationEditLayer } from '../annotations/AnnotationEditLayer';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
 import { clampPoint, type ArmedTool, type Gesture } from '../annotations/drawing';
@@ -16,6 +16,7 @@ import { stampFileOf } from '../annotations/stamps';
 import { useAnnotationDrag } from '../annotations/useAnnotationDrag';
 import type { AnnotationInput } from '../annotations/useAnnotationEditing';
 import type { ImageDrop } from '../annotations/useStamps';
+import { AnnotationRing } from '../comments/AnnotationRing';
 import { PageCanvas } from '../render/PageCanvas';
 import { usePageRender } from '../render/usePageRender';
 import { toPagePoint } from '../text/pageRects';
@@ -50,6 +51,8 @@ interface PageSlotProps {
   readonly editing: AnnotationInput | null;
   /** The selected annotation, when it is on this page. */
   readonly selectedId: number | null;
+  /** What Previous/Next or the comments panel showed here, when it is not selected instead (drawn points). */
+  readonly marked: PageRect | null;
   /** A PNG or JPEG dropped on the page, at the drop point (drawn points, kept on the page). */
   readonly onImageDrop: ImageDrop;
 }
@@ -64,7 +67,7 @@ export interface DrawingInput {
 
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   const { engine, document, index, page, pageKey, annotations, stampImages, slot, dpi, label, scale } = props;
-  const { hits, currentHit, selection, textInput, drawing, editing, selectedId, onImageDrop } = props;
+  const { hits, currentHit, selection, textInput, drawing, editing, selectedId, marked, onImageDrop } = props;
   const render = usePageRender(engine, document, index, dpi, pageKey);
   const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
@@ -110,6 +113,7 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
           drag={drag}
         />
       )}
+      {marked && <AnnotationRing rect={marked} scale={scale} />}
       {drawing && (
         <DrawingLayer
           pageIndex={index}

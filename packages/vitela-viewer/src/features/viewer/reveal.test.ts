@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { revealScroll } from './reveal';
+import { fittingMargins, revealScroll } from './reveal';
 
 const VIEW = { left: 0, top: 1000, width: 800, height: 600 };
 
@@ -30,5 +30,20 @@ describe('revealScroll', () => {
 
   it('never asks for a negative scroll', () => {
     expect(revealScroll(VIEW, { left: 0, top: 10, width: 50, height: 20 }, 16)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe('revealScroll with a margin per axis', () => {
+  it('keeps each margin to its own axis', () => {
+    expect(revealScroll(VIEW, { left: 20, top: 1200, width: 50, height: 20 }, { x: 16, y: 80 })).toBeNull();
+    expect(revealScroll(VIEW, { left: 20, top: 1040, width: 50, height: 20 }, { x: 16, y: 80 })).toEqual({ x: 0, y: 750 });
+  });
+});
+
+describe('fittingMargins', () => {
+  it('gives up the margin a target that fits leaves no room for', () => {
+    const view = { width: 100, height: 50 };
+    expect(fittingMargins(view, { width: 90, height: 40 }, { x: 16, y: 80 })).toEqual({ x: 5, y: 5 });
+    expect(fittingMargins(view, { width: 300, height: 10 }, { x: 16, y: 15 })).toEqual({ x: 0, y: 15 });
   });
 });

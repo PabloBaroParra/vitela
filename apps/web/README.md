@@ -274,6 +274,22 @@ watch build (`scripts/dev.mjs`) alongside Vite, so edits inside
   annotation or its page changed under it. Dialog lengths are points from the
   top-left corner of the page as drawn. A focused control that goes away hands
   the focus to the pages (`useKeepFocus`).
+- **Annotation navigation and comments** (T-241, `features/comments/`): the
+  `Annotations` toolbar's arrows go to the previous/next annotation, page by
+  page (on each, the comments the file carries, then the session's annotations
+  in paint order), wrapping at both ends, and scroll it into view from the
+  layout (`useReveal`, shared with search), clear of the floating `Annotation`
+  toolbar (one sideways-scrolling row in a narrow editor). One of the session's is selected
+  when it can be edited; anything else (a file's comment, annotating forbidden,
+  a tool armed) gets a ring (`AnnotationRing`) until a press on a page or
+  Escape there. **Comments** opens a panel (beside the pages; under them when
+  the editor is narrower than 700px, a container query) with the core's
+  `comments`: each row goes to its comment, **Read note** shows all of it
+  read-only, and so does "Read note…" in the `Annotation` toolbar of a note.
+  `useComments` asks again after every edited document, one request at a time,
+  and shows only the answer to the latest; a failure says why and offers Try
+  again, and marks the Comments button while the panel is closed. None of it needs permission to annotate. A file's date is shown as
+  written, in its own time zone.
 
 E2E fixtures come from `tests/fixtures/` (the encrypted one's passwords are in
 its README). Documents the corpus lacks — 60 pages, a `/Rotate 90` page, text

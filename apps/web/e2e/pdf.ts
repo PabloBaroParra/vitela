@@ -11,6 +11,16 @@ export interface PageSpec {
   readonly rotate?: 0 | 90 | 180 | 270;
   /** Lines of text drawn under the band, top to bottom (see `lineBaseline`). */
   readonly lines?: readonly string[];
+  /** Text annotations (sticky notes) the file itself carries. */
+  readonly notes?: readonly NoteSpec[];
+}
+
+export interface NoteSpec {
+  /** `/Rect`: left, bottom, right, top in PDF space. */
+  readonly rect: readonly [number, number, number, number];
+  readonly contents: string;
+  readonly author?: string;
+  readonly date?: string;
 }
 
 export interface PdfOptions {
@@ -43,13 +53,13 @@ export function lineBaseline(page: PageSpec, index: number): number {
  * every page has ink a test can look for, plus its `lines`.
  */
 export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): Buffer {
-  const objects: { body: string; stream?: string }[] = [];
+  const objects: { body: string | Body; stream?: string }[] = [];
   // Object number n is objects[n - 1].
-  const add = (body: string, stream?: string) => {
+  const add = (body: string | Body, stream?: string) => {
     objects.push({ body, stream });
     return objects.length;
   };
-  // 1: catalog, 2: page tree, 3: font; pages follow in (page, contents) pairs.
+  // 1: catalog, 2: page tree, 3: font; each page's notes, then the page and its contents.
   add('<< /Type /Catalog /Pages 2 0 R >>');
   add(''); // the page tree, filled once the kids are known
   add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
@@ -63,11 +73,13 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
         (line, row) => `BT /F1 ${LINE_FONT_PT} Tf 72 ${lineBaseline(page, row)} Td (${escape(line)}) Tj ET`,
       ),
     ].join('\n');
+    const notes = (page.notes ?? []).map((note) => add((text) => noteBody(note, text)));
     const pageNumber = objects.length + 1;
     kids.push(pageNumber);
     add(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.widthPt} ${page.heightPt}]` +
         `${page.rotate ? ` /Rotate ${page.rotate}` : ''}` +
+        `${notes.length ? ` /Annots [${notes.map((note) => `${note} 0 R`).join(' ')}]` : ''}` +
         ` /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageNumber + 1} 0 R >>`,
     );
     add('', content);
@@ -84,7 +96,11 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
     offsets.push(out.length);
     const number = index + 1;
     if (stream === undefined) {
-      out += `${number} 0 obj\n${body}\nendobj\n`;
+      const text = (value: string) => {
+        const data = Buffer.from(value, 'latin1');
+        return `<${(security ? security.encrypt(number, data) : data).toString('hex')}>`;
+      };
+      out += `${number} 0 obj\n${typeof body === 'string' ? body : body(text)}\nendobj\n`;
       return;
     }
     let data: Buffer = Buffer.from(stream, 'latin1');
@@ -100,6 +116,16 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
     `${encryptRef ? ` /Encrypt ${encryptRef} 0 R` : ''} >>\n` +
     `startxref\n${xref}\n%%EOF\n`;
   return Buffer.from(out, 'latin1');
+}
+
+/** An object with text strings: `text` writes one, under the object's key when the document is encrypted. */
+type Body = (text: (value: string) => string) => string;
+
+function noteBody({ rect, contents, author, date }: NoteSpec, text: (value: string) => string): string {
+  return (
+    `<< /Type /Annot /Subtype /Text /Rect [${rect.join(' ')}] /Contents ${text(contents)}` +
+    `${author ? ` /T ${text(author)}` : ''}${date ? ` /M ${text(date)}` : ''} >>`
+  );
 }
 
 function escape(text: string): string {

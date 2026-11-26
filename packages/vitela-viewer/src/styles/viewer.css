@@ -45,9 +45,7 @@
 }
 
 .viewer {
-  /* Anchors the annotation toolbar, whose z-index stays inside. */
-  position: relative;
-  isolation: isolate;
+  container: vitela-viewer / inline-size;
   display: flex;
   flex-direction: column;
   flex: 1;
@@ -84,12 +82,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+.viewer__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  margin: 0 -16px;
+}
+
+/* Anchors the annotation toolbar, whose z-index stays inside. */
+.viewer__pages {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
 .viewer__scroller {
   flex: 1;
   min-height: 0;
   overflow: auto;
   background: var(--viewer-bg);
-  margin: 0 -16px;
 }
 
 .viewer__content {
@@ -224,6 +239,7 @@
 .draw-toolbar__tools,
 .draw-toolbar__colors {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
