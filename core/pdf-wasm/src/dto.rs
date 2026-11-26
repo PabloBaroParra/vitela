@@ -12,10 +12,12 @@ use crate::convert::flatten_rects;
 use crate::model::PageSize;
 
 mod annotation;
+mod compress;
 mod form;
 mod import;
 
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
+pub use compress::{CompressRefusalEntry, CompressedSave};
 pub use form::FormFieldEntry;
 pub use import::{DocumentBlock, ImportedPages, PreparedImport};
 

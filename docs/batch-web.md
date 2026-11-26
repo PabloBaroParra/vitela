@@ -2152,6 +2152,109 @@ Gates (Windows 11, local):
    git push origin refs/tags/npm-v0.1.0
    ```
 
+### Fase 4 — tareas
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-249** | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
+| **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
+| **T-251** | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
+| **T-252** | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
+| **T-253** | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
+| **T-254** | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
+| **T-255** | Metadatos. | Playwright: editar, guardar y releer. |
+| **T-256** | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
+| **T-257** | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
+| **T-258** | Modelo de contenido en wasm (`readPageContent`, `textRunLook`, familias de fuente, `CheckpointSession`). | `wasm-bindgen-test` + Vitest contra pdfium real. |
+| **T-259** | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
+| **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
+| **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
+| **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
+| **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
+
+T-258 bloquea T-259…T-263. T-249 bloquea T-251 y T-254. Las demás son independientes.
+
+### T-250 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Compress") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Ninguna regla
+nueva en el core: `pdf_save` ya tenía las tres llamadas. Lo que condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/compress.rs`, `engine/compress.rs`, `dto/compress.rs`): depende de
+  `pdf-compress` (solo por `CompressPreset` y el informe, como `pdf-ffi`). **Mismo orden que
+  `pdf-ffi`:** `compression_blocker`, `compressed_save_will_invalidate_signatures` (no la
+  pregunta ordinaria: un firmado sin editar contesta `true`) y `save_document_compressed`,
+  sobre el mismo `SaveInput` que `saveToBytes` (que pasa a `with_save_input`, compartido),
+  con las ediciones pendientes y `SaveIntent::Default`. Superficie: `compressPresets()` (función
+  libre, nombres `lossless`/`balanced`/`small` en el orden del core), `compressionRefusal`,
+  `compressionInvalidatesSignatures` y `saveCompressedToBytes(doc, preset, invalidateSignatures)`
+  → `CompressedSave` (`beforeBytes`, `afterBytes`, `savedBytes`, `reduced`, `refusals`,
+  `takeBytes()`). Un preset desconocido → `UnsupportedOperation`.
+- **Decisiones.** El preset cruza como texto, no como enum de wasm-bindgen (números en JS).
+  Los tamaños son `f64`, no `BigInt`: un módulo wasm32 no pasa de 4 GiB. El rechazo es
+  `{ kind, message }`: `encryptedDocumentNotRewritable`, `signaturesWouldBeInvalidated` u
+  `other` (la lista del core es abierta; su frase llega igual). `graft_warnings` se descarta,
+  como en `pdf-ffi`. **Sin camino para el cifrado**: la web guarda siempre con
+  `SaveIntent::Default`, así que un PDF protegido se rechaza en el diálogo (como Linux); no hay
+  "quitar la protección y comprimir".
+- **`@vitela/core`:** `Engine` gana `compressPresets`, `compressionRefusal`,
+  `compressionInvalidatesSignatures` y `saveCompressedToBytes` (`CompressedDocument`, los bytes
+  transferidos, no copiados); `worker/compress.ts` decodifica y libera los objetos wasm (un
+  preset que no conoce se omite, un rechazo desconocido pasa a `other`). Tipos nuevos
+  exportados: `CompressPreset`, `CompressRefusal`, `CompressRefusalKind`,
+  `CompressedDocument`. Comprimir no es un paso: ni refresco ni historial.
+- **`@vitela/viewer` (`features/compress/`):** puro con tests `compressText.ts` (tamaños en
+  potencias de diez, porcentaje truncado, `<nombre>-compressed.pdf` como Android, frases);
+  contenedor `useCompress`; vistas `CompressDialog` (`ModalShell`, un radio por preset,
+  Balanced elegido) y `CompressControls`. **El orden de los nativos:** las dos preguntas al
+  abrir (la de firmas solo si no hay rechazo; si falla, rechaza en vez de suponer "sin
+  firmar"), la ejecución, y la copia **solo si salió más pequeña**; si no, "Nothing to gain…" y
+  no se escribe nada. Con firmas el botón dice "Compress anyway" y confirmar es el
+  consentimiento. Textos de Android (que son los de Windows y GTK). El botón va en la barra
+  del documento, junto a Save, en las dos pantallas; espera a la cola de ediciones como Save
+  (`useSave` gana `settleEdits`). La entrega usa el `Delivery` de siempre con un destino nuevo
+  `newFile` (siempre descarga con ese nombre exacto; con `onSave` del anfitrión, llega ahí con
+  ese nombre y no cuenta como guardado).
+- **Medido, no supuesto:** el escaneo de 200 dpi a `balanced` baja de 237 961 a 153 876 bytes
+  (−35 %), no a la mitad. Y **"nada que ganar" no se alcanza con fixtures reales a través de
+  un guardado**: el guardado ordinario escribe suelto y el reempaquetado siempre gana algo
+  (`already_packed.pdf`: 2 931 → 2 688; un PDF de una página: 690 → 627), así que ese caso
+  queda cubierto solo con Vitest. De paso: con `already_packed.pdf` la copia "comprimida"
+  (2 688) es **mayor que el archivo abierto** (2 601), porque el informe compara con el
+  guardado, no con el disco; es la regla del core y de los nativos ("uncompressed", nunca
+  "the original").
+- **Teléfono (≤ 600 px):** con el botón nuevo los controles ya no cabían junto al nombre (a
+  390 px el nombre quedaba en 0 px y fallaban 12 E2E de `comments` en los tres navegadores).
+  Ahora Compress muestra solo su icono (la palabra sigue siendo su nombre accesible) y las
+  líneas de estado (nombre, guardado, compresión) bajan a una segunda fila compartida; con una
+  fila por línea `comments` 390 × 600 seguía fallando.
+- **Tests:** `pdf-wasm` 7 nativos nuevos (`model/compress.rs`) y 6 `wasm-bindgen-test`
+  (`tests/compress.rs`); `@vitela/core` 16 Vitest nuevos, uno contra pdfium real (escaneo
+  comprimido con un giro pendiente, reabierto girado, el giro aún se deshace, preset
+  desconocido rechazado); `@vitela/viewer` 21 nuevos. Vistos en rojo antes de implementar
+  (los de Rust, por no compilar; los de `compressText`, `CompressControls`, `delivery`,
+  `worker/compress`, `documentEngine`, `handler` y `client`, fallando).
+- **E2E (`e2e/compress.spec.ts`, 4 × 3):** el escaneo a Small baja de tamaño, se descarga como
+  `scan_200dpi-compressed.pdf`, empieza por `%PDF-` y reabre con una página pintada; borrar
+  una página en Organize y comprimir (Lossless) da una copia de 2 páginas y la edición sigue
+  sin guardar y deshacible; `aes_128_user_and_owner.pdf` → alerta del core, Compress y los
+  radios desactivados, Escape devuelve el foco al botón, ninguna descarga; firmado → aviso,
+  Cancel, y "Compress anyway" descarga una copia más pequeña que abre.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test -p pdf-wasm` 98 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  166. `@vitela/viewer`: `tsc -b`, Vitest 74 / 748. `apps/web`: `typecheck`, Vitest 6 / 19,
+  `build`; Playwright completo (Chromium, Firefox, WebKit) **211 pasan, 20 omitidos** (los
+  de File System Access fuera de Chromium), `zero-network` incluido; `compress` + `comments`
+  con `--repeat-each=3`: 108 / 108.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** la herramienta `/compress` de la portada sigue en `web: false`
+  (como `annotate` y `forms`, que tampoco se han encendido: decisión aparte); sin lector de
+  pantalla real.
+
 ## Verificación
 
 - **Fachada:** `wasm-bindgen-test` en navegador headless.

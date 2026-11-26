@@ -115,6 +115,19 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   every prepared source at once as one undo step (`ImportedDocument`: the
   edited document plus each source's block id); `discardImport` drops a
   source a pick abandoned.
+  Compress: `compressPresets()` lists the presets (`lossless`, `balanced`,
+  `small`, the core's own order); `compressionRefusal(handle)` says why a
+  document cannot be compressed (`CompressRefusal`: today only
+  `encryptedDocumentNotRewritable` — the web keeps a document's protection —
+  with the core's message) or `null`; `compressionInvalidatesSignatures(handle)`
+  is `true` for a signed file even with nothing edited (a compressed save is
+  always a full rewrite). `saveCompressedToBytes(handle, preset,
+  invalidateSignatures)` answers a `CompressedDocument`: the PDF with every
+  edit (the bytes are transferred), `beforeBytes` (the ordinary save's size,
+  not the opened file's), `afterBytes`, `savedBytes`, `reduced` and
+  `refusals`. When `reduced` is false the bytes are the ordinary save: there
+  is no smaller copy. It records no edit, and rejects with
+  `SignaturesWouldBeInvalidated` unless told the user agreed.
   `terminate()` stops the worker for good (every open document goes with it):
   pending and later calls fail with "the engine was terminated", and so does
   a `ready` still pending. Calling it again does nothing.

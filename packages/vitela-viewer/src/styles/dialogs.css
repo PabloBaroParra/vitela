@@ -152,6 +152,66 @@
   margin: 8px 0 0;
 }
 
+/* Compress PDF: one radio per preset, the refusal or the signature warning. */
+.compress-dialog {
+  width: min(440px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.compress-dialog__detail {
+  margin: 0 0 12px;
+}
+
+.compress-dialog__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.compress-dialog__legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.compress-dialog__preset {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.compress-dialog__preset input {
+  margin-top: 3px;
+}
+
+.compress-dialog__preset-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compress-dialog__preset-name {
+  font-weight: 600;
+}
+
+.compress-dialog__preset-detail {
+  color: var(--text-muted);
+  font-size: calc(0.9 * var(--font-size));
+}
+
+.compress-dialog__refusal,
+.compress-dialog__signed {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.compress-dialog__signed {
+  margin: 12px 0 0;
+}
+
 /* Two typed lengths: Move to, Resize. */
 .lengths-dialog {
   width: min(320px, calc(100vw - 32px));

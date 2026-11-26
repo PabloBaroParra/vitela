@@ -185,6 +185,38 @@ describe('EngineClient', () => {
     await expect(saved).resolves.toBe(bytes);
   });
 
+  it('sends the compress requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const presets = client.compressPresets();
+    const refusal = client.compressionRefusal(4);
+    const signed = client.compressionInvalidatesSignatures(4);
+    const compressed = client.saveCompressedToBytes(4, 'small', true);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'compressPresets' },
+      { kind: 'compressionRefusal', document: 4 },
+      { kind: 'compressionInvalidatesSignatures', document: 4 },
+      { kind: 'saveCompressed', document: 4, preset: 'small', invalidateSignatures: true },
+    ]);
+    const document = {
+      bytes: new Uint8Array([37]),
+      beforeBytes: 10,
+      afterBytes: 1,
+      savedBytes: 9,
+      reduced: true,
+      refusals: [],
+    };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: ['lossless', 'balanced', 'small'] });
+    reply({ type: 'result', id: ids[1]!, value: null });
+    reply({ type: 'result', id: ids[2]!, value: true });
+    reply({ type: 'result', id: ids[3]!, value: document });
+    await expect(presets).resolves.toEqual(['lossless', 'balanced', 'small']);
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(true);
+    await expect(compressed).resolves.toBe(document);
+  });
+
   it('rejects a save that would break a signature with that name', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

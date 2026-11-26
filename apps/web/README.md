@@ -376,6 +376,37 @@ picker are covered the same way). **Not covered:** the browser's own permission
 prompt and a handle onto the real disk. The signature question and Save a copy
 are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
 
+## Compress
+
+`features/compress/` (T-250), the native Compress tiles' order. **Compress**,
+next to Save in both screens, first asks the engine the two gates
+(`compressionRefusal`, then — only when there is none —
+`compressionInvalidatesSignatures`) and opens the dialog with the core's presets
+(`compressPresets`, Balanced chosen). An encrypted document is refused there
+(the core's sentence, presets and Compress disabled: the web keeps a document's
+protection, so there is no "strip it" way past). A signed one says the copy's
+signature will not verify, and the button reads **Compress anyway**: confirming
+is the consent, there is no second prompt. A failed gate refuses rather than
+guessing. The run waits for the queued edits (like Save), then
+`saveCompressedToBytes`; only a copy that came out **smaller** is delivered —
+always a new file, `<name>-compressed.pdf` (`Placement` `newFile`: a download,
+or the host's `onSave`); otherwise the status says there was nothing to gain and
+nothing is written. The status reports sizes as "uncompressed → compressed"
+(the ordinary save of the session, not the file on disk) in powers of ten, the
+percentage truncated, and appends any refusal the core reports. The open
+document, its unsaved edits and its undo history are untouched. No predicted
+saving is shown: the core cannot answer that without running. On a phone
+(≤ 600 px) the button shows only its icon and the bar's status lines move to a
+second row under the controls, so the file name stays readable.
+
+E2E (`e2e/compress.spec.ts`, all three browsers): a scan from
+`tests/fixtures/compress` comes out smaller, downloads under its name and
+reopens; a deletion made in Organize is in the copy and stays unsaved and
+undoable; an encrypted PDF is refused in the dialog with nothing downloaded;
+a signed PDF asks, and "Compress anyway" downloads the copy. "Nothing to gain"
+is covered by Vitest only: no fixture found reaches it through a real save (the
+save itself writes loosely enough that the repack always wins something).
+
 ## Organize
 
 `features/organize/`, reached with the **View / Organize** switch in the bar

@@ -308,6 +308,36 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expectBox(added.annotations[0]!.kind === 'stamp' ? added.annotations[0]!.rect : null, placed);
     await engine.close(handle);
   });
+
+  it('compresses the scan of the compress corpus through the real core: smaller, reopens, history untouched', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    expect(await engine.compressPresets()).toEqual(['lossless', 'balanced', 'small']);
+    const scan = readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf'));
+    const { handle } = await engine.open(new Uint8Array(scan));
+    expect(await engine.compressionRefusal(handle)).toBeNull();
+    expect(await engine.compressionInvalidatesSignatures(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+
+    const compressed = await engine.saveCompressedToBytes(handle, 'balanced', false);
+    expect(compressed.reduced).toBe(true);
+    expect(compressed.refusals).toEqual([]);
+    expect(compressed.afterBytes).toBe(compressed.bytes.length);
+    expect(compressed.savedBytes).toBe(compressed.beforeBytes - compressed.afterBytes);
+    expect(compressed.bytes.length).toBeLessThan(scan.length);
+
+    // The copy has the pending turn; the session still has it to undo.
+    const copy = await engine.open(compressed.bytes);
+    expect(copy.info.pages[0]!.rotationDegrees).toBe(90);
+    expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+    const undone = await engine.undo(handle);
+    expect(undone.info.pages[0]!.rotationDegrees).toBe(0);
+    await expect(engine.saveCompressedToBytes(handle, 'tiny' as never, false)).rejects.toMatchObject({
+      name: 'UnsupportedOperation',
+    });
+    await engine.close(copy.handle);
+    await engine.close(handle);
+  });
 });
 
 /** A 2 x 1 pixel PNG: a stamp twice as wide as it is tall. */

@@ -8,7 +8,9 @@ import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
 import { MarkDirtyContext, SaveWaitsForEditsContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
-import type { Delivery } from '../save/delivery';
+import { browserDelivery, type Delivery } from '../save/delivery';
+import { CompressControls } from '../compress/CompressControls';
+import { useCompress } from '../compress/useCompress';
 import { useSave } from '../save/useSave';
 import { StatusLine } from '../../ui/StatusLine';
 import { ViewSwitch } from '../../ui/ViewSwitch';
@@ -87,6 +89,9 @@ export function DocumentWorkspace({
   const dragging = useFileDrop(open, !busy && standIn === undefined, scope);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document, delivery);
+  // A compressed copy goes where saves go (a download, or the host's onSave)
+  // and waits for the same queued edits.
+  const compress = useCompress(engine, document, delivery ?? browserDelivery, save.settleEdits);
   useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
 
   const picker = filePicker && (
@@ -111,6 +116,7 @@ export function DocumentWorkspace({
               <StatusLine>{`${document.name} — ${document.info.pageCount} ${document.info.pageCount === 1 ? 'page' : 'pages'}`}</StatusLine>
             )}
             <ViewSwitch views={SCREENS} current={screen} onChange={setScreen} />
+            <CompressControls session={compress} documentName={document.name} />
             <SaveControls session={save} documentName={document.name} />
           </div>
         ) : (

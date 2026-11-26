@@ -129,4 +129,38 @@ describe('DocumentWorkspace', () => {
     expect(await findByText('Saved from-host.pdf.')).toBeTruthy();
     expect(delivered).toEqual([{ bytes: saved, name: 'from-host.pdf', destination: { kind: 'copy' } }]);
   });
+
+  it('offers Compress next to Save in both screens, delivering the smaller copy where saves go', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const delivered: DeliverRequest[] = [];
+    const delivery: Delivery = {
+      prepare: async () => ({ kind: 'copy' }),
+      deliver: async (request) => (delivered.push(request), { how: 'delivered', name: request.name }),
+    };
+    const bytes = new Uint8Array([9]);
+    const compressing = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      compressPresets: async () => ['lossless', 'balanced', 'small'],
+      compressionRefusal: async () => null,
+      compressionInvalidatesSignatures: async () => false,
+      saveCompressedToBytes: async () => ({ bytes, beforeBytes: 4000, afterBytes: 1000, savedBytes: 3000, reduced: true, refusals: [] }),
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={compressing} intro={(action) => action} initialScreen="organize" delivery={delivery} />,
+    );
+    openPdf(getByLabelText);
+    await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
+
+    fireEvent.click(getByRole('button', { name: 'Compress' }));
+    const dialog = await findByRole('dialog', { name: 'Compress PDF' });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('4 kB uncompressed → 1 kB compressed (75% smaller). Saved two-compressed.pdf.')).toBeTruthy();
+    expect(delivered).toEqual([{ bytes, name: 'two-compressed.pdf', destination: { kind: 'newFile' } }]);
+  });
 });

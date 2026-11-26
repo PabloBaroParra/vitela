@@ -6,6 +6,9 @@
 import type {
   Annotation,
   Comment,
+  CompressedDocument,
+  CompressPreset,
+  CompressRefusal,
   DocumentHandle,
   Edit,
   EditedDocument,
@@ -66,6 +69,15 @@ export type EngineRequest =
       readonly pageIndex: number;
       readonly image: Uint8Array;
       readonly anchor: PagePoint;
+    }
+  | { readonly kind: 'compressPresets' }
+  | { readonly kind: 'compressionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'compressionInvalidatesSignatures'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'saveCompressed';
+      readonly document: DocumentHandle;
+      readonly preset: CompressPreset;
+      readonly invalidateSignatures: boolean;
     };
 
 export interface EngineResults {
@@ -87,6 +99,10 @@ export interface EngineResults {
   formFields: FormField[];
   freeTextLayout: FreeTextLayout;
   stampPlacement: PageRect;
+  compressPresets: CompressPreset[];
+  compressionRefusal: CompressRefusal | null;
+  compressionInvalidatesSignatures: boolean;
+  saveCompressed: CompressedDocument;
 }
 
 /** UI -> worker. `id` correlates the reply. */

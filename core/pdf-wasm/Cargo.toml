@@ -3,7 +3,7 @@ name = "pdf-wasm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "wasm-bindgen boundary for the web shell (B26 T-219): open from bytes, page count and dimensions, render to RGBA, text runs, page characters, search, page edits, import, annotations, form fields."
+description = "wasm-bindgen boundary for the web shell (B26 T-219): open from bytes, page count and dimensions, render to RGBA, text runs, page characters, search, page edits, import, annotations, form fields, compression."
 publish = false
 
 [lib]
@@ -15,6 +15,9 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pdf-annotate = { path = "../pdf-annotate" }
+# The presets and the report of a compressed save (T-250): the same
+# vocabulary `pdf-ffi` crosses its boundary with.
+pdf-compress = { path = "../pdf-compress" }
 pdf-document = { path = "../pdf-document" }
 pdf-form = { path = "../pdf-form" }
 pdf-manip = { path = "../pdf-manip" }

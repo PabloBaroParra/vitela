@@ -144,9 +144,13 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
     };
   }, []);
 
+  /** Settles once the edits asked for so far have ended: what a compressed copy waits for too. */
+  const settleEdits = useCallback(() => editsSettled.current?.() ?? Promise.resolve(), []);
+
   return {
     activity,
     dirty,
+    settleEdits,
     save,
     confirmSignatures,
     saveSignedCopy,

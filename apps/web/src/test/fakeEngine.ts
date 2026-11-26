@@ -27,6 +27,10 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     formFields: unused('formFields'),
     freeTextLayout: unused('freeTextLayout'),
     stampPlacement: unused('stampPlacement'),
+    compressPresets: unused('compressPresets'),
+    compressionRefusal: unused('compressionRefusal'),
+    compressionInvalidatesSignatures: unused('compressionInvalidatesSignatures'),
+    saveCompressedToBytes: unused('saveCompressedToBytes'),
     ...overrides,
   };
 }

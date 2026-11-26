@@ -135,6 +135,7 @@ fn degrees(rotation: Rotation) -> u32 {
 }
 
 mod annotation;
+mod compress;
 mod edit;
 mod form;
 mod import;
@@ -142,6 +143,9 @@ mod preview;
 
 pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
+};
+pub use compress::{
+    compress_presets, preset_from_name, preset_name, CompressRefusal, CompressedCopy,
 };
 pub use edit::PageEdit;
 pub use form::{FieldFill, FieldShape, FormFieldView};

@@ -68,6 +68,22 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         const { document, pageIndex, image, anchor } = request;
         return result(id, await engine.stampPlacement(document, pageIndex, image, anchor));
       }
+      // The compress questions are a list of names, a refusal and a yes/no: copied.
+      case 'compressPresets':
+        return result(id, await engine.compressPresets());
+      case 'compressionRefusal':
+        return result(id, await engine.compressionRefusal(request.document));
+      case 'compressionInvalidatesSignatures':
+        return result(id, await engine.compressionInvalidatesSignatures(request.document));
+      case 'saveCompressed': {
+        const { document, preset, invalidateSignatures } = request;
+        const compressed = await engine.saveCompressedToBytes(document, preset, invalidateSignatures);
+        // The report is small; the PDF in it is handed over, not copied.
+        return {
+          message: { type: 'result', id, value: compressed },
+          transfer: [compressed.bytes.buffer as ArrayBuffer],
+        };
+      }
     }
   } catch (error) {
     // The core names every failure kind (`WrongPassword`, ...): the UI
