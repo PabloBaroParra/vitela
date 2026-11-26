@@ -30,6 +30,7 @@ function info(pageCount: number): DocumentInfo {
     blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
     importRefusal: null,
     annotationEditingAllowed: true,
+    formFillAllowed: true,
   };
 }
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };

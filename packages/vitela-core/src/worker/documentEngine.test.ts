@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { documentEngine, type CoreEdits, type CoreEngine, type CoreFunctions } from './documentEngine.js';
 import type { CoreAnnotation, CoreFreeTextLines } from './annotations.js';
+import type { CoreFormField } from './forms.js';
 import type { CoreGeometry, CorePageCharacters } from './pageText.js';
 
 /** A fake core layout: one line per word, at 12 pt. */
@@ -78,7 +79,16 @@ type FakeEdit =
   | { kind: 'move'; from: number; count: number; to: number; free(): void }
   | { kind: 'rotate'; from: number; count: number; delta: number; free(): void }
   | { kind: 'remove'; from: number; count: number; free(): void }
-  | { kind: 'annotation'; op: string; args: unknown[]; free(): void };
+  | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
+  | { kind: 'fill'; op: string; id: number; value: unknown; free(): void };
+
+/** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
+interface FakeField {
+  readonly id: number;
+  readonly pageId: number;
+  readonly kind: 'text' | 'checkbox';
+  readonly value: string | boolean;
+}
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -86,6 +96,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 interface FakeState {
   pages: FakePage[];
   annotations: FakeAnnotation[];
+  fields: FakeField[];
 }
 interface FakeStep {
   before: FakeState;
@@ -110,6 +121,8 @@ function fakeCore(
     failRefresh?: boolean;
     /** Emulates a core whose stale flag only ever clears on a refresh. */
     stickyStale?: boolean;
+    /** Fields the opened file has: a text field `name` (id 0) and a checkbox `agree` (id 1), on the first page. */
+    form?: boolean;
   } = {},
 ) {
   interface Doc extends FakeState {
@@ -149,23 +162,25 @@ function fakeCore(
   /** Records a step the way the core's log does. */
   const record = (entry: Doc, next: FakeState, pixels: boolean) => {
     const mark = pixels ? ++entry.nextMark : undefined;
-    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations }, mark });
+    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark });
     entry.redo = [];
     entry.pages = next.pages;
     entry.annotations = next.annotations;
+    entry.fields = next.fields;
     entry.sticky ||= pixels;
   };
   const step = (entry: Doc, from: FakeStep[], to: FakeStep[]) => {
     const taken = from.pop();
     if (!taken) return false;
-    to.push({ before: { pages: entry.pages, annotations: entry.annotations }, mark: taken.mark });
+    to.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark: taken.mark });
     entry.pages = taken.before.pages;
     entry.annotations = taken.before.annotations;
+    entry.fields = taken.before.fields;
     entry.sticky ||= taken.mark !== undefined;
     return true;
   };
   const command = (edit: DistributiveOmit<FakeEdit, 'free'>): FakeEdit =>
-    ({ ...edit, free: () => freed.push(`edit:${edit.kind === 'annotation' ? edit.op : edit.kind}`) }) as FakeEdit;
+    ({ ...edit, free: () => freed.push(`edit:${edit.kind === 'annotation' || edit.kind === 'fill' ? edit.op : edit.kind}`) }) as FakeEdit;
   const annotation =
     (op: string) =>
     (...args: unknown[]) =>
@@ -187,6 +202,18 @@ function fakeCore(
     recolorAnnotation: annotation('recolorAnnotation'),
     retextAnnotation: annotation('retextAnnotation'),
     removeAnnotation: annotation('removeAnnotation'),
+    setFieldText: (id, value) => command({ kind: 'fill', op: 'setFieldText', id, value }),
+    setFieldChecked: (id, value) => command({ kind: 'fill', op: 'setFieldChecked', id, value }),
+    setFieldChoice: (id, value) => command({ kind: 'fill', op: 'setFieldChoice', id, value }),
+  };
+  /** The fields after a fake fill, or the error the core would give, in the core's order. */
+  const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
+    if (options.annotate === false) throw named('EditNotPermitted', 'annotation editing is not permitted');
+    const target = entry.fields.find((field) => field.id === edit.id);
+    if (!target) throw named('FormFieldNotFound', `no form field with id ${edit.id}`);
+    const fits = target.kind === 'text' ? edit.op === 'setFieldText' : edit.op === 'setFieldChecked';
+    if (!fits) throw named('UnsupportedOperation', 'unsupported operation for this field kind: set_value');
+    return entry.fields.map((field) => (field === target ? { ...field, value: edit.value as string | boolean } : field));
   };
   /** What a fake annotation edit leaves, or the error the core would give. */
   const annotate = (entry: Doc, op: string, args: unknown[]): { next: FakeAnnotation[]; added?: number } => {
@@ -251,6 +278,12 @@ function fakeCore(
         marker: bytes[0]!,
         pages,
         annotations: [],
+        fields: options.form
+          ? [
+              { id: 0, pageId: pages[0]!.id, kind: 'text', value: 'Ada' },
+              { id: 1, pageId: pages[0]!.id, kind: 'checkbox', value: true },
+            ]
+          : [],
         undo: [],
         redo: [],
         shown: 0,
@@ -281,6 +314,7 @@ function fakeCore(
     pageIds: (doc) => new Uint32Array(known(doc).pages.map((page) => page.id)),
     documentAssemblyAllowed: (doc) => (known(doc), options.assembly ?? true),
     annotationEditingAllowed: (doc) => (known(doc), options.annotate ?? true),
+    formFillAllowed: (doc) => (known(doc), options.annotate ?? true),
     renderPage: (doc) => {
       // The "pixel" is the first byte of the document, so a test can tell
       // which document a render came from.
@@ -299,8 +333,13 @@ function fakeCore(
       applied.push(edit);
       if (edit.kind === 'annotation') {
         const { next, added } = annotate(entry, edit.op, edit.args);
-        record(entry, { pages: entry.pages, annotations: next }, false);
+        record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
+      }
+      if (edit.kind === 'fill') {
+        // pdfium paints a field: the step shows in the pixels.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: fillField(entry, edit) }, true);
+        return undefined;
       }
       if (options.assembly === false) throw named('EditNotPermitted', 'the document does not permit page assembly');
       const pages = [...entry.pages];
@@ -316,7 +355,15 @@ function fakeCore(
       }
       // Removing a page takes what is on it.
       const kept = new Set(pages.map((page) => page.id));
-      record(entry, { pages, annotations: entry.annotations.filter((a) => kept.has(a.pageId)) }, true);
+      record(
+        entry,
+        {
+          pages,
+          annotations: entry.annotations.filter((a) => kept.has(a.pageId)),
+          fields: entry.fields.filter((field) => kept.has(field.pageId)),
+        },
+        true,
+      );
       return undefined;
     },
     undo: (doc) => {
@@ -351,7 +398,7 @@ function fakeCore(
       }
       const pages = [...entry.pages];
       pages.splice(index, 0, ...added);
-      record(entry, { pages, annotations: entry.annotations }, true);
+      record(entry, { pages, annotations: entry.annotations, fields: entry.fields }, true);
       return { pageCount: added.length, sourceIds: new Uint32Array(sourceIds), free: () => freed.push('imported') };
     },
     importRefusal: (doc) => (known(doc), options.assembly === false ? 'no assembly' : undefined),
@@ -399,6 +446,28 @@ function fakeCore(
           contents: a.contents,
           layout: a.kind === 'freeText' ? fakeLayout(a.contents, () => freed.push('layout')) : undefined,
           free: () => freed.push(`annotation:${a.id}`),
+        }),
+      );
+    },
+    formFields: (doc) => {
+      const entry = known(doc);
+      return entry.fields.map(
+        (field): CoreFormField => ({
+          id: field.id,
+          page: entry.pages.findIndex((page) => page.id === field.pageId),
+          name: field.kind === 'text' ? 'name' : 'agree',
+          kind: field.kind,
+          rect: new Float64Array([72, 680, 240, 22]),
+          existing: true,
+          multiline: false,
+          maxLength: undefined,
+          options: [],
+          optionRects: new Float64Array(0),
+          editable: false,
+          text: field.kind === 'text' ? (field.value as string) : '',
+          checked: field.kind === 'checkbox' && field.value === true,
+          selected: undefined,
+          free: () => freed.push(`field:${field.id}`),
         }),
       );
     },
@@ -462,6 +531,7 @@ describe('documentEngine', () => {
       blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: 1 }],
       importRefusal: null,
       annotationEditingAllowed: true,
+      formFillAllowed: true,
     });
     expect(closed).toEqual([]);
     // Each render reaches the document its handle names, not the newest one.
@@ -1071,5 +1141,129 @@ describe('documentEngine annotations', () => {
     await expect(engine.stampPlacement(handle, 2, image, { x: 0, y: 0 })).rejects.toMatchObject({
       name: 'PageIndexOutOfBounds',
     });
+  });
+});
+
+describe('documentEngine forms', () => {
+  const name = (fields: readonly { name: string }[]) => fields.find((field) => field.name === 'name');
+
+  it("lists the opened file's fields and says whether they may be filled in", async () => {
+    const { core, edits, freed } = fakeCore({ form: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle, info } = await engine.open(new Uint8Array([10]));
+    expect(info.formFillAllowed).toBe(true);
+
+    const fields = await engine.formFields(handle);
+    expect(fields).toEqual([
+      {
+        id: 0,
+        pageIndex: 0,
+        name: 'name',
+        rect: { left: 72, top: 90, width: 240, height: 22 },
+        existing: true,
+        kind: 'text',
+        multiline: false,
+        maxLength: null,
+        value: 'Ada',
+      },
+      {
+        id: 1,
+        pageIndex: 0,
+        name: 'agree',
+        rect: { left: 72, top: 90, width: 240, height: 22 },
+        existing: true,
+        kind: 'checkbox',
+        checked: true,
+      },
+    ]);
+    expect(freed).toEqual(['field:0', 'field:1']);
+  });
+
+  it('fills a field as one step, refreshes the preview inside the request, and answers with the fields', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore({ form: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+
+    const filled = await engine.applyEdit(handle, {
+      kind: 'setFieldValue',
+      fieldId: 0,
+      value: { kind: 'text', text: 'José Peña' },
+    });
+
+    expect(applied.at(-1)).toMatchObject({ kind: 'fill', op: 'setFieldText', id: 0, value: 'José Peña' });
+    // pdfium paints the field: the pixels the next render shows must have it.
+    expect(refreshed).toEqual([handle]);
+    expect(filled).toMatchObject({ canUndo: true, canRedo: false, addedAnnotationId: null, annotations: [] });
+    expect(name(filled.formFields)).toMatchObject({ kind: 'text', value: 'José Peña' });
+    expect(freed).toContain('edit:setFieldText');
+
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 1, value: { kind: 'checked', checked: false } });
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 1, value: { kind: 'choice', option: null } }).catch(() => {});
+    expect(applied.slice(-2).map((edit) => edit.kind === 'fill' && [edit.op, edit.value])).toEqual([
+      ['setFieldChecked', false],
+      ['setFieldChoice', undefined],
+    ]);
+  });
+
+  it('refreshes on the undo and the redo of a fill, which bring the old value back and forth', async () => {
+    const { core, edits, refreshed } = fakeCore({ form: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 0, value: { kind: 'text', text: 'Grace' } });
+
+    const undone = await engine.undo(handle);
+    expect(refreshed).toHaveLength(2);
+    expect(name(undone.formFields)).toMatchObject({ value: 'Ada' });
+    const redone = await engine.redo(handle);
+    expect(refreshed).toHaveLength(3);
+    expect(name(redone.formFields)).toMatchObject({ value: 'Grace' });
+  });
+
+  it('takes a fill back when the preview cannot show it', async () => {
+    const { core, edits } = fakeCore({ form: true, failRefresh: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(
+      engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 0, value: { kind: 'text', text: 'Grace' } }),
+    ).rejects.toThrow('preview failed');
+    expect(core.canUndo(handle)).toBe(false);
+    expect(name(await engine.formFields(handle))).toMatchObject({ value: 'Ada' });
+  });
+
+  it("passes the core's refusals through by name, in its order, recording and refreshing nothing", async () => {
+    const { core, edits, refreshed } = fakeCore({ form: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(
+      engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 9, value: { kind: 'text', text: 'x' } }),
+    ).rejects.toMatchObject({ name: 'FormFieldNotFound' });
+    await expect(
+      engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 1, value: { kind: 'text', text: 'x' } }),
+    ).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(refreshed).toEqual([]);
+    expect(core.canUndo(handle)).toBe(false);
+
+    const locked = fakeCore({ form: true, annotate: false });
+    const readOnly = documentEngine(locked.core, upright, locked.edits);
+    const opened = await readOnly.open(new Uint8Array([10]));
+    expect(opened.info.formFillAllowed).toBe(false);
+    // The permission is asked before the id.
+    await expect(
+      readOnly.applyEdit(opened.handle, { kind: 'setFieldValue', fieldId: 9, value: { kind: 'text', text: 'x' } }),
+    ).rejects.toMatchObject({ name: 'EditNotPermitted' });
+    // Reading needs no permission.
+    expect(await readOnly.formFields(opened.handle)).toHaveLength(2);
+  });
+
+  it('moves the fields with their page, drops those of a removed page, and refuses a closed document', async () => {
+    const { core, edits } = fakeCore({ form: true, pages: 2 });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const moved = await engine.applyEdit(handle, { kind: 'move', from: 0, count: 1, to: 1 });
+    expect(moved.formFields.map((field) => field.pageIndex)).toEqual([1, 1]);
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 1, count: 1 });
+    expect(removed.formFields).toEqual([]);
+    await engine.close(handle);
+    await expect(engine.formFields(handle)).rejects.toMatchObject({ name: 'DocumentNotFound' });
   });
 });

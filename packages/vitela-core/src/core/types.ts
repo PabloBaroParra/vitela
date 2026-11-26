@@ -56,6 +56,13 @@ export interface DocumentInfo {
    * annotations and comments still works.
    */
   readonly annotationEditingAllowed: boolean;
+  /**
+   * Whether the document lets its form fields be filled in (PDF permission
+   * bit 6, the same bit annotating needs, or the owner password). When
+   * `false` the engine refuses every `setFieldValue` with `EditNotPermitted`;
+   * reading the fields still works.
+   */
+  readonly formFillAllowed: boolean;
 }
 
 /** Which PDF a block's pages come from. */
@@ -117,6 +124,12 @@ export interface EditedDocument {
   readonly annotations: readonly Annotation[];
   /** The id of the annotation this edit added; `null` for every other step. */
   readonly addedAnnotationId: number | null;
+  /**
+   * The document's form fields as they are now (what `formFields` answers).
+   * Sent with every answer for the same reason as `annotations`: a fill, an
+   * undo or a page move can change them.
+   */
+  readonly formFields: readonly FormField[];
 }
 
 /** A colour, each channel 0-255. */
@@ -173,8 +186,33 @@ export type AnnotationEdit =
   | { readonly kind: 'retextAnnotation'; readonly id: number; readonly contents: string }
   | { readonly kind: 'removeAnnotation'; readonly id: number };
 
+/**
+ * What a form field is filled in with. A field's kind decides which one it
+ * takes: `text` for a text field, `checked` for a checkbox, `choice` for a
+ * radio group (an export value) or a dropdown; `null` chooses nothing.
+ */
+export type FieldValue =
+  | { readonly kind: 'text'; readonly text: string }
+  | { readonly kind: 'checked'; readonly checked: boolean }
+  | { readonly kind: 'choice'; readonly option: string | null };
+
+/**
+ * Fills form field `fieldId` (a `FormField.id`) in, recorded as one undo
+ * step. Unlike an annotation edit it changes the pixels (pdfium paints the
+ * field), so the engine refreshes the preview inside the same request.
+ * Rejects with `EditNotPermitted`, then `FormFieldNotFound`, then
+ * `UnsupportedOperation` for a value the field cannot hold (the wrong kind, a
+ * choice it does not offer, text past its `maxLength`). Filling a field with
+ * the value it has is still a step, as on the native shells.
+ */
+export interface FormEdit {
+  readonly kind: 'setFieldValue';
+  readonly fieldId: number;
+  readonly value: FieldValue;
+}
+
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -234,6 +272,56 @@ export interface Comment {
   /** The session note's annotation id; null for a comment the file carries. */
   readonly annotationId: number | null;
 }
+
+interface FormFieldBase {
+  /** What a `setFieldValue` edit names it by. */
+  readonly id: number;
+  /** Position of its page now. */
+  readonly pageIndex: number;
+  /** Its fully qualified `/T`. */
+  readonly name: string;
+  /** Its widget on the page as drawn (a radio group's whole group: see `buttons`). */
+  readonly rect: PageRect;
+  /**
+   * The opened file already had it, so pdfium paints it (always, for now:
+   * the web cannot add fields).
+   */
+  readonly existing: boolean;
+}
+
+/** One button of a radio group: the value it chooses, and where it is. */
+export interface RadioButton {
+  readonly exportValue: string;
+  readonly rect: PageRect;
+}
+
+/**
+ * One AcroForm field and what it holds now. Fields of other kinds (list
+ * boxes, push buttons, signatures) stay in the file but are not listed.
+ */
+export type FormField =
+  | (FormFieldBase & {
+      readonly kind: 'text';
+      readonly multiline: boolean;
+      /** `/MaxLen` in characters; `null` when there is none. */
+      readonly maxLength: number | null;
+      readonly value: string;
+    })
+  | (FormFieldBase & { readonly kind: 'checkbox'; readonly checked: boolean })
+  | (FormFieldBase & {
+      readonly kind: 'radio';
+      readonly buttons: readonly RadioButton[];
+      /** The export value of the button on; `null` when none is. */
+      readonly selected: string | null;
+    })
+  | (FormFieldBase & {
+      /** A combo box. */
+      readonly kind: 'dropdown';
+      readonly options: readonly string[];
+      /** Takes a value outside `options`. */
+      readonly editable: boolean;
+      readonly selected: string | null;
+    });
 
 /** A point on a page as it is drawn, in PDF points from its top-left corner. */
 export interface PagePoint {
@@ -304,11 +392,12 @@ export interface Engine {
   /**
    * Records one edit as one undo step and answers with the document as it is
    * now. Renders and text reads after it already show a page edit; an
-   * annotation edit changes no pixels (the UI draws `annotations`). Rejects
-   * with `EditNotPermitted` (no assembly permission for a page edit, no
-   * annotate permission for an annotation edit), `PageIndexOutOfBounds`,
-   * `AnnotationNotFound`, `EncodingGap`, `InvalidImage` or
-   * `UnsupportedOperation`, recording nothing.
+   * annotation edit changes no pixels (the UI draws `annotations`); a fill
+   * does, and renders after it already show it. Rejects with
+   * `EditNotPermitted` (no assembly permission for a page edit, no annotate
+   * permission for an annotation edit or a fill), `PageIndexOutOfBounds`,
+   * `AnnotationNotFound`, `FormFieldNotFound`, `EncodingGap`, `InvalidImage`
+   * or `UnsupportedOperation`, recording nothing.
    */
   applyEdit(document: DocumentHandle, edit: Edit): Promise<EditedDocument>;
   /** Takes back the last edit (nothing, when there is none). Same answer as `applyEdit`. */
@@ -351,6 +440,12 @@ export interface Engine {
   annotations(document: DocumentHandle): Promise<Annotation[]>;
   /** Every comment, page by page: the file's own first, then the session's notes. Never refused for permissions. */
   comments(document: DocumentHandle): Promise<Comment[]>;
+  /**
+   * The document's form fields in `/Fields` order (the opened file's own
+   * included, so not empty at open), each on the page as drawn: what every
+   * `EditedDocument` carries. Never refused for permissions.
+   */
+  formFields(document: DocumentHandle): Promise<FormField[]>;
   /**
    * How `contents` lays out in a free-text box `widthPt` x `heightPt` (the
    * box's own frame): what the box will look like once added. Empty text is

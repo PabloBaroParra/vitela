@@ -136,6 +136,7 @@ fn degrees(rotation: Rotation) -> u32 {
 
 mod annotation;
 mod edit;
+mod form;
 mod import;
 mod preview;
 
@@ -143,6 +144,7 @@ pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
 };
 pub use edit::PageEdit;
+pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 
 // Declared at file level, not inside `mod tests`: there the path would be

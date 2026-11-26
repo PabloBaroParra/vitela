@@ -22,6 +22,7 @@ function info(pageCount: number): DocumentInfo {
     blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
     importRefusal: null,
     annotationEditingAllowed: true,
+    formFillAllowed: true,
   };
 }
 
@@ -296,7 +297,7 @@ describe('useDocument', () => {
 
     let revised = false;
     act(() => {
-      revised = result.current.revise(1, { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
+      revised = result.current.revise(1, { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] });
     });
     expect(revised).toBe(true);
     expect(result.current.state.document).toMatchObject({ info: info(2), generation: 1, canUndo: true, canRedo: false });
@@ -318,12 +319,12 @@ describe('useDocument', () => {
       color: { r: 255, g: 220, b: 0 },
     };
     act(() => {
-      result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [highlight], addedAnnotationId: 1 });
+      result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [highlight], addedAnnotationId: 1, formFields: [] });
     });
     expect(result.current.state.document?.annotations).toEqual([highlight]);
     // An undo takes it away again.
     act(() => {
-      result.current.revise(1, { info: info(1), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null });
+      result.current.revise(1, { info: info(1), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null, formFields: [] });
     });
     expect(result.current.state.document?.annotations).toEqual([]);
   });
@@ -338,7 +339,7 @@ describe('useDocument', () => {
 
     let revised = true;
     act(() => {
-      revised = result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
+      revised = result.current.revise(1, { info: info(1), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] });
     });
     // The caller learns it, so it does not mark the new document dirty either.
     expect(revised).toBe(false);
@@ -381,7 +382,7 @@ describe('useDocument', () => {
 
     // An edit keeps them: an undone stamp comes back by redo with the same id.
     act(() => {
-      result.current.revise(1, { info: info(3), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null });
+      result.current.revise(1, { info: info(3), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null, formFields: [] });
     });
     expect(result.current.state.document?.stampImages?.size).toBe(2);
 

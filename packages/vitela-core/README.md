@@ -65,10 +65,11 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
 - `EngineClient` — what `createEngine` returns; implements `Engine`: `ready`,
   `open`, `renderPage`, `close`, `saveToBytes`, `applyEdit`, `undo`, `redo`,
   `prepareImport`, `discardImport`, `importPrepared`, `search`, `selectText`,
-  `selectWord`, `annotations`, `comments`, `freeTextLayout`, `stampPlacement`.
+  `selectWord`, `annotations`, `comments`, `formFields`, `freeTextLayout`,
+  `stampPlacement`.
   An edit answers with the document as it is now (`EditedDocument`: page
   sizes, page ids, blocks, undo/redo state, the session's annotations and the
-  id of the one it added), and the engine has already refreshed its preview
+  id of the one it added, and the form fields), and the engine has already refreshed its preview
   when the step changed the pixels, so the next render shows it.
   `applyEdit` takes a page edit (`move`/`rotate`/`remove`) or an annotation
   edit (`AnnotationEdit`: add markup, a shape, ink, a note, free text or an
@@ -86,6 +87,28 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   a free-text box will draw it; `stampPlacement` sizes a dropped image. A
   stamp's image is copied to the worker, not transferred, and the engine
   never hands it back: keep it to draw the stamp.
+  Forms: `formFields(handle)` lists the document's AcroForm fields
+  (`FormField`, by `kind`: `text` with its `value`, `multiline` and
+  `maxLength`; `checkbox` with `checked`; `radio` with its `buttons`, each an
+  export value and its own box, and the `selected` one; `dropdown` with its
+  `options`, `editable` and `selected`), the opened file's own included, so
+  the list is not empty at open; `EditedDocument.formFields` is the same
+  list after every step. Each has an `id`, its `/T` `name`, its `pageIndex`
+  and its widget `rect` on the page as drawn (to scroll a field into view).
+  List boxes, push buttons and signature fields stay in the file but are not
+  listed. `applyEdit(handle, { kind: 'setFieldValue', fieldId, value })`
+  fills one in as one undo step, `value` being `{ kind: 'text', text }`,
+  `{ kind: 'checked', checked }` or `{ kind: 'choice', option }` (an export
+  value for a radio group; `null` chooses nothing). Unlike an annotation
+  edit, a fill changes the pixels — pdfium paints the field — so the engine
+  refreshes its preview inside the same request, and on the fill's undo and
+  redo: the next render already shows the value. `DocumentInfo` says
+  whether filling is allowed (`formFillAllowed`, the same permission bit as
+  annotating); a refused fill rejects with `EditNotPermitted` (asked
+  first), an unknown id with `FormFieldNotFound`, and a value the field
+  cannot hold (the wrong kind, a choice it does not offer, text past its
+  `maxLength`) with `UnsupportedOperation`. Filling a field with the value
+  it already has is still a step: compare before you send.
   Adding other PDFs takes two steps: `prepareImport(bytes, password?)` opens
   one source (a locked one rejects with `PasswordRequired`/`WrongPassword`
   until given its password), and `importPrepared(handle, ids, index)` adds
@@ -101,17 +124,18 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
 - `EngineError`, `errorKind`, `errorMessage`, and the kind constants
   `PASSWORD_REQUIRED`, `WRONG_PASSWORD`, `TEXT_EXTRACTION_DENIED`,
   `SIGNATURES_WOULD_BE_INVALIDATED`, `EDIT_NOT_PERMITTED`, `ENCODING_GAP`,
-  `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`.
+  `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`, `FORM_FIELD_NOT_FOUND`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
-  `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `EditedDocument`,
-  `Annotation`, `Comment`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
+  `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `FormEdit`,
+  `FieldValue`, `EditedDocument`, `Annotation`, `Comment`, `FormField`,
+  `RadioButton`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
   `PageRect`, `DocumentBlock`, `BlockSource`, `PreparedImport`,
   `ImportedDocument`, `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`,
   `SearchHit`, `TextSelection`, and the protocol types `MessagePortLike`,
   `RequestEnvelope`, `WorkerMessage`.
 
 All geometry is in PDF points on the page as drawn (top-left origin,
-`/Rotate` applied) — annotations and comments too, so a selection's rects
+`/Rotate` applied) — annotations, comments and form fields too, so a selection's rects
 can be marked up as they come; see the doc comments in
 `dist/core/types.d.ts`. The one exception is a free-text box's layout, which
 is in the box's own frame and turns with the page.

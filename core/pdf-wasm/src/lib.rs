@@ -12,7 +12,8 @@
 //!   build on every target, so the workspace's native `cargo test` covers
 //!   them. `model` holds the edit session too (page edits, undo/redo, save,
 //!   the preview snapshot, import and the Documents view's blocks, and the
-//!   session's annotations and comments).
+//!   session's annotations and comments, and the form fields and filling
+//!   them in).
 //! - `engine`, `dto` and `geometry` are the `#[wasm_bindgen]` surface and
 //!   exist only on wasm32; they are tested by `wasm-bindgen-test` in a
 //!   headless browser (`tests/engine.rs`).
@@ -39,8 +40,8 @@ mod geometry;
 
 #[cfg(target_arch = "wasm32")]
 pub use dto::{
-    AnnotationEntry, CommentEntry, DocumentBlock, FreeTextLines, ImportedPages, PageCharacters,
-    PageDimensions, PreparedImport, RenderedPage, SearchMatch, TextRun,
+    AnnotationEntry, CommentEntry, DocumentBlock, FormFieldEntry, FreeTextLines, ImportedPages,
+    PageCharacters, PageDimensions, PreparedImport, RenderedPage, SearchMatch, TextRun,
 };
 #[cfg(target_arch = "wasm32")]
 pub use engine::{free_text_layout, stamp_placement, EditCommand, Engine};

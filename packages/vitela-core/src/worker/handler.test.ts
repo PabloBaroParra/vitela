@@ -12,8 +12,9 @@ const info = {
   blocks: [{ source: { kind: 'base' as const }, part: null, start: 0, count: 1 }],
   importRefusal: null,
   annotationEditingAllowed: true,
+  formFillAllowed: true,
 };
-const edited = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
+const edited = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
 const opened = { handle: 5, info };
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
@@ -33,6 +34,7 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     importPrepared: async () => ({ ...edited, sourceIds: [1] }),
     annotations: async () => [],
     comments: async () => [],
+    formFields: async () => [],
     freeTextLayout: async () => ({ fontSizePt: 12, lines: [], overflow: false }),
     stampPlacement: async () => ({ left: 0, top: 0, width: 144, height: 144 }),
     ...overrides,
@@ -313,6 +315,37 @@ describe('handleRequest', () => {
       ['comments', 5],
       ['freeTextLayout', 'Hi', 50, 20],
       ['stampPlacement', 5, 1, image, { x: 5, y: 6 }],
+    ]);
+  });
+
+  it('answers the form fields of the document it names, and forwards a fill and its refusal', async () => {
+    const field = {
+      kind: 'checkbox' as const,
+      id: 1,
+      pageIndex: 0,
+      name: 'agree',
+      rect: { left: 1, top: 2, width: 3, height: 4 },
+      existing: true,
+      checked: true,
+    };
+    const calls: unknown[][] = [];
+    const failure = new Error('no form field with id 9');
+    failure.name = 'FormFieldNotFound';
+    const engine = fakeEngine({
+      formFields: async (...args) => (calls.push(['formFields', ...args]), [field]),
+      applyEdit: async (...args) => {
+        calls.push(['applyEdit', ...args]);
+        throw failure;
+      },
+    });
+    const listed = await handleRequest(engine, { id: 1, request: { kind: 'formFields', document: 5 } });
+    expect(listed).toEqual({ message: { type: 'result', id: 1, value: [field] }, transfer: [] });
+    const edit = { kind: 'setFieldValue', fieldId: 9, value: { kind: 'checked', checked: false } } as const;
+    const refused = await handleRequest(engine, { id: 2, request: { kind: 'applyEdit', document: 5, edit } });
+    expect(refused.message).toMatchObject({ type: 'error', id: 2, name: 'FormFieldNotFound' });
+    expect(calls).toEqual([
+      ['formFields', 5],
+      ['applyEdit', 5, edit],
     ]);
   });
 

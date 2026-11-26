@@ -53,6 +53,7 @@ function openDocument(annotations: readonly Annotation[], annotationEditingAllow
       blocks: [],
       importRefusal: null,
       annotationEditingAllowed,
+      formFillAllowed: true,
     },
     handle: 1,
     generation: 1,
@@ -72,7 +73,7 @@ function session(initial: readonly Annotation[], overrides: Partial<Engine> = {}
     canUndo: history.length > 1,
     canRedo: false,
     annotations: history[history.length - 1]!,
-    addedAnnotationId: null,
+    addedAnnotationId: null, formFields: [],
   });
   const changed = (annotation: Annotation, edit: AnnotationEdit): Annotation[] => {
     if (!('id' in edit) || edit.id !== annotation.id) return [annotation];

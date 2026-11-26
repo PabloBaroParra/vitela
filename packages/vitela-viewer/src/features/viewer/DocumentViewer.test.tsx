@@ -23,6 +23,7 @@ const doc: OpenDocument = {
     blocks: [],
     importRefusal: null,
     annotationEditingAllowed: true,
+    formFillAllowed: true,
   },
   handle: 1,
   generation: 1,
@@ -54,7 +55,7 @@ const edited = (overrides: Partial<EditedDocument> = {}): EditedDocument => ({
   canUndo: true,
   canRedo: false,
   annotations: [],
-  addedAnnotationId: null,
+  addedAnnotationId: null, formFields: [],
   ...overrides,
 });
 
@@ -483,7 +484,7 @@ describe('DocumentViewer drawing tools', () => {
 
   it('arms Image with a picked PNG and stamps it where the page is clicked, keeping its image by id', async () => {
     const stampPlacement = vi.fn(async (_handle: DocumentHandle, _page: number, _image: Uint8Array, _anchor: { x: number; y: number }) => BOX);
-    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5 }));
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5, formFields: [] }));
     const onStampImage = vi.fn();
     const { container, getByRole, getByLabelText } = render(
       <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} onStampImage={onStampImage} />,
@@ -506,7 +507,7 @@ describe('DocumentViewer drawing tools', () => {
 
   it('stamps a PNG dropped on a page, claiming the drop so the workspace does not open it', async () => {
     const stampPlacement = vi.fn(async () => BOX);
-    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2 }));
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2, formFields: [] }));
     const onStampImage = vi.fn();
     const { container } = render(
       <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} onStampImage={onStampImage} />,
@@ -528,7 +529,7 @@ describe('DocumentViewer drawing tools', () => {
 
   it('keeps a drop past the page edge on the page, as a click is', async () => {
     const stampPlacement = vi.fn(async (_handle: DocumentHandle, _page: number, _image: Uint8Array, _anchor: { x: number; y: number }) => BOX);
-    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2 }));
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 2, formFields: [] }));
     const { container } = render(<Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} />);
     const slot = container.querySelector('[data-page="1"]')!;
     // jsdom's drop event carries no pointer position: give it one past the right and top edges.
@@ -542,7 +543,7 @@ describe('DocumentViewer drawing tools', () => {
   it('stamps once for a quick double click, asking the core to place only the first', async () => {
     let placed: (box: typeof BOX) => void = () => {};
     const stampPlacement = vi.fn(() => new Promise<typeof BOX>((resolve) => (placed = resolve)));
-    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5 }));
+    const applyEdit = vi.fn(async (_handle: DocumentHandle, _edit: Edit) => edited({ addedAnnotationId: 5, formFields: [] }));
     const { container, getByRole, getByLabelText } = render(
       <Viewer engine={{ ...engine, applyEdit, stampPlacement }} document={doc} />,
     );

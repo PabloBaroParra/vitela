@@ -12,6 +12,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { documentEngine } from './documentEngine.js';
 import { coreEdits, coreFunctions } from './engine.js';
 import { instantiatePdfium, type PdfiumModule } from './pdfium.js';
+import { FORM_FIELD_NOT_FOUND } from '../core/errors.js';
+import type { FormField } from '../core/types.js';
 import * as core from '../generated/engine/pdf_wasm.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -217,6 +219,71 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('fills the four kinds through the real core: painted at once, saved, read back on reopen, taken back by undo', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+    expect(info.formFillAllowed).toBe(true);
+    const fields = await engine.formFields(handle);
+    // The listbox is a kind the core does not model: not offered.
+    expect(fields.map((field) => [field.name, field.kind])).toEqual(
+      expect.arrayContaining([
+        ['full_name', 'text'],
+        ['notes', 'text'],
+        ['subscribe', 'checkbox'],
+        ['plan', 'radio'],
+        ['country', 'dropdown'],
+      ]),
+    );
+    expect(fields).toHaveLength(5);
+    const byName = (list: readonly FormField[], name: string) => list.find((field) => field.name === name)!;
+    const fullName = byName(fields, 'full_name');
+    // reportlab's box, x=72 y=680 240x22 in PDF space, on the page as drawn.
+    expectBox(fullName.rect, { left: 72, top: 90, width: 240, height: 22 });
+    expect(fullName).toMatchObject({ kind: 'text', value: 'Ada Lovelace', existing: true });
+    const plan = byName(fields, 'plan');
+    expect(plan.kind === 'radio' && plan.buttons.map((button) => button.exportValue)).toEqual(['basic', 'pro']);
+    expect(plan).toMatchObject({ selected: 'pro' });
+
+    const before = inkIn(await engine.renderPage(handle, 0, 72), fullName.rect);
+    const filled = await engine.applyEdit(handle, {
+      kind: 'setFieldValue',
+      fieldId: fullName.id,
+      value: { kind: 'text', text: 'José Peña Núñez, Ingeniería' },
+    });
+    expect(filled).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(byName(filled.formFields, 'full_name')).toMatchObject({ value: 'José Peña Núñez, Ingeniería' });
+    // Refreshed inside the request: the very next render shows the new value.
+    const after = inkIn(await engine.renderPage(handle, 0, 72), fullName.rect);
+    expect(after).not.toBe(before);
+
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: byName(fields, 'subscribe').id, value: { kind: 'checked', checked: false } });
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: plan.id, value: { kind: 'choice', option: 'basic' } });
+    await engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: byName(fields, 'country').id, value: { kind: 'choice', option: 'Chile' } });
+    await expect(
+      engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: byName(fields, 'country').id, value: { kind: 'choice', option: 'Atlantis' } }),
+    ).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    await expect(
+      engine.applyEdit(handle, { kind: 'setFieldValue', fieldId: 999, value: { kind: 'text', text: 'x' } }),
+    ).rejects.toMatchObject({ name: FORM_FIELD_NOT_FOUND });
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    const saved = await engine.formFields(reopened.handle);
+    expect(byName(saved, 'full_name')).toMatchObject({ value: 'José Peña Núñez, Ingeniería' });
+    expect(byName(saved, 'subscribe')).toMatchObject({ checked: false });
+    expect(byName(saved, 'plan')).toMatchObject({ selected: 'basic' });
+    expect(byName(saved, 'country')).toMatchObject({ selected: 'Chile' });
+    await engine.close(reopened.handle);
+
+    // Undo the last three: the text fill is the newest step left, and its undo repaints.
+    for (let i = 0; i < 3; i++) await engine.undo(handle);
+    const undone = await engine.undo(handle);
+    expect(byName(undone.formFields, 'full_name')).toMatchObject({ value: 'Ada Lovelace' });
+    expect(undone.canUndo).toBe(false);
+    expect(inkIn(await engine.renderPage(handle, 0, 72), fullName.rect)).toBe(before);
+    await engine.close(handle);
+  });
+
   it('places a dropped stamp on a page drawn a quarter-turn round as pdf-ffi does', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
@@ -262,6 +329,18 @@ function yellowPixels(page: { width: number; rgba: Uint8ClampedArray }, box: { l
       const i = (y * page.width + x) * 4;
       const [r, g, b] = [page.rgba[i]!, page.rgba[i + 1]!, page.rgba[i + 2]!];
       if (r > 200 && g > 200 && b < 120) count++;
+    }
+  }
+  return count;
+}
+
+/** Dark pixels inside `box`, at 72 dpi: how much text a field shows. */
+function inkIn(page: { width: number; rgba: Uint8ClampedArray }, box: { left: number; top: number; width: number; height: number }) {
+  let count = 0;
+  for (let y = Math.ceil(box.top); y < box.top + box.height; y++) {
+    for (let x = Math.ceil(box.left); x < box.left + box.width; x++) {
+      const i = (y * page.width + x) * 4;
+      if (page.rgba[i]! < 128 && page.rgba[i + 1]! < 128 && page.rgba[i + 2]! < 128) count++;
     }
   }
   return count;

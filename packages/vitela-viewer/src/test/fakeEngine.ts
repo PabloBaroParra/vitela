@@ -22,6 +22,7 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     importPrepared: unused('importPrepared'),
     annotations: unused('annotations'),
     comments: unused('comments'),
+    formFields: unused('formFields'),
     freeTextLayout: unused('freeTextLayout'),
     stampPlacement: unused('stampPlacement'),
     ...overrides,

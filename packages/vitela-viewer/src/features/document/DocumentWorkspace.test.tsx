@@ -15,6 +15,7 @@ const info: DocumentInfo = {
   blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: 2 }],
   importRefusal: null,
   annotationEditingAllowed: true,
+  formFillAllowed: true,
 };
 const page: RenderedPage = { width: 1, height: 1, rgba: new Uint8ClampedArray(4) };
 const engine = fakeEngine({

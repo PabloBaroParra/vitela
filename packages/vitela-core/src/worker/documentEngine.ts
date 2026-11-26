@@ -15,6 +15,8 @@
 // the preview leaves the session's annotations out and the UI draws them from
 // the snapshot every answer carries. So adding a highlight costs no reopen,
 // and undoing across a mixed history refreshes exactly on the page steps.
+// A form fill does change the pixels (pdfium paints the field), so a fill,
+// and its undo and redo, refresh inside the request like a page edit.
 
 import type {
   Annotation,
@@ -25,6 +27,8 @@ import type {
   Edit,
   EditedDocument,
   Engine,
+  FormEdit,
+  FormField,
   ImportedDocument,
   OpenedDocument,
   PageEdit,
@@ -44,10 +48,11 @@ import {
   type CoreComment,
   type CoreFreeTextLines,
 } from './annotations.js';
+import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
-export interface CoreEdits extends CoreAnnotationEdits {
+export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -70,6 +75,7 @@ export interface CoreEngine extends CoreText {
   textExtractionAllowed(doc: number): boolean;
   documentAssemblyAllowed(doc: number): boolean;
   annotationEditingAllowed(doc: number): boolean;
+  formFillAllowed(doc: number): boolean;
   saveToBytes(doc: number, invalidateSignatures: boolean): Uint8Array;
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;
@@ -82,6 +88,7 @@ export interface CoreEngine extends CoreText {
   previewStale(doc: number): boolean;
   annotations(doc: number): CoreAnnotation[];
   comments(doc: number): CoreComment[];
+  formFields(doc: number): CoreFormField[];
   prepareImport(bytes: Uint8Array, password?: string): Owned & {
     readonly id: number;
     readonly pageCount: number;
@@ -139,6 +146,8 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
   };
   /** The session's annotations on the pages as drawn; call after `describe`. */
   const snapshot = (document: DocumentHandle): Annotation[] => annotations(core.annotations(document), frameOf(document));
+  /** The document's form fields on the pages as drawn; call after `describe`. */
+  const fields = (document: DocumentHandle): FormField[] => formFields(core.formFields(document), frameOf(document));
   /** Rebuilds the preview from the edits; cached characters belong to pages that may have moved or gone. */
   const refresh = (document: DocumentHandle): void => {
     text.forget(document);
@@ -196,6 +205,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       canRedo: core.canRedo(document),
       annotations: snapshot(document),
       addedAnnotationId: added ?? null,
+      formFields: fields(document),
     };
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
@@ -241,13 +251,15 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
           assertOpen(document);
           const command = isPageEdit(edit)
             ? pageCommand(edits, edit)
-            : annotationCommand(
-                edits,
-                edit,
-                frameOf(document),
-                (id) => annotationPage(document, id),
-                () => core.annotationEditingAllowed(document),
-              );
+            : isFormEdit(edit)
+              ? formFieldCommand(edits, edit, () => core.formFillAllowed(document))
+              : annotationCommand(
+                  edits,
+                  edit,
+                  frameOf(document),
+                  (id) => annotationPage(document, id),
+                  () => core.annotationEditingAllowed(document),
+                );
           try {
             // A refusal throws, so this recorded the step (or the core's
             // no-op, which cannot leave the preview behind the catch-up).
@@ -310,6 +322,10 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       assertOpen(document);
       return comments(core.comments(document), frameOf(document));
     },
+    async formFields(document: DocumentHandle) {
+      assertOpen(document);
+      return fields(document);
+    },
     async freeTextLayout(contents: string, widthPt: number, heightPt: number) {
       const lines = functions.freeTextLayout(contents, widthPt, heightPt);
       try {
@@ -344,6 +360,10 @@ function isPageEdit(edit: Edit): edit is PageEdit {
   return edit.kind === 'move' || edit.kind === 'rotate' || edit.kind === 'remove';
 }
 
+function isFormEdit(edit: Edit): edit is FormEdit {
+  return edit.kind === 'setFieldValue';
+}
+
 /** An `Error` named like the core's own refusals, so the UI branches alike. */
 function named(name: string, message: string): Error {
   const error = new Error(message);
@@ -372,6 +392,7 @@ function documentInfo(core: CoreEngine, doc: number): DocumentInfo {
     blocks: documentBlocks(core, doc),
     importRefusal: core.importRefusal(doc) ?? null,
     annotationEditingAllowed: core.annotationEditingAllowed(doc),
+    formFillAllowed: core.formFillAllowed(doc),
   };
 }
 

@@ -22,6 +22,7 @@ const document: OpenDocument = {
     blocks: [],
     importRefusal: null,
     annotationEditingAllowed: true,
+    formFillAllowed: true,
   },
 };
 

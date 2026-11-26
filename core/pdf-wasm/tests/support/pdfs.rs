@@ -124,6 +124,37 @@ pub fn commented_document(pages: &[&str]) -> Vec<u8> {
     save(doc)
 }
 
+/// The AcroForm interop fixture (`tests/fixtures/forms`, T-144), one US
+/// Letter page written by reportlab: `full_name` (text, "Ada Lovelace"),
+/// `notes` (multiline text, empty), `subscribe` (checkbox, checked), `plan`
+/// (radio `basic`/`pro`, `pro` on), `country` (dropdown Argentina/Uruguay/
+/// Chile, "Uruguay"), and a listbox the core does not model.
+pub const ACROFORM: &[u8] =
+    include_bytes!("../../../../tests/fixtures/forms/reportlab_acroform.pdf");
+
+/// [`ACROFORM`] encrypted with AES-128 under [`USER_PASSWORD`] and
+/// [`OWNER_PASSWORD`], printable only: a user-password open may read its
+/// fields but not fill them in (no bit 6).
+pub fn restricted_form() -> Vec<u8> {
+    let mut doc = Document::load_mem(ACROFORM).expect("the fixture parses");
+    let file_id = Object::string_literal("pdf-wasm-form-id");
+    doc.trailer.set("ID", vec![file_id.clone(), file_id]);
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+    let version = EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: OWNER_PASSWORD,
+        user_password: USER_PASSWORD,
+        permissions: Permissions::PRINTABLE,
+    };
+    let state = EncryptionState::try_from(version).expect("encryption state");
+    doc.encrypt(&state).expect("encrypt");
+    save(doc)
+}
+
 fn build(pages: &[&str], rotation: i64) -> Document {
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();
