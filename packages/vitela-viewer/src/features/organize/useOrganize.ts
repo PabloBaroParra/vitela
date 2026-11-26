@@ -21,6 +21,7 @@ import { useCallback, useRef, useState } from 'react';
 import { EDIT_NOT_PERMITTED, errorKind, errorMessage } from '@vitela/core';
 import type { EditedDocument, Engine, ImportedDocument, PageEdit } from '@vitela/core';
 import type { OpenDocument } from '../document/useDocument';
+import { useSaveWaitsFor } from '../save/MarkDirtyContext';
 
 export type OrganizeSession = ReturnType<typeof useOrganize>;
 
@@ -32,6 +33,10 @@ export function useOrganize(engine: Engine, document: OpenDocument, onEdited: (e
   const busy = useRef(false);
   /** Settles once the step in flight has ended, whatever its outcome. */
   const settled = useRef<Promise<unknown>>(Promise.resolve());
+  // Save and the tools that write a copy (Compress, Protect, Export, Extract,
+  // Split) wait for the step in flight, as they wait for the viewer's edits.
+  const settledNow = useCallback(() => settled.current, []);
+  useSaveWaitsFor(settledNow);
   const { handle } = document;
   const allowed = document.info.documentAssemblyAllowed && !denied;
 

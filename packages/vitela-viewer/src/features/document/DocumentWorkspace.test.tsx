@@ -237,6 +237,93 @@ describe('DocumentWorkspace', () => {
     expect(delivered).toEqual([{ bytes, name: 'two-protected.pdf', destination: { kind: 'newFile' } }]);
   });
 
+  it("extracts Organize's selection and splits from Organize, each file delivered where saves go", async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const delivered: DeliverRequest[] = [];
+    const delivery: Delivery = {
+      prepare: async () => ({ kind: 'copy' }),
+      deliver: async (request) => (delivered.push(request), { how: 'delivered', name: request.name }),
+    };
+    const extracted: number[][] = [];
+    const extracting = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      extractionRefusal: async () => null,
+      extractSourceIsSigned: async () => false,
+      parsePageSelection: async (input) => (input === '1' ? [0] : [0, 1]),
+      extractPages: async (_handle, pages) => (extracted.push([...pages]), new Uint8Array(pages)),
+      planSplit: async () => [
+        { first: 0, last: 0, fileName: 'two-part1.pdf' },
+        { first: 1, last: 1, fileName: 'two-part2.pdf' },
+      ],
+    });
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={extracting} intro={(action) => action} initialScreen="organize" delivery={delivery} />,
+    );
+    openPdf(getByLabelText);
+    await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
+
+    // Organize's Extract opens the dialog on its selection (the first page, as opened).
+    fireEvent.click(getByRole('button', { name: 'Extract' }));
+    const extractDialog = await findByRole('dialog', { name: 'Extract pages' });
+    expect((getByLabelText('Pages to extract') as HTMLInputElement).value).toBe('1');
+    fireEvent.click(extractDialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Saved two-extract.pdf: 1 page extracted to a new PDF.')).toBeTruthy();
+
+    fireEvent.click(getByRole('button', { name: 'Split' }));
+    const splitDialog = await findByRole('dialog', { name: 'Split PDF' });
+    fireEvent.change(getByLabelText('Split after page'), { target: { value: '1' } });
+    fireEvent.click(splitDialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Split into 2 PDFs.')).toBeTruthy();
+    expect(extracted).toEqual([[0], [0], [1]]);
+    expect(delivered.map(({ name, destination }) => [name, destination.kind])).toEqual([
+      ['two-extract.pdf', 'newFile'],
+      ['two-part1.pdf', 'newFile'],
+      ['two-part2.pdf', 'newFile'],
+    ]);
+  });
+
+  it('saves only once a pending Organize edit has landed, and keeps Extract and Split off until then', async () => {
+    let land: () => void = () => {};
+    const steps: string[] = [];
+    const three: DocumentInfo = { ...info, pageCount: 3, pageIds: [0, 2, 1], pages: Array(3).fill(info.pages[0]) };
+    const organizing = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      applyEdit: async () => {
+        await new Promise<void>((resolve) => (land = resolve));
+        steps.push('edit');
+        return { info: three, canUndo: true, canRedo: false, annotations: [], formFields: [], addedAnnotationId: null };
+      },
+      saveToBytes: async () => (steps.push('save'), new Uint8Array([1])),
+    });
+    const delivery: Delivery = {
+      prepare: async () => ({ kind: 'copy' }),
+      deliver: async (request) => ({ how: 'delivered', name: request.name }),
+    };
+    const { getByLabelText, getByRole, findByRole } = render(
+      <DocumentWorkspace engine={organizing} intro={(action) => action} initialScreen="organize" delivery={delivery} />,
+    );
+    openPdf(getByLabelText);
+    await waitFor(() => expect(getByRole('button', { name: 'Organize' }).getAttribute('aria-pressed')).toBe('true'));
+    fireEvent.click(getByRole('button', { name: 'Add blank page' }));
+    fireEvent.click(await findByRole('menuitem', { name: 'Portrait A4' }));
+    await waitFor(() => expect(getByRole('button', { name: 'Split' }).getAttribute('aria-disabled')).toBe('true'));
+    expect(getByRole('button', { name: 'Extract' }).getAttribute('aria-disabled')).toBe('true');
+
+    fireEvent.click(getByRole('button', { name: 'Save' }));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(steps).toEqual([]);
+    await act(async () => land());
+    await waitFor(() => expect(steps).toEqual(['edit', 'save']));
+    await waitFor(() => expect(getByRole('button', { name: 'Split' }).getAttribute('aria-disabled')).toBe('false'));
+  });
+
   it('also offers the document tools in a More tools menu, placed in the bar before Save', async () => {
     HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
       this.setAttribute('open', '');

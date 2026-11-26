@@ -238,6 +238,32 @@ describe('EngineClient', () => {
     await expect(protectedBytes).resolves.toBe(bytes);
   });
 
+  it('sends the extract and split requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.extractionRefusal(4);
+    const signed = client.extractSourceIsSigned(4);
+    const extracted = client.extractPages(4, [1, 2]);
+    const plan = client.planSplit('2,4', 5, 'report.pdf');
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'extractionRefusal', document: 4 },
+      { kind: 'extractSourceIsSigned', document: 4 },
+      { kind: 'extract', document: 4, pages: [1, 2] },
+      { kind: 'planSplit', cuts: '2,4', totalPages: 5, documentName: 'report.pdf' },
+    ]);
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const parts = [{ first: 0, last: 1, fileName: 'report-part1.pdf' }];
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: null });
+    reply({ type: 'result', id: ids[1]!, value: false });
+    reply({ type: 'result', id: ids[2]!, value: bytes });
+    reply({ type: 'result', id: ids[3]!, value: parts });
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(false);
+    await expect(extracted).resolves.toBe(bytes);
+    await expect(plan).resolves.toBe(parts);
+  });
+
   it('sends the image-export requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

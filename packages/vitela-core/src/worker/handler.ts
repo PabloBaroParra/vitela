@@ -116,6 +116,20 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
       }
       case 'closeImageExport':
         return result(id, await engine.closeImageExport(request.export));
+      // The extract questions and a split plan are a sentence, a yes/no and a few parts: copied.
+      case 'extractionRefusal':
+        return result(id, await engine.extractionRefusal(request.document));
+      case 'extractSourceIsSigned':
+        return result(id, await engine.extractSourceIsSigned(request.document));
+      case 'planSplit': {
+        const { cuts, totalPages, documentName } = request;
+        return result(id, await engine.planSplit(cuts, totalPages, documentName));
+      }
+      case 'extract': {
+        const bytes = await engine.extractPages(request.document, request.pages);
+        // A whole PDF: handed over, not copied.
+        return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
+      }
     }
   } catch (error) {
     // The core names every failure kind (`WrongPassword`, ...): the UI

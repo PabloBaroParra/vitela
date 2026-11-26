@@ -1,15 +1,19 @@
 // A menu button (WAI-ARIA APG "menu button" pattern): one button that opens
-// a list of actions. The workspace bar uses it on phones, where the document
-// tools (Compress, Export images, and the ones that come after them) do not
-// fit next to Save. Presentational: each tool's action is the caller's.
+// a list of actions. Generic and presentational: the workspace bar's phone
+// "More tools" menu and Organize's "Add blank page" menu are both this, and
+// each item's action is the caller's.
 //
 // Keyboard: Enter, Space or Down opens on the first item, Up on the last;
 // Down/Up move (wrapping), Home/End jump; Enter or Space runs the item;
 // Escape closes; Tab closes and moves on. A press outside closes it. Choosing
 // an item closes the menu and gives the focus back to the button BEFORE the
 // action runs, so a dialog the action opens returns the focus there too.
+//
+// Turning it off while it is open closes it for good (turning it back on does
+// not reopen it), and the focus, when it was in the menu, goes back to the
+// button rather than to the page.
 
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react';
 
 export interface MenuTool {
   readonly label: string;
@@ -18,7 +22,7 @@ export interface MenuTool {
   readonly onSelect: () => void;
 }
 
-interface ToolsMenuProps {
+interface MenuButtonProps {
   /** The button's accessible name, and the menu's. */
   readonly label: string;
   readonly tools: readonly MenuTool[];
@@ -34,10 +38,12 @@ interface ToolsMenuProps {
   readonly disabled?: boolean;
 }
 
-export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled = false }: ToolsMenuProps) {
+export function MenuButton({ label, tools, className, icon, buttonRef, disabled = false }: MenuButtonProps) {
   /** The item that has the focus while open, or `null` when closed. */
   const [active, setActive] = useState<number | null>(null);
-  const open = active !== null && !disabled;
+  // Still open on the render that turns it off: the layout effect below
+  // closes it before the paint, while the focus can still be seen in it.
+  const open = active !== null;
   const root = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const items = useRef<(HTMLLIElement | null)[]>([]);
@@ -47,6 +53,13 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled =
   useEffect(() => {
     if (active !== null) items.current[active]?.focus();
   }, [active]);
+
+  useLayoutEffect(() => {
+    if (!disabled || active === null) return;
+    const focusInside = root.current?.contains(document.activeElement) ?? false;
+    setActive(null);
+    if (focusInside) button.current?.focus();
+  }, [disabled, active]);
 
   // A press anywhere else closes it.
   useEffect(() => {
@@ -104,7 +117,7 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled =
   };
 
   return (
-    <div ref={root} className={`tools-menu${className ? ` ${className}` : ''}`}>
+    <div ref={root} className={`menu-button${className ? ` ${className}` : ''}`}>
       <button
         ref={(element) => {
           button.current = element;
@@ -112,7 +125,7 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled =
         }}
         id={buttonId}
         type="button"
-        className="tools-menu__button"
+        className="menu-button__button"
         title={label}
         aria-label={label}
         aria-haspopup="menu"
@@ -129,7 +142,7 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled =
         {icon ?? label}
       </button>
       {open && (
-        <ul id={menuId} className="tools-menu__list" role="menu" aria-labelledby={buttonId} onKeyDown={onMenuKey}>
+        <ul id={menuId} className="menu-button__list" role="menu" aria-labelledby={buttonId} onKeyDown={onMenuKey}>
           {tools.map((tool, index) => (
             <li
               key={tool.label}
@@ -139,7 +152,7 @@ export function ToolsMenu({ label, tools, className, icon, buttonRef, disabled =
               role="menuitem"
               tabIndex={-1}
               aria-disabled={tool.disabled || undefined}
-              className="tools-menu__item"
+              className="menu-button__item"
               onClick={() => choose(tool)}
               onPointerMove={() => setActive(index)}
             >

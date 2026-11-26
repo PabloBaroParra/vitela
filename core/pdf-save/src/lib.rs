@@ -110,7 +110,7 @@ pub use export::{
     document_file_stem, encode_rgba_image, page_image_file_name, parse_page_selection,
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
-pub use extract::{extracted_pages, ExtractError};
+pub use extract::{extracted_pages, extraction_refusal, ExtractError};
 pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};
 pub use import::{import_refusal, import_sources, ImportError, ImportOutcome, ImportRefusal};
 pub use imported_sources::ImportedSourceRegistry;

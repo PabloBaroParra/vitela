@@ -41,6 +41,10 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     protectionRefusal: unused('protectionRefusal'),
     protectionInvalidatesSignatures: unused('protectionInvalidatesSignatures'),
     protectToBytes: unused('protectToBytes'),
+    extractionRefusal: unused('extractionRefusal'),
+    extractSourceIsSigned: unused('extractSourceIsSigned'),
+    extractPages: unused('extractPages'),
+    planSplit: unused('planSplit'),
     ...overrides,
   };
 }

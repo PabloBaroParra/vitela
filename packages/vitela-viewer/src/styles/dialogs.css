@@ -251,6 +251,42 @@
   margin: 12px 0 0;
 }
 
+/* Extract pages and Split: one typed field, its hint, and the refusal. */
+.page-range-dialog {
+  width: min(400px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.page-range-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-range-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.page-range-dialog__hint {
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
+.page-range-dialog__refusal,
+.page-range-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.page-range-dialog__error {
+  margin: 12px 0 0;
+}
+
 /* Export pages as images: pages, format, resolution, and the last refusal. */
 .export-dialog {
   width: min(400px, calc(100vw - 32px));

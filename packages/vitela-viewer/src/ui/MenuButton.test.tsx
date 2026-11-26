@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ToolsMenu, type MenuTool } from './ToolsMenu';
+import { MenuButton, type MenuTool } from './MenuButton';
 
 afterEach(cleanup);
 
@@ -13,7 +13,7 @@ function setup(disabled: readonly string[] = []) {
   }));
   render(
     <>
-      <ToolsMenu label="More tools" tools={tools} />
+      <MenuButton label="More tools" tools={tools} />
       <button type="button">Outside</button>
     </>,
   );
@@ -24,7 +24,7 @@ function setup(disabled: readonly string[] = []) {
 const items = () => screen.getAllByRole('menuitem');
 const focused = () => document.activeElement?.textContent;
 
-describe('ToolsMenu', () => {
+describe('MenuButton', () => {
   it('is a closed menu button until pressed', () => {
     const { button } = setup();
     expect(button.getAttribute('aria-haspopup')).toBe('menu');
@@ -130,7 +130,7 @@ describe('ToolsMenu', () => {
   });
   it('stays shut while disabled, focusable and said to be off', () => {
     const chosen: string[] = [];
-    render(<ToolsMenu label="Add blank page" disabled tools={[{ label: 'Portrait A4', onSelect: () => chosen.push('p') }]} />);
+    render(<MenuButton label="Add blank page" disabled tools={[{ label: 'Portrait A4', onSelect: () => chosen.push('p') }]} />);
     const button = screen.getByRole('button', { name: 'Add blank page' });
     expect(button.getAttribute('aria-disabled')).toBe('true');
     fireEvent.click(button);
@@ -139,5 +139,41 @@ describe('ToolsMenu', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(chosen).toEqual([]);
+  });
+
+  it('closes for good when it turns off while open, the focus back on its button', () => {
+    const tools: MenuTool[] = [{ label: 'Portrait A4', onSelect: () => {} }];
+    const { rerender } = render(<MenuButton label="Add blank page" tools={tools} />);
+    const button = screen.getByRole('button', { name: 'Add blank page' });
+    fireEvent.click(button);
+    expect(focused()).toBe('Portrait A4');
+
+    rerender(<MenuButton label="Add blank page" disabled tools={tools} />);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(button);
+
+    // Turning back on does not reopen what was open before.
+    rerender(<MenuButton label="Add blank page" tools={tools} />);
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(button.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('leaves the focus where it is when it turns off while closed', () => {
+    const tools: MenuTool[] = [{ label: 'Portrait A4', onSelect: () => {} }];
+    const { rerender } = render(
+      <>
+        <MenuButton label="Add blank page" tools={tools} />
+        <button type="button">Outside</button>
+      </>,
+    );
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    outside.focus();
+    rerender(
+      <>
+        <MenuButton label="Add blank page" disabled tools={tools} />
+        <button type="button">Outside</button>
+      </>,
+    );
+    expect(document.activeElement).toBe(outside);
   });
 });

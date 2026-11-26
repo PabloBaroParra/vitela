@@ -95,6 +95,8 @@ export function useDocument(engine: Engine) {
   const locked = useRef<{ file: PdfSource; fileHandle?: WritableFileHandle; attempt: number } | null>(null);
   /** The handle of the document on screen, the one engine document kept. */
   const shown = useRef<DocumentHandle | null>(null);
+  /** The page count of the document on screen as of its last edit, set before any render shows it. */
+  const pageCount = useRef(0);
   const release = useCallback(
     // Nothing to recover if a close fails: the handle is never used again.
     (handle: DocumentHandle) => void engine.close(handle).catch(() => {}),
@@ -136,6 +138,7 @@ export function useDocument(engine: Engine) {
             locked.current = null;
             const previous = shown.current;
             shown.current = handle;
+            pageCount.current = info.pageCount;
             setState({ document: { name: file.name, info, handle, generation: attemptId, fileHandle }, activity: IDLE });
             if (previous !== null) release(previous);
           },
@@ -194,6 +197,7 @@ export function useDocument(engine: Engine) {
    */
   const revise = useCallback((handle: DocumentHandle, edited: EditedDocument): boolean => {
     if (shown.current !== handle) return false;
+    pageCount.current = edited.info.pageCount;
     setState((s) =>
       s.document?.handle === handle
         ? {
@@ -230,5 +234,11 @@ export function useDocument(engine: Engine) {
     );
   }, []);
 
-  return { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage };
+  /**
+   * The page count of the document on screen now: after an edit has landed,
+   * before a render has brought it (what a tool that waited for the edits reads).
+   */
+  const pageCountNow = useCallback(() => pageCount.current, []);
+
+  return { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage, pageCountNow };
 }

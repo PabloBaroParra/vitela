@@ -27,6 +27,7 @@
 use std::fmt;
 
 use pdf_document::prune::prune_to;
+use pdf_document::Document;
 
 use crate::error::SaveError;
 use crate::rewrite::{full_rewrite_blocker, RewriteBlocker};
@@ -119,12 +120,8 @@ pub fn extracted_pages(source: SaveSource<'_>, pages: &[u32]) -> Result<Vec<u8>,
         return Err(ExtractError::NotAscending);
     }
 
-    let security = source.document.security.as_ref();
-    if !pdf_manip::text_extraction_is_allowed(security) {
-        return Err(ExtractError::ExtractionDenied);
-    }
-    if let Some(blocker) = full_rewrite_blocker(security) {
-        return Err(ExtractError::RewriteBlocked(blocker));
+    if let Some(refusal) = extraction_refusal(source.document) {
+        return Err(refusal);
     }
 
     let total = source.document.pages.len() as u32;
@@ -141,6 +138,22 @@ pub fn extracted_pages(source: SaveSource<'_>, pages: &[u32]) -> Result<Vec<u8>,
         SignatureAcknowledgement::ProceedAndInvalidate,
     ))
     .map_err(Into::into)
+}
+
+/// The two gates of an extraction that depend on the document alone, not on
+/// the selection: [`ExtractError::ExtractionDenied`], then
+/// [`ExtractError::RewriteBlocked`]. `None` when pages may be extracted.
+///
+/// What a shell asks before it offers Extract or Split at all, so the
+/// refusal is said up front in the core's words; [`extracted_pages`] asks the
+/// same two, in the same order, before it cuts anything. Cheap: it reads the
+/// document's security, nothing else.
+pub fn extraction_refusal(document: &Document) -> Option<ExtractError> {
+    let security = document.security.as_ref();
+    if !pdf_manip::text_extraction_is_allowed(security) {
+        return Some(ExtractError::ExtractionDenied);
+    }
+    full_rewrite_blocker(security).map(ExtractError::RewriteBlocked)
 }
 
 /// A shell-neutral rendering of [`RewriteBlocker`].
@@ -289,6 +302,31 @@ mod tests {
             Err(ExtractError::RewriteBlocked(
                 RewriteBlocker::IncompleteCredentials
             ))
+        ));
+    }
+
+    #[test]
+    fn the_document_gates_are_asked_without_a_selection() {
+        let mut fixture = fixture(2);
+        assert!(extraction_refusal(&fixture.document).is_none());
+
+        with_security(&mut fixture, 0xFFFF_FFFC, EncryptionCredentials::user("u"));
+        assert!(matches!(
+            extraction_refusal(&fixture.document),
+            Some(ExtractError::RewriteBlocked(
+                RewriteBlocker::IncompleteCredentials
+            ))
+        ));
+
+        // The permission is asked first, as `extracted_pages` asks it.
+        with_security(
+            &mut fixture,
+            0xFFFF_FFFC & !0x10,
+            EncryptionCredentials::user("u"),
+        );
+        assert!(matches!(
+            extraction_refusal(&fixture.document),
+            Some(ExtractError::ExtractionDenied)
         ));
     }
 

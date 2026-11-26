@@ -399,6 +399,34 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('extracts and splits through the real core: the pages as they are now, named by the core, the session untouched', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const vector = readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf'));
+    const { handle, info } = await engine.open(new Uint8Array(vector));
+    expect(info.pageCount).toBe(3);
+    expect(await engine.extractionRefusal(handle)).toBeNull();
+    expect(await engine.extractSourceIsSigned(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+
+    const bytes = await engine.extractPages(handle, [1]);
+    const copy = await engine.open(bytes);
+    expect(copy.info.pageCount).toBe(1);
+    expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+    await engine.close(copy.handle);
+
+    const parts = await engine.planSplit('1', 2, 'vector_only.pdf');
+    expect(parts).toEqual([
+      { first: 0, last: 0, fileName: 'vector_only-part1.pdf' },
+      { first: 1, last: 1, fileName: 'vector_only-part2.pdf' },
+    ]);
+    await expect(engine.planSplit('2', 2, 'vector_only.pdf')).rejects.toMatchObject({ name: 'InvalidPageSelection' });
+    // Not an edit: the removal is still the one step to undo.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    await engine.close(handle);
+  });
+
   it('exports pages through the real core: the pending edits drawn, sized by the DPI, named and encoded by the core', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);

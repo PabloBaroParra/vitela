@@ -1,7 +1,8 @@
 // Container: the Organize screen — every page (Pages view) or every block of
 // pages from one PDF (Documents view) as a thumbnail, to reorder (drag, or
 // Ctrl+Shift+arrow), rotate and delete, plus Add PDFs (picker or drop) and
-// Add blank page (after the selection, or at the end), with undo/redo. The selection is one contiguous run of cards, which is always one
+// Add blank page (after the selection, or at the end), Extract (the
+// selection) and Split — the workspace's dialogs — with undo/redo. The selection is one contiguous run of cards, which is always one
 // contiguous run of pages, so each operation is one core command and one undo
 // step in either view. The rules (permission, positions, what an import may
 // carry) are the core's; this screen keeps the selection in step with what an
@@ -48,11 +49,25 @@ interface OrganizeScreenProps {
   readonly onEdited: (handle: DocumentHandle, edited: EditedDocument) => boolean;
   /** Records which file each imported PDF came from, by its block source id. */
   readonly onSourcesNamed: (handle: DocumentHandle, names: readonly (readonly [number, string])[]) => void;
+  /**
+   * Extract pages (on the selected pages, always one run) and Split: the
+   * workspace's dialogs, which deliver the new files. Without it Organize
+   * offers neither.
+   */
+  readonly pageTools?: PageTools;
+}
+
+/** The page tools that write new files instead of editing this document. */
+export interface PageTools {
+  /** One of them is running: neither can be started. */
+  readonly busy: boolean;
+  readonly extract: (pages: PageRun) => void;
+  readonly split: () => void;
 }
 
 const NO_NAMES: ReadonlyMap<number, string> = new Map();
 
-export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: OrganizeScreenProps) {
+export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed, pageTools }: OrganizeScreenProps) {
   const markDirty = useMarkDirty();
   const scope = useContext(EditorScopeContext);
   const { handle, info } = document;
@@ -245,6 +260,13 @@ export function OrganizeScreen({ engine, document, onEdited, onSourcesNamed }: O
         canUndo={organize.canUndo && !organize.pending}
         canRedo={organize.canRedo && !organize.pending}
         onInsertBlank={insertBlank}
+        // Not edits: the assembly permission does not hold them back (the
+        // dialogs say why a document refuses), but an edit in flight does,
+        // like Undo: the dialog would count the pages before it lands.
+        canExtract={!!pageTools && !pageTools.busy && !organize.pending && pages !== null}
+        canSplit={!!pageTools && !pageTools.busy && !organize.pending}
+        onExtract={pageTools && (() => pages && pageTools.extract(pages))}
+        onSplit={pageTools?.split}
         onRotateLeft={() => rotate(-90)}
         onRotateRight={() => rotate(90)}
         onDelete={remove}
