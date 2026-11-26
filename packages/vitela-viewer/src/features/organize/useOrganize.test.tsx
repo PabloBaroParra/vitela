@@ -16,6 +16,7 @@ function info(pageCount: number, documentAssemblyAllowed = true): DocumentInfo {
     blocks: [{ source: { kind: 'base' }, part: null, start: 0, count: pageCount }],
     importRefusal: null,
     annotationEditingAllowed: true,
+    formFillAllowed: true,
   };
 }
 
@@ -40,7 +41,7 @@ function deferred<T>() {
 describe('useOrganize', () => {
   it('applies an edit to the document it names and reports the edited document', async () => {
     const calls: [number, PageEdit][] = [];
-    const edited: EditedDocument = { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
+    const edited: EditedDocument = { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
     const engine = fakeEngine({ applyEdit: async (handle, edit) => (calls.push([handle, edit as PageEdit]), edited) });
     const reported: EditedDocument[] = [];
     const { result } = renderHook(() => useOrganize(engine, doc(), (e) => reported.push(e)));
@@ -74,7 +75,7 @@ describe('useOrganize', () => {
     expect(calls).toBe(1);
 
     await act(async () => {
-      first.resolve({ info: info(3), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
+      first.resolve({ info: info(3), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] });
       await running;
     });
     expect(result.current.pending).toBe(false);
@@ -82,7 +83,7 @@ describe('useOrganize', () => {
 
   it('undoes and redoes only when the history says there is something to step to', async () => {
     const steps: string[] = [];
-    const edited: EditedDocument = { info: info(3), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null };
+    const edited: EditedDocument = { info: info(3), canUndo: false, canRedo: true, annotations: [], addedAnnotationId: null, formFields: [] };
     const engine = fakeEngine({
       undo: async () => (steps.push('undo'), edited),
       redo: async () => (steps.push('redo'), edited),
@@ -104,7 +105,7 @@ describe('useOrganize', () => {
 
   it('imports prepared sources after the last page and reports the edited document', async () => {
     const calls: [number, readonly number[], number][] = [];
-    const imported = { info: info(5), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, sourceIds: [1] };
+    const imported = { info: info(5), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [], sourceIds: [1] };
     const engine = fakeEngine({ importPrepared: async (...args) => (calls.push(args), imported) });
     const reported: EditedDocument[] = [];
     const { result } = renderHook(() => useOrganize(engine, doc(), (e) => reported.push(e)));
@@ -118,7 +119,7 @@ describe('useOrganize', () => {
   it('runs an import asked for while an edit is in flight once that edit lands, after the pages it left', async () => {
     const edit = deferred<EditedDocument>();
     const steps: string[] = [];
-    const imported = { info: info(4), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, sourceIds: [1] };
+    const imported = { info: info(4), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [], sourceIds: [1] };
     const engine = fakeEngine({
       applyEdit: () => (steps.push('edit'), edit.promise),
       importPrepared: async (_handle, _ids, index) => (steps.push(`import at ${index}`), imported),
@@ -132,7 +133,7 @@ describe('useOrganize', () => {
       importing = result.current.importPrepared([7]);
     });
     await act(async () => {
-      edit.resolve({ info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null });
+      edit.resolve({ info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] });
       await editing;
       expect(await importing).toBe(imported);
     });
@@ -144,7 +145,7 @@ describe('useOrganize', () => {
     const edit = deferred<EditedDocument>();
     const engine = fakeEngine({
       applyEdit: () => edit.promise,
-      importPrepared: async () => ({ info: info(4), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, sourceIds: [1] }),
+      importPrepared: async () => ({ info: info(4), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [], sourceIds: [1] }),
     });
     const { result } = renderHook(() => useOrganize(engine, doc(), () => {}));
     let importing!: Promise<unknown>;
@@ -199,7 +200,7 @@ describe('useOrganize', () => {
     const engine = fakeEngine({
       applyEdit: async () => {
         if (fail) throw new EngineError('UnsupportedOperation', 'cannot rewrite this document');
-        return { info: info(3), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
+        return { info: info(3), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
       },
     });
     const { result } = renderHook(() => useOrganize(engine, doc(), () => {}));
@@ -222,7 +223,7 @@ describe('useOrganize', () => {
       running = result.current.apply({ kind: 'remove', from: 0, count: 1 });
     });
     unmount();
-    const edited = { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
+    const edited = { info: info(2), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
     pending.resolve(edited);
     await running;
     expect(reported).toEqual([edited]);

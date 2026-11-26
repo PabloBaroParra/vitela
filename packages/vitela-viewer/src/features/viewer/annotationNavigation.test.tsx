@@ -41,6 +41,7 @@ function openDocument(annotations: readonly Annotation[], allowed: boolean): Ope
       blocks: [],
       importRefusal: null,
       annotationEditingAllowed: allowed,
+      formFillAllowed: true,
     },
     handle: 1,
     generation: 1,
@@ -83,7 +84,7 @@ async function open(initial: readonly Annotation[], { allowed = true, ...overrid
     canUndo: false,
     canRedo: false,
     annotations,
-    addedAnnotationId: null,
+    addedAnnotationId: null, formFields: [],
   });
   const engine = fakeEngine({
     renderPage: async () => bitmap,

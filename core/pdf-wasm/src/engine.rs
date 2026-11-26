@@ -13,7 +13,8 @@
 //! The edit surface (`applyEdit`, undo/redo, `saveToBytes`,
 //! `refreshPreview`, `previewStale`) is in [`edit`]; import and the
 //! Documents view's blocks are in [`import`]; annotations, comments and the
-//! free-text and stamp geometry are in [`annotation`].
+//! free-text and stamp geometry are in [`annotation`]; the form fields and
+//! filling them in are in [`form`].
 
 use std::collections::HashMap;
 
@@ -28,6 +29,7 @@ use crate::model::{DocumentModel, PreparedSources};
 
 mod annotation;
 mod edit;
+mod form;
 mod import;
 
 pub use annotation::{free_text_layout, stamp_placement};

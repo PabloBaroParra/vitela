@@ -59,6 +59,9 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         return result(id, await engine.annotations(request.document));
       case 'comments':
         return result(id, await engine.comments(request.document));
+      // Form fields too: a name, a box and a value each.
+      case 'formFields':
+        return result(id, await engine.formFields(request.document));
       case 'freeTextLayout':
         return result(id, await engine.freeTextLayout(request.contents, request.widthPt, request.heightPt));
       case 'stampPlacement': {

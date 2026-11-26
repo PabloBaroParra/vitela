@@ -9,6 +9,7 @@ import type {
   DocumentHandle,
   Edit,
   EditedDocument,
+  FormField,
   FreeTextLayout,
   ImportedDocument,
   OpenedDocument,
@@ -57,6 +58,7 @@ export type EngineRequest =
     }
   | { readonly kind: 'annotations'; readonly document: DocumentHandle }
   | { readonly kind: 'comments'; readonly document: DocumentHandle }
+  | { readonly kind: 'formFields'; readonly document: DocumentHandle }
   | { readonly kind: 'freeTextLayout'; readonly contents: string; readonly widthPt: number; readonly heightPt: number }
   | {
       readonly kind: 'stampPlacement';
@@ -82,6 +84,7 @@ export interface EngineResults {
   selectWord: TextSelection;
   annotations: Annotation[];
   comments: Comment[];
+  formFields: FormField[];
   freeTextLayout: FreeTextLayout;
   stampPlacement: PageRect;
 }

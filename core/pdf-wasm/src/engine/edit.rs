@@ -12,22 +12,26 @@
 //! when it says so before rendering or reading text again. Annotation edits
 //! never make it stale: the preview leaves the session's annotations out and
 //! the shell draws them from `annotations` (the core's rule,
-//! `pdf_save::shows_in_session_preview`).
+//! `pdf_save::shows_in_session_preview`); a form fill does, because pdfium
+//! paints the field.
 
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
-use crate::model::{AnnotationEdit, PageEdit};
+use crate::model::{AnnotationEdit, FieldFill, PageEdit};
 
-/// What an `EditCommand` carries: a page edit or an annotation edit.
+/// What an `EditCommand` carries: a page edit, an annotation edit or a
+/// form fill.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
     Annotation(AnnotationEdit),
+    Form(FieldFill),
 }
 
-/// One edit for `Engine.applyEdit`: a page edit (here) or an annotation edit
-/// (`engine/annotation.rs`). Positions are 0-based.
+/// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
+/// (`engine/annotation.rs`) or a form fill (`engine/form.rs`). Positions are
+/// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
 pub struct EditCommand(pub(super) Edit);
@@ -73,7 +77,11 @@ impl Engine {
     /// the document withholds the annotate permission (asked first), then
     /// `PageIndexOutOfBounds`, `AnnotationNotFound`, `EncodingGap`,
     /// `InvalidImage` or `UnsupportedOperation`; a retext to the text a box
-    /// already has records nothing.
+    /// already has records nothing. A form fill is refused with
+    /// `EditNotPermitted` when the document withholds the annotate-or-fill
+    /// permission (asked first), then `FormFieldNotFound` or
+    /// `UnsupportedOperation` (a value the field cannot hold); unlike an
+    /// annotation edit it makes `previewStale` true.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
@@ -84,6 +92,7 @@ impl Engine {
                 Edit::Annotation(annotation) => {
                     open.model.apply_annotation_edit(annotation.clone())
                 }
+                Edit::Form(fill) => open.model.fill_form_field(fill.clone()).map(|()| None),
             })
             .map_err(js_error)
     }

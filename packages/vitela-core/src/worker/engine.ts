@@ -55,6 +55,9 @@ export const coreEdits: CoreEdits = {
   recolorAnnotation: (id, rgb) => core.EditCommand.recolorAnnotation(id, rgb),
   retextAnnotation: (id, contents) => core.EditCommand.retextAnnotation(id, contents),
   removeAnnotation: (id) => core.EditCommand.removeAnnotation(id),
+  setFieldText: (id, text) => core.EditCommand.setFieldText(id, text),
+  setFieldChecked: (id, checked) => core.EditCommand.setFieldChecked(id, checked),
+  setFieldChoice: (id, option) => core.EditCommand.setFieldChoice(id, option),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

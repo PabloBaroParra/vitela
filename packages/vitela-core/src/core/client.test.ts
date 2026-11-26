@@ -56,6 +56,7 @@ describe('EngineClient', () => {
         blocks: [],
         importRefusal: null,
         annotationEditingAllowed: true,
+        formFillAllowed: true,
       },
     };
     reply({ type: 'result', id: message.id, value });
@@ -212,8 +213,9 @@ describe('EngineClient', () => {
       blocks: [],
       importRefusal: null,
       annotationEditingAllowed: true,
+      formFillAllowed: true,
     };
-    const value = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null };
+    const value = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
     reply({ type: 'result', id: sent[0]!.message.id, value });
     await expect(edited).resolves.toBe(value);
   });
@@ -253,6 +255,20 @@ describe('EngineClient', () => {
     ]);
     expect(sent.map((s) => s.transfer)).toEqual([[], []]);
     expect(image.byteLength).toBe(3);
+  });
+
+  it('asks for the form fields and sends a fill as it is', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const listed = client.formFields(3);
+    const edit = { kind: 'setFieldValue', fieldId: 0, value: { kind: 'text', text: 'José' } } as const;
+    void client.applyEdit(3, edit);
+    expect(sent.map((s) => s.message.request)).toEqual([
+      { kind: 'formFields', document: 3 },
+      { kind: 'applyEdit', document: 3, edit },
+    ]);
+    reply({ type: 'result', id: sent[0]!.message.id, value: [] });
+    await expect(listed).resolves.toEqual([]);
   });
 
   it('asks for the annotations, the comments and a free-text layout', async () => {

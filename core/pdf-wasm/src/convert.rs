@@ -7,6 +7,7 @@
 use pdf_render::{Bitmap, TextRect};
 
 pub mod annotation;
+pub mod form;
 
 /// Floats per rect in a flattened buffer: `x, y, width, height` in PDF points
 /// with a bottom-left origin, the order `TextRect` declares them.

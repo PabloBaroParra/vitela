@@ -16,6 +16,7 @@ import type {
   Edit,
   EditedDocument,
   Engine,
+  FormField,
   FreeTextLayout,
   ImportedDocument,
   OpenedDocument,
@@ -112,6 +113,10 @@ export class EngineClient implements Engine {
 
   comments(document: DocumentHandle): Promise<Comment[]> {
     return this.send({ kind: 'comments', document });
+  }
+
+  formFields(document: DocumentHandle): Promise<FormField[]> {
+    return this.send({ kind: 'formFields', document });
   }
 
   freeTextLayout(contents: string, widthPt: number, heightPt: number): Promise<FreeTextLayout> {

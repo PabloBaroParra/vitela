@@ -51,6 +51,8 @@ pub enum ErrorKind {
     /// Free text holds a character the box's font (Helvetica, WinAnsi)
     /// cannot show. The message names it; the UI keeps the dialog open.
     EncodingGap,
+    /// No form field of the document answers to that id.
+    FormFieldNotFound,
 }
 
 impl ErrorKind {
@@ -73,6 +75,7 @@ impl ErrorKind {
             Self::AnnotationNotFound => "AnnotationNotFound",
             Self::InvalidImage => "InvalidImage",
             Self::EncodingGap => "EncodingGap",
+            Self::FormFieldNotFound => "FormFieldNotFound",
         }
     }
 }
@@ -222,6 +225,23 @@ impl From<pdf_annotate::AnnotateError> for EngineError {
             // `UnsupportedOperation`, `InvalidRect`, and whatever the core
             // adds later (the enum is `#[non_exhaustive]`): a refusal of the
             // request that leaves the document intact.
+            _ => ErrorKind::UnsupportedOperation,
+        };
+        Self::new(kind, err.to_string())
+    }
+}
+
+impl From<pdf_form::FormError> for EngineError {
+    /// A fill the core would not build, by the kinds `pdf-ffi` gives the same
+    /// failures: a missing id keeps its own kind; a value the field cannot
+    /// hold (the wrong kind, a choice it does not offer, text too long) is a
+    /// refusal of the request that leaves the document intact,
+    /// `UnsupportedOperation`, with the core's own words.
+    fn from(err: pdf_form::FormError) -> Self {
+        let kind = match err {
+            pdf_form::FormError::FieldNotFound(_) => ErrorKind::FormFieldNotFound,
+            // `UnsupportedOperation`, `InvalidValue`, and whatever the core
+            // adds later (the enum is `#[non_exhaustive]`).
             _ => ErrorKind::UnsupportedOperation,
         };
         Self::new(kind, err.to_string())
@@ -415,5 +435,23 @@ mod tests {
         assert_eq!(ErrorKind::EncodingGap.name(), "EncodingGap");
         assert_eq!(ErrorKind::AnnotationNotFound.name(), "AnnotationNotFound");
         assert_eq!(ErrorKind::InvalidImage.name(), "InvalidImage");
+    }
+
+    #[test]
+    fn form_failures_map_like_the_ffi_boundary() {
+        use pdf_form::FormError as E;
+        let missing = EngineError::from(E::FieldNotFound(pdf_document::FormFieldId(7)));
+        assert_eq!(missing.kind, ErrorKind::FormFieldNotFound);
+        assert_eq!(missing.message, "no form field with id 7");
+        assert_eq!(ErrorKind::FormFieldNotFound.name(), "FormFieldNotFound");
+        for refusal in [
+            E::UnsupportedOperation("set_value"),
+            E::InvalidValue("not an option".into()),
+        ] {
+            let message = refusal.to_string();
+            let mapped = EngineError::from(refusal);
+            assert_eq!(mapped.kind, ErrorKind::UnsupportedOperation);
+            assert_eq!(mapped.message, message);
+        }
     }
 }

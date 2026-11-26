@@ -16,6 +16,7 @@ const info = (annotationEditingAllowed = true) => ({
   blocks: [],
   importRefusal: null,
   annotationEditingAllowed,
+  formFillAllowed: true,
 });
 
 const doc = (overrides: Partial<OpenDocument> = {}): OpenDocument => ({
@@ -31,7 +32,7 @@ const edited = (canUndo: boolean, canRedo = false): EditedDocument => ({
   canUndo,
   canRedo,
   annotations: [],
-  addedAnnotationId: null,
+  addedAnnotationId: null, formFields: [],
 });
 
 /** What sits at position 0 of `info()`: page id 0, unrotated. */
@@ -278,7 +279,7 @@ describe('useAnnotationEdits.add', () => {
   });
 
   it('hands the added annotation id over before the edited document is reported', async () => {
-    const applyEdit = vi.fn(async (): Promise<EditedDocument> => ({ ...edited(true), addedAnnotationId: 42 }));
+    const applyEdit = vi.fn(async (): Promise<EditedDocument> => ({ ...edited(true), addedAnnotationId: 42, formFields: [] }));
     const order: string[] = [];
     const onEdited = vi.fn(() => order.push('edited'));
     const onAdded = vi.fn((id: number) => order.push(`added ${id}`));

@@ -1,7 +1,7 @@
 # Ficha de batch B26 — Shell web (Vitela en el navegador)
 
 > Documentado 2026-11-11, a pedido explícito del usuario. **Fase 0 cerrada (GO, #555);
-> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓, T-238 ✓.**
+> fase 1 cerrada: T-217…T-222 ✓ (#560, #561, #569, #571, #572); fase 2 cerrada: T-223 ✓ (#574), T-224 ✓, T-225 ✓, T-226 ✓, T-227 ✓ (#620); fase 3 en curso: T-235 ✓, T-236 ✓, T-237 ✓, T-238 ✓, T-242 ✓.**
 > Se trabaja en segundo plano, en paralelo al resto de shells. Mismo formato de ficha
 > que B24 (compresión).
 >
@@ -812,7 +812,7 @@ que sigue:
 | **T-239** ✓ | Web: sellos de imagen (elegir o soltar PNG/JPEG sobre la página, tamaño del core). | Playwright: soltar un PNG, se ve, guardar y comprobar `/Stamp` con su apariencia; deshacer y rehacer lo vuelven a pintar. |
 | **T-240** ✓ | Web: seleccionar y editar una anotación — mover/redimensionar (asas y teclado), diálogos "Mover a"/"Redimensionar", recolorear, editar texto, borrar. | Playwright: mover arrastrando y con flechas, redimensionar, recolorear, borrar, deshacer; guardar y comprobar rects y color. |
 | **T-241** ✓ | Web: navegación Anterior/Siguiente y lista de comentarios (incluidos los del archivo, solo lectura) con "Leer nota". | Playwright: Siguiente revela la anotación fuera de pantalla; la lista muestra la nota de un fixture con autor y la de la sesión; funciona con anotar prohibido. |
-| **T-242** | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
+| **T-242** ✓ | `pdf-wasm` + `@vitela/core`: `formFields`, `applyEdit` con `setFieldValue` (refresco **dentro** de la petición, como T-226) y `formFillAllowed`. | `wasm-bindgen-test`: rellenar texto/casilla/radio/lista, guardar, reabrir y leer los valores; un valor imposible → error tipado. |
 | **T-243** | Web: panel Formularios (lista de campos, rellenar los cuatro tipos, confirmar al salir del campo, Tab entre campos y revelar el campo en la página). | Playwright: rellenar un AcroForm del repo, la página se repinta con el valor, guardar, reabrir y ver los valores; firmado → rellenar guarda incremental conservando el prefijo; sin permiso → solo lectura. |
 
 T-235 bloquea T-236 y T-242. T-236 bloquea T-237…T-241; T-237 (la capa) bloquea T-238…T-240. T-242 bloquea T-243. Tras T-235 las dos pistas (anotar y formularios) pueden ir en paralelo. Fuera de la fase 3: crear/mover/borrar campos de formulario (autoría).
@@ -1412,6 +1412,91 @@ comments"). Sin cambios en el core ni en `@vitela/core`. Lo que condiciona lo qu
   270° sin E2E. La lista no está virtualizada. El `<title>` de la nota sigue inerte: no se ve al
   pasar el ratón. El panel se cierra al ir a Organize y volver. Una nota
   de sesión se lee, pero no se puede retextear (regla del core).
+
+### T-242 — resultado
+
+Detalle de la API en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md)
+("Forms"). Ninguna regla nueva en el core: todo lo que hacía falta lo bajó T-235. Lo que
+condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/form.rs` + `model/form/tests.rs`, `engine/form.rs`,
+  `dto/form.rs`, `convert/form.rs`): depende de `pdf-form`. `FieldFill { id, value:
+  FieldValue }` en tipos del core. **Mismo orden que `pdf-ffi`:** `check_edit` con
+  `EditClass::ANNOTATION` (bit 6; un test fija que es `EditClass::of` del comando
+  construido) antes de mirar el id, luego `pdf_form::fill_field` (valida sobre una copia),
+  luego el rechazo del modelo. `FormError::FieldNotFound` → `FormFieldNotFound` (tipo nuevo,
+  el `FormFieldNotFound` de `pdf-ffi`); `UnsupportedOperation`/`InvalidValue` (tipo de valor
+  equivocado, opción que no ofrece, texto más largo que `/MaxLen`) →
+  `UnsupportedOperation` con las palabras del core, como `pdf-ffi`. `EditCommand` gana
+  `setFieldText`, `setFieldChecked`, `setFieldChoice` (uno por tipo de valor; `None` = nada
+  elegido); `Engine` gana `formFields` y `formFillAllowed`
+  (`pdf_save::form_fill_allowed`).
+- **Lista de campos (como `pdf-ffi`):** `/Fields` en orden, los del archivo incluidos (no
+  está vacía al abrir), cada uno con la posición actual de su página; uno cuya página ya no
+  está (borrada, guardada para deshacer) no se lista, igual que `list_form_fields`.
+  Rellenarlo por id sigue llegando al core, que decide (no hay geometría que convertir).
+  **Desviación:** `pdf-ffi` lista un `FormFieldKind` desconocido como texto de solo lectura
+  (`max_len: Some(0)`); aquí se omite, como las anotaciones de T-236 (el lector del core solo
+  produce los cuatro tipos, así que hoy no cambia nada). Tampoco se listaría un campo cuyo
+  valor no casa con su tipo. El core no tiene banderas de solo lectura/obligatorio, así que
+  no se exponen.
+- **Forma del DTO (decisión).** Plano, como `AnnotationEntry`: una clase `FormFieldEntry`
+  (`kind` `text`/`checkbox`/`radio`/`dropdown`, `name`, `rect`, `existing`, `multiline`,
+  `maxLength`, `options`, `optionRects` —cuatro números por botón—, `editable`, `text`,
+  `checked`, `selected`). `@vitela/core` lo decodifica (`worker/forms.ts`) a la unión
+  `FormField` por `kind` (`text` con `value`; `checkbox` con `checked`; `radio` con
+  `buttons: {exportValue, rect}[]` y `selected`; `dropdown` con `options`, `editable` y
+  `selected`); un `kind` desconocido, un rect roto o botones que no emparejan se omiten; los
+  ausentes pasan a `null`. Los rects van en la página dibujada (`PageFrame`), como las
+  anotaciones: T-243 los usa tal cual para revelar el campo.
+- **Refresco dentro de la petición (verificado).** Un relleno no es edición de anotación, así
+  que `shows_in_session_preview` lo marca y `previewStale` queda en `true`: el `step` de
+  `documentEngine` ya refresca en ese caso, sin cambios en su lógica. Probado en nativo
+  (rellenar, deshacer y rehacer ponen la vista previa atrasada), con el núcleo falso
+  (rellenar, deshacer y rehacer refrescan una vez cada uno; si el refresco falla se deshace el
+  relleno) y contra pdfium real (el render siguiente ya pinta el valor nuevo en la caja del
+  campo, y el deshacer lo devuelve a los mismos píxeles).
+- **`@vitela/core`:** `Edit = PageEdit | AnnotationEdit | FormEdit` (`{ kind:
+  'setFieldValue', fieldId, value: FieldValue }`, `FieldValue` = `text`/`checked`/`choice`).
+  `EditedDocument` gana `formFields` (la lista, en cada respuesta: un relleno, un deshacer o
+  un movimiento de página la cambian); `DocumentInfo` gana `formFillAllowed`; `Engine` gana
+  `formFields`; protocolo `formFields`; constante `FORM_FIELD_NOT_FOUND`. `@vitela/viewer` y
+  `apps/web`: solo fixtures de test retocados (los campos nuevos) y `formFields` en sus
+  `fakeEngine`.
+- **Acentos:** el texto "José Peña" (y uno multilínea con tildes) se rellena, guarda y
+  reabre igual, en nativo y contra pdfium real.
+- **Para T-243:**
+  - Al abrir hay que pedir `formFields(handle)` (no viene en `OpenedDocument`); después,
+    guardar `EditedDocument.formFields` en cada `revise`, como `annotations`.
+  - Rellenar con el valor que el campo ya tiene **sí** registra un paso (como `pdf-ffi`; el
+    core no lo trata como no-op): "confirmar al salir del campo" tiene que comparar antes de
+    mandar.
+  - `formFillAllowed` falso → panel de solo lectura; `EditNotPermitted` sigue siendo la
+    respuesta del motor si se intenta.
+  - Revelar un campo: `pageIndex` + `rect` (de un grupo de radio, la caja del grupo; cada
+    botón tiene la suya en `buttons`). Todos los campos de hoy son `existing` (los pinta
+    pdfium; la web no crea campos).
+  - El fixture `reportlab_acroform.pdf` trae los cuatro tipos; `full_name` tiene `/MaxLen`
+    100 (lo pone reportlab).
+- **Verificado en local (Windows):** `cargo test --locked --no-fail-fast -p pdf-form -p
+  pdf-save -p pdf-wasm` con pdfium vendorizado (534 pasados, 0 fallos, 7 ignorados;
+  `pdf-wasm` 91 nativos, 12 nuevos); `cargo clippy --locked -p pdf-wasm --all-targets -- -D
+  warnings` nativo; `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm` y
+  `cargo clippy --locked --target wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D
+  warnings` (con `PDFIUM_WASM_DIR` apuntando a `apps/web/generated/pdfium`); `cargo fmt
+  --all -- --check`. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 146/146 (12 nuevos,
+  incluido uno contra pdfium real: los cuatro tipos rellenados, pintado al instante,
+  guardado, releído al reabrir, valor imposible e id desconocido con su error, deshacer que
+  repinta). `@vitela/viewer`: `typecheck`, Vitest 67 / 676. `apps/web`: `typecheck`,
+  Vitest 6 / 19.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; los cuatro nuevos de
+  `tests/forms.rs` —el criterio de hecho: rellenar texto/casilla/radio/lista, guardar,
+  reabrir y leer los valores; valor imposible → `UnsupportedOperation`, id desconocido →
+  `FormFieldNotFound`, sin permiso → `EditNotPermitted`, y el relleno que pinta tras
+  `refreshPreview`— compilan con clippy wasm32 y los verifica el job `wasm32` de `core.yml`);
+  Playwright y `build` de la app (sin UI nueva); `linux-gtk` (no toca).
+- **No cubierto:** ninguna UI (T-243); cuadros de lista, botones y campos de firma no se
+  listan; crear/mover/borrar campos (autoría) sigue fuera de la fase 3.
 
 ## Fase E — Visor embebible (`@vitela/viewer`)
 

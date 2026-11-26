@@ -14,6 +14,8 @@ export const ENCODING_GAP = 'EncodingGap';
 export const ANNOTATION_NOT_FOUND = 'AnnotationNotFound';
 /** A stamp's bytes are not a PNG or JPEG the engine can decode. */
 export const INVALID_IMAGE = 'InvalidImage';
+/** No form field of the document has that id. */
+export const FORM_FIELD_NOT_FOUND = 'FormFieldNotFound';
 
 /** A failure reported by the engine, carrying the core's kind as `name`. */
 export class EngineError extends Error {
