@@ -217,6 +217,9 @@ pub(crate) fn land_in_new_tab(
         if viewer.view_stack.visible_child_name().as_deref() == Some(HOME_PAGE) {
             crate::app::home::show_editor(viewer);
         }
+        // Nothing of this document is painted until its tab is switched to,
+        // which is not the end of the open the trace was started for.
+        crate::app::perf::forget(crate::app::perf::Mark::Open(document.document));
         Some(park::park_new(viewer, document))
     };
     after(viewer, id);

@@ -25,6 +25,7 @@ use view::{restore_screen, take_screen};
 pub(crate) use view::{restore_view_state, take_view_state, ViewState};
 
 use super::super::document::{close_document_in_background, show_document};
+use super::super::perf;
 use super::super::state::{
     AnnotationAccess, ContentEditAccess, ImportedSource, OpenedDocument, PageAssemblyAccess,
     SaveBacking, SessionToken, TextAccess, Viewer,
@@ -132,6 +133,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
     };
 
     viewer.status.set_text(&tr("preview-refreshing"));
+    let started = perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -140,16 +142,22 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
             })
             .await;
             let result = save_worker_result(result);
+            perf::finish("preview.worker", started, &[("ok", result.is_ok().into())]);
             match result {
                 Ok((reopened, warnings))
                     if let Some(generation) = prepare_reopened_session(&viewer, token) =>
                 {
+                    let installing = perf::now();
+                    let page_count = reopened.page_geometry.len();
+                    perf::mark(perf::Mark::Preview(reopened.document), started);
                     // The common case — every page still the size it was —
                     // keeps the page widgets and only swaps the handle under
                     // them; see `swap` for why a full rebuild froze large
                     // documents. A page op that changed the layout falls
                     // through to the rebuild.
-                    let still_editing = match swap::swap_in_place(&viewer, reopened) {
+                    let swapped = swap::swap_in_place(&viewer, reopened);
+                    let swapped_in_place = swapped.is_none();
+                    let still_editing = match swapped {
                         None => crate::app::content_edit::mode_is_active(&viewer),
                         Some(reopened) => {
                             // Lifted out *before* `show_document` drops the
@@ -189,6 +197,12 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     if still_editing {
                         crate::app::content_edit::reload_after_refresh(&viewer);
                     }
+                    let fields: [perf::Field; 2] = [
+                        ("pages", page_count.into()),
+                        ("in_place", swapped_in_place.into()),
+                    ];
+                    perf::finish("preview.install", installing, &fields);
+                    perf::finish("preview.refresh", started, &fields);
                     viewer
                         .status
                         .set_text(&refresh_status(&viewer, token, &message, &warnings));
@@ -262,6 +276,7 @@ fn refresh_snapshot_and_reopen(
     carried: CarriedSession,
 ) -> Result<(OpenedDocument, Vec<pdf_manip::GraftWarning>), String> {
     let source_refs = imported_sources(sources);
+    let started = perf::now();
     let outcome = pdf_save::save_preview_with_report(pdf_save::SaveInput {
         document: &document,
         base: &backing.base,
@@ -271,11 +286,19 @@ fn refresh_snapshot_and_reopen(
         imported_sources: pdf_save::ImportedSources::new(&source_refs),
     })
     .map_err(|error| error.to_string())?;
+    perf::finish(
+        "preview.save",
+        started,
+        &[("bytes", outcome.bytes.len().into())],
+    );
+    let started = perf::now();
     let renderer = PdfiumRenderer::new();
     let handle = renderer
         .open_document_from_bytes(outcome.bytes, backing.password.as_deref())
         .map_err(|error| error.to_string())?;
-    let page_geometry = match renderer.page_geometry(handle, Priority::Visible).wait() {
+    let page_geometry = renderer.page_geometry(handle, Priority::Visible).wait();
+    perf::finish("preview.reopen", started, &[]);
+    let page_geometry = match page_geometry {
         Ok(page_geometry) => page_geometry,
         Err(error) => {
             let _ = renderer.close_document(handle);

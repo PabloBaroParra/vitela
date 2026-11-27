@@ -1,7 +1,10 @@
 //! Viewport-driven rendering: deciding which pages to rasterize on each
 //! scroll tick, dispatching those renders to the core, and applying results.
 
+use std::time::Duration;
+
 use crate::app::i18n::tr_args;
+use crate::app::perf;
 use gtk::prelude::*;
 use gtk::{gdk_pixbuf, gio, glib};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, RenderOptions, Tile};
@@ -17,7 +20,13 @@ const CACHE_PAGES: usize = 3;
 const MAX_RASTER_DIMENSION: u32 = 16_384;
 const MAX_RASTER_PIXELS: u64 = 32 * 1024 * 1024;
 const MAX_RASTER_BYTES: u64 = 128 * 1024 * 1024;
+
+/// A viewport update quicker than this is not worth a trace line: the
+/// function runs on every scroll tick.
+const VIEWPORT_TRACE_FLOOR: Duration = Duration::from_millis(2);
+
 pub(crate) fn update_viewport(viewer: &Viewer) {
+    let started = perf::now();
     let adjustment = viewer.scroll.vadjustment();
     let mut jobs = Vec::new();
     let mut tile_jobs = Vec::new();
@@ -189,6 +198,7 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
             &[("page", (page_index + 1).into())],
         ));
     }
+    let (render_count, tile_batch_count) = (jobs.len(), tile_jobs.len());
     for (document, page_index, dpi, tiles, tile_generation, zoom_generation) in tile_jobs {
         schedule_tiles(
             viewer,
@@ -208,6 +218,15 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
     if super::content_edit::mode_is_active(viewer) {
         super::content_edit::load_visible_page_content(viewer);
     }
+    perf::finish_over(
+        "viewport.update",
+        started,
+        VIEWPORT_TRACE_FLOOR,
+        &[
+            ("renders", render_count.into()),
+            ("tile_batches", tile_batch_count.into()),
+        ],
+    );
 }
 
 pub(crate) fn raster_dimensions(width_pt: f32, height_pt: f32, dpi: u32) -> Option<(u32, u32)> {
@@ -270,12 +289,23 @@ fn schedule_render(
         );
         render_id
     };
+    let started = perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = gio::spawn_blocking(move || render_result(handle))
                 .await
                 .expect("page-render task panicked");
+            perf::finish(
+                "render.page",
+                started,
+                &[
+                    ("page", page_index.into()),
+                    ("dpi", dpi.into()),
+                    ("visible", (priority == Priority::Visible).into()),
+                    ("ok", result.is_ok().into()),
+                ],
+            );
             apply_render_result(
                 &viewer, document, page_index, render_id, generation, dpi, result,
             );
@@ -342,6 +372,7 @@ fn apply_render_result(
             );
             slot.picture.set_pixbuf(Some(&pixbuf));
             slot.state = PageState::Rendered;
+            perf::page_landed(document, page_index);
         }
         Err(RenderError::Cancelled) => {}
         Err(error) => {
@@ -413,10 +444,11 @@ fn schedule_tiles(
         );
         id
     };
+    let started = perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let result = gio::spawn_blocking(move || {
+            let result: Result<Vec<RenderedPage>, RenderError> = gio::spawn_blocking(move || {
                 handle
                     .wait()?
                     .into_iter()
@@ -432,6 +464,16 @@ fn schedule_tiles(
             })
             .await
             .expect("tile-render task panicked");
+            perf::finish(
+                "render.tiles",
+                started,
+                &[
+                    ("page", page_index.into()),
+                    ("dpi", dpi.into()),
+                    ("tiles", tiles.len().into()),
+                    ("ok", result.is_ok().into()),
+                ],
+            );
             apply_tile_result(
                 &viewer,
                 TileBatch {
@@ -559,6 +601,7 @@ fn apply_tile_result(
         put_tile(&page.overlay, &page.highlights, &picture);
         page.tiles.insert(tile, picture);
     }
+    perf::tiles_landed(document, page_index);
 }
 
 /// Adds `tile` to the page `overlay` just under its highlight layer.

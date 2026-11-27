@@ -21,6 +21,7 @@ use pdf_document::Document;
 use pdf_render::{PdfiumRenderer, Priority};
 
 use super::super::document::{close_document_in_background, show_document};
+use super::super::perf;
 use super::super::state::{OpenedDocument, SessionToken, Viewer};
 use super::WriteOperation;
 
@@ -54,17 +55,23 @@ pub(super) fn spawn_write<W>(
     // The file is half written until the worker is done: no tab may open it
     // meanwhile.
     let claim = crate::app::tabs::claim_destination(viewer, destination);
+    let started = perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             let result = save_worker_result(gio::spawn_blocking(write).await);
+            perf::finish("save.worker", started, &[("ok", result.is_ok().into())]);
             // Let go before anything below runs: the continuation may close
             // this very tab, which the job would refuse.
             drop(job);
             drop(claim);
             match result {
                 Ok(reopened) if let Some(generation) = prepare_reopened_session(&viewer, token) => {
+                    let rebuilding = perf::now();
+                    let page_count = reopened.page_geometry.len();
                     show_document(&viewer, generation, reopened);
+                    perf::finish("save.rebuild", rebuilding, &[("pages", page_count.into())]);
+                    perf::finish("save.total", started, &[("pages", page_count.into())]);
                     // The work the recovery entry protected is on disk now.
                     crate::app::recovery::forget(&viewer);
                     viewer.status.set_text(&operation.done());

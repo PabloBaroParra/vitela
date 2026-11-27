@@ -25,6 +25,7 @@ pub mod compress;
 pub mod content_edit;
 pub mod forms;
 pub mod large;
+pub mod perf_reference;
 pub mod signed;
 
 /// Encryption algorithm used for a corpus fixture.

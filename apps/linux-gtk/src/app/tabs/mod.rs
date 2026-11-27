@@ -300,10 +300,32 @@ fn activate_then(
     if let Some(reason) = busy_refusal(viewer) {
         return Err(reason);
     }
+    let started = crate::app::perf::now();
     park::park_active(viewer);
     park::unpark(viewer, id, arrival);
+    trace_switch(viewer, started);
     then(viewer);
     Ok(())
+}
+
+/// Reports a tab switch that began at `started` (`perf`): the time to park
+/// one session and put the other on screen, and the start of the wait for
+/// its first painted page. Nothing when the traces are off.
+fn trace_switch(viewer: &Viewer, started: Option<std::time::Instant>) {
+    if started.is_none() {
+        return;
+    }
+    let Some((document, page_count)) = viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .map(|session| (session.document, session.pages.len()))
+    else {
+        return;
+    };
+    crate::app::perf::finish("tab.switch", started, &[("pages", page_count.into())]);
+    crate::app::perf::mark(crate::app::perf::Mark::TabSwitch(document), started);
 }
 
 /// Whether a parked tab holds changes not written to disk.

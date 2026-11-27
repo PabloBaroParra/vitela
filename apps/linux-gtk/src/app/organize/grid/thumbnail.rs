@@ -96,9 +96,13 @@ pub(in crate::app::organize) fn spawn_thumbnail(
     // edit between the two makes this result stale, and caching it would
     // outlive the card it was meant for.
     let generation = viewer.organize.thumbnails.generation();
+    let traced = crate::app::perf::thumbnails_join();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
+            // Held to the end of the future, whichever way it ends — see
+            // `perf::thumbnails_join`.
+            let _traced = traced;
             let job = move || -> Result<RenderedPage, pdf_render::RenderError> {
                 let renderer = PdfiumRenderer::new();
                 let (width_pt, height_pt) = renderer

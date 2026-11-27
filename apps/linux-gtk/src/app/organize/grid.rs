@@ -155,6 +155,8 @@ pub(super) fn populate_grid(viewer: &Viewer) {
         return;
     };
 
+    let started = crate::app::perf::now();
+    let page_count = rows.len();
     for (position, row) in rows.into_iter().enumerate() {
         let card = build_card(viewer, &grid, &viewer.organize.cards, row.id);
         card.number.set_text(&(position + 1).to_string());
@@ -175,6 +177,7 @@ pub(super) fn populate_grid(viewer: &Viewer) {
         }
     }
     relabel_sources(viewer);
+    crate::app::perf::finish("organize.grid", started, &[("pages", page_count.into())]);
 }
 
 /// One model page, flattened into what a card needs — the twin of
