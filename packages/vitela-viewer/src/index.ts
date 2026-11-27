@@ -9,7 +9,8 @@ export { VitelaViewer, type VitelaViewerHandle, type VitelaViewerProps, type Vie
 export { mountViewer, type MountedViewer, type MountViewerOptions } from './embed/mountViewer';
 export type { ViewerSource } from './embed/source';
 export type { SaveCallback } from './features/save/callbackDelivery';
-export { DocumentWorkspace, type DocumentScreen } from './features/document/DocumentWorkspace';
+export { DocumentWorkspace, type DocumentScreen, type WorkspaceHandle } from './features/document/DocumentWorkspace';
+export type { WritableFileHandle } from './platform/fileHandle';
 export type { EventScope } from './features/document/editorScope';
 export { useEngineStatus, type EngineStatus } from './engine/useEngineStatus';
 export { StatusLine } from './ui/StatusLine';

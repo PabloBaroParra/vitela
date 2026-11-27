@@ -1026,6 +1026,62 @@ worker, so they always run the code on disk.
   unrouted path is not the shell; it also checks the manifest, its icons and
   `sw.js` are served.
 
+## Opening PDFs from the OS (T-266)
+
+The installed app is offered for PDFs by the OS ("Open with", or the default
+once chosen). Chromium only; Firefox and WebKit install no file handlers.
+
+- **Manifest:** `file_handlers: [{ action: '/', accept: { 'application/pdf':
+  ['.pdf'] } }]` and `launch_handler: { client_mode: 'navigate-new' }`
+  (`src/features/pwa/manifest.ts`): each launch gets a window of its own, so
+  a launched file never replaces a document with unsaved edits in a window
+  already open.
+- **Launch queue:** `main.tsx` sets the one `launchQueue` consumer at startup,
+  where the browser has one (`src/features/launch/launchQueue.ts`,
+  feature-detected). It reads the launched `FileSystemFileHandle`s and keeps
+  the newest launch until the engine is ready; `App` then opens it through
+  the workspace handle (`WorkspaceHandle.open(file, fileHandle)`, exported by
+  `@vitela/viewer`), the same open a picked file goes through — with its
+  handle, so Save writes back over the launched file. Several files launched
+  together open as several dropped ones do: the first PDF, else the first
+  file (the engine then says why it is not a PDF). A handle that cannot be
+  read is skipped; one without `createWritable` opens with Save downloading.
+- **Unsaved edits:** the app has no "discard changes?" step when another file
+  is picked or dropped over an edited one; a launch does the same, and with
+  `navigate-new` it never reaches an edited window anyway.
+- **CSP:** nothing new — the consumer is the app's own bundled script.
+- **Tests:** `launchQueue.test.ts` (fake queue and handles: detection, one
+  consumer, the handle kept or dropped, the first PDF of several, unreadable
+  files and directories skipped, the newest launch wins, handed over once).
+  `App.test.tsx`: a launched file opens only once the engine is ready.
+  `e2e/launch.spec.ts`: the served manifest has both entries (3 browsers);
+  in Chromium a fake `window.launchQueue` (an init script, `e2e/launch.ts`)
+  is handed real origin-private-file-system handles for a text file and a
+  PDF together — the PDF opens and Save says "Saved over" it, with no
+  download. Skipped in Firefox and WebKit, which have no launch queue.
+
+## Unsaved-changes warning on close (T-267)
+
+While the open document has unsaved edits, closing or reloading the tab
+shows the browser's own "Leave site?" warning
+(`src/features/unload/unloadWarning.ts`). The `beforeunload` listener
+(`preventDefault` plus `returnValue`) is added when `DocumentWorkspace`'s
+`onDirtyChange` reports edits and removed when it reports none, so a clean
+page keeps its back/forward cache. `App` gives the same `onDirtyChange` to
+the update hold and to the warning; the update's Reload refuses while the
+document is dirty, so the reload it does never asks. Saving to a download
+leaves the document dirty (the edits are not where it lives), so the warning
+stays; saving over the opened file, or opening another file, ends it.
+
+- **Tests:** `unloadWarning.test.ts` (no listener while clean, the warning
+  while dirty, removed once clean, added once) and `App.test.tsx`.
+  `e2e/unload.spec.ts` (3 browsers): no warning on a clean reload or close;
+  after an edit a reload asks (`beforeunload`) and leaving drops the edits; a
+  close asks and staying keeps them; a fresh document stops asking; in
+  Chromium, saving over a launched file's handle stops it. Playwright's
+  WebKit never closes a page on `close({ runBeforeUnload: true })` when
+  nothing asks, so there the clean case is checked by reloading.
+
 ## Content-Security-Policy
 
 `public/_headers` is the one source of truth for the response headers, the

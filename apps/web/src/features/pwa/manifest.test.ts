@@ -26,6 +26,14 @@ describe('webManifest', () => {
     expect(manifest.background_color).toBe(BACKGROUND_COLOR);
   });
 
+  // T-266: the installed app is offered for PDFs in the OS ("Open with"), and
+  // each launched file gets a window of its own, so it never lands on a
+  // document with unsaved edits.
+  it('opens PDFs from the OS, each in a new window', () => {
+    expect(manifest.file_handlers).toEqual([{ action: '/', accept: { 'application/pdf': ['.pdf'] } }]);
+    expect(manifest.launch_handler).toEqual({ client_mode: 'navigate-new' });
+  });
+
   it('offers a scalable icon, a 512 px icon and a maskable one', () => {
     expect(manifest.icons).toEqual([
       { src: '/icons/vitela.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },

@@ -29,6 +29,12 @@ export function webManifest(icons: ManifestIcons) {
     display: 'standalone',
     theme_color: THEME_COLOR,
     background_color: BACKGROUND_COLOR,
+    // T-266: the installed app opens PDFs from the OS. Chromium hands the
+    // files to the page's launchQueue (src/features/launch/launchQueue.ts).
+    file_handlers: [{ action: '/', accept: { 'application/pdf': ['.pdf'] } }],
+    // Each launch in a new window: a launched file never replaces a document
+    // with unsaved edits in a window already open.
+    launch_handler: { client_mode: 'navigate-new' },
     icons: [
       { src: icons.svg, sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
       { src: icons.png512, sizes: '512x512', type: 'image/png', purpose: 'any' },

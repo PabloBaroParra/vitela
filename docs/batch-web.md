@@ -3664,8 +3664,8 @@ y en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API)
 |---|---|---|
 | **T-264** ✓ | App instalable y offline tras la primera carga: manifiesto (`manifest.webmanifest`, iconos de la marca), service worker escrito a mano (`dist/sw.js`) que precachea el build entero (shell, worker del motor, los dos WASM) en una caché con versión por contenido, registro solo en producción y aviso "nueva versión, recargar" que nunca recarga con cambios sin guardar. | Vitest de la lista de precache, la versión, las reglas de petición, el manifiesto y el bloqueo de la actualización; Playwright sobre el build de producción: cargar, desconectar, recargar, abrir un fixture y pintarlo; manifiesto válido y servido. |
 | **T-265** ✓ | Cabeceras de seguridad en `_headers`: `Content-Security-Policy` estricta (`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `worker-src 'self'`, `manifest-src 'self'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; el worker del motor con la suya, `'wasm-unsafe-eval'` y `'unsafe-eval'`) y la misma política en `vite preview` para que los E2E la sufran. | Playwright: la suite completa en los 3 navegadores sin violaciones de CSP (`securitypolicyviolation` = fallo); un test comprueba que la cabecera llega. |
-| **T-266** | Abrir PDFs desde el sistema con la app instalada: `file_handlers` en el manifiesto + `launchQueue` (Chromium), con el mismo flujo que el selector. | Vitest del consumidor de `launchQueue`; Playwright (Chromium) simulando un lanzamiento con un `FileSystemFileHandle`; omitido con motivo en Firefox/WebKit. |
-| **T-267** | Aviso del navegador al cerrar o recargar con cambios sin guardar (`beforeunload`), con el mismo `onDirtyChange` que usa la actualización. | Vitest del gancho; Playwright: con una edición pendiente, cerrar la página dispara el diálogo; guardado, no. |
+| **T-266** ✓ | Abrir PDFs desde el sistema con la app instalada: `file_handlers` en el manifiesto + `launchQueue` (Chromium), con el mismo flujo que el selector. | Vitest del consumidor de `launchQueue`; Playwright (Chromium) simulando un lanzamiento con un `FileSystemFileHandle`; omitido con motivo en Firefox/WebKit. |
+| **T-267** ✓ | Aviso del navegador al cerrar o recargar con cambios sin guardar (`beforeunload`), con el mismo `onDirtyChange` que usa la actualización. | Vitest del gancho; Playwright: con una edición pendiente, cerrar la página dispara el diálogo; guardado, no. |
 | **T-268** | Smoke test tras el deploy: el job de `web-deploy.yml` pide a la URL publicada `/`, `/sw.js`, `/manifest.webmanifest`, una ruta de herramienta y un asset, y comprueba códigos, tipos y cabeceras (`no-cache` del worker, `immutable` de `/assets/*`). | El job falla con una cabecera o un tipo mal servido (probado contra `vite preview` en local). |
 
 T-264 bloquea T-266 y T-267 (manifiesto y `onDirtyChange`). T-265 y T-268 son independientes.
@@ -3841,6 +3841,85 @@ deploy y en los E2E. Detalle en [`apps/web/README.md`](../apps/web/README.md)
   comprobar la cabecera del worker tras el deploy); el comportamiento entre pestañas de
   la actualización solo tiene Vitest; quitar `'unsafe-eval'` del worker exigiría cargar
   el glue de pdfium sin `new Function` (un módulo generado en el build).
+
+### T-266 — resultado
+
+Con la app instalada, el sistema la ofrece para abrir PDFs ("Abrir con", o por defecto
+si el usuario la elige). Solo Chromium. Detalle en
+[`apps/web/README.md`](../apps/web/README.md) ("Opening PDFs from the OS").
+
+- **Manifiesto** (`src/features/pwa/manifest.ts`, que `scripts/pwaPlugin.ts` escribe):
+  `file_handlers: [{ action: '/', accept: { 'application/pdf': ['.pdf'] } }]` y
+  `launch_handler: { client_mode: 'navigate-new' }`. Cada lanzamiento abre una ventana
+  propia, así que un PDF lanzado nunca sustituye un documento con cambios sin guardar de
+  una ventana ya abierta.
+- **Consumidor** (`src/features/launch/launchQueue.ts`): `main.tsx` pone el único
+  `launchQueue.setConsumer` al arrancar, solo si el navegador lo tiene (detección de
+  función; Firefox y WebKit no). Lee los `FileSystemFileHandle` lanzados y guarda el
+  lanzamiento más reciente hasta que el motor está listo; entonces `App` lo abre con el
+  handle del workspace, el mismo `open` que usa el selector, **con su handle**: Guardar
+  escribe sobre el fichero lanzado, igual que sobre uno elegido con el selector de
+  Chromium. Varios ficheros a la vez se tratan como una suelta de varios: el primer PDF,
+  o el primer fichero si no hay ninguno (el motor dice entonces por qué no es un PDF).
+  Un handle ilegible se salta; uno sin `createWritable` abre y Guardar descarga. Un
+  lanzamiento que llega mientras otro aún se lee lo sustituye; StrictMode no lo abre dos
+  veces (`take` lo entrega una sola vez).
+- **Cambio en `@vitela/viewer`:** `WorkspaceHandle.open(source, fileHandle?)` acepta el
+  handle (antes lo perdía) y el paquete exporta los tipos `WorkspaceHandle` y
+  `WritableFileHandle`.
+- **Cambios sin guardar:** se comprobó que la app **no** tiene guarda al abrir: elegir o
+  soltar otro fichero sobre uno editado lo sustituye sin preguntar (`open.spec.ts`, "a
+  newly opened file replaces the open one"; no hay `confirm` en el visor). El
+  lanzamiento hace lo mismo, y con `navigate-new` no llega a una ventana con cambios.
+  Si se quiere una guarda "¿descartar cambios?", es una tarea aparte que valdría para
+  las tres vías.
+- **CSP:** sin cambios; el consumidor es script propio del bundle.
+- **Tests:** Vitest `launchQueue.test.ts` (12: detección, un solo consumidor, sin
+  fichero, PDF con su handle, handle no escribible, primer PDF de varios, ningún PDF,
+  ilegibles, directorio, entrega única, gana el más reciente, baja de suscripción),
+  `App.test.tsx` (+1: abre el lanzado solo con el motor listo, una vez),
+  `manifest.test.ts` (+1); `@vitela/viewer` `DocumentWorkspace.test.tsx` (+1: abre con
+  el handle y Guardar lo usa). E2E `e2e/launch.spec.ts`: el manifiesto servido trae
+  `file_handlers` y `launch_handler` (3 navegadores); en Chromium un `window.launchQueue`
+  falso inyectado con `addInitScript` antes de la carga (`e2e/launch.ts`) recibe
+  handles reales del *origin private file system* — un `.txt` y un PDF a la vez —, abre
+  el PDF y Guardar dice "Saved over launched.pdf." sin descarga. Omitido con motivo en
+  Firefox y WebKit (sin `launchQueue` ni handles escribibles).
+- **No cubierto:** un lanzamiento real desde el sistema con la app instalada (Playwright
+  no instala PWAs ni habla con el SO); se probó el consumidor con un `launchQueue` falso
+  y handles reales.
+
+### T-267 — resultado
+
+Con cambios sin guardar, cerrar o recargar la pestaña muestra el aviso propio del
+navegador ("¿Salir del sitio?"). Detalle en el README ("Unsaved-changes warning on
+close").
+
+- `src/features/unload/unloadWarning.ts`: el listener de `beforeunload`
+  (`preventDefault` y `returnValue`) se añade cuando el `onDirtyChange` de
+  `DocumentWorkspace` dice que hay cambios y se quita cuando dice que no, así una
+  página limpia no pierde la *back/forward cache*. `App` da el mismo `onDirtyChange` a
+  la retención de la actualización y al aviso.
+- **Reload de la actualización:** `updates.ts` ya lo rechaza con cambios, así que la
+  recarga que hace es siempre con el documento limpio y sin listener: nunca pregunta.
+- Guardar como descarga deja el documento con cambios (no están donde vive el fichero),
+  así que el aviso sigue; guardar sobre el fichero abierto, o abrir otro, lo quita.
+- **Tests:** Vitest `unloadWarning.test.ts` (4: sin listener limpio, aviso con
+  cambios, se quita al limpiarse, un solo listener) y `App.test.tsx` (+1). E2E
+  `e2e/unload.spec.ts` (4 × 3, uno solo en Chromium): sin aviso al recargar ni cerrar
+  limpio; con una edición, recargar dispara un diálogo `beforeunload` y aceptarlo
+  pierde los cambios; cerrar con `page.close({ runBeforeUnload: true })` lo dispara y
+  quedarse los conserva; abrir otro documento lo quita; en Chromium, guardar sobre el
+  handle de un fichero lanzado lo quita. El WebKit de Playwright no cierra la página
+  con `runBeforeUnload` cuando nadie pregunta, así que ahí el caso limpio se comprueba
+  solo recargando. Estables en 3 repeticiones.
+
+- **Verificado en local (Windows), T-266 + T-267:** `@vitela/viewer`: `tsc -b`, Vitest
+  112 / 1130. `apps/web`: `typecheck`, Vitest 16 / 117, `build` (el manifiesto de
+  `dist/` trae `file_handlers` y `launch_handler`). Playwright `launch` + `unload` en los
+  3 navegadores (14 pasan, 4 omitidos; 3 repeticiones sin fallos). Suite completa
+  (`CI=1 --reporter=line --global-timeout=1500000`, 3 navegadores, 468 tests): **442
+  pasan, 26 omitidos, 0 fallos**.
 
 ## Verificación
 
