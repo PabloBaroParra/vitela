@@ -20,9 +20,10 @@ const contentOf = (pageIndex: number): PageContent => ({
       fontKind: 'standard14',
       text: `Page ${pageIndex + 1}`,
       editable: true,
+      pending: false,
     },
   ],
-  images: [{ kind: 'image', id: 0, pageIndex, rect: { left: 72, top: 300, width: 200, height: 100 }, inline: false }],
+  images: [{ kind: 'image', id: 0, pageIndex, rect: { left: 72, top: 300, width: 200, height: 100 }, inline: false, pending: false }],
   paths: [],
 });
 

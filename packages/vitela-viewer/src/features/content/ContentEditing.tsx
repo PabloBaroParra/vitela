@@ -1,17 +1,21 @@
-// The "Edit content" mode as the viewer mounts it (B26 T-258b..T-261): one
-// container that puts the mode (`useContentMode`) and its edits
-// (`useTextRunEditing`, `useParagraphEditing`, `useTextInsertion`,
-// `useImageEditing`) together and hands the pages their pointer input, plus
-// the two views the viewer places — the overlay over a page (the selected
-// item's, an open paragraph editor, a new line being typed) and the status
-// row with Insert text, Insert image and the one image file picker (a
-// replacement or an insert).
+// The "Edit content" mode as the viewer mounts it (B26 T-258b..T-262): one
+// container that puts the mode (`useContentMode`), its several-item
+// selection (`useContentGroup`) and its edits (`useTextRunEditing`,
+// `useParagraphEditing`, `useTextInsertion`, `useImageEditing`,
+// `useGroupEditing`, the clipboard's `useContentClipboard`) together and
+// hands the pages their pointer input, plus the two views the viewer places
+// — the overlay over a page (the selected item's, an open paragraph editor,
+// a new line being typed) and the status row with Insert text, Insert image,
+// Copy, Cut, Paste and the one image file picker (a replacement or an
+// insert).
 
-import { useCallback, useMemo, useRef, type RefObject } from 'react';
+import { useCallback, useContext, useMemo, useRef, type RefObject } from 'react';
 import type { DocumentHandle, Engine, PageSize } from '@vitela/core';
 import { STAMP_ACCEPT } from '../annotations/stamps';
 import type { OpenDocument } from '../document/useDocument';
+import { EditorScopeContext } from '../document/editorScope';
 import { useSaveWaitsFor } from '../save/MarkDirtyContext';
+import { useSessionClip } from './clipStore';
 import type { ContentQueue } from './contentEdits';
 import type { ContentInput } from './ContentLayer';
 import { ContentStatus } from './ContentStatus';
@@ -19,7 +23,11 @@ import { ImageOverlay } from './ImageOverlay';
 import { TextBlockEditor } from './TextBlockEditor';
 import { TextInsertEditor } from './TextInsertEditor';
 import { TextRunOverlay, textRunOverlayPage } from './TextRunOverlay';
+import type { PagePointer } from './selection';
+import { useContentClipboard } from './useContentClipboard';
+import { useContentGroup } from './useContentGroup';
 import { useContentMode } from './useContentMode';
+import { useGroupEditing } from './useGroupEditing';
 import { useImageEditing } from './useImageEditing';
 import { useParagraphEditing } from './useParagraphEditing';
 import { useTextInsertion } from './useTextInsertion';
@@ -58,6 +66,25 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   const paragraphs = useParagraphEditing({ engine, handle, info: document.info, content, queue, focusPages });
   const insertion = useTextInsertion({ info: document.info, content, queue, focusPages });
   const images = useImageEditing({ engine, handle, info: document.info, content, queue, focusPages });
+  const group = useContentGroup({ content, paused: queue.pending });
+  // Where the pointer is over a page: where a pasted key press puts the clip.
+  const pointer = useRef<PagePointer | null>(null);
+  const pointerNow = useCallback(() => pointer.current, []);
+  const clipboard = useContentClipboard({
+    engine,
+    handle,
+    info: document.info,
+    content,
+    group,
+    queue,
+    store: useSessionClip(),
+    pointer: pointerNow,
+    visible,
+    scope: useContext(EditorScopeContext),
+  });
+  // A copy for a cut removes the selection itself once read: nothing else edits it meanwhile.
+  const { clipping } = clipboard;
+  const groupEdits = useGroupEditing({ info: document.info, group, queue, clipping });
 
   // The one file picker of the image edits: a replacement or an insert.
   const imageFile = useRef<HTMLInputElement>(null);
@@ -90,40 +117,92 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   const { place: placeImage, move: moveImage, onKey: imageKey } = images;
   const { place: placeText, onKey: insertKey } = insertion;
   const { onKey: paragraphKey } = paragraphs;
+  const { toggle, gather, clear: clearGroup } = group;
+  const { move: moveGroup, onKey: groupKey } = groupEdits;
+  const { forget } = clipboard;
   const selectedKind = content.selected?.item.kind ?? null;
+  const grouped = group.group !== null;
   const input = useMemo<ContentInput | null>(
     () =>
       content.active
         ? {
-            onHover: contentHover,
+            onHover: (pageIndex, point) => {
+              pointer.current = point && { pageIndex, point };
+              contentHover(pageIndex, point);
+            },
             onSelect: (pageIndex, point) => {
               // A press beside an open editor commits it (the press keeps the focus where it is).
               commitOpen();
+              forget();
+              clearGroup();
               // An armed insert takes the press: the new line's editor opens there (and
               // takes the keyboard once it mounts), or the image goes there.
               if (placeText(pageIndex, point)) return;
               if (!placeImage(pageIndex, point)) contentSelect(pageIndex, point);
               focusPages();
             },
+            onToggle: (pageIndex, point) => {
+              commitOpen();
+              forget();
+              toggle(pageIndex, point);
+              focusPages();
+            },
+            onGather: (pageIndex, area, additive) => {
+              commitOpen();
+              forget();
+              gather(pageIndex, area, additive);
+              focusPages();
+            },
             // The press before it selected what is there.
             onOpen: () => openRun(),
             onDrag: (_pageIndex, dx, dy) => {
-              if (selectedKind === 'image') moveImage(dx, dy);
+              if (clipping) return;
+              if (grouped) moveGroup(dx, dy);
+              else if (selectedKind === 'image') moveImage(dx, dy);
               else moveRun(dx, dy);
               focusPages();
             },
           }
         : null,
-    [content.active, contentHover, contentSelect, commitOpen, focusPages, openRun, moveRun, placeText, placeImage, moveImage, selectedKind],
+    [
+      content.active,
+      contentHover,
+      contentSelect,
+      commitOpen,
+      forget,
+      clearGroup,
+      toggle,
+      gather,
+      focusPages,
+      openRun,
+      moveRun,
+      placeText,
+      placeImage,
+      moveImage,
+      moveGroup,
+      grouped,
+      selectedKind,
+      clipping,
+    ],
   );
 
-  /** The keys the pages take for the selected item; `true` when one was used. */
+  /** The keys the pages take for the selected item or group; `true` when one was used. */
   const onKey = useCallback(
-    (key: string, shift: boolean) => insertKey(key) || paragraphKey(key, shift) || runKey(key, shift) || imageKey(key, shift),
-    [insertKey, paragraphKey, runKey, imageKey],
+    (key: string, shift: boolean) =>
+      // While a cut is read, a Delete or an arrow would edit what it removes: taken, and nothing done.
+      clipping || insertKey(key) || paragraphKey(key, shift) || groupKey(key, shift) || runKey(key, shift) || imageKey(key, shift),
+    [clipping, insertKey, paragraphKey, groupKey, runKey, imageKey],
   );
 
-  return { content, textRuns, paragraphs, insertion, images, input, onKey, imageFile, openImagePicker };
+  /** Lets go of everything selected (Escape on the pages). */
+  const { clear: clearSingle } = content;
+  const clear = useCallback(() => {
+    clearSingle();
+    clearGroup();
+    forget();
+  }, [clearSingle, clearGroup, forget]);
+
+  return { content, group, textRuns, paragraphs, insertion, images, clipboard, input, onKey, clear, imageFile, openImagePicker };
 }
 
 export type ContentEditing = ReturnType<typeof useContentEditing>;
@@ -225,11 +304,11 @@ interface ContentToolbarProps {
 
 /** The mode's status row, with Insert text, Insert image and the image file picker; nothing while the mode is off. */
 export function ContentToolbar({ editing, onDone }: ContentToolbarProps) {
-  const { content, insertion, images, imageFile, openImagePicker } = editing;
+  const { content, group, insertion, images, clipboard, imageFile, openImagePicker } = editing;
   return (
     <>
       <ContentStatus
-        status={images.prompt ?? insertion.prompt ?? content.status}
+        status={content.active ? (images.prompt ?? insertion.prompt ?? clipboard.message ?? group.status ?? content.status) : null}
         onDone={onDone}
         insertingText={insertion.armed}
         onInsertText={() => {
@@ -243,6 +322,13 @@ export function ContentToolbar({ editing, onDone }: ContentToolbarProps) {
           if (images.armed) return images.disarm();
           insertion.disarm();
           images.insert(openImagePicker);
+        }}
+        clipboard={{
+          canCopy: clipboard.canCopy,
+          canPaste: clipboard.canPaste,
+          onCopy: clipboard.copy,
+          onCut: clipboard.cut,
+          onPaste: () => clipboard.paste(),
         }}
       />
       {content.active && <ImageFileInput input={imageFile} onFile={images.picked} />}

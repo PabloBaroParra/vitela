@@ -286,6 +286,23 @@ describe('EngineClient', () => {
     await expect(program).resolves.toEqual(bytes);
   });
 
+  it('copies a selection, a plain copy unless it is for a cut', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const members = { runIds: [1], imageIds: [2], pathIds: [] };
+    const copied = client.copyContentSelection(4, 1, members);
+    const cut = client.copyContentSelection(4, 1, members, true);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'copyContentSelection', document: 4, pageIndex: 1, members, forCut: false },
+      { kind: 'copyContentSelection', document: 4, pageIndex: 1, members, forCut: true },
+    ]);
+    const clip = { pdf: new Uint8Array([1]), bbox: [0, 0, 1, 1] as const, rect: { left: 0, top: 0, width: 1, height: 1 }, fromEncrypted: false };
+    reply({ type: 'result', id: sent[0]!.message.id, value: clip });
+    reply({ type: 'error', id: sent[1]!.message.id, name: 'EditNotPermitted', message: 'cutting content is not permitted' });
+    await expect(copied).resolves.toEqual(clip);
+    await expect(cut).rejects.toMatchObject({ name: 'EditNotPermitted' });
+  });
+
   it('asks whether an image can be replaced, and rejects with its refusal', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

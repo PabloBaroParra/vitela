@@ -22,6 +22,7 @@ const run = (id: number, top: number, text: string, editable = true): ContentRun
   fontKind: 'standard14',
   text,
   editable,
+  pending: false,
 });
 const first = run(3, 130, 'First line');
 const second = run(4, 144, 'Second line');

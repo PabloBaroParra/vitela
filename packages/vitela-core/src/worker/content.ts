@@ -9,7 +9,10 @@
 // hands out, and frees what it read.
 
 import type {
+  ContentClip,
   ContentFontKind,
+  ContentMembers,
+  SelectionEdit,
   FontProgram,
   ImageEdit,
   TextBlockEdit,
@@ -35,6 +38,7 @@ export interface CoreContentRun extends Owned {
   readonly fontKind: string;
   readonly text: string;
   readonly editable: boolean;
+  readonly pending: boolean;
 }
 
 /** core/pdf-wasm's `ContentImageEntry`. */
@@ -43,6 +47,7 @@ export interface CoreContentImage extends Owned {
   readonly page: number;
   readonly bbox: Float64Array;
   readonly inline: boolean;
+  readonly pending: boolean;
 }
 
 /** core/pdf-wasm's `ContentPathEntry`. */
@@ -51,6 +56,7 @@ export interface CoreContentPath extends Owned {
   readonly page: number;
   readonly bbox: Float64Array;
   readonly paint: string;
+  readonly pending: boolean;
 }
 
 /** core/pdf-wasm's `PageContentEntry`: each list moved out once. */
@@ -111,6 +117,20 @@ export interface CoreImageEdits {
   removeImage(page: number, imageId: number): Owned;
   replaceImage(page: number, imageId: number, bytes: Uint8Array): Owned;
   insertImage(page: number, x: number, y: number, bytes: Uint8Array): Owned;
+}
+
+/** core/pdf-wasm's selection and paste `EditCommand` constructors (T-262); geometry in PDF points (y up). */
+export interface CoreSelectionEdits {
+  moveContentSelection(page: number, runIds: Float64Array, imageIds: Float64Array, pathIds: Float64Array, dx: number, dy: number): Owned;
+  removeContentSelection(page: number, runIds: Float64Array, imageIds: Float64Array, pathIds: Float64Array): Owned;
+  pasteContent(page: number, pdf: Uint8Array, bbox: Float64Array, fromEncrypted: boolean, left: number, top: number): Owned;
+}
+
+/** core/pdf-wasm's `ContentClipEntry`. */
+export interface CoreContentClip extends Owned {
+  readonly bbox: Float64Array;
+  readonly fromEncrypted: boolean;
+  takePdf(): Uint8Array;
 }
 
 /** core/pdf-wasm's `TextRunLookEntry`. */
@@ -197,6 +217,44 @@ export function imageCommand(edits: CoreImageEdits, edit: ImageEdit, frameOf: (p
   }
 }
 
+/** A selection's ids as the core's constructors take them. */
+export function memberIds(members: ContentMembers): [Float64Array, Float64Array, Float64Array] {
+  return [Float64Array.from(members.runIds), Float64Array.from(members.imageIds), Float64Array.from(members.pathIds)];
+}
+
+/**
+ * The core command for a selection `edit` or a paste. A move's delta and a
+ * paste's point are on the page as drawn and cross through the page's frame;
+ * on a page past the end they cross as is, for the core to refuse
+ * (`PageIndexOutOfBounds`) after its own gates. A clip crosses back exactly
+ * as the core handed it out.
+ */
+export function selectionCommand(edits: CoreSelectionEdits, edit: SelectionEdit, frameOf: (page: number) => PageFrame | undefined): Owned {
+  switch (edit.kind) {
+    case 'moveContentSelection': {
+      const [dx, dy] = frameOf(edit.page)?.deltaToPdf(edit.dx, edit.dy) ?? [edit.dx, edit.dy];
+      return edits.moveContentSelection(edit.page, ...memberIds(edit.members), dx, dy);
+    }
+    case 'removeContentSelection':
+      return edits.removeContentSelection(edit.page, ...memberIds(edit.members));
+    case 'pasteContent': {
+      const { clip } = edit;
+      const [left, top] = frameOf(edit.page)?.pointToPdf(edit.at) ?? [edit.at.x, edit.at.y];
+      return edits.pasteContent(edit.page, clip.pdf, Float64Array.from(clip.bbox), clip.fromEncrypted, left, top);
+    }
+  }
+}
+
+/** Moves a clip's PDF out into plain values, its box also drawn on its page, and frees it. */
+export function contentClip(clip: CoreContentClip, frame: PageFrame): ContentClip {
+  try {
+    const [x = 0, y = 0, width = 0, height = 0] = Array.from(clip.bbox);
+    return { pdf: clip.takePdf(), bbox: [x, y, width, height], rect: frame.rectFromPdf(clip.bbox), fromEncrypted: clip.fromEncrypted };
+  } finally {
+    clip.free();
+  }
+}
+
 /** Copies a run's look into plain values, and frees it. */
 export function textRunLook(look: CoreTextRunLook | null | undefined): TextRunLookState | null {
   if (!look) return null;
@@ -235,6 +293,7 @@ export function pageContent(content: CorePageContent, frame: PageFrame, pageInde
         fontKind: fontKind(run.fontKind),
         text: run.text,
         editable: run.editable,
+        pending: run.pending,
       })),
       images: drain(content.takeImages(), (image): ContentImage => ({
         kind: 'image',
@@ -242,6 +301,7 @@ export function pageContent(content: CorePageContent, frame: PageFrame, pageInde
         pageIndex,
         rect: frame.rectFromPdf(image.bbox),
         inline: image.inline,
+        pending: image.pending,
       })),
       paths: drain(content.takePaths(), (path): ContentPath => ({
         kind: 'path',
@@ -249,6 +309,7 @@ export function pageContent(content: CorePageContent, frame: PageFrame, pageInde
         pageIndex,
         rect: frame.rectFromPdf(path.bbox),
         paint: path.paint === 'fill' || path.paint === 'fillAndStroke' ? path.paint : 'stroke',
+        pending: path.pending,
       })),
     };
   } finally {

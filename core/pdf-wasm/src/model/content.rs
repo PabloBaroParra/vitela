@@ -55,6 +55,9 @@ pub struct ContentRunView {
     /// usable `/ToUnicode` for some of its codes, so a retype could not know
     /// what it replaces.
     pub editable: bool,
+    /// Whether it exists only because of an unsaved edit — an insertion or a
+    /// paste not saved yet (a synthetic id, `pdf_edit::pending_log_index`).
+    pub pending: bool,
 }
 
 /// One image a page paints.
@@ -65,6 +68,8 @@ pub struct ContentImageView {
     pub bbox: Rect,
     /// Its samples sit in the content stream (`BI … EI`), not in an XObject.
     pub inline: bool,
+    /// Whether it exists only because of an unsaved edit.
+    pub pending: bool,
 }
 
 /// One vector path a page paints: a rule, a border, a shaded box.
@@ -76,6 +81,8 @@ pub struct ContentPathView {
     /// box of zero height.
     pub bbox: Rect,
     pub paint: PathPaint,
+    /// Whether it exists only because of an unsaved edit.
+    pub pending: bool,
 }
 
 /// Everything one page paints, in paint order per kind.
@@ -169,6 +176,7 @@ impl DocumentModel {
                     page: page_index,
                     bbox: image.bbox,
                     inline: image.source == ImageSource::Inline,
+                    pending: is_pending(image.id),
                 })
                 .collect(),
             paths: content
@@ -179,6 +187,7 @@ impl DocumentModel {
                     page: page_index,
                     bbox: path.bbox,
                     paint: path.paint,
+                    pending: is_pending(path.id),
                 })
                 .collect(),
         })
@@ -254,15 +263,30 @@ impl DocumentModel {
         pdf_save::ensure_content_editing(self.document.security.as_ref())?;
         let shows = pdf_save::shows_in_session_preview(&command);
         let paints_in_place = command.is_content_edit();
+        self.track_content_step(shows, paints_in_place, |model| {
+            pdf_save::content_edit::record_content(model, command, apply_content)
+        })
+    }
+
+    /// Runs `record`, a change of the pending queue, and keeps the preview's
+    /// marks in step with what it did: a step of its own (appended, or the
+    /// retried edit a checkpoint starts its queue with) is `recorded`, an
+    /// entry rewritten in place `amended`. `shows` and `paints_in_place`
+    /// describe the step, as `pdf_save::shows_in_session_preview` and
+    /// `Command::is_content_edit` would. Nothing is marked when it refuses.
+    pub(super) fn track_content_step(
+        &mut self,
+        shows: bool,
+        paints_in_place: bool,
+        record: impl FnOnce(&mut Self) -> Result<(), EngineError>,
+    ) -> Result<(), EngineError> {
         let generation = self.checkpoints.generation();
         // Kept to find which entry an amend rewrote: the log only says that
         // its depth did not change.
         let before = self.document.pending_edits.entries().to_vec();
-        pdf_save::content_edit::record_content(self, command, apply_content)?;
+        record(self)?;
         let after = self.document.pending_edits.entries();
         if self.checkpoints.generation() != generation || after.len() > before.len() {
-            // A step of its own — appended, or the retried edit a checkpoint
-            // starts its queue with.
             self.preview.recorded(shows, paints_in_place);
         } else if let Some(index) = before.iter().zip(after).position(|(was, now)| was != now) {
             self.preview.amended(after.len() - index);
@@ -359,7 +383,13 @@ fn run_view(run: &TextRun, page_index: u32) -> ContentRunView {
         font_kind: run.font_kind,
         text: run.text.clone(),
         editable: pdf_save::text_run_text_is_decoded(run),
+        pending: is_pending(run.id),
     }
+}
+
+/// Whether `id` names an item only a pending edit adds.
+fn is_pending(id: pdf_document::ContentItemId) -> bool {
+    pdf_edit::pending_log_index(id).is_some()
 }
 
 /// The core run a view was made from. The page is only grouped, never

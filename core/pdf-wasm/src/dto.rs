@@ -25,8 +25,8 @@ mod watermark;
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
 pub use compress::{CompressRefusalEntry, CompressedSave};
 pub use content::{
-    ContentImageEntry, ContentPathEntry, ContentRunEntry, PageContentEntry, TextBlockEntry,
-    TextLineEntry, TextRunStyleEntry,
+    ContentClipEntry, ContentImageEntry, ContentPathEntry, ContentRunEntry, PageContentEntry,
+    TextBlockEntry, TextLineEntry, TextRunStyleEntry,
 };
 pub use export::OpenedImageExport;
 pub use extract::SplitPart;

@@ -7,7 +7,7 @@
 //! `2^40 + index + (part << 24)`), so no `BigInt` is needed. `@vitela/core`
 //! copies these into plain objects and frees them.
 
-use pdf_document::{FontKind, PathPaint};
+use pdf_document::{ContentClip, FontKind, PathPaint};
 use pdf_edit::Alignment;
 use wasm_bindgen::prelude::*;
 
@@ -28,6 +28,7 @@ pub struct ContentRunEntry {
     font_kind: &'static str,
     text: String,
     editable: bool,
+    pending: bool,
 }
 
 impl From<ContentRunView> for ContentRunEntry {
@@ -40,6 +41,7 @@ impl From<ContentRunView> for ContentRunEntry {
             font_kind: font_kind_name(run.font_kind),
             text: run.text,
             editable: run.editable,
+            pending: run.pending,
         }
     }
 }
@@ -86,6 +88,13 @@ impl ContentRunEntry {
     pub fn editable(&self) -> bool {
         self.editable
     }
+
+    /// Whether it exists only because of an unsaved edit (an insertion or a
+    /// paste not saved yet).
+    #[wasm_bindgen(getter)]
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
 }
 
 /// One image a page paints.
@@ -96,6 +105,7 @@ pub struct ContentImageEntry {
     page: u32,
     bbox: Vec<f64>,
     inline: bool,
+    pending: bool,
 }
 
 impl From<ContentImageView> for ContentImageEntry {
@@ -105,6 +115,7 @@ impl From<ContentImageView> for ContentImageEntry {
             page: image.page,
             bbox: rect_values(image.bbox),
             inline: image.inline,
+            pending: image.pending,
         }
     }
 }
@@ -131,6 +142,12 @@ impl ContentImageEntry {
     pub fn inline(&self) -> bool {
         self.inline
     }
+
+    /// Whether it exists only because of an unsaved edit.
+    #[wasm_bindgen(getter)]
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
 }
 
 /// One vector path a page paints.
@@ -141,6 +158,7 @@ pub struct ContentPathEntry {
     page: u32,
     bbox: Vec<f64>,
     paint: &'static str,
+    pending: bool,
 }
 
 impl From<ContentPathView> for ContentPathEntry {
@@ -154,6 +172,7 @@ impl From<ContentPathView> for ContentPathEntry {
                 PathPaint::Fill => "fill",
                 PathPaint::FillAndStroke => "fillAndStroke",
             },
+            pending: path.pending,
         }
     }
 }
@@ -181,6 +200,55 @@ impl ContentPathEntry {
     #[wasm_bindgen(getter)]
     pub fn paint(&self) -> String {
         self.paint.to_string()
+    }
+
+    /// Whether it exists only because of an unsaved edit.
+    #[wasm_bindgen(getter)]
+    pub fn pending(&self) -> bool {
+        self.pending
+    }
+}
+
+/// Content copied out of a page (`Engine.copyContentSelection`): a
+/// self-contained one-page PDF, the box its items covered on the page they
+/// came from, and whether the session it came from held anything from an
+/// encrypted PDF. Handed back unchanged to `EditCommand.pasteContent`.
+#[wasm_bindgen]
+pub struct ContentClipEntry {
+    pdf: Vec<u8>,
+    bbox: Vec<f64>,
+    from_encrypted: bool,
+}
+
+impl From<ContentClip> for ContentClipEntry {
+    fn from(clip: ContentClip) -> Self {
+        ContentClipEntry {
+            pdf: clip.pdf,
+            bbox: rect_values(clip.bbox),
+            from_encrypted: clip.from_encrypted,
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl ContentClipEntry {
+    /// Moves the clip's PDF out; a second call returns none.
+    #[wasm_bindgen(js_name = takePdf)]
+    pub fn take_pdf(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.pdf)
+    }
+
+    /// `x, y, width, height` in the source page's PDF points (y up).
+    #[wasm_bindgen(getter)]
+    pub fn bbox(&self) -> Vec<f64> {
+        self.bbox.clone()
+    }
+
+    /// Whether the session it came from held anything from an encrypted
+    /// PDF: handed back with the rest of the clip, never dropped.
+    #[wasm_bindgen(getter, js_name = fromEncrypted)]
+    pub fn came_from_encrypted(&self) -> bool {
+        self.from_encrypted
     }
 }
 

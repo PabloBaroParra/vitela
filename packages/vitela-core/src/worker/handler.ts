@@ -123,6 +123,12 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         const { document, pageIndex, imageId } = request;
         return result(id, await engine.checkImageReplacement(document, pageIndex, imageId));
       }
+      // The clip's PDF moves to the page, which holds on to it.
+      case 'copyContentSelection': {
+        const { document, pageIndex, members, forCut } = request;
+        const clip = await engine.copyContentSelection(document, pageIndex, members, forCut);
+        return { message: { type: 'result', id, value: clip }, transfer: [clip.pdf.buffer as ArrayBuffer] };
+      }
       // The looks are a few numbers, the gate a sentence: copied.
       case 'watermarkDefaults':
         return result(id, await engine.watermarkDefaults());

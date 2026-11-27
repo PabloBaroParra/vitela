@@ -88,6 +88,7 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     textRunLook: async () => null,
     textRunFontProgram: async () => null,
     checkImageReplacement: async () => {},
+    copyContentSelection: async () => ({ pdf: new Uint8Array(), bbox: [0, 0, 0, 0], rect: { left: 0, top: 0, width: 0, height: 0 }, fromEncrypted: false }),
     ...overrides,
   };
 }
@@ -296,6 +297,7 @@ describe('handleRequest', () => {
           fontKind: 'standard14' as const,
           text: 'Hi',
           editable: true,
+          pending: false,
         },
       ],
       images: [],
@@ -361,6 +363,19 @@ describe('handleRequest', () => {
     const refused = await handleRequest(engine, { id: 2, request: { kind: 'checkImageReplacement', document: 5, pageIndex: 1, imageId: 9 } });
     expect(refused.message).toMatchObject({ type: 'error', id: 2, name: 'UnsupportedOperation' });
     expect(calls).toEqual([[5, 1, 3], [5, 1, 9]]);
+  });
+
+  it('copies a selection into a clip whose PDF moves to the page', async () => {
+    const calls: unknown[] = [];
+    const clip = { pdf: new Uint8Array([37, 80]), bbox: [1, 2, 3, 4] as const, rect: { left: 1, top: 2, width: 3, height: 4 }, fromEncrypted: true };
+    const engine = fakeEngine({
+      copyContentSelection: async (...args) => (calls.push(args), clip),
+    });
+    const members = { runIds: [1], imageIds: [], pathIds: [2] };
+    expect(
+      await handleRequest(engine, { id: 1, request: { kind: 'copyContentSelection', document: 5, pageIndex: 1, members, forCut: true } }),
+    ).toEqual({ message: { type: 'result', id: 1, value: clip }, transfer: [clip.pdf.buffer] });
+    expect(calls).toEqual([[5, 1, members, true]]);
   });
 
   it('answers the watermark questions, copied', async () => {

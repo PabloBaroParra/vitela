@@ -41,6 +41,8 @@ import type {
   SearchHit,
   SplitPart,
   TextSelection,
+  ContentClip,
+  ContentMembers,
 } from './types.js';
 
 interface Pending {
@@ -209,6 +211,10 @@ export class EngineClient implements Engine {
 
   checkImageReplacement(document: DocumentHandle, pageIndex: number, imageId: number): Promise<void> {
     return this.send({ kind: 'checkImageReplacement', document, pageIndex, imageId });
+  }
+
+  copyContentSelection(document: DocumentHandle, pageIndex: number, members: ContentMembers, forCut = false): Promise<ContentClip> {
+    return this.send({ kind: 'copyContentSelection', document, pageIndex, members, forCut });
   }
 
   watermarkDefaults(): Promise<WatermarkDefaults> {

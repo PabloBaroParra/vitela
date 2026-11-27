@@ -44,6 +44,7 @@ mod image;
 mod import;
 mod metadata;
 mod protect;
+mod selection;
 mod text_block;
 mod text_run;
 mod watermark;

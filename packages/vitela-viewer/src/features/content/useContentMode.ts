@@ -245,6 +245,13 @@ export function useContentMode({
     setSelected(null);
     setFollowing(null);
   }, []);
+  /** Selects `picked` as a press would (`null`: nothing), dropping any follow. */
+  const choose = useCallback((picked: Picked | null) => {
+    setSelected(picked);
+    setFollowing(null);
+  }, []);
+  /** Whether page `index` is read while the mode is on (in view, or one beside); `true` before the first layout. */
+  const wants = useCallback((index: number) => visible === null || wanted.some((page) => page.index === index), [visible, wanted]);
   /**
    * Selects again, once page `index` has been edited and read anew, the run
    * now at `expected` showing `text` (`null`: it was removed, select
@@ -328,6 +335,10 @@ export function useContentMode({
     hover,
     select,
     clear,
+    choose,
+    /** What is under `point` on page `index` in the read held now; `null` over nothing or while a step runs. */
+    itemAt: pick,
+    wants,
     follow,
     followImage: followImageAt,
     /** Whether an edited run or image is still to be found again (its page not read yet). */

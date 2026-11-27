@@ -59,6 +59,8 @@ import type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  ContentMembers,
+  SelectionEdit,
 } from '../core/types.js';
 import {
   PageFrame,
@@ -94,15 +96,20 @@ import {
 import {
   fontFamilies,
   fontProgram,
+  contentClip,
   imageCommand,
+  memberIds,
   pageContent,
+  selectionCommand,
   textBlockCommand,
   textBlocks,
   textRunCommand,
   textRunLook,
   textRunStyle,
+  type CoreContentClip,
   type CoreFontProgram,
   type CoreImageEdits,
+  type CoreSelectionEdits,
   type CorePageContent,
   type CoreTextBlock,
   type CoreTextBlockEdits,
@@ -122,7 +129,8 @@ export interface CoreEdits
     CoreWatermarkEdits,
     CoreTextRunEdits,
     CoreTextBlockEdits,
-    CoreImageEdits {
+    CoreImageEdits,
+    CoreSelectionEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -180,6 +188,14 @@ export interface CoreEngine extends CoreText {
   textRunFontProgram(doc: number, page: number, runId: number): CoreFontProgram | null | undefined;
   /** Throws the core's refusal; returns when the image could be replaced. */
   checkImageReplacement(doc: number, page: number, imageId: number): void;
+  copyContentSelection(
+    doc: number,
+    page: number,
+    runIds: Float64Array,
+    imageIds: Float64Array,
+    pathIds: Float64Array,
+    forCut: boolean,
+  ): CoreContentClip;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -431,6 +447,13 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       assertOpen(document);
       core.checkImageReplacement(document, pageIndex, imageId);
     },
+    async copyContentSelection(document: DocumentHandle, pageIndex: number, members: ContentMembers, forCut = false) {
+      // The core asks its permission before the page: no `pageOf` first. A
+      // page past the end has no frame; the core refuses it anyway.
+      assertOpen(document);
+      const clip = core.copyContentSelection(document, pageIndex, ...memberIds(members), forCut);
+      return contentClip(clip, new PageFrame(pageOf(document, pageIndex), functions));
+    },
     async watermarkDefaults() {
       return watermarkDefaults(functions.watermarkDefaults());
     },
@@ -523,7 +546,9 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
                       ? textBlockCommand(edits, edit, frameOf(document))
                       : isImageEdit(edit)
                         ? imageCommand(edits, edit, frameOf(document))
-                        : annotationCommand(
+                        : isSelectionEdit(edit)
+                          ? selectionCommand(edits, edit, frameOf(document))
+                          : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -649,6 +674,10 @@ function isTextRunEdit(edit: Edit): edit is TextRunEdit {
     edit.kind === 'removeTextRun' ||
     edit.kind === 'restyleTextRuns'
   );
+}
+
+function isSelectionEdit(edit: Edit): edit is SelectionEdit {
+  return edit.kind === 'moveContentSelection' || edit.kind === 'removeContentSelection' || edit.kind === 'pasteContent';
 }
 
 function isTextBlockEdit(edit: Edit): edit is TextBlockEdit {
