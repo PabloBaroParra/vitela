@@ -123,6 +123,28 @@ export function printStyles(sheets: readonly PrintSheet[]): string {
 }
 
 /**
+ * Makes `css` the only stylesheet of `doc`. A constructed stylesheet where
+ * the browser has them: a `<style>` element is inline style, which a strict
+ * Content-Security-Policy refuses (the Vitela web app's does), and the print
+ * frame, a `srcdoc`, runs under the policy of the page that holds it. The
+ * sheet must come from `doc`'s own window to be adopted there. Without
+ * constructed stylesheets (older browsers, jsdom) it is a `<style>`.
+ */
+export function applyStylesheet(doc: Document, css: string): void {
+  for (const style of doc.head.querySelectorAll('style')) style.remove();
+  const Sheet = doc.defaultView?.CSSStyleSheet;
+  if (Sheet && 'adoptedStyleSheets' in doc && typeof Sheet.prototype.replaceSync === 'function') {
+    const sheet = new Sheet();
+    sheet.replaceSync(css);
+    doc.adoptedStyleSheets = [sheet];
+    return;
+  }
+  const style = doc.createElement('style');
+  style.textContent = css;
+  doc.head.append(style);
+}
+
+/**
  * Fills `doc` (the print frame's document) with `sheets`, replacing whatever
  * it held, and titles it `title` (the name the print dialog offers when it
  * saves to a file). Returns the images, in page order, for the caller to wait
@@ -130,10 +152,7 @@ export function printStyles(sheets: readonly PrintSheet[]): string {
  */
 export function writePrintDocument(doc: Document, title: string, sheets: readonly PrintSheet[]): HTMLImageElement[] {
   doc.title = title;
-  for (const style of doc.head.querySelectorAll('style')) style.remove();
-  const style = doc.createElement('style');
-  style.textContent = printStyles(sheets);
-  doc.head.append(style);
+  applyStylesheet(doc, printStyles(sheets));
 
   const { of } = sizeIndexes(sheets);
   const images = sheets.map((sheet, i) => {

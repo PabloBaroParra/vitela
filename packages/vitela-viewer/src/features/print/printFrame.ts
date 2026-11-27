@@ -53,7 +53,9 @@ export const iframeSurface: PrintSurface = async (host, title, sheets, stopped) 
   frame.title = 'Print';
   frame.tabIndex = -1;
   frame.setAttribute('aria-hidden', 'true');
-  frame.setAttribute('style', FRAME_STYLE);
+  // Through the CSSOM: a `style` attribute is inline style, which a strict
+  // Content-Security-Policy refuses.
+  frame.style.cssText = FRAME_STYLE;
   // `srcdoc`, not a bare frame: Firefox swaps a bare frame's first document
   // for a fresh one when it loads, dropping whatever was written into it.
   const loaded = new Promise<void>((resolve) => frame.addEventListener('load', () => resolve(), { once: true }));

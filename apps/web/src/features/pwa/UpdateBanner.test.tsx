@@ -22,4 +22,14 @@ describe('UpdateBanner', () => {
     const reload = getByRole('button', { name: 'Reload' }) as HTMLButtonElement;
     expect(reload.disabled).toBe(true);
   });
+
+  it('says another tab has unsaved changes when the reload was refused for them, and can retry', () => {
+    const onReload = vi.fn();
+    const { getByRole } = render(<UpdateBanner held={false} blocked onReload={onReload} />);
+    expect(getByRole('status').textContent).toContain('Another Vitela tab has unsaved changes');
+    const reload = getByRole('button', { name: 'Reload' }) as HTMLButtonElement;
+    expect(reload.disabled).toBe(false);
+    fireEvent.click(reload);
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
 });

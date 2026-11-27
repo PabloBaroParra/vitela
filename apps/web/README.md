@@ -515,7 +515,10 @@ The pages go into a hidden `iframe` (`printFrame.ts`, `srcdoc`, laid out at
 0 × 0 because a `display: none` frame does not print in Firefox) inside the
 editor's root, never elsewhere on a host's page, and the frame's own window
 prints: the page around it never does, and no stylesheet crosses either way
-(the frame has one `<style>` of its own and nothing else). Each page is one
+(the frame has one stylesheet of its own and nothing else: a constructed,
+adopted one, and the frame's own size through the CSSOM, so a strict CSP's
+`style-src 'self'` allows both; a `<style>` only where constructed
+stylesheets are missing). Each page is one
 sheet sized in points from its image at the DPI it was drawn at, a named `@page` per distinct
 size, so a page turned a quarter prints landscape. The document title is the
 file name without `.pdf` (what the dialog offers when it saves to a file). The
@@ -984,18 +987,30 @@ worker, so they always run the code on disk.
   `.pdf`), names the cache after a SHA-256 of those files' names and bytes,
   and bundles `src/features/pwa/sw.ts` into `dist/sw.js` with both baked in.
   Install precaches everything (~9 MB); activate deletes older builds'
-  caches. A page navigation (every tool route included) gets the cached app
-  shell, a precached asset its cached copy, and on a miss the network refills
-  the cache (`src/features/pwa/swRules.ts`). Other origins, non-GETs and
-  anything the build did not write are never touched. Hand-written, no
-  Workbox: one precache list, no runtime routes, no new dependency.
+  caches. A navigation to one of the app's routes (home and every tool route,
+  as `resolveRoute` resolves them — the paths `public/_redirects` rewrites)
+  gets the cached app shell, a precached asset its cached copy, and on a miss
+  the network refills the cache (`src/features/pwa/swRules.ts`). Any other
+  path goes to the network, so the host still answers it with `404.html`;
+  other origins, non-GETs and anything the build did not write are never
+  touched either. Hand-written, no Workbox: one precache list, no runtime
+  routes, no new dependency. The page registers it after the window's `load`.
 - **Updates:** a new deploy is a new `sw.js` (served `Cache-Control:
   no-cache`, `public/_headers`) with a new cache. It installs in the
   background and waits; the page shows "A new version of Vitela is ready."
   with **Reload** (`src/features/pwa/updates.ts`, `UpdateBanner.tsx`).
   Nothing reloads on its own, and while the open document has unsaved changes
   (`DocumentWorkspace`'s `onDirtyChange`) Reload is disabled and the switch
-  is refused. Closing every tab also lets the new build take over.
+  is refused. The hold counts across tabs: on Reload the waiting worker asks
+  every open tab of the app (a `MessageChannel` question each tab answers)
+  and refuses to take over while any of them has unsaved changes — or does
+  not answer within 2 s — since taking over switches every tab and deletes
+  the old build's cache. The refused tab says "Another Vitela tab has unsaved
+  changes" and Reload asks again. The banner never strands: once a new build
+  controls the page (its own take-over or another tab's) Reload just
+  reloads, a waiting build that is replaced takes the banner with it, and a
+  take-over dropped because this tab had unsaved changes reloads once they
+  are saved. Closing every tab also lets the new build take over.
 - **Privacy:** the cache holds only the app's own files. A PDF is opened from
   the disk and never fetched over HTTP, so it never passes through the
   service worker and is never cached; nothing about a document is stored.
@@ -1004,6 +1019,38 @@ worker, so they always run the code on disk.
 - **Tests:** Vitest for the precache list, the version, the request rules,
   the manifest, the update gating and the banner. `e2e/pwa.spec.ts` (the
   only spec that allows service workers, see `playwright.config.ts`) loads
-  the app, waits for the precache, goes offline, reloads, opens a fixture
-  and paints it, opens `/organize`, and checks no PDF was cached; it also
-  checks the manifest, its icons and `sw.js` are served.
+  the app, waits for the precache, goes offline, proves the worker's own
+  requests fail (a precached file it no longer holds; not in Firefox, whose
+  offline mode answers them from the HTTP cache), reloads, opens a fixture
+  and paints it, opens `/organize`, checks no PDF was cached, and that an
+  unrouted path is not the shell; it also checks the manifest, its icons and
+  `sw.js` are served.
+
+## Content-Security-Policy
+
+`public/_headers` is the one source of truth for the response headers, the
+policies included, and `vite preview` serves it too (`scripts/hostHeaders.ts`
+reads the built copy with `src/features/hosting/headers.ts`, Cloudflare
+Pages' rules: every matching rule in file order, `! Name` detaches), so every
+e2e spec runs under the policy that ships. The dev server has none (its hot
+reload is inline script).
+
+- **The page:** `default-src 'none'; script-src 'self'; style-src 'self';
+  img-src 'self' blob: data:; connect-src 'self'; worker-src 'self';
+  manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action
+  'none'; object-src 'none'`. The build emits no inline script; the print
+  frame styles itself through the CSSOM; `blob:` is the print sheets,
+  `data:` the stamp images. No font is fetched (a run's own font is a
+  `FontFace` from bytes) and no frame loads a URL (print is a `srcdoc`).
+- **The engine worker** (`/assets/worker-*`, under its own response's
+  policy): `default-src 'none'; script-src 'self' 'unsafe-eval'
+  'wasm-unsafe-eval'; connect-src 'self'`. It compiles both WASM modules and
+  runs pdfium's Emscripten glue as a function body
+  (`packages/vitela-core/src/worker/pdfium.ts`); nothing else gets eval.
+- **Tests:** `src/features/hosting/headers.test.ts` (the `_headers` reading),
+  `csp.test.ts` (both policies, exactly, against the real file) and
+  `scripts/hostHeaders.test.ts` (the preview plugin is in the Vite config and
+  serves each path what the file gives it). `e2e/csp.spec.ts` checks both
+  headers arrive, then opens, renders, highlights, retypes a run in Edit
+  content, saves and prints, failing on any `securitypolicyviolation` (page
+  or print frame) or console report.

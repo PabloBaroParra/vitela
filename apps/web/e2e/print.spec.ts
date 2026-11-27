@@ -63,7 +63,8 @@ async function stubPrinting(page: Page): Promise<void> {
       window.__prints.push({
         top: false,
         title: doc.title,
-        css: doc.querySelector('style')?.textContent ?? '',
+        // A constructed stylesheet (no inline <style> under the CSP), as the browser writes it back.
+        css: [...doc.adoptedStyleSheets].flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText)).join('\n'),
         images,
         insideEditor: !!frame.closest('.vitela'),
       });
@@ -115,8 +116,8 @@ test('prints every page as one image, in order, each on a sheet of its own size 
     ['Page 3', 1275, 1650],
   ]);
   expect(printed.images!.map(({ sheet }) => sheet)).toEqual(['sheet sheet--0', 'sheet sheet--1', 'sheet sheet--0']);
-  expect(printed.css).toContain('@page vitela-sheet-0 { size: 612pt 792pt; margin: 0; }');
-  expect(printed.css).toContain('@page vitela-sheet-1 { size: 792pt 612pt; margin: 0; }');
+  expect(printed.css).toMatch(/@page vitela-sheet-0 \{\s*size: 612pt 792pt; margin: 0(px)?;\s*\}/);
+  expect(printed.css).toMatch(/@page vitela-sheet-1 \{\s*size: 792pt 612pt; margin: 0(px)?;\s*\}/);
   for (const image of printed.images!) expect(image.inked).toBeGreaterThan(0);
   // Nothing in the frame can be reached by keyboard or a screen reader.
   await expect(printFrame(page)).toHaveAttribute('aria-hidden', 'true');
@@ -133,22 +134,23 @@ test('the print frame lays out one paper sheet per page, landscape for the turne
   await openBytes(page, 'report.pdf', buildPdf([LETTER, { ...LETTER, rotate: 90 }]));
   await printFromMenu(page);
 
-  // The frame's own document, its images inlined, printed on its own: what the dialog would lay out.
-  const html = await printFrame(page).evaluate(async (frame) => {
+  // The frame's own document, its images and its constructed stylesheet
+  // inlined, printed on its own: what the dialog would lay out. The images
+  // go through a canvas: the CSP's connect-src keeps fetch() off blob: URLs.
+  const html = await printFrame(page).evaluate((frame) => {
     const doc = (frame as HTMLIFrameElement).contentDocument!;
     const copy = doc.documentElement.cloneNode(true) as HTMLElement;
-    const sources = [...doc.querySelectorAll('img')].map((image) => image.src);
-    const inlined = await Promise.all(
-      sources.map(async (src) => {
-        const blob = await (await fetch(src)).blob();
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
-      }),
-    );
+    const inlined = [...doc.querySelectorAll('img')].map((image) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      canvas.getContext('2d')!.drawImage(image, 0, 0);
+      return canvas.toDataURL('image/png');
+    });
     copy.querySelectorAll('img').forEach((image, i) => image.setAttribute('src', inlined[i]!));
+    const style = document.createElement('style');
+    style.textContent = [...doc.adoptedStyleSheets].flatMap((sheet) => [...sheet.cssRules].map((rule) => rule.cssText)).join('\n');
+    copy.querySelector('head')!.append(style);
     return `<!doctype html>${copy.outerHTML}`;
   });
   const sheetPage = await page.context().newPage();
@@ -238,7 +240,12 @@ test.describe('embedded in a host page', () => {
     await expect(page.locator('#host-frame iframe.vitela-print-frame')).toHaveCount(1);
     const frameStyles = await printFrame(page).evaluate((frame) => {
       const doc = (frame as HTMLIFrameElement).contentDocument!;
-      return { sheets: doc.styleSheets.length, links: doc.querySelectorAll('link').length, bodyMargin: getComputedStyle(doc.body).margin };
+      // Its one stylesheet is a constructed one (no inline <style> under a strict CSP).
+      return {
+        sheets: doc.styleSheets.length + doc.adoptedStyleSheets.length,
+        links: doc.querySelectorAll('link').length,
+        bodyMargin: getComputedStyle(doc.body).margin,
+      };
     });
     expect(frameStyles).toEqual({ sheets: 1, links: 0, bodyMargin: '0px' });
     await closeDialog(page);

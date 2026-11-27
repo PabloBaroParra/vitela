@@ -58,7 +58,7 @@ describe('App', () => {
 
   describe('updates', () => {
     function fakeUpdates(ready: boolean) {
-      const state = { ready, held: false };
+      const state = { ready, held: false, blocked: false };
       return {
         subscribe: () => () => {},
         state: () => state,
