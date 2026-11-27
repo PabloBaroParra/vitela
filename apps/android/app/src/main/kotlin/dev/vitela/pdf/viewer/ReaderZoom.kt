@@ -6,10 +6,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -24,7 +22,8 @@ internal class ZoomActions(
     val onZoomOut: () -> Unit,
     val onFitWidth: () -> Unit,
     val onFitPage: () -> Unit,
-    val onPinch: (zoomFactor: Double) -> Unit,
+    /** A pinch commits a zoom: [live] while its fingers are still down, so the reader holds off re-rasterizing. */
+    val onPinch: (zoomFactor: Double, live: Boolean) -> Unit,
 )
 
 /** The zoom a pinch of [gestureScale] lands on from [startFactor]: continuous, unlike the buttons' ladder. */
@@ -62,138 +61,129 @@ internal fun pinchShift(origin: Float, pan: Float, scale: Float, leading: Float?
 }
 
 /** Where the reader's content sat when a pinch began, for [pinchShift]. */
-internal class PinchEdges(val left: Float, val width: Float, val top: Float?)
-
-/**
- * A pinch in progress. While the fingers are down the reader is only scaled as
- * a picture — relaying out and re-rasterizing every page on each move would
- * stutter — and the real zoom is committed once, when they lift.
- *
- * The picture is scaled by [target] over the zoom actually laid out, not by
- * the raw gesture, so the frame in which the committed zoom lays out is also
- * the frame the picture stops being scaled: no flash at the old size, and no
- * frame scaled twice.
- *
- * It scales about where the fingers first met, [origin], and follows them by
- * [shift]: moving the scale's origin with the fingers instead would slide the
- * picture by every wobble.
- */
-internal class PinchState {
-    /** The zoom the fingers are asking for; null when no pinch is showing. */
-    var target by mutableStateOf<Double?>(null)
-        private set
-    var origin by mutableStateOf(Offset.Zero)
-        private set
-    var shift by mutableStateOf(Offset.Zero)
-        private set
-
-    fun scaleOver(laidOut: Double): Float = ((target ?: laidOut) / laidOut).toFloat()
-
-    fun update(target: Double, origin: Offset, shift: Offset) {
-        this.target = target
-        this.origin = origin
-        this.shift = shift
-    }
-
-    fun clear() {
-        target = null
-        shift = Offset.Zero
+internal class PinchEdges(val left: Float, val width: Float, val top: Float?) {
+    /** The same edges as drawn by [picture]: a pinch begun over a picture measures what is on screen. */
+    fun through(picture: PinchPicture): PinchEdges {
+        val leading = picture.map(Offset(left, top ?: 0f))
+        return PinchEdges(leading.x, width * picture.scale, top?.let { leading.y })
     }
 }
-
-/**
- * The list's position, in the zoom it was taken at, when a pinch lifted: the
- * content under [from] is to end up under [to] once [toZoom] is laid out.
- */
-internal class PinchAnchor(
-    val fromZoom: Double,
-    val toZoom: Double,
-    val firstItem: Int,
-    val firstItemOffset: Int,
-    val scrollX: Int,
-    val leadX: Float,
-    val from: Offset,
-    val to: Offset,
-)
 
 /**
  * Two fingers zoom; one finger is left alone for the list's scroll, the page
  * tools and text selection. Listening on the initial pass is what lets the
  * pinch claim a two-finger move before the list underneath scrolls with it.
- * [onPinchEnd] gets the zoom to commit, where the content under the fingers
- * started and where it is now; clearing [pinch] once that lands is the caller's.
+ *
+ * While the fingers pinch out, [onStep] is asked to lay out the zoom they are
+ * at whenever [PinchState.stepDue] says the picture has shrunk enough; it gets
+ * the zoom and the event time, and hands [pinch] the step. [onRelease] gets
+ * the zoom to commit once they lift (unless a step is still landing, when
+ * [pinch] defers it). [onAbandon] runs when a gesture that stepped is torn
+ * down before its fingers lifted, so the reader stops holding off renders.
+ *
+ * The picture is clipped to the reader's own bounds: a layer's own clip is
+ * scaled with it, which let a zoomed-in picture draw over the bars around it.
  */
 internal fun Modifier.pinchToZoom(
     enabled: Boolean,
     laidOutZoom: () -> Double,
     edges: () -> PinchEdges,
     pinch: PinchState,
-    onPinchEnd: (target: Double, from: Offset, to: Offset) -> Unit,
+    onStep: (target: Double, nowMs: Long) -> Unit,
+    onAbandon: () -> Unit,
+    onRelease: (target: Double) -> Unit,
 ): Modifier =
     pointerInput(enabled) {
         if (!enabled) return@pointerInput
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-            val start = laidOutZoom()
+            var frame = 1.0
             var gestureScale = 1f
             var pan = Offset.Zero
             var origin: Offset? = null
             var at = PinchEdges(0f, 0f, null)
-            do {
-                val event = awaitPointerEvent(PointerEventPass.Initial)
-                val down = event.changes.filter { it.pressed }
-                if (down.size >= 2) {
-                    val began = origin == null
-                    // The built-in centroid skips a finger that just landed, so average them by hand.
-                    val o = origin ?: (down.fold(Offset.Zero) { sum, change -> sum + change.position } / down.size.toFloat())
-                        .also { origin = it; at = edges() }
-                    if (!began) {
-                        gestureScale *= event.calculateZoom()
-                        pan += event.calculatePan()
+            var lifted = false
+            var stepped = false
+            try {
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    val down = event.changes.filter { it.pressed }
+                    if (down.size >= 2) {
+                        val began = origin == null
+                        // The built-in centroid skips a finger that just landed, so average them by hand.
+                        val o = origin ?: (down.fold(Offset.Zero) { sum, change -> sum + change.position } / down.size.toFloat())
+                            .also {
+                                origin = it
+                                at = edges().through(pinch.picture(laidOutZoom()))
+                                frame = pinch.begin(laidOutZoom(), it)
+                            }
+                        if (!began) {
+                            gestureScale *= event.calculateZoom()
+                            pan += event.calculatePan()
+                        }
+                        val target = pinchZoomFactor(frame, gestureScale)
+                        // Against the frame the gesture began in, not the zoom laid out: steps re-lay the list out under it.
+                        val scale = (target / frame).toFloat()
+                        val shift = Offset(
+                            pinchShift(o.x, pan.x, scale, at.left, at.width, size.width.toFloat()),
+                            pinchShift(o.y, pan.y, scale, at.top, null, size.height.toFloat()),
+                        )
+                        pinch.update(target, shift)
+                        val now = down.first().uptimeMillis
+                        if (pinch.stepDue(laidOutZoom(), now)) {
+                            stepped = true
+                            onStep(target, now)
+                        }
                     }
-                    val target = pinchZoomFactor(start, gestureScale)
-                    val scale = (target / start).toFloat()
-                    val shift = Offset(
-                        pinchShift(o.x, pan.x, scale, at.left, at.width, size.width.toFloat()),
-                        pinchShift(o.y, pan.y, scale, at.top, null, size.height.toFloat()),
-                    )
-                    pinch.update(target, o, shift)
+                    // Once pinching, the finger left behind must not turn into a scroll or a tap either.
+                    if (origin != null) event.changes.forEach { it.consume() }
+                } while (event.changes.any { it.pressed })
+                lifted = true
+            } finally {
+                // A reset (key change, detach, density change) cancels the gesture with the fingers still down.
+                if (!lifted && origin != null) {
+                    pinch.abandon()
+                    if (stepped) onAbandon()
                 }
-                // Once pinching, the finger left behind must not turn into a scroll or a tap either.
-                if (origin != null) event.changes.forEach { it.consume() }
-            } while (event.changes.any { it.pressed })
-            val target = pinch.target
-            if (origin != null && target != null) onPinchEnd(target, pinch.origin, pinch.origin + pinch.shift)
+            }
+            if (origin == null) return@awaitEachGesture
+            val target = pinch.release() ?: return@awaitEachGesture
+            onRelease(target)
         }
     }
+        .clipToBounds()
         .graphicsLayer {
-            val scale = pinch.scaleOver(laidOutZoom())
-            scaleX = scale
-            scaleY = scale
-            translationX = pinch.shift.x
-            translationY = pinch.shift.y
+            val picture = pinch.picture(laidOutZoom())
+            scaleX = picture.scale
+            scaleY = picture.scale
+            translationX = picture.translation.x
+            translationY = picture.translation.y
             transformOrigin = if (size.width > 0f && size.height > 0f) {
-                TransformOrigin(pinch.origin.x / size.width, pinch.origin.y / size.height)
+                TransformOrigin(picture.origin.x / size.width, picture.origin.y / size.height)
             } else TransformOrigin.Center
-            clip = true
         }
 
 /**
- * Lands a lifted pinch in the very layout pass that lays out its zoom. Waiting
- * a frame to scroll would show one frame at the new zoom but the old scroll —
- * the jump on release. The list's position is requested before it measures;
- * the horizontal one is set once the row is measured, since the scroller
- * clamps to its old width until then. Goes before the horizontal scroller.
+ * Lands a pinch's step or release in the very layout pass that lays out its
+ * zoom. Waiting a frame to scroll would show one frame at the new zoom but the
+ * old scroll — the jump on release. The list's position is requested before
+ * it measures; the horizontal one is set once the row is measured, since the
+ * scroller clamps to its old width until then. Goes before the horizontal
+ * scroller. [onSettled] runs once the landing landed (with where the content
+ * under the fingers actually ended up, [lead] being the new column's centring
+ * margin) or can no longer land (with null).
  */
 internal fun Modifier.landPinch(
     anchor: () -> PinchAnchor?,
     laidOutZoom: () -> Double,
     list: LazyListState,
     horizontal: ScrollState,
-    onLanded: () -> Unit,
+    lead: () -> Float,
+    onSettled: (outcome: PinchLanding, landedAt: Offset?) -> Unit,
 ): Modifier =
     layout { measurable, constraints ->
-        val landing = anchor()?.takeIf { it.toZoom == laidOutZoom() }
+        val outcome = anchor()?.landingAt(laidOutZoom())
+        val landing = anchor()?.takeIf { outcome == PinchLanding.Land }
         val ratio = landing?.let { it.toZoom / it.fromZoom } ?: 1.0
         if (landing != null) {
             list.requestScrollToItem(
@@ -202,12 +192,16 @@ internal fun Modifier.landPinch(
             )
         }
         val placeable = measurable.measure(constraints)
+        // The list measured just now, so this is where the landing actually put its first item.
+        val itemTop = landing?.let { l -> list.layoutInfo.visibleItemsInfo.firstOrNull { it.index == l.firstItem }?.offset }
         layout(placeable.width, placeable.height) {
+            var landedAt: Offset? = null
             if (landing != null) {
                 val x = anchoredScroll(landing.scrollX, landing.from.x, landing.to.x, ratio, landing.leadX)
                 horizontal.dispatchRawDelta((x - horizontal.value).toFloat())
-                onLanded()
+                landedAt = landedPoint(landing, itemTop, horizontal.value, lead())
             }
+            if (outcome == PinchLanding.Land || outcome == PinchLanding.Drop) onSettled(outcome, landedAt)
             placeable.place(0, 0)
         }
     }

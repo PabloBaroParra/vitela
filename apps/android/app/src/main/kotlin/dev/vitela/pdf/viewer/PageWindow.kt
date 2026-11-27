@@ -83,6 +83,17 @@ internal fun renderOrder(first: Int, last: Int, pageCount: Int): List<Int> {
     return visible + pageWindow(first, last, pageCount, PREFETCH_PAGES).filter { it !in visible }
 }
 
+/**
+ * Whether a page in the window is rasterized now: any page not yet sharp,
+ * except while a pinch is [pinching], when a page that shows anything at all —
+ * its old bitmap stretched as a bridge, or its low-resolution preview —
+ * waits for the fingers to lift. A
+ * pinch-out re-lays the list out at each step, and a render started for one
+ * step's zoom is thrown away by the next.
+ */
+internal fun wantsRender(pinching: Boolean, hasPage: Boolean, hasBridge: Boolean): Boolean =
+    !hasPage && !(pinching && hasBridge)
+
 /** A completion can only update the layout generation that requested it. */
 internal fun acceptsRenderCompletion(startedGeneration: Int, currentGeneration: Int, pageIndex: Int, window: IntRange): Boolean =
     startedGeneration == currentGeneration && pageIndex in window
@@ -119,6 +130,17 @@ internal fun renderDpi(size: PageSize?, availableWidthPx: Int, zoomFactor: Doubl
 
 /** A page slot on screen: where its top sits on the scroll axis, and how tall it is. */
 internal data class VisiblePage(val index: Int, val offset: Int, val size: Int)
+
+/**
+ * The laid-out pages that are on the screen, `[viewportStart, viewportEnd)`.
+ * The reader lays pages out past the screen ([READER_OVERSCAN]), and those
+ * must not count as visible: the visible range is what gets rasterized.
+ *
+ * A page scrolled past the start still counts until its trailing [spacing] has
+ * left too — what a list without overscan reports as its first visible item.
+ */
+internal fun onScreenPages(laidOut: List<VisiblePage>, viewportStart: Int, viewportEnd: Int, spacing: Int): List<VisiblePage> =
+    laidOut.filter { page -> page.offset + page.size + spacing > viewportStart && page.offset < viewportEnd }
 
 /**
  * The page the reader is actually *on*: the one covering the most of the

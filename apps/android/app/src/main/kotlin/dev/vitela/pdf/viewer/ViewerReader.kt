@@ -38,11 +38,29 @@ internal class ViewerReader(private val session: ViewerSession) {
     /** The last position the list reported, so a layout change can drive the same window again. */
     private var lastPosition: ReaderPosition? = null
 
+    /**
+     * A pinch-out is relaying the list out under fingers still on the glass.
+     * Each of its steps is a new zoom, so rasterizing for one would be thrown
+     * away by the next: until the fingers lift only a page with nothing at all
+     * to show is rendered. See [wantsRender].
+     */
+    private var pinching = false
+
+    /**
+     * Sharp renders still running on the core, stale ones included: they
+     * occupy it all the same, and previews wait until none is.
+     */
+    private var sharpRunning = 0
+
+    private val previews = ReaderPreviews(session) { sharpRunning > 0 }
+
     /** A new document replaced the old one: nothing in flight or cached is wanted any more. */
     fun reset() {
         inFlight.clear()
         cacheWindow = IntRange.EMPTY
         lastPosition = null
+        pinching = false
+        previews.reset()
     }
 
     /**
@@ -53,6 +71,7 @@ internal class ViewerReader(private val session: ViewerSession) {
     fun retireRenders() {
         layoutGeneration += 1
         inFlight.clear()
+        previews.retire()
     }
 
     /**
@@ -67,6 +86,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         layoutGeneration += 1
         inFlight.clear()
         state.value = state.value.copy(pages = emptyMap(), bridgePages = emptyMap())
+        previews.invalidate()
         val position = lastPosition ?: return
         val last = (state.value.pageCount - 1).coerceAtLeast(0)
         if (redrive && state.value.pageCount > 0) {
@@ -90,6 +110,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         layoutGeneration += 1
         inFlight.clear()
         state.value = state.value.withInvalidatedPageBitmaps(cacheWindow)
+        previews.invalidate()
         if (redrive) lastPosition?.let(::onPositionChanged)
     }
 
@@ -136,8 +157,11 @@ internal class ViewerReader(private val session: ViewerSession) {
         // The reader's first layout pass calls back with a real one.
         if (renderWidthPx <= 0) return
         for (pageIndex in renderOrder(position.first, position.last, pageCount)) {
-            if (pageIndex !in state.value.pages) renderPage(pageIndex)
+            val standIn = pageIndex in state.value.bridgePages || pageIndex in state.value.previewPages
+            if (wantsRender(pinching, pageIndex in state.value.pages, standIn)) renderPage(pageIndex)
         }
+        // After the sharp renders were queued, so none waits behind a preview.
+        previews.onPositionChanged(position.first, position.last, boundedPageIndex(position.current, pageCount), pageCount)
     }
 
     /** Consumed by the reader once it has scrolled, so the target fires once. */
@@ -161,14 +185,28 @@ internal class ViewerReader(private val session: ViewerSession) {
         state.value = state.value.copy(scrollTarget = boundedPageIndex(pageIndex, state.value.pageCount))
     }
 
-    fun zoomIn() = changeZoom(zoomIn(state.value.zoomFactor))
+    fun zoomIn() {
+        changeZoom(zoomIn(state.value.zoomFactor))
+    }
 
-    fun zoomOut() = changeZoom(zoomOut(state.value.zoomFactor))
+    fun zoomOut() {
+        changeZoom(zoomOut(state.value.zoomFactor))
+    }
 
-    /** A pinch lands wherever the fingers stopped, not on a rung. */
-    fun setZoom(zoomFactor: Double) = changeZoom(clampZoomFactor(zoomFactor))
+    /**
+     * A pinch lands wherever the fingers stopped, not on a rung; [live] while
+     * they are still down. Lifting on the zoom the last step already laid out
+     * changes nothing the list would report, so the lift itself drives the
+     * window to render sharp.
+     */
+    fun setZoom(zoomFactor: Double, live: Boolean = false) {
+        pinching = live
+        if (!changeZoom(clampZoomFactor(zoomFactor)) && !live) lastPosition?.let(::onPositionChanged)
+    }
 
-    fun fitWidth() = changeZoom(DEFAULT_ZOOM_FACTOR)
+    fun fitWidth() {
+        changeZoom(DEFAULT_ZOOM_FACTOR)
+    }
 
     /**
      * Shows the current page whole. The list keeps its pixel offset across a
@@ -183,14 +221,16 @@ internal class ViewerReader(private val session: ViewerSession) {
         scrollTo(pageIndex)
     }
 
-    private fun changeZoom(zoomFactor: Double) {
-        if (session.document == null || zoomFactor == state.value.zoomFactor) return
+    /** False when there was nothing to change. */
+    private fun changeZoom(zoomFactor: Double): Boolean {
+        if (session.document == null || zoomFactor == state.value.zoomFactor) return false
         // Page geometry changes immediately. Keep cache-window pages beneath the
         // next generation until their sharp replacements arrive.
         layoutGeneration += 1
         inFlight.clear()
         renderWidthPx = 0
         state.value = state.value.copy(zoomFactor = zoomFactor).withInvalidatedPageBitmaps(cacheWindow)
+        return true
     }
 
     private fun renderPage(pageIndex: Int) {
@@ -199,16 +239,27 @@ internal class ViewerReader(private val session: ViewerSession) {
         if (inFlight[pageIndex] == generation) return
         inFlight[pageIndex] = generation
         val dpi = renderDpi(state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
+        sharpRunning += 1
         session.scope.launch {
-            val result = withContext(session.compute) { openDocument.renderPage(pageIndex, dpi) }
+            // The per-pixel conversion (up to MAX_PAGE_PIXELS) runs off the
+            // main thread too: the main thread only swaps the finished bitmap in.
+            val result = try {
+                withContext(session.compute) { openDocument.renderPage(pageIndex, dpi).toPageBitmap() }
+            } finally {
+                sharpRunning -= 1
+            }
+            // Idle again: the previews may take their turn.
+            previews.pump()
             if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
             // A render outlives the document that started it when the user
             // opens another file mid-scroll, and outlives its own layout when
             // the device rotates. Either way the bitmap belongs to nobody.
+            // Checked here, on the main thread that owns the generation, so a
+            // conversion that finished late is dropped like a late render.
             if (session.document !== openDocument || !acceptsRenderCompletion(generation, layoutGeneration, pageIndex, cacheWindow)) return@launch
             when (result) {
                 is PdfCoreResult.Success -> {
-                    val bitmap = result.value.toImageBitmap() ?: return@launch
+                    val bitmap = result.value ?: return@launch
                     state.value = state.value.withReplacementPage(pageIndex, bitmap)
                 }
                 is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))

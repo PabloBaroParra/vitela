@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -63,6 +65,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 private val PAGE_GAP = 12.dp
+
+/** What a PDF page is before anything is drawn on it: shown while a pinch uncovers a page with nothing to show yet. */
+private val BLANK_PAGE_COLOR = Color.White
 private const val HANDLE_DRAW_DP = 20
 
 /**
@@ -86,7 +91,7 @@ internal fun PageList(
     selectionActions: SelectionActions,
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
-    onPinch: (zoomFactor: Double) -> Unit,
+    onPinch: (zoomFactor: Double, live: Boolean) -> Unit,
     onFileDrop: (Int, AnnotationPoint, DragAndDropEvent) -> Boolean,
     modifier: Modifier = Modifier,
     columns: Int = 1,
@@ -99,8 +104,6 @@ internal fun PageList(
     // The pinch detector outlives recompositions, so it reads these rather than the parameters.
     val laidOutZoom by rememberUpdatedState(state.zoomFactor)
     val currentOnPinch by rememberUpdatedState(onPinch)
-    // Where the list stood when the fingers lifted, to scroll back under them once the new zoom is laid out.
-    var pinchAnchor by remember { mutableStateOf<PinchAnchor?>(null) }
     val stampBitmaps = rememberStampBitmaps(state.stampImages)
 
     BoxWithConstraints(modifier = modifier) {
@@ -109,12 +112,18 @@ internal fun PageList(
         val slotWidth = (maxWidth - PAGE_GAP * (columns - 1)) / columns
         val slotWidthPx = with(LocalDensity.current) { slotWidth.roundToPx() }
         val pageWidth = slotWidth * state.zoomFactor.toFloat()
-        val rowWidth = pageWidth * columns + PAGE_GAP * (columns - 1)
-        val pageStepPx = with(LocalDensity.current) { (pageWidth + PAGE_GAP).roundToPx() }
+        // The gap scales with the pages, so the whole column is the fit-width
+        // layout times the zoom: a pinch's scaled picture then matches the
+        // relayout exactly, instead of the gap growing as the pages shrink.
+        val pageGap = PAGE_GAP * state.zoomFactor.toFloat()
+        val rowWidth = pageWidth * columns + pageGap * (columns - 1)
+        val pageStepPx = with(LocalDensity.current) { (pageWidth + pageGap).roundToPx() }
+        // Laid out past the screen on every side, so a pinch-out's shrunken picture has pages to reveal.
+        val overscanX = maxWidth * READER_OVERSCAN
+        val overscanY = maxHeight * READER_OVERSCAN
 
         LaunchedEffect(columns, state.documentId) {
             preferredPage = state.pageIndex
-            pinchAnchor = null
             pinch.clear()
             horizontalScrollState.scrollTo(0)
             if (rows.count > 0) listState.scrollToItem(rows.row(preferredPage))
@@ -123,14 +132,18 @@ internal fun PageList(
         LaunchedEffect(listState, slotWidthPx, viewportHeightPx, state.zoomFactor, rows) {
             snapshotFlow { listState.layoutInfo to preferredPage }
                 .map { (info, preferred) ->
-                    val visible = info.visibleItemsInfo
-                    // Null exactly when nothing is laid out yet, which is what
-                    // makes first()/last() below safe.
-                    val current = dominantPage(
-                        visible.map { item -> VisiblePage(item.index, item.offset, item.size) },
-                        info.viewportStartOffset,
-                        info.viewportEndOffset,
+                    // The list is laid out past the screen (READER_OVERSCAN) and
+                    // reports those pages as visible too. Its offsets start at its
+                    // content padding, which is the top of the real viewport.
+                    val visible = onScreenPages(
+                        info.visibleItemsInfo.map { item -> VisiblePage(item.index, item.offset, item.size) },
+                        viewportStart = 0,
+                        viewportEnd = viewportHeightPx,
+                        spacing = info.mainAxisItemSpacing,
                     )
+                    // Null exactly when nothing is on screen yet, which is what
+                    // makes first()/last() below safe.
+                    val current = dominantPage(visible, viewportStart = 0, viewportEnd = viewportHeightPx)
                     current?.let {
                         ReaderPosition(
                             first = rows.first(visible.first().index),
@@ -172,6 +185,31 @@ internal fun PageList(
         // A column narrower than the screen is centred, so its content starts this far in.
         val rowLead by rememberUpdatedState(((viewportWidthPx - rowWidthPx) / 2).coerceAtLeast(0f))
 
+        // Where the list stands now, so a step or a release can scroll back under the fingers once its zoom is laid out.
+        fun commitPinch(target: Double, live: Boolean, now: Long = 0L) {
+            val points = pinch.landingPoints(laidOutZoom)
+            if (points == null) {
+                // No layout the pinch knows to anchor to: commit the zoom as asked, unanchored.
+                if (!live) {
+                    pinch.clear()
+                    currentOnPinch(target, false)
+                }
+                return
+            }
+            val anchor = PinchAnchor(
+                fromZoom = laidOutZoom,
+                toZoom = target,
+                firstItem = listState.firstVisibleItemIndex,
+                firstItemOffset = listState.firstVisibleItemScrollOffset,
+                scrollX = horizontalScrollState.value,
+                leadX = rowLead,
+                from = points.first,
+                to = points.second,
+            )
+            if (live) pinch.step(anchor, now) else pinch.land(anchor)
+            currentOnPinch(target, live)
+        }
+
         // Keep one horizontal position for the entire page column. Geometry,
         // rather than bitmap scaling, changes with zoom so each page re-renders
         // sharply; a pinch scales the picture only until its zoom is laid out.
@@ -190,39 +228,49 @@ internal fun PageList(
                         )
                     },
                     pinch = pinch,
-                ) { target, from, to ->
-                    pinchAnchor = PinchAnchor(
-                        fromZoom = laidOutZoom,
-                        toZoom = target,
-                        firstItem = listState.firstVisibleItemIndex,
-                        firstItemOffset = listState.firstVisibleItemScrollOffset,
-                        scrollX = horizontalScrollState.value,
-                        leadX = rowLead,
-                        from = from,
-                        to = to,
-                    )
-                    if (target != laidOutZoom) currentOnPinch(target)
+                    onStep = { target, now -> commitPinch(target, live = true, now) },
+                    onAbandon = { currentOnPinch(laidOutZoom, false) },
+                    onRelease = { target -> commitPinch(target, live = false) },
+                )
+                .landPinch(
+                    anchor = { pinch.pending },
+                    laidOutZoom = { laidOutZoom },
+                    list = listState,
+                    horizontal = horizontalScrollState,
+                    lead = { rowLead },
+                ) { outcome, landedAt ->
+                    val deferred = pinch.releaseDeferred
+                    when {
+                        pinch.settle(outcome == PinchLanding.Land, landedAt) -> pinch.target?.let { commitPinch(it, live = false) }
+                        // The step under a lifted pinch can never land: nothing is committed, but renders may resume.
+                        deferred -> currentOnPinch(laidOutZoom, false)
+                    }
                 }
-                .landPinch(anchor = { pinchAnchor }, laidOutZoom = { laidOutZoom }, list = listState, horizontal = horizontalScrollState) {
-                    pinchAnchor = null
-                    pinch.clear()
-                }
-                .horizontalScroll(horizontalScrollState),
+                // Both scrollers are measured larger than the reader and pad
+                // their content by as much, so every scroll position, item
+                // offset and scroll bound still describes the real viewport;
+                // only their clips, and what the list composes, reach further.
+                .overscan(horizontal = overscanX, vertical = overscanY)
+                .horizontalScroll(horizontalScrollState)
+                .padding(horizontal = overscanX),
             contentAlignment = Alignment.TopCenter,
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.width(rowWidth).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(PAGE_GAP),
+                contentPadding = PaddingValues(vertical = overscanY),
+                verticalArrangement = Arrangement.spacedBy(pageGap),
             ) {
                 items(count = rows.count, key = { index -> rows.first(index) }) { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(PAGE_GAP), verticalAlignment = Alignment.Top) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(pageGap), verticalAlignment = Alignment.Top) {
                         for (index in rows.first(row)..rows.last(row)) {
                             Box(Modifier.width(pageWidth)) {
                                 PageSlot(
                                     pageNumber = index + 1,
                                     page = state.pages[index],
                                     bridge = state.bridgePages[index],
+                                    preview = state.previewPages[index],
+                                    pinching = pinch.target != null,
                                     size = state.pageSizes.getOrNull(index),
                                     state = state,
                                     stampBitmaps = stampBitmaps,
@@ -248,6 +296,8 @@ private fun PageSlot(
     pageNumber: Int,
     page: ImageBitmap?,
     bridge: ImageBitmap?,
+    preview: ImageBitmap?,
+    pinching: Boolean,
     size: PageSize?,
     state: ViewerState,
     stampBitmaps: Map<Long, ImageBitmap>,
@@ -286,14 +336,27 @@ private fun PageSlot(
         // Selecting text — long-press, double tap, handles, the toolbar — belongs to the plain reader, as the long-press always did.
         val selectionTools = state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
+        // Nothing sharp, no bridge, no preview: while a pinch is showing, a
+        // blank page — a spinner on every uncovered page reads as the whole
+        // reader loading. Otherwise the spinner, for a page genuinely loading.
+        val nothingToShow = page == null && bridge == null && preview == null
         Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(size.aspectRatio())
             .clip(RoundedCornerShape(2.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(if (nothingToShow && pinching) BLANK_PAGE_COLOR else MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
+        // The base layer: low resolution, filling the slot until something sharper covers it.
+        if (preview != null && page == null) {
+            Image(
+                bitmap = preview,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
+            )
+        }
         if (bridge != null) {
             Image(
                 bitmap = bridge,
@@ -310,7 +373,7 @@ private fun PageSlot(
                 contentScale = ContentScale.Fit,
             )
         }
-        if (page == null && bridge == null) {
+        if (nothingToShow && !pinching) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
         }
         if (size != null) {
