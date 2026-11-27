@@ -75,7 +75,7 @@ use shell::install_shell_css;
 use side_panel::{collapsible, Column};
 use sign::{build_sign_content, connect_sign_toolbar};
 use state::{Viewer, ViewerState};
-use write::show_save_chooser;
+use write::{save, save_as};
 
 const APPLICATION_ID: &str = "org.vitela.Pdf";
 /// Vertical gap between stacked page widgets. Shared by the page box in
@@ -175,6 +175,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         sample_actions,
         print: print_button,
         save: save_button,
+        save_as: _,
         export: export_button,
         page_indicator,
         zoom_out,
@@ -582,7 +583,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     viewer.save_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
-        move |_| show_save_chooser(&window, &viewer)
+        move |_| save(&window, &viewer)
     });
     // No accelerator of its own: the export dialog is a deliberate stop, not
     // a gesture to repeat, and the standard shortcut set has no slot for it.
@@ -671,14 +672,23 @@ fn connect_standard_shortcuts(
     window.add_action(&open);
     shortcuts::OPEN.install(application);
 
-    let save = gio::SimpleAction::new(shortcuts::SAVE.action, None);
-    save.connect_activate({
+    let save_action = gio::SimpleAction::new(shortcuts::SAVE.action, None);
+    save_action.connect_activate({
         let window = window.clone();
         let viewer = viewer.clone();
-        move |_, _| show_save_chooser(&window, &viewer)
+        move |_, _| save(&window, &viewer)
     });
-    window.add_action(&save);
+    window.add_action(&save_action);
     shortcuts::SAVE.install(application);
+
+    let save_as_action = gio::SimpleAction::new(shortcuts::SAVE_AS.action, None);
+    save_as_action.connect_activate({
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |_, _| save_as(&window, &viewer)
+    });
+    window.add_action(&save_as_action);
+    shortcuts::SAVE_AS.install(application);
 
     let print = gio::SimpleAction::new(shortcuts::PRINT.action, None);
     print.connect_activate({

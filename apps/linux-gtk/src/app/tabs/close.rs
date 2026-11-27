@@ -211,3 +211,83 @@ fn drop_parked(viewer: &Viewer, id: TabId) {
         .status
         .set_text(&tr_args("tabs-closed", &[("name", name.into())]));
 }
+
+#[cfg(test)]
+mod tests {
+    use super::close_active;
+    use crate::app::document::SAMPLE_PDF;
+    use crate::app::i18n::tr;
+    use crate::app::test_support::{pump_for, wait_until, FileDocument};
+
+    /// Save in the close prompt, for a document that came from a file: the
+    /// file is written and the tab closes, with no chooser and no overwrite
+    /// question after the one dialog that was answered.
+    #[gtk::test]
+    fn gtk_ui_save_in_the_close_prompt_writes_the_file_and_closes_the_tab() {
+        let closing = FileDocument::new("close-save");
+        let path = closing.open_file();
+        closing.mark_dirty();
+        std::fs::write(&path, b"not what the save writes").expect("stage the file");
+
+        close_active(&closing.built.window, &closing.built.viewer);
+        closing.answer(&tr("open-unsaved-save"));
+
+        assert!(
+            wait_until(|| closing.tab_count() == 0),
+            "the tab closes once its work is saved: {}",
+            closing.status()
+        );
+        assert!(!closing.chooser_is_up(), "no chooser was raised");
+        assert!(closing.dialogs().is_empty(), "nothing else was asked");
+        let written = std::fs::read(&path).expect("the file is still there");
+        assert!(written.starts_with(b"%PDF-"), "the file holds the document");
+    }
+
+    /// A save that fails keeps the tab: closing it anyway would discard the
+    /// work Save was chosen to keep.
+    #[gtk::test]
+    fn gtk_ui_a_failed_save_in_the_close_prompt_keeps_the_tab() {
+        let closing = FileDocument::new("close-failed");
+        let path = closing.open_file();
+        closing.mark_dirty();
+        // The temporary name the write creates, already taken.
+        let temporary = closing
+            .folder
+            .join(format!(".report.pdf.{}.tmp", std::process::id()));
+        std::fs::write(&temporary, b"in the way").expect("block the temporary file");
+
+        close_active(&closing.built.window, &closing.built.viewer);
+        closing.answer(&tr("open-unsaved-save"));
+
+        assert!(
+            wait_until(|| closing.said("Could not save PDF")),
+            "the failure is reported: {}",
+            closing.status()
+        );
+        pump_for(std::time::Duration::from_millis(50));
+        assert_eq!(closing.tab_count(), 1, "the tab stays open");
+        assert!(closing.dirty(), "with its work still unsaved");
+        assert_eq!(std::fs::read(&path).expect("the file"), SAMPLE_PDF);
+    }
+
+    /// A document with no file to go back to still has to be given one:
+    /// Save in the close prompt raises the chooser, and the tab waits on it.
+    #[gtk::test]
+    fn gtk_ui_save_in_the_close_prompt_asks_where_to_go_without_a_file() {
+        use crate::app::state::DocumentSource;
+
+        let closing = FileDocument::new("close-no-file");
+        closing.open(DocumentSource::Embedded(SAMPLE_PDF));
+        closing.mark_dirty();
+
+        close_active(&closing.built.window, &closing.built.viewer);
+        closing.answer(&tr("open-unsaved-save"));
+
+        assert!(
+            wait_until(|| closing.chooser_is_up()),
+            "the chooser is raised"
+        );
+        assert_eq!(closing.tab_count(), 1, "the tab waits for the answer");
+        assert!(closing.dirty());
+    }
+}

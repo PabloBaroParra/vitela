@@ -80,6 +80,12 @@ pub(crate) const SHELL_CSS: &str = r#"
   opacity: 0.38;
 }
 
+/* The arrow beside Save: narrow enough to read as part of it. */
+.editor-toolbar .toolbar-save-as button {
+  min-width: 12px;
+  padding: 5px 1px;
+}
+
 .toolbar-group {
   padding: 0 8px;
   border-right: 1px solid @vitela_divider;

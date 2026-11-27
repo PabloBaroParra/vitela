@@ -6,6 +6,10 @@
 //! thread, then fold the reopened document back into the session. The fourth,
 //! [`preview`], reaches the same writer with no destination at all.
 //!
+//! An ordinary Save is the one of the three that may skip the asking: when
+//! the document came from a file it can replace, [`in_place`] hands the chain
+//! that file as its destination. Save As, signing and protecting always ask.
+//!
 //! [`extract`] and [`split`] take one half from each side: they name a
 //! destination and guard its overwrite like the first three, and install
 //! nothing like the fourth. That combination is what both *are* — new files
@@ -53,6 +57,7 @@
 mod chooser;
 mod compress;
 mod extract;
+mod in_place;
 mod preview;
 mod protect;
 mod save;
@@ -89,7 +94,7 @@ pub(crate) use compress::begin_compress;
 pub(crate) use extract::begin_extract;
 pub(crate) use preview::{refresh_preview, restore_view_state, take_view_state, ViewState};
 pub(crate) use protect::{begin_protect, ProtectRequest};
-pub(crate) use save::{show_save_chooser, show_save_chooser_then};
+pub(crate) use save::{save, save_as, save_then};
 pub(crate) use sign::{begin_sign, SignRequest};
 pub(crate) use snapshot::{snapshot_for_output, OutputSource};
 pub(crate) use split::begin_split;

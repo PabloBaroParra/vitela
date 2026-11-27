@@ -107,6 +107,10 @@ impl Tabs {
         self.parked.len()
     }
 
+    pub(crate) fn tab_count(&self) -> usize {
+        self.list.ids().len()
+    }
+
     /// Forgets every tab and queued open without closing a handle — for
     /// fixtures whose sessions hold no real pdfium document, before they
     /// close the window.

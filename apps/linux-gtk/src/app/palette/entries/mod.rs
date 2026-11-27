@@ -104,6 +104,7 @@ pub(crate) enum WindowAction {
     Open,
     New,
     Save,
+    SaveAs,
     Print,
     CloseTab,
     Undo,
@@ -118,6 +119,7 @@ impl WindowAction {
             WindowAction::Open => shortcuts::OPEN,
             WindowAction::New => shortcuts::NEW,
             WindowAction::Save => shortcuts::SAVE,
+            WindowAction::SaveAs => shortcuts::SAVE_AS,
             WindowAction::Print => shortcuts::PRINT,
             WindowAction::CloseTab => shortcuts::CLOSE_TAB,
             WindowAction::Undo => shortcuts::UNDO,
@@ -223,6 +225,12 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
             "file.save",
             WindowAction::Save,
             "editor-save",
+            Category::File,
+        ),
+        (
+            "file.save-as",
+            WindowAction::SaveAs,
+            "editor-save-as",
             Category::File,
         ),
         (

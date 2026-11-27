@@ -309,7 +309,7 @@ pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
     // see `content_edit::rearm_for_session`.
     crate::app::content_edit::rearm_for_session(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
-    // `save_button` was wired to `show_save_chooser` from the start (see
+    // `save_button` was wired to the save chain from the start (see
     // `mod.rs`'s `connect_clicked`) but never got the other half of the pair
     // its own comment already describes: nothing ever flipped it back on
     // after `editor_toolbar::build_editor_toolbar`'s initial `set_sensitive

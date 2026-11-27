@@ -30,6 +30,12 @@ pub(crate) const SAVE: Shortcut = Shortcut {
     action: "save",
     accel: "<Control>s",
 };
+/// Saves under a name the user picks, where [`SAVE`] writes back to the file
+/// the document came from.
+pub(crate) const SAVE_AS: Shortcut = Shortcut {
+    action: "save-as",
+    accel: "<Control><Shift>s",
+};
 pub(crate) const PRINT: Shortcut = Shortcut {
     action: "print",
     accel: "<Control>p",
@@ -203,9 +209,10 @@ fn sync_search_field_handoff(
 mod tests {
     use super::*;
 
-    const ALL: [Shortcut; 14] = [
+    const ALL: [Shortcut; 15] = [
         OPEN,
         SAVE,
+        SAVE_AS,
         PRINT,
         FIND,
         NEW,
@@ -233,6 +240,7 @@ mod tests {
     #[gtk::test]
     fn gtk_ui_accel_label_is_what_the_user_reads() {
         assert_eq!(accel_label(OPEN.accel).as_deref(), Some("Ctrl+O"));
+        assert_eq!(accel_label(SAVE_AS.accel).as_deref(), Some("Shift+Ctrl+S"));
         assert_eq!(
             accel_label(COMMAND_PALETTE.accel).as_deref(),
             Some("Ctrl+K")

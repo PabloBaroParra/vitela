@@ -114,8 +114,10 @@ editor-sample-plain = Vitela sample
 # Keep the sample passwords unchanged: users enter them to open the files.
 editor-sample-aes128 = AES-128 sample (user-aes-pass)
 editor-sample-rc4128 = RC4-128 sample (user-rc4-pass)
-editor-save = Save as
-editor-save-tooltip = Save as (Ctrl+S)
+editor-save = Save
+editor-save-tooltip = Save (Ctrl+S)
+editor-save-as = Save as
+editor-save-as-tooltip = Save as (Ctrl+Shift+S)
 editor-print = Print
 editor-print-tooltip = Print (Ctrl+P)
 editor-export = Export images
@@ -485,6 +487,7 @@ save-cancelled = Save cancelled.
 save-busy = Saving PDF...
 save-done = PDF saved and reopened.
 save-failed = Could not save PDF: { $error }
+save-wait-for-job = Wait for the current operation on this document to finish before saving.
 
 ## Preview refresh after an edit
 
@@ -1028,6 +1031,7 @@ palette-mode-protect-keywords = password encrypt lock security permissions
 palette-file-open-keywords = load browse document
 palette-file-new-keywords = create empty document
 palette-file-save-keywords = copy keep write download
+palette-file-save-as-keywords = copy rename duplicate another
 palette-file-print-keywords = printer paper
 palette-file-close-tab-keywords = tab file window
 palette-edit-undo-keywords = revert back cancel
@@ -1069,6 +1073,8 @@ tabs-close-named = Close { $name }
 tabs-tab-unsaved = { $name }, unsaved changes
 # $name (String) - the active document's file name.
 tabs-window-title = { $name } — Vitela
+# $name (String) - the active document's file name, which has unsaved changes.
+tabs-window-title-unsaved = • { $name } — Vitela
 # $name (String) - the document's file name.
 tabs-closed = Closed { $name }.
 tabs-busy = Wait for the current operation on this document to finish before switching or closing tabs.

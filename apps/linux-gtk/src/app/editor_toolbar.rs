@@ -42,6 +42,9 @@ use super::icons::{build_icon, Icon, NEUTRAL_TINT};
 /// row whenever it fits and wrap only when it genuinely has to.
 const GROUP_COUNT: u32 = 8;
 
+/// The face of the arrow beside Save that opens the Save as menu.
+const SAVE_AS_MARKER: &str = "\u{25be}";
+
 /// A compact search field keeps the popover usable on narrow windows.
 const FIND_ENTRY_CHARS: i32 = 14;
 
@@ -63,6 +66,11 @@ pub(crate) struct EditorToolbar {
     /// `document::show_document` gates all three on the same page count.
     pub(crate) export: Button,
     pub(crate) save: Button,
+    /// The arrow beside Save, whose menu holds Save as. Bound to
+    /// `win.save-as` and to Save's sensitivity inside this module, so
+    /// `build_ui` has nothing to wire; here for the tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) save_as: MenuButton,
     pub(crate) page_indicator: Label,
     pub(crate) zoom_out: Button,
     pub(crate) zoom_label: Label,
@@ -127,6 +135,26 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let save = icon_button(&tr("editor-save"), Icon::Save);
     save.set_tooltip_text(Some(&tr("editor-save-tooltip")));
     save.set_sensitive(false);
+    // Save is the button; Save as sits behind the arrow beside it, the way
+    // a split button offers the less common of two commands. A menu rather
+    // than a second icon button: the bundled set has one Save icon, and two
+    // identical icons side by side would say nothing about which is which.
+    // It names the window action, so the click, Ctrl+Shift+S and the palette
+    // all reach one handler, and it follows Save's sensitivity — whatever
+    // decides there is nothing to save decides it for both.
+    let save_as = MenuButton::new();
+    save_as.add_css_class("toolbar-save-as");
+    // A symbol rather than the menu button's own arrow, which is an
+    // icon-theme lookup this crate never makes (see `shell`).
+    save_as.set_child(Some(&Label::new(Some(SAVE_AS_MARKER))));
+    save_as.set_tooltip_text(Some(&tr("editor-save-as-tooltip")));
+    save_as.update_property(&[gtk::accessible::Property::Label(&tr("editor-save-as"))]);
+    let save_menu = gio::Menu::new();
+    save_menu.append(Some(&tr("editor-save-as")), Some("win.save-as"));
+    save_as.set_menu_model(Some(&save_menu));
+    save.bind_property("sensitive", &save_as, "sensitive")
+        .sync_create()
+        .build();
     let print = icon_button(&tr("editor-print"), Icon::Print);
     print.set_tooltip_text(Some(&tr("editor-print-tooltip")));
     print.set_sensitive(false);
@@ -134,6 +162,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     export.set_tooltip_text(Some(&tr("editor-export-tooltip")));
     export.set_sensitive(false);
     output.append(&save);
+    output.append(&save_as);
     output.append(&print);
     output.append(&export);
 
@@ -257,6 +286,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         sample_actions,
         print,
         save,
+        save_as,
         export,
         page_indicator,
         zoom_out,
@@ -363,7 +393,7 @@ mod tests {
         let toolbar = build_editor_toolbar();
         for (button, english, translated) in [
             (&toolbar.open, "Open PDF", "Abrir PDF"),
-            (&toolbar.save, "Save as", "Guardar como"),
+            (&toolbar.save, "Save", "Guardar"),
             (&toolbar.print, "Print", "Imprimir"),
             (&toolbar.export, "Export images", "Exportar imágenes"),
             (&toolbar.zoom_out, "Zoom out", "Alejar"),
@@ -403,6 +433,41 @@ mod tests {
                 .tooltip_text()
                 .is_some_and(|text| text.starts_with(tooltip)));
         }
+    }
+
+    /// Save is the button and Save as is behind the arrow beside it: named
+    /// for assistive technology, pointing at the window action, and greyed
+    /// out exactly when Save is.
+    #[gtk::test]
+    fn gtk_ui_save_as_sits_beside_save_and_follows_it() {
+        let toolbar = build_editor_toolbar();
+
+        assert_eq!(
+            toolbar.save.next_sibling().as_ref(),
+            Some(toolbar.save_as.upcast_ref::<gtk::Widget>())
+        );
+        assert_eq!(
+            toolbar.save.tooltip_text().as_deref(),
+            Some("Save (Ctrl+S)")
+        );
+        assert_eq!(
+            toolbar.save_as.tooltip_text().as_deref(),
+            Some("Save as (Ctrl+Shift+S)")
+        );
+        let menu = toolbar.save_as.menu_model().expect("the arrow has a menu");
+        let attribute = |name: &str| {
+            menu.item_attribute_value(0, name, None)
+                .and_then(|value| value.get::<String>())
+        };
+        assert_eq!(menu.n_items(), 1);
+        assert_eq!(attribute("label").as_deref(), Some("Save as"));
+        assert_eq!(attribute("action").as_deref(), Some("win.save-as"));
+
+        assert!(!toolbar.save_as.is_sensitive(), "nothing to save yet");
+        toolbar.save.set_sensitive(true);
+        assert!(toolbar.save_as.is_sensitive());
+        toolbar.save.set_sensitive(false);
+        assert!(!toolbar.save_as.is_sensitive());
     }
 
     #[gtk::test]

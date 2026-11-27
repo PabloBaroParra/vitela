@@ -109,6 +109,8 @@ fn every_label_resolves_in_english_and_spanish() {
 fn action_entries_show_the_accelerator_gtk_registers() {
     for (target, shortcut) in [
         (Target::Action(WindowAction::Open), shortcuts::OPEN),
+        (Target::Action(WindowAction::Save), shortcuts::SAVE),
+        (Target::Action(WindowAction::SaveAs), shortcuts::SAVE_AS),
         (Target::Action(WindowAction::Undo), shortcuts::UNDO),
         (Target::Action(WindowAction::Find), shortcuts::FIND),
         (Target::Action(WindowAction::CloseTab), shortcuts::CLOSE_TAB),
@@ -237,6 +239,7 @@ fn gtk_ui_without_a_document_only_modes_and_document_free_commands_run() {
     );
     for (target, key) in [
         (Target::Action(WindowAction::Save), "save-no-document"),
+        (Target::Action(WindowAction::SaveAs), "save-no-document"),
         (Target::Action(WindowAction::Print), "print-open-first"),
         (Target::Action(WindowAction::CloseTab), "tabs-no-document"),
         (Target::Action(WindowAction::Find), "search-open-first"),

@@ -41,9 +41,8 @@ pub(crate) struct SignRequest {
 }
 
 /// Batch B23 Fase 4/5: the signing twin of
-/// [`show_save_chooser`](super::save::show_save_chooser). This shell has no
-/// notion of "the current file" to overwrite implicitly — even an ordinary
-/// Save always asks where to write — so signing asks the same way, then runs
+/// [`save_as`](super::save::save_as). A signed copy never replaces the file
+/// it was made from implicitly, so signing always asks where to write, then runs
 /// [`pdf_sign::sign_document`] on a worker thread and reopens the result
 /// exactly like a real disk save does.
 pub(crate) fn begin_sign(window: &ApplicationWindow, viewer: &Viewer, request: SignRequest) {

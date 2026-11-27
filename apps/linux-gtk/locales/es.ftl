@@ -107,8 +107,10 @@ editor-sample-plain = Ejemplo de Vitela
 # Keep the sample passwords unchanged: users enter them to open the files.
 editor-sample-aes128 = Ejemplo AES-128 (user-aes-pass)
 editor-sample-rc4128 = Ejemplo RC4-128 (user-rc4-pass)
-editor-save = Guardar como
-editor-save-tooltip = Guardar como (Ctrl+S)
+editor-save = Guardar
+editor-save-tooltip = Guardar (Ctrl+S)
+editor-save-as = Guardar como
+editor-save-as-tooltip = Guardar como (Ctrl+Mayús+S)
 editor-print = Imprimir
 editor-print-tooltip = Imprimir (Ctrl+P)
 editor-export = Exportar imágenes
@@ -468,6 +470,7 @@ save-cancelled = Guardado cancelado.
 save-busy = Guardando el PDF...
 save-done = PDF guardado y vuelto a abrir.
 save-failed = No se pudo guardar el PDF: { $error }
+save-wait-for-job = Espera a que termine la operación en curso en este documento antes de guardar.
 
 ## Preview refresh after an edit
 
@@ -973,6 +976,7 @@ palette-mode-protect-keywords = contraseña cifrar encriptar bloquear seguridad 
 palette-file-open-keywords = cargar documento examinar
 palette-file-new-keywords = crear vacío documento
 palette-file-save-keywords = guardar copia conservar descargar
+palette-file-save-as-keywords = copia renombrar duplicar otro
 palette-file-print-keywords = impresora papel
 palette-file-close-tab-keywords = pestaña archivo ventana
 palette-edit-undo-keywords = revertir volver atrás cancelar
@@ -1014,6 +1018,8 @@ tabs-close-named = Cerrar { $name }
 tabs-tab-unsaved = { $name }, cambios sin guardar
 # $name (String) - the active document's file name.
 tabs-window-title = { $name } — Vitela
+# $name (String) - the active document's file name, which has unsaved changes.
+tabs-window-title-unsaved = • { $name } — Vitela
 # $name (String) - the document's file name.
 tabs-closed = Se cerró { $name }.
 tabs-busy = Espera a que termine la operación en curso en este documento antes de cambiar o cerrar pestañas.

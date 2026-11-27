@@ -308,8 +308,14 @@ fn gtk_ui_the_strip_is_hidden_on_home_and_without_documents() {
 #[gtk::test]
 fn gtk_ui_an_edit_shows_the_unsaved_marker_and_the_title_follows_the_tab() {
     let tabbed = Tabbed::new();
+    assert_eq!(tabbed.window().title().as_deref(), Some("Vitela"));
     tabbed.open_sample();
     assert!(!tabbed.strip()[0].unsaved);
+    let titled = |key: &str| tr_args(key, &[("name", tr("open-name-sample").into())]);
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title").as_str())
+    );
 
     tabbed.mark_active_dirty();
     // Every edit ends on the status line, which is what redraws the strip.
@@ -318,14 +324,53 @@ fn gtk_ui_an_edit_shows_the_unsaved_marker_and_the_title_follows_the_tab() {
     assert!(tabbed.strip()[0].unsaved);
     assert_eq!(
         tabbed.window().title().as_deref(),
-        Some(
-            tr_args(
-                "tabs-window-title",
-                &[("name", tr("open-name-sample").into())]
-            )
-            .as_str()
-        )
+        Some(titled("tabs-window-title-unsaved").as_str()),
+        "the title carries the strip's unsaved marker"
     );
+}
+
+/// The title is the active tab's alone: it follows a switch, loses its
+/// marker once the work is saved, and goes back to the application's name
+/// when the last tab closes.
+#[gtk::test]
+fn gtk_ui_the_title_follows_a_switch_a_save_and_the_last_close() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.mark_active_dirty();
+    tabbed.open_blank();
+    let titled = |key: &str, name: &str| tr_args(key, &[("name", name.to_owned().into())]);
+    let (sample, blank) = (tr("open-name-sample"), tr("open-name-untitled"));
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title", &blank).as_str()),
+        "the clean document in front is not marked for the one behind it"
+    );
+
+    tabbed.strip()[0].select.emit_clicked();
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title-unsaved", &sample).as_str())
+    );
+
+    // What a save leaves behind: a clean session and a status line.
+    if let Some(session) = tabbed.viewer().state.borrow_mut().session.as_mut() {
+        session.unsaved_to_disk = false;
+    }
+    tabbed.viewer().status.set_text("Saved.");
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title", &sample).as_str())
+    );
+
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    assert_eq!(tabbed.tab_count(), 0);
+    assert_eq!(tabbed.window().title().as_deref(), Some("Vitela"));
 }
 
 #[gtk::test]

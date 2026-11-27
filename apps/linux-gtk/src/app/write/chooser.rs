@@ -30,9 +30,9 @@ pub(super) type Proceed = Rc<dyn Fn(&ApplicationWindow, &Viewer, PathBuf)>;
 /// Asks where to write, then hands the answer to `proceed` through the
 /// overwrite guard.
 ///
-/// This shell has no notion of "the current file" to overwrite implicitly —
-/// not for an ordinary Save, not for signing, not for protecting — so every
-/// write to disk starts here.
+/// Signing and protecting never overwrite "the current file" implicitly, so
+/// both start here. So does every Save As, and an ordinary Save whose
+/// document has no file it can write back to (`super::in_place`).
 pub(super) fn choose_destination(
     window: &ApplicationWindow,
     viewer: &Viewer,

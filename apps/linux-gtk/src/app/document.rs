@@ -373,13 +373,16 @@ fn unsaved_decision(response: Option<i32>) -> UnsavedDecision {
     }
 }
 
-/// Runs the save chooser and, only if the bytes reach disk, continues.
+/// Runs Save and, only if the bytes reach disk, continues.
 ///
-/// A cancelled chooser or a failed write must not continue: the reader chose
-/// Save precisely to keep the work, and closing anyway would discard exactly
-/// what they asked to preserve.
+/// The same Save as Ctrl+S: a document that came from a file is written
+/// back to it with nothing more asked, and only one with no file to go back
+/// to raises the chooser. A cancelled chooser, a refused save or a failed
+/// write must not continue: the reader chose Save precisely to keep the
+/// work, and closing anyway would discard exactly what they asked to
+/// preserve.
 fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn()>) {
-    super::write::show_save_chooser_then(window, viewer, Some(after_save));
+    super::write::save_then(window, viewer, Some(after_save));
 }
 
 fn start_open(
@@ -958,7 +961,7 @@ mod tests {
     use crate::app::ui_tests::built_ui;
     use crate::app::BuiltUi;
     use gtk::prelude::*;
-    use gtk::{gio, glib, Box as GtkBox, Button, ContentFit, Orientation, Picture, Window};
+    use gtk::{gio, glib, Box as GtkBox, ContentFit, Orientation, Picture, Window};
     use pdf_document::{Document, FieldValue};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
@@ -1236,24 +1239,7 @@ mod tests {
     }
 
     /// The shared wait — see `test_support`.
-    use crate::app::test_support::wait_until;
-
-    /// The first button under `root` labelled `label`, depth first.
-    fn find_button(root: &gtk::Widget, label: &str) -> Option<Button> {
-        if let Some(button) = root.downcast_ref::<Button>() {
-            if button.label().as_deref() == Some(label) {
-                return Some(button.clone());
-            }
-        }
-        let mut child = root.first_child();
-        while let Some(widget) = child {
-            if let Some(found) = find_button(&widget, label) {
-                return Some(found);
-            }
-            child = widget.next_sibling();
-        }
-        None
-    }
+    use crate::app::test_support::{find_button, wait_until};
 
     /// The password prompt for an encrypted sample, with Sign armed the way a
     /// Home tile or a mode arms it before there is a document.

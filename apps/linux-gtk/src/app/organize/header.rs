@@ -48,7 +48,7 @@ use super::import;
 use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 use crate::app::tools_panel::panel_heading;
-use crate::app::write::{begin_extract, begin_split, show_save_chooser};
+use crate::app::write::{begin_extract, begin_split, save};
 
 /// The header's controls, handed back to [`super::build_organize_panel`] so
 /// they can be stored on `OrganizePanel` — the row itself keeps no state, and
@@ -179,6 +179,6 @@ pub(super) fn connect(window: &ApplicationWindow, viewer: &Viewer) {
     viewer.organize.save_button.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();
-        move |_| show_save_chooser(&window, &viewer)
+        move |_| save(&window, &viewer)
     });
 }
