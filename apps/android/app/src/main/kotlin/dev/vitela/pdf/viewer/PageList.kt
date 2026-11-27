@@ -110,8 +110,12 @@ internal fun PageList(
         val slotWidth = (maxWidth - PAGE_GAP * (columns - 1)) / columns
         val slotWidthPx = with(LocalDensity.current) { slotWidth.roundToPx() }
         val pageWidth = slotWidth * state.zoomFactor.toFloat()
-        val rowWidth = pageWidth * columns + PAGE_GAP * (columns - 1)
-        val pageStepPx = with(LocalDensity.current) { (pageWidth + PAGE_GAP).roundToPx() }
+        // The gap scales with the pages, so the whole column is the fit-width
+        // layout times the zoom: a pinch's scaled picture then matches the
+        // relayout exactly, instead of the gap growing as the pages shrink.
+        val pageGap = PAGE_GAP * state.zoomFactor.toFloat()
+        val rowWidth = pageWidth * columns + pageGap * (columns - 1)
+        val pageStepPx = with(LocalDensity.current) { (pageWidth + pageGap).roundToPx() }
 
         LaunchedEffect(columns, state.documentId) {
             preferredPage = state.pageIndex
@@ -239,10 +243,10 @@ internal fun PageList(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.width(rowWidth).fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(PAGE_GAP),
+                verticalArrangement = Arrangement.spacedBy(pageGap),
             ) {
                 items(count = rows.count, key = { index -> rows.first(index) }) { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(PAGE_GAP), verticalAlignment = Alignment.Top) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(pageGap), verticalAlignment = Alignment.Top) {
                         for (index in rows.first(row)..rows.last(row)) {
                             Box(Modifier.width(pageWidth)) {
                                 PageSlot(
