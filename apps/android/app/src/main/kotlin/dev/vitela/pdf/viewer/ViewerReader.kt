@@ -46,12 +46,21 @@ internal class ViewerReader(private val session: ViewerSession) {
      */
     private var pinching = false
 
+    /**
+     * Sharp renders still running on the core, stale ones included: they
+     * occupy it all the same, and previews wait until none is.
+     */
+    private var sharpRunning = 0
+
+    private val previews = ReaderPreviews(session) { sharpRunning > 0 }
+
     /** A new document replaced the old one: nothing in flight or cached is wanted any more. */
     fun reset() {
         inFlight.clear()
         cacheWindow = IntRange.EMPTY
         lastPosition = null
         pinching = false
+        previews.reset()
     }
 
     /**
@@ -62,6 +71,7 @@ internal class ViewerReader(private val session: ViewerSession) {
     fun retireRenders() {
         layoutGeneration += 1
         inFlight.clear()
+        previews.retire()
     }
 
     /**
@@ -76,6 +86,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         layoutGeneration += 1
         inFlight.clear()
         state.value = state.value.copy(pages = emptyMap(), bridgePages = emptyMap())
+        previews.invalidate()
         val position = lastPosition ?: return
         val last = (state.value.pageCount - 1).coerceAtLeast(0)
         if (redrive && state.value.pageCount > 0) {
@@ -99,6 +110,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         layoutGeneration += 1
         inFlight.clear()
         state.value = state.value.withInvalidatedPageBitmaps(cacheWindow)
+        previews.invalidate()
         if (redrive) lastPosition?.let(::onPositionChanged)
     }
 
@@ -145,8 +157,11 @@ internal class ViewerReader(private val session: ViewerSession) {
         // The reader's first layout pass calls back with a real one.
         if (renderWidthPx <= 0) return
         for (pageIndex in renderOrder(position.first, position.last, pageCount)) {
-            if (wantsRender(pinching, pageIndex in state.value.pages, pageIndex in state.value.bridgePages)) renderPage(pageIndex)
+            val standIn = pageIndex in state.value.bridgePages || pageIndex in state.value.previewPages
+            if (wantsRender(pinching, pageIndex in state.value.pages, standIn)) renderPage(pageIndex)
         }
+        // After the sharp renders were queued, so none waits behind a preview.
+        previews.onPositionChanged(position.first, position.last, boundedPageIndex(position.current, pageCount), pageCount)
     }
 
     /** Consumed by the reader once it has scrolled, so the target fires once. */
@@ -224,10 +239,17 @@ internal class ViewerReader(private val session: ViewerSession) {
         if (inFlight[pageIndex] == generation) return
         inFlight[pageIndex] = generation
         val dpi = renderDpi(state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
+        sharpRunning += 1
         session.scope.launch {
             // The per-pixel conversion (up to MAX_PAGE_PIXELS) runs off the
             // main thread too: the main thread only swaps the finished bitmap in.
-            val result = withContext(session.compute) { openDocument.renderPage(pageIndex, dpi).toPageBitmap() }
+            val result = try {
+                withContext(session.compute) { openDocument.renderPage(pageIndex, dpi).toPageBitmap() }
+            } finally {
+                sharpRunning -= 1
+            }
+            // Idle again: the previews may take their turn.
+            previews.pump()
             if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
             // A render outlives the document that started it when the user
             // opens another file mid-scroll, and outlives its own layout when

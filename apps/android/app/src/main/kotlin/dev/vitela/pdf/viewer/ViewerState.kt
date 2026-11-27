@@ -30,6 +30,12 @@ data class ViewerState(
      */
     val bridgePages: Map<Int, ImageBitmap> = emptyMap(),
     /**
+     * Low-resolution previews ([PREVIEW_WIDTH_PX] wide) drawn beneath bridges
+     * and pages, so a page with nothing sharp yet still shows itself. Kept for
+     * [PREVIEW_PAGES] either side of the current page; see [ReaderPreviews].
+     */
+    val previewPages: Map<Int, ImageBitmap> = emptyMap(),
+    /**
      * A page the reader should scroll to — set by Previous/Next and by search
      * navigation, cleared once the list has consumed it. Null means "the user
      * owns the scroll position", which is the normal case while reading.

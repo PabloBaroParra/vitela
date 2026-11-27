@@ -246,6 +246,7 @@ internal fun PageList(
                                     pageNumber = index + 1,
                                     page = state.pages[index],
                                     bridge = state.bridgePages[index],
+                                    preview = state.previewPages[index],
                                     size = state.pageSizes.getOrNull(index),
                                     state = state,
                                     stampBitmaps = stampBitmaps,
@@ -271,6 +272,7 @@ private fun PageSlot(
     pageNumber: Int,
     page: ImageBitmap?,
     bridge: ImageBitmap?,
+    preview: ImageBitmap?,
     size: PageSize?,
     state: ViewerState,
     stampBitmaps: Map<Long, ImageBitmap>,
@@ -309,6 +311,7 @@ private fun PageSlot(
         // Selecting text — long-press, double tap, handles, the toolbar — belongs to the plain reader, as the long-press always did.
         val selectionTools = state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
+        val nothingToShow = page == null && bridge == null && preview == null
         Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -317,6 +320,15 @@ private fun PageSlot(
             .background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
+        // The base layer: low resolution, filling the slot until something sharper covers it.
+        if (preview != null && page == null) {
+            Image(
+                bitmap = preview,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
+            )
+        }
         if (bridge != null) {
             Image(
                 bitmap = bridge,
@@ -333,7 +345,7 @@ private fun PageSlot(
                 contentScale = ContentScale.Fit,
             )
         }
-        if (page == null && bridge == null) {
+        if (nothingToShow) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
         }
         if (size != null) {

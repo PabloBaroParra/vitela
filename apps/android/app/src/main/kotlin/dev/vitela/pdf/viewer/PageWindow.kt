@@ -86,7 +86,8 @@ internal fun renderOrder(first: Int, last: Int, pageCount: Int): List<Int> {
 /**
  * Whether a page in the window is rasterized now: any page not yet sharp,
  * except while a pinch is [pinching], when a page that shows anything at all —
- * its old bitmap stretched as a bridge — waits for the fingers to lift. A
+ * its old bitmap stretched as a bridge, or its low-resolution preview —
+ * waits for the fingers to lift. A
  * pinch-out re-lays the list out at each step, and a render started for one
  * step's zoom is thrown away by the next.
  */
