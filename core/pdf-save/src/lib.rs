@@ -107,7 +107,7 @@ pub use content::{
 };
 pub use content_edit::{
     check_image_replacement, content_cut_allowed, content_editing_allowed, ensure_content_editing,
-    text_run_has_pending_move, ContentEditRefusal,
+    text_run_has_pending_move, text_run_text_is_decoded, ContentEditRefusal,
 };
 pub use edit_gate::{
     check_edit, form_field_editing_allowed, form_fill_allowed, EditClass, EditRefusal,

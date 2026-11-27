@@ -147,18 +147,24 @@ impl DocumentModel {
         Ok(())
     }
 
-    /// Undoes the last edit. `false` when there was nothing to undo.
+    /// Undoes the last edit, stepping back across a checkpoint when the
+    /// live queue is empty (`pdf_save::checkpoint::undo`): one step at a
+    /// time, exactly as without the checkpoint. `false` when there was
+    /// nothing to undo.
     pub fn undo(&mut self) -> bool {
-        let stepped = step_log(&mut self.document, EditLog::undo);
+        let stepped = pdf_save::checkpoint::undo(self);
         if stepped {
             self.preview.undone();
         }
         stepped
     }
 
-    /// Redoes the last undone edit. `false` when there was nothing to redo.
+    /// Redoes the last undone edit, stepping forward across a checkpoint
+    /// when nothing was done since the step back
+    /// (`pdf_save::checkpoint::redo`). `false` when there was nothing to
+    /// redo.
     pub fn redo(&mut self) -> bool {
-        let stepped = step_log(&mut self.document, EditLog::redo);
+        let stepped = pdf_save::checkpoint::redo(self);
         if stepped {
             self.preview.redone();
         }
@@ -188,12 +194,14 @@ impl DocumentModel {
         self.preview.fresh();
     }
 
+    /// Whether there is anything to undo, a checkpoint behind included.
     pub fn can_undo(&self) -> bool {
-        self.document.pending_edits.can_undo()
+        pdf_save::checkpoint::can_undo(self)
     }
 
+    /// Whether there is anything to redo, a checkpoint ahead included.
     pub fn can_redo(&self) -> bool {
-        self.document.pending_edits.can_redo()
+        pdf_save::checkpoint::can_redo(self)
     }
 
     /// The document with every edit applied, as a complete PDF computed from

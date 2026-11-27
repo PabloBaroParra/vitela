@@ -31,6 +31,9 @@ import type {
   PreparedImport,
   DocumentProperties,
   WatermarkDefaults,
+  PageContent,
+  TextBlock,
+  TextRunStyle,
   ProtectionPasswords,
   RenderedPage,
   SearchHit,
@@ -164,6 +167,34 @@ export class EngineClient implements Engine {
 
   metadataRefusal(document: DocumentHandle): Promise<string | null> {
     return this.send({ kind: 'metadataRefusal', document });
+  }
+
+  contentEditingRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'contentEditingRefusal', document });
+  }
+
+  readPageContent(document: DocumentHandle, pageIndex: number): Promise<PageContent> {
+    return this.send({ kind: 'readPageContent', document, pageIndex });
+  }
+
+  readTextBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]> {
+    return this.send({ kind: 'readTextBlocks', document, pageIndex });
+  }
+
+  readParagraphBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]> {
+    return this.send({ kind: 'readParagraphBlocks', document, pageIndex });
+  }
+
+  textRunStyle(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunStyle | null> {
+    return this.send({ kind: 'textRunStyle', document, pageIndex, runId });
+  }
+
+  pageFontFamilies(document: DocumentHandle, pageIndex: number): Promise<Record<string, string>> {
+    return this.send({ kind: 'pageFontFamilies', document, pageIndex });
+  }
+
+  contentBaseGeneration(document: DocumentHandle): Promise<number> {
+    return this.send({ kind: 'contentBaseGeneration', document });
   }
 
   watermarkDefaults(): Promise<WatermarkDefaults> {

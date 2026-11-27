@@ -72,7 +72,10 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   id of the one it added, the form fields, and `paintRevision`: the newest
   page-content step still applied, 0 as opened — a viewer that keeps bitmaps
   by page id and turn adds it to its key, so a watermark and its undo repaint
-  the pages), and the engine has already refreshed its preview
+  the pages; and `contentBaseGeneration`: which in-memory base the
+  page-content reads are valid against, bumped when the core writes pending
+  content edits into a new base — a checkpoint — or undo or redo steps across
+  one), and the engine has already refreshed its preview
   when the step changed the pixels, so the next render shows it.
   `applyEdit` takes a page edit (`move`/`rotate`/`remove`, or `insertBlank`: one
   A4 page, `portrait` or `landscape`, at a position) or an annotation
@@ -173,6 +176,27 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   or a look outside the core's ranges; nothing is recorded then. A page whose
   content stream the core cannot rewrite (a chain of filters) fails the
   preview refresh, and the stamp is taken back out (`SaveFailed`).
+  The page-content model (T-258, read-only; the edits come in T-259 on):
+  `contentEditingRefusal(handle)` says why an editor of the page content
+  cannot be offered (the core's clause: the content edit's own gate — the
+  modify permission, or an encryption the full rewrite cannot keep — then the
+  text permission every content read is behind) or `null`.
+  `readPageContent(handle, pageIndex)` answers what the page paints, every
+  pending content edit laid on: its text runs (`ContentRun`: id, box on the
+  page as drawn, the font's resource name and kind, text, and `editable`,
+  `false` when the font does not say what every code is), images
+  (`ContentImage`) and vector paths (`ContentPath`, stroked, filled or both).
+  It parses the page on every call — cache by page id, `paintRevision` and
+  `contentBaseGeneration`, and ask only for the pages in view.
+  `readTextBlocks` and `readParagraphBlocks` group the runs into one-line
+  blocks or into paragraphs (`TextBlock`: member run ids, box, text, lines,
+  leading, alignment — the core's grouping), `textRunStyle(handle,
+  pageIndex, runId)` reads a run's base font, size, colour, spacing and face
+  (`null` for a run only a pending insertion added), `pageFontFamilies`
+  each font's `/BaseFont` by resource name, and `contentBaseGeneration` the
+  current base. The reads reject with `TextExtractionDenied`,
+  `PageIndexOutOfBounds`, and `textRunStyle` with `UnsupportedOperation` for
+  an id the page does not hold now.
   Extract and Split: `extractionRefusal(handle)` says why no page can leave
   the document (the core's sentence: its `/P` withholds extraction — bit 5,
   not page assembly — or its encryption cannot survive the rewrite, e.g.
@@ -227,6 +251,8 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
   `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `FormEdit`,
   `FieldValue`, `WatermarkEdit`, `WatermarkMark`, `WatermarkDefaults`,
+  `PageContent`, `ContentItem`, `ContentRun`, `ContentImage`, `ContentPath`,
+  `ContentFontKind`, `TextBlock`, `TextLine`, `TextRunStyle`,
   `EditedDocument`, `Annotation`, `Comment`, `FormField`,
   `RadioButton`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
   `PageRect`, `DocumentBlock`, `BlockSource`, `PreparedImport`,

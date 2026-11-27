@@ -12,7 +12,7 @@
 //! the functions that can also fail on a read are generic over an error that
 //! converts from each of their failures.
 
-use pdf_document::{Command, ContentItemId, Document, ImageItem, PageId, SecurityContext};
+use pdf_document::{Command, ContentItemId, Document, ImageItem, PageId, SecurityContext, TextRun};
 
 use crate::bridge::ImportedSources;
 use crate::checkpoint::{self, CheckpointSession};
@@ -187,6 +187,17 @@ fn image_has_pending_edit(document: &Document, item: &ImageItem) -> bool {
     })
 }
 
+/// Whether `run`'s text decoded fully: every code its font paints read
+/// back as a character. A code the font gives no character for — no usable
+/// `/ToUnicode`, an encoding this build cannot map — reads as U+FFFD, and a
+/// run holding one cannot be retyped: the editor would not know what it is
+/// replacing, and the encoder refuses the U+FFFD it would be handed back
+/// (`pdf_edit::text_run_bbox`'s `EncodingGap`). A shell shows such a run but
+/// does not offer to retype it.
+pub fn text_run_text_is_decoded(run: &TextRun) -> bool {
+    !run.text.contains(char::REPLACEMENT_CHARACTER)
+}
+
 /// Whether the existing run `id` on `page` has an unsaved movement. Retyping
 /// such a run is no longer refused when the session can checkpoint; a shell
 /// that still gates on this keeps the old save-and-reopen rule for sessions
@@ -226,6 +237,26 @@ mod tests {
             },
             permissions: Permissions(permissions),
         }
+    }
+
+    #[test]
+    fn a_run_with_an_undecoded_code_is_not_retypable() {
+        let run = |text: &str| TextRun {
+            id: ContentItemId(0),
+            page: PageId(0),
+            bbox: Rect {
+                x: 0.0,
+                y: 0.0,
+                width: 10.0,
+                height: 10.0,
+            },
+            resource_font_name: "F1".to_string(),
+            font_kind: FontKind::EmbeddedSimple,
+            text: text.to_string(),
+        };
+        assert!(text_run_text_is_decoded(&run("Hello")));
+        assert!(text_run_text_is_decoded(&run("")));
+        assert!(!text_run_text_is_decoded(&run("He\u{FFFD}lo")));
     }
 
     #[test]

@@ -1,0 +1,74 @@
+/* The "Edit content" mode (B26 T-258b): its status row under the viewer's
+   toolbars, and the layer over each page that outlines the item
+   under the pointer and the selected one. Each kind has its own outline: a
+   text run solid, an image dashed, a shape dotted. */
+
+.content-status {
+  flex: 1 0 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 6px;
+}
+
+.content-status__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.87em;
+  overflow-wrap: anywhere;
+}
+
+.content-status__done {
+  flex: none;
+}
+
+.content-layer {
+  position: absolute;
+  inset: 0;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  /* The pointer is the mode's, not a pan, while it is on. */
+  touch-action: pan-y;
+}
+
+.content-layer[data-state='loading'] {
+  cursor: progress;
+}
+
+.content-outline {
+  position: absolute;
+  box-sizing: border-box;
+  /* A hairline rule has a box of no height: still drawn. */
+  min-width: 2px;
+  min-height: 2px;
+  pointer-events: none;
+  border-radius: 2px;
+}
+
+.content-outline--run {
+  border: 1.5px solid var(--tone-blue-fg);
+}
+
+.content-outline--image {
+  border: 2px dashed var(--tone-amber-fg);
+}
+
+.content-outline--path {
+  border: 2px dotted var(--tone-green-fg);
+}
+
+.content-outline--selected {
+  border-width: 2.5px;
+  background: rgb(40 110 230 / 12%);
+}
+
+.content-outline--image.content-outline--selected {
+  background: rgb(230 150 30 / 14%);
+}
+
+.content-outline--path.content-outline--selected {
+  background: rgb(30 140 80 / 14%);
+}

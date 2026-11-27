@@ -2,8 +2,9 @@
 // column of pages, with zoom, search, text selection, the session's
 // annotations, markup over the selection, the drawing tools, image stamps
 // (picked or dropped on a page), selecting and editing an annotation, going
-// from one annotation to the next, the comments, filling in form fields, and
-// undo/redo. Only pages within a viewport of the visible area are mounted (and
+// from one annotation to the next, the comments, filling in form fields,
+// undo/redo, and the read-only "Edit content" mode (outline and select a text
+// run, an image or a shape). Only pages within a viewport of the visible area are mounted (and
 // so rendered); the rest are empty space.
 
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -21,6 +22,9 @@ import { CommentsPanel } from '../comments/CommentsPanel';
 import { NavigationToolbar } from '../comments/NavigationToolbar';
 import { NoteDialog, type ReadableNote } from '../comments/NoteDialog';
 import { commentEntries } from '../comments/stops';
+import { ContentStatus } from '../content/ContentStatus';
+import type { ContentInput } from '../content/ContentLayer';
+import { useContentMode } from '../content/useContentMode';
 import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
@@ -72,9 +76,22 @@ interface DocumentViewerProps {
    * back), so it is drawn again after a redo or when the viewer remounts.
    */
   readonly onStampImage: (handle: DocumentHandle, id: number, href: string) => void;
+  /** Whether the "Edit content" mode is on (turned on from the workspace's Tools menu, already gated). */
+  readonly contentEditing?: boolean;
+  /** Turns the mode off: its Done button. */
+  readonly onContentEditingEnd?: () => void;
 }
 
-export function DocumentViewer({ engine, document, onEdited, onStampImage }: DocumentViewerProps) {
+const NOTHING = () => {};
+
+export function DocumentViewer({
+  engine,
+  document,
+  onEdited,
+  onStampImage,
+  contentEditing = false,
+  onContentEditingEnd = NOTHING,
+}: DocumentViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages, pageIds } = document.info;
   // Zoom first: its layout effect must scroll before the metrics re-read.
@@ -188,6 +205,32 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   // One viewport of overscan on each side keeps short scrolls painted.
   const range = visiblePages(layout, top, metrics.height, metrics.height);
   const current = (pageAt(layout, top + metrics.height / 2) ?? 0) + 1;
+
+  // The pages on screen, without overscan: the content mode parses only
+  // these and one on each side.
+  const onScreen = metrics.height > 0 ? visiblePages(layout, top, metrics.height, 0) : null;
+  const content = useContentMode({
+    engine,
+    handle,
+    active: contentEditing,
+    pageIds,
+    paintRevision: document.paintRevision ?? 0,
+    baseGeneration: document.contentBaseGeneration ?? 0,
+    visible: onScreen,
+  });
+  const contentInput = useMemo<ContentInput | null>(
+    () => (content.active ? { onHover: content.hover, onSelect: content.select } : null),
+    [content.active, content.hover, content.select],
+  );
+  // The mode takes the pointer: text, annotations and drawing let it go.
+  const chooseTool = drawing.choose;
+  const deselectAnnotation = annotating.deselect;
+  useEffect(() => {
+    if (!content.active) return;
+    clearSelection();
+    chooseTool('select');
+    deselectAnnotation();
+  }, [content.active, clearSelection, chooseTool, deselectAnnotation]);
   const reportCurrentPage = useContext(ReportCurrentPageContext);
   useEffect(() => reportCurrentPage(current - 1), [reportCurrentPage, current]);
 
@@ -264,14 +307,18 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           hits={textAllowed ? pageHits.get(index) : undefined}
           currentHit={textAllowed && shownHit?.pageIndex === index ? shownHit.rects : undefined}
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
-          textInput={textAllowed ? input : null}
-          drawing={drawingInput}
-          editing={annotating.input}
+          textInput={textAllowed && !content.active ? input : null}
+          drawing={content.active ? null : drawingInput}
+          editing={content.active ? null : annotating.input}
           selectedId={selected?.pageIndex === index ? selected.id : null}
           marked={ringed?.pageIndex === index ? ringed.rect : null}
           // A field pdfium paints, or a stamp in the page's content: drawn again in place.
           paintKey={`${document.paintRevision ?? 0}|${forms.paintKeys.get(index) ?? ''}`}
           onImageDrop={stamps.drop}
+          content={contentInput}
+          contentState={contentInput ? content.stateAt(index) : undefined}
+          contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
+          contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
         />,
       );
     }
@@ -329,6 +376,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
         >
           <FormsToggle toggle={formsToggle} panelId={formsId} shown={formsShown} onToggle={() => togglePanel('forms')} />
         </NavigationToolbar>
+        <ContentStatus status={content.status} onDone={onContentEditingEnd} />
         {editing.failure && (
           <p className="viewer__failure" role="alert">
             {editing.failure}
@@ -349,6 +397,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
               if (event.key !== 'Escape') return;
               clearSelection();
               navigation.unmark();
+              content.clear();
             }}
             // A press beside the selected annotation lets it go (and goes on to select text).
             onPointerDown={(event) => {

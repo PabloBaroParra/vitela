@@ -21,6 +21,10 @@
 // A properties change is a step like a page edit; the core counts it as one
 // the preview shows, so it refreshes too (a reopen with the same pixels).
 //
+// The page-content reads (T-258) are not steps either: each parses the page
+// the core holds now, pending edits laid on, and places its boxes on the page
+// as drawn like every other box here.
+//
 // A compressed save is not a step at all: it records nothing and refreshes
 // nothing, like an ordinary save, and so is a protected copy (its passwords
 // go to the core and are kept nowhere). Neither is an image export: it draws from
@@ -82,6 +86,15 @@ import {
   type CoreWatermarkEdits,
   type CoreWatermarkLook,
 } from './watermark.js';
+import {
+  fontFamilies,
+  pageContent,
+  textBlocks,
+  textRunStyle,
+  type CorePageContent,
+  type CoreTextBlock,
+  type CoreTextRunStyle,
+} from './content.js';
 import { splitParts, type CoreSplitFunctions } from './extract.js';
 import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
@@ -128,6 +141,17 @@ export interface CoreEngine extends CoreText {
   paintRevision(doc: number): number;
   /** `undefined` (wasm-bindgen's `None`) when a watermark can be stamped. */
   watermarkRefusal(doc: number): string | null | undefined;
+  /** `undefined` (wasm-bindgen's `None`) when an editor of the page content can be offered. */
+  contentEditingRefusal(doc: number): string | null | undefined;
+  readPageContent(doc: number, page: number): CorePageContent;
+  readTextBlocks(doc: number, page: number): CoreTextBlock[];
+  readParagraphBlocks(doc: number, page: number): CoreTextBlock[];
+  /** `undefined` (wasm-bindgen's `None`) when the file cannot say. */
+  textRunStyle(doc: number, page: number, runId: number): CoreTextRunStyle | null | undefined;
+  /** `[resource, baseFont, …]`. */
+  pageFontFamilies(doc: number, page: number): string[];
+  /** Bumped by every checkpoint, and by undo or redo across one. */
+  contentBaseGeneration(doc: number): number;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -274,6 +298,7 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       addedAnnotationId: added ?? null,
       formFields: fields(document),
       paintRevision: core.paintRevision(document),
+      contentBaseGeneration: core.contentBaseGeneration(document),
     };
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
@@ -334,6 +359,36 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
     async metadataRefusal(document: DocumentHandle) {
       assertOpen(document);
       return core.metadataRefusal(document) ?? null;
+    },
+    async contentEditingRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.contentEditingRefusal(document) ?? null;
+    },
+    // The frame is the page as the UI last saw it described, which is the
+    // page the core reads now: every step re-describes the document.
+    async readPageContent(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return pageContent(core.readPageContent(document, pageIndex), frame, pageIndex);
+    },
+    async readTextBlocks(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return textBlocks(core.readTextBlocks(document, pageIndex), frame);
+    },
+    async readParagraphBlocks(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return textBlocks(core.readParagraphBlocks(document, pageIndex), frame);
+    },
+    async textRunStyle(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return textRunStyle(core.textRunStyle(document, pageIndex, runId));
+    },
+    async pageFontFamilies(document: DocumentHandle, pageIndex: number) {
+      pageOf(document, pageIndex);
+      return fontFamilies(core.pageFontFamilies(document, pageIndex));
+    },
+    async contentBaseGeneration(document: DocumentHandle) {
+      assertOpen(document);
+      return core.contentBaseGeneration(document);
     },
     async watermarkDefaults() {
       return watermarkDefaults(functions.watermarkDefaults());

@@ -573,6 +573,48 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect(pngSize(await exportFirstPage(engine, handle, 300, 'png'))).toEqual([2550, 3300]);
     await engine.close(handle);
   });
+
+  it('reads a page\'s content model through the real core: runs, paragraphs, a style, fonts and an image, gated', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const quote = await engine.open(
+      readFileSync(resolve(here, '../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf')),
+    );
+    expect(await engine.contentEditingRefusal(quote.handle)).toBeNull();
+    expect(await engine.contentBaseGeneration(quote.handle)).toBe(0);
+
+    const content = await engine.readPageContent(quote.handle, 0);
+    const heading = content.runs.find((run) => run.text.includes('PRESUPUESTO'));
+    expect(heading).toBeDefined();
+    expect(heading!.editable).toBe(true);
+    // Accents only /ToUnicode explains read back as the letters they are.
+    expect(content.runs.some((run) => run.text.includes('COMPOSICIÓN'))).toBe(true);
+    // On the page as drawn: inside the page, top-left origin.
+    const page = quote.info.pages[0]!;
+    expect(heading!.rect.top).toBeGreaterThanOrEqual(0);
+    expect(heading!.rect.top + heading!.rect.height).toBeLessThanOrEqual(page.heightPt);
+    expect(heading!.rect.width).toBeGreaterThan(0);
+
+    const paragraphs = await engine.readParagraphBlocks(quote.handle, 0);
+    const specification = paragraphs.find((block) => block.lines.length >= 4);
+    expect(specification).toBeDefined();
+    expect(specification!.leadingPt).toBeCloseTo(11, 0);
+    const lines = await engine.readTextBlocks(quote.handle, 0);
+    expect(lines.length).toBeGreaterThan(paragraphs.length);
+
+    const style = await engine.textRunStyle(quote.handle, 0, heading!.id);
+    expect(style).toMatchObject({ fontSizePt: 14 });
+    expect(style!.baseFont).toContain('Vera');
+    const fonts = await engine.pageFontFamilies(quote.handle, 0);
+    expect(Object.values(fonts).some((name) => name.includes('Vera'))).toBe(true);
+    await engine.close(quote.handle);
+
+    const scan = await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf')));
+    const scanned = await engine.readPageContent(scan.handle, 0);
+    expect(scanned.images.length).toBeGreaterThan(0);
+    expect(scanned.images[0]!.rect.width).toBeGreaterThan(100);
+    await engine.close(scan.handle);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */
