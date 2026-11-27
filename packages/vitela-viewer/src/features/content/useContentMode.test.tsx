@@ -410,6 +410,23 @@ describe('useContentMode', () => {
     expect(result.current.selected).toBeNull();
   });
 
+  it('keeps a follow while the parse window is not known (a zoom relayout), and finds the run once it is', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    const run = result.current.selected!.item;
+    act(() => result.current.follow(2, run.rect, 'Page 3'));
+    // The layout has no window for a moment: nothing is wanted.
+    rerender({ visible: null, paused: true });
+    rerender({ visible: null, paused: false, paintRevision: 1 });
+    expect(result.current.following).toBe(true);
+    rerender({ visible: { first: 2, last: 2 }, paintRevision: 1 });
+    await waitFor(() => expect(result.current.selected?.item.kind).toBe('run'));
+    expect(result.current.selected!.key).toMatch(/\/1\/0$/);
+    expect(result.current.following).toBe(false);
+  });
+
   it('follows nothing for a removed run', async () => {
     const { engine } = engineWith();
     const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });

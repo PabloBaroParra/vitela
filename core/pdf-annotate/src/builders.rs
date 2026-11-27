@@ -131,8 +131,9 @@ pub fn stamp_from_image_bytes(
     image_bytes: &[u8],
     rect: Rect,
 ) -> Result<Annotation, AnnotateError> {
-    let decoded = image::load_from_memory(image_bytes)
-        .map_err(|e| AnnotateError::InvalidImage(e.to_string()))?;
+    // Decoded whole (bounded), so a file whose samples are broken is refused
+    // here rather than when its appearance is built.
+    let decoded = pdf_edit::decode_image(image_bytes).map_err(crate::placement::invalid_image)?;
     let has_alpha = decoded.color().has_alpha();
 
     Ok(Annotation {
@@ -306,6 +307,13 @@ mod tests {
     fn stamp_from_image_bytes_rejects_garbage() {
         let result = stamp_from_image_bytes(AnnotationId(9), PageId(0), b"not an image", rect());
         assert!(matches!(result, Err(AnnotateError::InvalidImage(_))));
+    }
+
+    #[test]
+    fn stamp_from_image_bytes_refuses_an_image_larger_than_the_core_decodes() {
+        use crate::placement::tests::{too_large, OVERSIZED_PNG};
+        let result = stamp_from_image_bytes(AnnotationId(9), PageId(0), &OVERSIZED_PNG, rect());
+        assert!(too_large(result));
     }
 
     #[test]

@@ -37,11 +37,11 @@ pub struct ImageXObject {
 /// Shared with [`crate::edit::replace_image_source`] — inserting an image
 /// and swapping one both need exactly this.
 pub fn image_xobject(bytes: &[u8]) -> Result<ImageXObject, EditError> {
-    let decoded = image::load_from_memory(bytes)
-        .map_err(|error| EditError::InvalidImage(error.to_string()))?;
+    let decoded = crate::decode::decode_image(bytes)?;
     let (width, height) = decoded.dimensions();
     let has_alpha = decoded.color().has_alpha();
-    let rgba = decoded.to_rgba8().into_raw();
+    // Taken, not copied, when the file already is 8-bit RGBA.
+    let rgba = decoded.into_rgba8().into_raw();
 
     let pixels = width as usize * height as usize;
     let mut rgb = Vec::with_capacity(pixels * 3);
@@ -1075,5 +1075,15 @@ mod tests {
         insert_text_run(&mut document, page, &new_run("Hi", 10.0, 10.0)).expect("insertable");
 
         assert_eq!(content_of(&document).text_runs.len(), 1);
+    }
+
+    #[test]
+    fn an_image_larger_than_the_core_decodes_builds_no_xobject() {
+        let result = image_xobject(&crate::decode::tests::OVERSIZED_PNG);
+        assert!(
+            matches!(&result, Err(EditError::InvalidImage(message)) if message.contains("too large")),
+            "{:?}",
+            result.err()
+        );
     }
 }

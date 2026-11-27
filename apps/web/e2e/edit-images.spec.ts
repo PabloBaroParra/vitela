@@ -172,6 +172,42 @@ test('a corner handle resizes in proportion, Shift frees it, and the saved file 
   await expectSelectedAt(page, free);
 });
 
+test('an image on a page turned 90° moves and resizes as drawn, and is saved where it was left', async ({ page }) => {
+  await loadApp(page);
+  // Turned a quarter clockwise: 792 x 612 as drawn, the image's PDF box
+  // (100, 550)–(300, 650) drawn 100 wide and 200 tall at (550, 100).
+  await openBytes(page, 'rotated-image.pdf', buildPdf([{ ...PHOTO, rotate: 90 }]));
+  await enterMode(page);
+  const drawn = { left: 550, top: 100, width: 100, height: 200 };
+  await selectImage(page, drawn.left + 50, drawn.top + 100);
+  await expectSelectedAt(page, drawn);
+
+  // Shift+Right: 10 points to the right on screen.
+  await page.keyboard.press('Shift+ArrowRight');
+  const moved = { ...drawn, left: drawn.left + 10 };
+  await expectSelectedAt(page, moved);
+
+  // The bottom-right corner as drawn, 60 px (45 points; whole pixels, as
+  // every browser moves the pointer) to the right: in proportion, 145 x 290.
+  const corner = page.getByRole('button', { name: 'Resize from the bottom-right corner' });
+  const handle = (await corner.boundingBox())!;
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle.x + handle.width / 2 + 30, handle.y + handle.height / 2 + 2, { steps: 4 });
+  await page.mouse.move(handle.x + handle.width / 2 + 60, handle.y + handle.height / 2 + 4, { steps: 4 });
+  await page.mouse.up();
+  const resized = { ...moved, width: 145, height: 290 };
+  await expectSelectedAt(page, resized);
+
+  const bytes = await savedBytes(page);
+  await reopen(page, 'rotated-image-saved.pdf', bytes);
+  await selectImage(page, resized.left + 70, resized.top + 145);
+  await expectSelectedAt(page, resized);
+  // Nothing is left where it was drawn first.
+  await clickAt(page, drawn.left + 5, drawn.top + 5);
+  await expect(status(page)).toHaveText(HINT);
+});
+
 test('Delete removes the selected image; undo and redo, and the saved file paints no image there', async ({ page }) => {
   await loadApp(page);
   await openBytes(page, 'delete-image.pdf', buildPdf([PHOTO]));
@@ -238,7 +274,8 @@ test('Insert image picks a file, arms a click on the page, and the core sizes wh
   await chooser.setFiles({ name: 'wide.png', mimeType: 'image/png', buffer: buildPng(200, 100, [220, 30, 30]) });
   await expect(insert).toHaveAttribute('aria-pressed', 'true');
   await expect(status(page)).toHaveText('Click the page where the image goes. Press Escape to cancel.');
-  await page.getByLabel('Pages', { exact: true }).focus();
+  // The pages have the keyboard back once the file is picked: Escape there disarms.
+  await expect(page.getByLabel('Pages', { exact: true })).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(insert).toHaveAttribute('aria-pressed', 'false');
   await expect(status(page)).toHaveText(HINT);

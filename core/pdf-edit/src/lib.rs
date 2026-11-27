@@ -54,6 +54,7 @@
 //! its own page replay produced.
 
 pub mod clipboard;
+pub mod decode;
 pub mod edit;
 pub mod encoding;
 pub mod error;
@@ -72,6 +73,7 @@ pub mod watermark;
 mod fixture;
 
 pub use clipboard::{copy_selection, paste_clip, pasted_content};
+pub use decode::{decode_image, probe_image, ImageHeader, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE};
 pub use edit::{
     check_image_source, inserted_font_text_bbox, move_image, move_text_run, remove_image,
     remove_text_run, replace_image_source, replace_text_run, replace_text_run_with_inserted_font,

@@ -21,23 +21,24 @@
 //   and read), the file picker only after: a refusal is said before the user
 //   goes looking for a file, as the native shells do. The picked file is
 //   checked like a stamp's (`readStampImage`: PNG or JPEG, `MAX_STAMP_BYTES`).
+//   The image is named by its id in the read it was picked in: once the file
+//   is read, a step running or the page read anew (another edit landed
+//   meanwhile) refuses the replacement instead of naming another image.
 // - Insert image picks the file first, then arms the next press on a page
-//   (Escape disarms), as the Android shell does.
+//   (Escape disarms; the pages get the keyboard back), as the Android shell
+//   does. A press made while a step runs (one the same press started: a
+//   retype it committed) is placed once nothing runs, and keeps the image
+//   armed until then.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { errorMessage, type ContentImage, type DocumentHandle, type DocumentInfo, type Edit, type Engine, type PagePoint, type PageRect } from '@vitela/core';
 import { sentence } from '../../ui/text';
-import { pageKey, type Session } from '../annotations/useAnnotationEdits';
+import { pageKey } from '../annotations/useAnnotationEdits';
 import { readStampImage } from '../annotations/useStamps';
+import { useGuardedApply, useHeldMove, type ContentQueue } from './contentEdits';
+import { sameRect } from './contentModel';
 import type { ContentMode } from './useContentMode';
 import { nudgeOf } from './textRuns';
-
-/** What the image edits need of the viewer's edit queue. */
-export interface ImageQueue {
-  readonly pending: boolean;
-  readonly apply: (build: (session: Session) => Edit | null) => Promise<unknown>;
-  readonly notify: (message: string) => void;
-}
 
 export const INSERT_IMAGE_PROMPT = 'Click the page where the image goes. Press Escape to cancel.';
 const PAGE_CHANGED = 'The page changed before the image could be edited. Nothing was changed.';
@@ -47,13 +48,28 @@ interface ImageEditingInput {
   readonly handle: DocumentHandle;
   readonly info: Pick<DocumentInfo, 'pages' | 'pageIds'>;
   readonly content: ContentMode;
-  readonly queue: ImageQueue;
+  readonly queue: ContentQueue;
   /** Gives the keyboard back to the pages (after a toolbar button). */
   readonly focusPages: () => void;
 }
 
 /** What the file picker was opened for. */
-type Picking = { readonly kind: 'replace'; readonly image: ContentImage; readonly pageKey: string } | { readonly kind: 'insert' };
+type Picking =
+  | {
+      readonly kind: 'replace';
+      readonly image: ContentImage;
+      readonly pageKey: string;
+      /** The read the image's id is valid for (its page's `contentKey` then). */
+      readonly contentKey: string;
+    }
+  | { readonly kind: 'insert' };
+
+/** A press on a page for an armed insert, placed once no step runs. */
+interface Placing {
+  readonly pageIndex: number;
+  readonly point: PagePoint;
+  readonly pageKey: string;
+}
 
 /** The core's answer for one selected image in one read: `null` replaceable, else its sentence. */
 interface Replaceability {
@@ -64,32 +80,32 @@ interface Replaceability {
 export function useImageEditing({ engine, handle, info, content, queue, focusPages }: ImageEditingInput) {
   const picked = content.selected;
   const image = picked?.item.kind === 'image' ? picked.item : null;
+  const pickedKey = picked?.key ?? null;
   const imageKey = picked && image ? `${picked.key}#${image.id}` : null;
   const busy = queue.pending || content.following;
   const currentPageKey = picked ? pageKey(info, picked.pageIndex) : null;
   const { notify } = queue;
+  // Read through a ref: a file read that finishes later checks what holds then.
+  const now = useRef({ busy, keyAt: content.keyAt });
+  useLayoutEffect(() => {
+    now.current = { busy, keyAt: content.keyAt };
+  });
 
-  /** Records `edit` as a step for `target`, selecting again the image now at `expected` (`null`: none). */
+  const guarded = useGuardedApply(queue, PAGE_CHANGED);
+  const { followImage } = content;
+  /** Records `edit` as a step, selecting again the image now at `expected` (`null`: none). */
   const submit = useCallback(
     (pageIndex: number, expectedPageKey: string, edit: Edit, expected: PageRect | null) => {
-      content.followImage(pageIndex, expected);
-      void queue.apply((session) => {
-        if (pageKey(session.info, pageIndex) !== expectedPageKey) throw new Error(PAGE_CHANGED);
-        return edit;
-      });
+      followImage(pageIndex, expected);
+      guarded(pageIndex, expectedPageKey, edit);
     },
-    [content, queue],
+    [followImage, guarded],
   );
 
   // Arrow presses while busy add up into one move, sent once the image is found again.
-  const nudged = useRef({ dx: 0, dy: 0 });
-  const move = useCallback(
+  const send = useCallback(
     (dx: number, dy: number) => {
-      if (busy && (image || content.followingKind === 'image')) {
-        nudged.current = { dx: nudged.current.dx + dx, dy: nudged.current.dy + dy };
-        return;
-      }
-      if (!image || currentPageKey === null || busy || (dx === 0 && dy === 0)) return;
+      if (!image || currentPageKey === null || (dx === 0 && dy === 0)) return;
       const { rect } = image;
       submit(image.pageIndex, currentPageKey, { kind: 'moveImage', page: image.pageIndex, imageId: image.id, dx, dy }, {
         ...rect,
@@ -97,16 +113,9 @@ export function useImageEditing({ engine, handle, info, content, queue, focusPag
         top: rect.top + dy,
       });
     },
-    [image, currentPageKey, busy, content.followingKind, submit],
+    [image, currentPageKey, submit],
   );
-  useEffect(() => {
-    if (busy) return;
-    const { dx, dy } = nudged.current;
-    if (dx === 0 && dy === 0) return;
-    nudged.current = { dx: 0, dy: 0 };
-    // A selection lost meanwhile (the image could not be found) drops the rest.
-    if (image) move(dx, dy);
-  }, [busy, image, move]);
+  const move = useHeldMove(busy, !!image || content.followingKind === 'image', image, send);
 
   const resize = useCallback(
     (rect: PageRect) => {
@@ -144,31 +153,35 @@ export function useImageEditing({ engine, handle, info, content, queue, focusPag
   /** Opens the file picker (`open`) for a replacement, once the core said there can be one. */
   const replace = useCallback(
     (open: () => void) => {
-      if (!image || currentPageKey === null || busy || !answer) return;
+      if (!image || currentPageKey === null || pickedKey === null || busy || !answer) return;
       if (answer.refusal !== null) {
         notify(answer.refusal);
         return;
       }
-      picking.current = { kind: 'replace', image, pageKey: currentPageKey };
+      picking.current = { kind: 'replace', image, pageKey: currentPageKey, contentKey: pickedKey };
       open();
     },
-    [image, currentPageKey, busy, answer, notify],
+    [image, currentPageKey, pickedKey, busy, answer, notify],
   );
 
-  // The image an insert places at the next press on a page.
+  // The image an insert places at the next press on a page, and that press.
   const [armed, setArmed] = useState<Uint8Array | null>(null);
+  const [placing, setPlacing] = useState<Placing | null>(null);
   const insert = useCallback((open: () => void) => {
     picking.current = { kind: 'insert' };
     open();
   }, []);
-  const disarm = useCallback(() => setArmed(null), []);
+  const disarm = useCallback(() => {
+    setArmed(null);
+    setPlacing(null);
+  }, []);
   // Leaving the mode disarms.
   useEffect(() => {
-    if (!content.active) setArmed(null);
-  }, [content.active]);
+    if (!content.active) disarm();
+  }, [content.active, disarm]);
 
   /** The file the picker came back with. */
-  const picked_ = useCallback(
+  const filePicked = useCallback(
     async (file: File) => {
       const purpose = picking.current;
       picking.current = null;
@@ -183,31 +196,48 @@ export function useImageEditing({ engine, handle, info, content, queue, focusPag
       const { bytes } = result.image;
       if (purpose.kind === 'insert') {
         setArmed(bytes);
+        // The Insert button keeps the focus otherwise, and Escape is the pages'.
+        focusPages();
         return;
       }
       const target = purpose.image;
+      // The id names the image only in the read it was picked in.
+      if (now.current.busy || now.current.keyAt(target.pageIndex) !== purpose.contentKey) {
+        notify(PAGE_CHANGED);
+        return;
+      }
       submit(target.pageIndex, purpose.pageKey, { kind: 'replaceImage', page: target.pageIndex, imageId: target.id, bytes }, target.rect);
       focusPages();
     },
     [notify, submit, focusPages],
   );
 
-  /** A press on page `pageIndex` while an insert is armed: places it there. `false` when none is armed. */
+  /**
+   * A press on page `pageIndex` while an insert is armed: the image goes
+   * there, once no step runs. `false` when none is armed.
+   */
   const place = useCallback(
     (pageIndex: number, point: PagePoint): boolean => {
       if (!armed) return false;
-      const bytes = armed;
-      setArmed(null);
-      const expectedPageKey = pageKey(info, pageIndex);
-      // The core's size, asked first: the new image is selected where it lands.
-      engine.stampPlacement(handle, pageIndex, bytes, point).then(
-        (rect) => submit(pageIndex, expectedPageKey, { kind: 'insertImage', page: pageIndex, at: point, bytes }, rect),
-        (error: unknown) => notify(sentence(errorMessage(error))),
-      );
+      setPlacing({ pageIndex, point, pageKey: pageKey(info, pageIndex) });
       return true;
     },
-    [armed, info, engine, handle, submit, notify],
+    [armed, info],
   );
+  // Never while a step runs: a press that committed a retype first started
+  // one, and the press's own render does not know it yet.
+  useEffect(() => {
+    if (!placing || !armed || busy) return;
+    const bytes = armed;
+    const { pageIndex, point, pageKey: expectedPageKey } = placing;
+    setArmed(null);
+    setPlacing(null);
+    // The core's size, asked first: the new image is selected where it lands.
+    engine.stampPlacement(handle, pageIndex, bytes, point).then(
+      (rect) => submit(pageIndex, expectedPageKey, { kind: 'insertImage', page: pageIndex, at: point, bytes }, rect),
+      (error: unknown) => notify(sentence(errorMessage(error))),
+    );
+  }, [placing, armed, busy, engine, handle, submit, notify]);
 
   /** The keys the pages take for the image edits; `true` when one was used. */
   const onKey = useCallback(
@@ -246,7 +276,7 @@ export function useImageEditing({ engine, handle, info, content, queue, focusPag
     remove,
     replace,
     insert,
-    picked: picked_,
+    picked: filePicked,
     /** Whether an insert waits for a press on a page. */
     armed: armed !== null,
     /** What the status row says while armed; `null` otherwise. */
@@ -258,7 +288,3 @@ export function useImageEditing({ engine, handle, info, content, queue, focusPag
 }
 
 export type ImageEditing = ReturnType<typeof useImageEditing>;
-
-function sameRect(a: PageRect, b: PageRect): boolean {
-  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
-}
