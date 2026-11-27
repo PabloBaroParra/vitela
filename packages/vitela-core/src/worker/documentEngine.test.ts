@@ -112,6 +112,7 @@ type FakeEdit =
   | { kind: 'metadata'; keys: (string | undefined)[]; free(): void }
   | { kind: 'watermark'; op: string; args: unknown[]; free(): void }
   | { kind: 'textRun'; op: string; args: unknown[]; free(): void }
+  | { kind: 'textBlock'; op: string; args: unknown[]; free(): void }
   | { kind: 'image'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
@@ -270,6 +271,8 @@ function fakeCore(
     removeImage: (...args) => command({ kind: 'image', op: 'removeImage', args }),
     replaceImage: (...args) => command({ kind: 'image', op: 'replaceImage', args }),
     insertImage: (...args) => command({ kind: 'image', op: 'insertImage', args }),
+    retypeTextBlock: (...args) => command({ kind: 'textBlock', op: 'retypeTextBlock', args }),
+    insertText: (...args) => command({ kind: 'textBlock', op: 'insertText', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -581,7 +584,7 @@ function fakeCore(
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
       }
-      if (edit.kind === 'textRun' || edit.kind === 'image') {
+      if (edit.kind === 'textRun' || edit.kind === 'textBlock' || edit.kind === 'image') {
         if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
         // Page content: the step shows in the pixels, repainting pages in place.
         record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
@@ -1961,6 +1964,22 @@ describe('documentEngine forms', () => {
     expect(applied.at(-1)).toMatchObject({ op: 'replaceImage', args: [0, 2, bytes] });
     await engine.applyEdit(handle, { kind: 'insertImage', page: 0, at: { x: 300, y: 92 }, bytes });
     expect(applied.at(-1)).toMatchObject({ op: 'insertImage', args: [0, 300, 700, bytes] });
+  });
+
+  it('records a block retype and an insertion as repainting steps, the insertion point crossing in PDF space', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'retypeTextBlock', page: 0, runIds: [4, 5], text: 'One\nTwo' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'textBlock', op: 'retypeTextBlock', args: [0, new Float64Array([4, 5]), 'One\nTwo'] });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:textBlock');
+
+    // Drawn y grows down, PDF y up: the top-left corner at drawn y 92 is PDF y 700.
+    await engine.applyEdit(handle, { kind: 'insertText', page: 0, at: { x: 300, y: 92 }, text: 'Added', sizePt: 14 });
+    expect(applied.at(-1)).toMatchObject({ op: 'insertText', args: [0, 300, 700, 'Added', 14] });
   });
 
   it('asks whether an image can be replaced, its permission before its page', async () => {

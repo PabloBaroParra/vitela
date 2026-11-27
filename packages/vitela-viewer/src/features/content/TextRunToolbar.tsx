@@ -1,5 +1,5 @@
-// The small toolbar by the selected text run (B26 T-259): Edit text, the
-// bold / italic / underline toggles (pressed when the run looks that way,
+// The small toolbar by the selected text run (B26 T-259): Edit text, Edit
+// paragraph when the run is part of one (T-261), the bold / italic / underline toggles (pressed when the run looks that way,
 // a queued restyle included) and Delete. A style the core cannot take off
 // (a bold font whose page has no regular sibling) is not offered off.
 // Presentational.
@@ -16,6 +16,8 @@ interface TextRunToolbarProps {
   /** Another step is still running: nothing can be asked for yet. */
   readonly busy: boolean;
   readonly onEdit: () => void;
+  /** Opens the editor over the run's whole paragraph; absent for a run on one line. */
+  readonly onEditParagraph?: () => void;
   readonly onToggle: (face: FaceToggle) => void;
   readonly onRemove: () => void;
 }
@@ -31,7 +33,7 @@ const FACES: readonly { readonly face: FaceToggle; readonly label: string; reado
   { face: 'underline', label: 'Underline', glyph: 'U' },
 ];
 
-export function TextRunToolbar({ run, scale, look, busy, onEdit, onToggle, onRemove }: TextRunToolbarProps) {
+export function TextRunToolbar({ run, scale, look, busy, onEdit, onEditParagraph, onToggle, onRemove }: TextRunToolbarProps) {
   const { left, top, height } = run.rect;
   const above = top * scale - GAP_PX - HEIGHT_PX;
   const style = { left: Math.max(0, left * scale), top: above >= 0 ? above : (top + height) * scale + GAP_PX };
@@ -50,6 +52,11 @@ export function TextRunToolbar({ run, scale, look, busy, onEdit, onToggle, onRem
       <button type="button" disabled={busy || !run.editable} onClick={onEdit}>
         Edit text
       </button>
+      {onEditParagraph && (
+        <button type="button" disabled={busy || !run.editable} onClick={onEditParagraph}>
+          Edit paragraph
+        </button>
+      )}
       {FACES.map(({ face, label, glyph }) => (
         <button
           key={face}

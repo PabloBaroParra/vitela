@@ -158,6 +158,7 @@ mod import;
 mod metadata;
 mod preview;
 mod protect;
+mod text_block;
 mod text_run;
 mod watermark;
 
@@ -182,6 +183,7 @@ pub use image::ImageEdit;
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 pub use metadata::{DocumentProperties, METADATA_FORBIDDEN};
 pub use protect::PROTECTION_FORBIDDEN;
+pub use text_block::TextBlockEdit;
 pub use text_run::TextRunEdit;
 pub use watermark::{watermark_defaults, WatermarkDefaults, WatermarkRequest, WatermarkStamp};
 

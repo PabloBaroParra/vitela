@@ -2179,7 +2179,7 @@ Gates (Windows 11, local):
 | **T-258b** ✓ | Modelo de contenido en wasm (`CheckpointSession`, `readPageContent`, bloques y párrafos, `textRunStyle`, familias de fuente, `contentBaseGeneration`) y modo **Edit content** de solo lectura en el visor. | `wasm-bindgen-test` + Vitest contra pdfium real; Playwright del modo. |
 | **T-259** ✓ | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
 | **T-260** ✓ | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
-| **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
+| **T-261** ✓ | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
 | **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
 | **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
 
@@ -3379,6 +3379,89 @@ Edición de imágenes en el modo **Edit content**, más tres seguimientos de la 
   typecheck y build de los tres. Playwright (`CI=1`) `edit-images` + `edit-text-runs` +
   `edit-content` + `stamp` + `embed` + `zero-network` en los 3 navegadores en verde; suite
   completa **377 pasan, 22 omitidos, 0 fallos**.
+
+### T-261 — resultado
+
+Insertar texto y reescribir bloques/párrafos en el modo **Edit content**. Detalle en
+[`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Hecho sobre
+`fix/web-images-review-v` (#673, sin fusionar al empezar).
+
+- **`pdf-wasm`** (`model/text_block.rs`, `engine/text_block.rs`): `DocumentModel::apply_text_block_edit
+  (TextBlockEdit)` con `Retype { page, runs, text }` e `Insert { page, at, text, size }`, por
+  `DocumentModel::record_content` y las puertas de `pdf_save::content_edit` como T-259/T-260.
+  `Retype` busca el bloque en `read_paragraph_blocks` por sus `run_ids` exactos (si no es un bloque
+  ahora, `UnsupportedOperation`: "léelo otra vez"), resuelve los runs contra la lectura pendiente y
+  pide `pdf_save::retype_text_block_of`, como `pdf-ffi` `retype_text_block`: un párrafo envuelve cada
+  línea tecleada a su ancho y pinta las que crecen como las suyas (`InsertTextRunLike`), un bloque de
+  una línea pone todo en su primer run; `with_inserted_font` solo para un bloque de una línea con
+  fuente compuesta (como Android). El mismo texto no registra nada; un texto vacío quita el bloque
+  (`pdf_edit::remove_block`); un segundo retipeo del mismo párrafo pliega en su paso. `Insert` es
+  `Command::InsertTextRun` en Helvetica estándar, esquina superior izquierda en el punto (como
+  Android), tamaño 1–72 pt (los límites de Windows), una línea con algo que mostrar; el nombre
+  `/Font` es aleatorio `VitelaText<16 hex>`, ni declarado por la página ni de una inserción
+  encolada (el core *reutiliza* una fuente con ese nombre, `ensure_font_resource`, como anotan
+  Android y Windows); el ancho lo mide el core al leer lo pendiente. `EditCommand.retypeTextBlock`
+  / `insertText`.
+- **`@vitela/core`:** tipo `TextBlockEdit` (`retypeTextBlock` con `runIds` y `text`, `insertText`
+  con `at` en la página dibujada y `sizePt`), cruzado por `PageFrame.pointToPdf`.
+- **`@vitela/viewer` (`features/content/`):** puro `textBlocks.ts` (`paragraphOf`: el párrafo — más
+  de una línea — de un run; `paragraphKey`: Ctrl/Cmd+Enter confirma, Escape cancela, Enter es salto
+  de línea, como GTK; `paragraphRetypeOf`, `insertionOf`, `insertedRect` girado con la página;
+  `INSERT_TEXT_SIZE_PT` 14, el de GTK y Windows). `useDraftEditor` (nuevo, compartido por los dos
+  editores nuevos): el borrador vive en el hook, confirmar/cancelar cuentan una vez, cierre un turno
+  después, `detach`/`attach` para el scroll que desmonta la página, salir del modo confirma — las
+  reglas de `useTextRunEditing` (que conserva su copia; no se tocó). Contenedores
+  `useParagraphEditing` (lee `readParagraphBlocks` de la página del run seleccionado una vez por
+  `contentKey` y nunca mientras corre un paso; **Edit paragraph** en la barra del run y
+  Shift+Enter; rechaza con la frase de T-259 un párrafo con un run no decodificado; confirma un
+  `retypeTextBlock` con la comprobación de `pageKey` y sigue la primera línea) y `useTextInsertion`
+  (**Insert text** en la fila de estado, `aria-pressed`, devuelve el teclado a las páginas; la
+  siguiente pulsación abre una caja vacía ahí — una por armado, como Insert image —; Enter o salir
+  de ella registran la línea, Escape o vacía no; la línea nueva queda seleccionada donde aterriza
+  y se puede retipear, mover o borrar antes de guardar: el core toma un checkpoint). Vistas
+  `TextBlockEditor` (textarea sobre el párrafo con el tamaño, color e interlineado del primer run,
+  ajuste al ancho, crece al añadir líneas) y `TextInsertEditor` (caja con contorno colgada del
+  clic, 14 pt Helvetica, girada con la página sobre esa esquina). `ContentEditing` los monta: un
+  guardado y una pulsación al lado confirman los tres editores; un solo inserto armado a la vez;
+  con el editor de párrafo abierto la barra del run se oculta.
+- **Desviación consciente:** el editor de párrafo usa la familia que sugiere el nombre de la
+  fuente, no el programa incrustado (un párrafo puede mezclar fuentes); el tamaño del texto
+  insertado es fijo (14 pt) como en GTK y Windows, sin el selector de Android.
+- **Tests:** Rust 15 nativos nuevos (`model/text_block/tests.rs`: un paso por retipeo leído y
+  guardado, línea que crece un interlineado abajo, plegado, bloque de una línea, nada para el mismo
+  texto, vacío = quitar, runs que no son bloque, inserción en Helvetica al tamaño pedido y su
+  nombre en el fichero guardado, dos inserciones dos nombres, retipear una inserción sin guardar,
+  rechazos de texto/salto/tamaño/punto, `EncodingGap`, página fuera, documento que prohíbe
+  modificar, párrafo con fuente incrustada) — 13 de 15 en rojo con el cuerpo vaciado — y 2
+  `wasm-bindgen-test` (`tests/text_blocks.rs`, compilan con clippy wasm32). `@vitela/core` 2 Vitest
+  nuevos (1 `documentEngine`, 1 pdfium real: el párrafo de `reportlab_quote_paragraph.pdf`
+  retipeado y una línea insertada, guardados, releídos y deshechos). `@vitela/viewer` 34 nuevos (10
+  `textBlocks`, 5 `useDraftEditor`, 9 `useTextInsertion` con `TextInsertEditor`, 10
+  `useParagraphEditing` con `TextBlockEditor`), escritos antes que los módulos (rojo por módulo
+  ausente).
+- **E2E (`e2e/edit-text-blocks.spec.ts`, 5 × 3):** Insert text arma, Escape en las páginas
+  desarma y en la caja no registra; la caja cuelga del clic a 14 pt, Enter registra, queda
+  seleccionada, deshacer/rehacer, guardar y reabrir la lee; una línea sin guardar se retipea con el
+  editor de runs y se guarda retipeada; un párrafo de dos líneas se abre desde la segunda, Enter
+  añade línea y Ctrl+Enter confirma un paso que crece una tercera línea un interlineado abajo,
+  deshacer/rehacer, y el fichero reabierto lee las tres como un párrafo; Shift+Enter abre, Escape
+  cancela, una pulsación al lado confirma; un run de una línea no ofrece párrafo y un PDF que
+  prohíbe modificar no ofrece insertar. 45 / 45 con `--repeat-each=3`.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check` limpio; `cargo clippy --locked
+  -p pdf-wasm --all-targets -- -D warnings` nativo y wasm32 (con `PDFIUM_WASM_DIR`) sin avisos;
+  `cargo test --locked -p pdf-wasm` (con `PDFIUM_DYNAMIC_LIB_PATH`) lib 209, 0 fallos.
+  `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 233, `build`. `@vitela/viewer`:
+  `typecheck`, Vitest 104 / 1051, `build`. `apps/web`: `typecheck`, Vitest 6 / 19, `build`.
+  Playwright completo (`CI=1 --reporter=line`, 3 navegadores): **391 pasan, 22 omitidos, 1 fallo**
+  intermitente: `keys.spec.ts:30` en WebKit (soltar un sello y deshacer tras pulsar la cabecera; no
+  toca contenido; repetido solo 10 veces: 9 / 10, no comprobado contra la base).
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver); `linux-gtk`, Android.
+- **No cubierto / pendiente:** insertar varias líneas de una vez (la caja es de una línea, como
+  los nativos); elegir fuente o tamaño al insertar; el editor de párrafo sin el programa incrustado;
+  un párrafo que crece puede tragarse el siguiente al releer (hueco conocido del core,
+  #568); `useTextRunEditing` aún no usa `useDraftEditor` (candidato a
+  unificar); editar párrafos en una página girada sin E2E propio.
 
 ## Verificación
 

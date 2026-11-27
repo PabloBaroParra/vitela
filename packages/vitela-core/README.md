@@ -223,6 +223,20 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   changes nothing records nothing. They reject as `contentEditingRefusal`
   says, then `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the
   page does not hold now or a box with no area, or `InvalidImage`.
+  Text as blocks (T-261) is edited through `applyEdit` with a
+  `TextBlockEdit`: `retypeTextBlock` (`page`, `runIds` — a block's runs
+  exactly as `readParagraphBlocks` lists them — and `text`, each line break
+  the reader's) retypes a whole block as one step: a paragraph wraps every
+  typed line to its width and paints the lines it grows like its own, a
+  one-line block puts all of the text in its first run, text with nothing to
+  show removes the block, a second retype of the same block folds into its
+  step and the text it shows records nothing; `insertText` (`page`, `at`, the
+  top-left corner on the page as drawn, `text` — one line — and `sizePt`,
+  1–72) paints a new line in Helvetica under a fresh font resource. Both
+  reject as `contentEditingRefusal` says, then `PageIndexOutOfBounds`,
+  `UnsupportedOperation` for runs that are not one block now or an insertion
+  with nothing to show, a line break or a size out of range, or
+  `EncodingGap`.
   `checkImageReplacement(handle, pageIndex, imageId)` resolves when the image
   can be replaced and rejects with the core's refusal otherwise
   (`EditNotPermitted`, or `UnsupportedOperation`: an unsaved edit in a

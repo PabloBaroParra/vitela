@@ -81,6 +81,8 @@ export const coreEdits: CoreEdits = {
   removeImage: (page, imageId) => core.EditCommand.removeImage(page, imageId),
   replaceImage: (page, imageId, bytes) => core.EditCommand.replaceImage(page, imageId, bytes),
   insertImage: (page, x, y, bytes) => core.EditCommand.insertImage(page, x, y, bytes),
+  retypeTextBlock: (page, runIds, text) => core.EditCommand.retypeTextBlock(page, runIds, text),
+  insertText: (page, x, y, text, size) => core.EditCommand.insertText(page, x, y, text, size),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

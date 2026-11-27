@@ -7,6 +7,7 @@ import type {
   TextRunLookState,
   FontProgram,
   TextRunEdit,
+  TextBlockEdit,
   ImageEdit,
 } from './content.js';
 
@@ -26,6 +27,7 @@ export type {
   FontProgramFormat,
   FontProgram,
   TextRunEdit,
+  TextBlockEdit,
   ImageEdit,
 } from './content.js';
 
@@ -342,7 +344,7 @@ export interface WatermarkDefaults {
 }
 
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit | ImageEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit | TextBlockEdit | ImageEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {

@@ -661,8 +661,9 @@ thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
 
 ## Edit content
 
-`features/content/` (T-258b, T-259, T-260): the mode the page's own text,
-images and shapes are edited in — text runs since T-259, images since T-260. **Edit content** is the last item of
+`features/content/` (T-258b, T-259, T-260, T-261): the mode the page's own text,
+images and shapes are edited in — text runs since T-259, images since T-260,
+paragraphs and inserted text since T-261. **Edit content** is the last item of
 **Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
 Organize it switches to the viewer). The viewer's toolbar rows have no room
 for a button of its own: at 1280 px the first row (View, Text) and the second
@@ -721,6 +722,29 @@ A commit made because the editor's page scrolled out does not wait for that
 page to be read again (it is not in the parse window): the keys stay the
 pages'.
 
+**Paragraphs and new text (T-261).** A run that is part of a paragraph —
+stacked lines the core groups as one block (`readParagraphBlocks`, read once
+per read of the selected run's page, never while a step runs) — adds **Edit
+paragraph** to its toolbar (Shift+Enter on the pages too). It opens a
+multi-line editor over the whole paragraph, in its first run's size, colour
+and leading, wrapping at the paragraph's width; as in the GTK shell, Enter is
+a line break, Ctrl/Cmd+Enter commits, Escape cancels, and leaving it (a press
+beside it, a save, leaving the mode, its page scrolling out) commits. The
+core retypes the block as one step (`retypeTextBlock`): each typed line is
+wrapped to the width, lines it grows are painted like the paragraph's own,
+an emptied paragraph is removed, and the first line is selected again.
+**Insert text**, in the status row beside Insert image (one armed at a time),
+arms a click on a page (Escape or a second press disarms): an empty,
+outlined box opens there, hanging from the click in 14 pt Helvetica (the GTK
+and Windows shells' default) and turned with the page; Enter or leaving it
+records the line as one step (`insertText`; the core picks a fresh font
+resource and measures it), Escape or an empty box records nothing, and the
+new line is selected where it lands — retypable, movable and deletable like
+any run before the document is saved (the core checkpoints). A character
+Helvetica cannot show is refused by the core (`EncodingGap`). The draft of
+both editors lives in their containers (`useDraftEditor`, shared), not in
+the field, so a scroll that unmounts the page keeps it.
+
 **Only the pages in view and one on each side are parsed** (the Linux shell
 froze parsing every page of a 1619-page file), each parse kept by page id,
 `paintRevision` and `contentBaseGeneration` and dropped once its page is out
@@ -757,6 +781,18 @@ new picture (its XObject's `/Width`) in the same box; Insert image arms a
 click, Escape disarms it, the inserted image is placed at the core's size,
 moved before any save, undone and redone, and saved; a PDF that forbids
 modification offers no image edit.
+
+E2E (`e2e/edit-text-blocks.spec.ts`, all three browsers): Insert text arms a
+click, Escape at the pages disarms and Escape in the box records nothing; the
+box hangs from the click at 14 pt, Enter records the line, it is selected
+where it landed, undone, redone, saved and read back on reopening; a line not
+saved yet is retyped by the run editor and saved as retyped; a two-line
+paragraph opens in the paragraph editor from its second line's toolbar,
+Enter adds a line and Ctrl+Enter commits, one step that grows a third line a
+leading under the second, undone and redone, and the reopened file reads the
+three lines back as one paragraph; Shift+Enter opens the editor, Escape
+cancels it and a press beside it commits; a run on one line offers no
+paragraph editor and a PDF that forbids modification offers no insert.
 
 ## Organize
 

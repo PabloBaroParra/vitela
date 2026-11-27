@@ -12,6 +12,7 @@ import type {
   ContentFontKind,
   FontProgram,
   ImageEdit,
+  TextBlockEdit,
   TextRunEdit,
   TextRunLookState,
   ContentImage,
@@ -97,6 +98,12 @@ export interface CoreTextRunEdits {
   restyleTextRuns(page: number, runIds: Float64Array, bold: boolean, italic: boolean, underline: boolean, strike: boolean): Owned;
 }
 
+/** core/pdf-wasm's text-block `EditCommand` constructors (T-261); geometry in PDF points (y up). */
+export interface CoreTextBlockEdits {
+  retypeTextBlock(page: number, runIds: Float64Array, text: string): Owned;
+  insertText(page: number, x: number, y: number, text: string, size: number): Owned;
+}
+
 /** core/pdf-wasm's image `EditCommand` constructors (T-260); geometry in PDF points (y up). */
 export interface CoreImageEdits {
   moveImage(page: number, imageId: number, dx: number, dy: number): Owned;
@@ -140,6 +147,23 @@ export function textRunCommand(edits: CoreTextRunEdits, edit: TextRunEdit, frame
     case 'restyleTextRuns': {
       const { bold, italic, underline, strike } = edit.look;
       return edits.restyleTextRuns(edit.page, Float64Array.from(edit.runIds), bold, italic, underline, strike);
+    }
+  }
+}
+
+/**
+ * The core command for a text-block `edit`. An insertion's point is on the
+ * page as drawn and crosses through the page's frame; on a page past the end
+ * it crosses as is, for the core to refuse (`PageIndexOutOfBounds`) after
+ * its own gates.
+ */
+export function textBlockCommand(edits: CoreTextBlockEdits, edit: TextBlockEdit, frameOf: (page: number) => PageFrame | undefined): Owned {
+  switch (edit.kind) {
+    case 'retypeTextBlock':
+      return edits.retypeTextBlock(edit.page, Float64Array.from(edit.runIds), edit.text);
+    case 'insertText': {
+      const [x, y] = frameOf(edit.page)?.pointToPdf(edit.at) ?? [edit.at.x, edit.at.y];
+      return edits.insertText(edit.page, x, y, edit.text, edit.sizePt);
     }
   }
 }
