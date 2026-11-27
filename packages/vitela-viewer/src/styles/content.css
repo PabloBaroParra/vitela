@@ -143,6 +143,44 @@
   white-space: pre;
 }
 
+/* Over a whole paragraph (B26 T-261): wraps at the paragraph's width, as the
+   core wraps it, and grows down as lines are typed. */
+.text-block-editor {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: 1.5px solid var(--tone-blue-fg);
+  border-radius: 1px;
+  background: #fff;
+  overflow: hidden;
+  resize: none;
+  transform-origin: center;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A new line where the page was clicked: hangs from that corner, turned with
+   the page about it. Black on the page's white, outlined — nothing under it
+   shows where it lands. */
+.text-insert-editor {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: 1.5px dashed var(--tone-blue-fg);
+  border-radius: 1px;
+  background: rgb(255 255 255 / 85%);
+  color: #000;
+  line-height: 1;
+  transform-origin: 0 0;
+  white-space: pre;
+}
+
 /* The selected image's edits (B26 T-260): eight resize handles on its box,
    the box a handle drag would give it, and a toolbar above it. Insert image
    sits in the status row, pressed while an insert waits for a click. */

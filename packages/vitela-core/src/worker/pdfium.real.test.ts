@@ -664,6 +664,46 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('retypes a paragraph and inserts a line through the real core: wrapped, saved, read back and undone', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const quote = await engine.open(
+      readFileSync(resolve(here, '../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf')),
+    );
+    const handle = quote.handle;
+    const paragraphOf = async (doc: number) => (await engine.readParagraphBlocks(doc, 0)).find((block) => block.lines.length >= 4);
+    const paragraph = (await paragraphOf(handle))!;
+    const lines = paragraph.text.split('\n');
+    const text = ['Retyped first line', ...lines.slice(1)].join('\n');
+
+    const retyped = await engine.applyEdit(handle, { kind: 'retypeTextBlock', page: 0, runIds: paragraph.runIds, text });
+    expect(retyped.canUndo).toBe(true);
+    expect(retyped.paintRevision).toBeGreaterThan(0);
+    const shown = (await paragraphOf(handle))!;
+    expect(shown.text.startsWith('Retyped first line')).toBe(true);
+    expect(shown.rect.left).toBeCloseTo(paragraph.rect.left, 0);
+
+    const at = { x: 72, y: 60 };
+    await engine.applyEdit(handle, { kind: 'insertText', page: 0, at, text: 'Added on the web', sizePt: 14 });
+    const added = (await engine.readPageContent(handle, 0)).runs.find((run) => run.text === 'Added on the web')!;
+    expect(added.fontKind).toBe('standard14');
+    expect(added.rect.left).toBeCloseTo(72, 1);
+    expect(added.rect.top).toBeCloseTo(60, 1);
+    expect(added.rect.height).toBeCloseTo(14, 1);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    expect((await paragraphOf(reopened.handle))!.text.startsWith('Retyped first line')).toBe(true);
+    const runs = (await engine.readPageContent(reopened.handle, 0)).runs;
+    expect(runs.some((run) => run.text === 'Added on the web')).toBe(true);
+    await engine.close(reopened.handle);
+
+    expect((await engine.undo(handle)).canUndo).toBe(true);
+    expect((await engine.readPageContent(handle, 0)).runs.some((run) => run.text === 'Added on the web')).toBe(false);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    expect((await paragraphOf(handle))!.text).toBe(paragraph.text);
+    await engine.close(handle);
+  });
+
   it('edits an image through the real core: move, resize, replace, insert, delete, saved and undone', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);

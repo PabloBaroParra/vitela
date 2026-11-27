@@ -16,6 +16,8 @@ interface TextRunOverlayProps {
   readonly pages: readonly Pick<PageSize, 'rotationDegrees'>[];
   /** Gives the keyboard back to the pages (after a toolbar button). */
   readonly focusPages: () => void;
+  /** Opens the editor over the run's paragraph (T-261); absent for a run on one line. */
+  readonly onEditParagraph?: () => void;
 }
 
 /** The page the overlay goes on: the open editor's, else the selected run's; `null` for none. */
@@ -23,7 +25,7 @@ export function textRunOverlayPage(textRuns: TextRunEditing): number | null {
   return textRuns.editor?.run.pageIndex ?? textRuns.run?.pageIndex ?? null;
 }
 
-export function TextRunOverlay({ textRuns, scale, pages, focusPages }: TextRunOverlayProps) {
+export function TextRunOverlay({ textRuns, scale, pages, focusPages, onEditParagraph }: TextRunOverlayProps) {
   const { editor, run } = textRuns;
   if (editor) {
     return (
@@ -48,6 +50,7 @@ export function TextRunOverlay({ textRuns, scale, pages, focusPages }: TextRunOv
       look={textRuns.look}
       busy={textRuns.busy}
       onEdit={textRuns.open}
+      onEditParagraph={onEditParagraph}
       onToggle={(face) => {
         textRuns.toggle(face);
         focusPages();

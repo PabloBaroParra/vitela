@@ -57,6 +57,7 @@ import type {
   ProtectionPasswords,
   RenderedPage,
   TextRunEdit,
+  TextBlockEdit,
   ImageEdit,
 } from '../core/types.js';
 import {
@@ -95,6 +96,7 @@ import {
   fontProgram,
   imageCommand,
   pageContent,
+  textBlockCommand,
   textBlocks,
   textRunCommand,
   textRunLook,
@@ -103,6 +105,7 @@ import {
   type CoreImageEdits,
   type CorePageContent,
   type CoreTextBlock,
+  type CoreTextBlockEdits,
   type CoreTextRunEdits,
   type CoreTextRunLook,
   type CoreTextRunStyle,
@@ -118,6 +121,7 @@ export interface CoreEdits
     CoreMetadataEdits,
     CoreWatermarkEdits,
     CoreTextRunEdits,
+    CoreTextBlockEdits,
     CoreImageEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
@@ -515,9 +519,11 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
                   ? watermarkCommand(edits, edit)
                   : isTextRunEdit(edit)
                     ? textRunCommand(edits, edit, frameOf(document))
-                    : isImageEdit(edit)
-                      ? imageCommand(edits, edit, frameOf(document))
-                      : annotationCommand(
+                    : isTextBlockEdit(edit)
+                      ? textBlockCommand(edits, edit, frameOf(document))
+                      : isImageEdit(edit)
+                        ? imageCommand(edits, edit, frameOf(document))
+                        : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -643,6 +649,10 @@ function isTextRunEdit(edit: Edit): edit is TextRunEdit {
     edit.kind === 'removeTextRun' ||
     edit.kind === 'restyleTextRuns'
   );
+}
+
+function isTextBlockEdit(edit: Edit): edit is TextBlockEdit {
+  return edit.kind === 'retypeTextBlock' || edit.kind === 'insertText';
 }
 
 function isImageEdit(edit: Edit): edit is ImageEdit {

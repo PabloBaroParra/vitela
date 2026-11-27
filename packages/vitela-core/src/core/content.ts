@@ -1,6 +1,6 @@
-// Domain types of a page's content and its edits (B26 T-258b, T-259, T-260):
+// Domain types of a page's content and its edits (B26 T-258b, T-259..T-261):
 // what a page paints as the core reads it, how a run looks, the font program
-// it embeds, and the edits of a run or an image. Re-exported by `types.ts` (the engine's
+// it embeds, and the edits of a run, a text block or an image. Re-exported by `types.ts` (the engine's
 // interface uses them) and by the package entry.
 
 import type { PagePoint, PageRect, Rgb } from './types.js';
@@ -142,6 +142,30 @@ export type TextRunEdit =
   | { readonly kind: 'moveTextRun'; readonly page: number; readonly runId: number; readonly dx: number; readonly dy: number }
   | { readonly kind: 'removeTextRun'; readonly page: number; readonly runId: number }
   | { readonly kind: 'restyleTextRuns'; readonly page: number; readonly runIds: readonly number[]; readonly look: TextRunLook };
+
+/**
+ * An edit of text as a block (T-261), on page position `page`. Page content:
+ * one undo step that the pixels show at once and `paintRevision` moves for.
+ *
+ * - `retypeTextBlock` shows `text` in place of the block made of `runIds`
+ *   — a block's runs exactly as `readParagraphBlocks` lists them, valid
+ *   against that read. A paragraph wraps every typed line to its width
+ *   (each line break is the reader's), lines it grows painted like its own;
+ *   a one-line block puts all of the text in its first run; text with
+ *   nothing to show removes the block. A second retype of the same block
+ *   folds into its step; the text it already shows records nothing.
+ * - `insertText` paints `text`, one line, in Helvetica at `sizePt` (1–72),
+ *   its top-left corner at `at` (on the page as drawn, points, y down).
+ *
+ * Rejects as `contentEditingRefusal` says (`EditNotPermitted`, or
+ * `TextExtractionDenied`), then `PageIndexOutOfBounds`,
+ * `UnsupportedOperation` for runs that are not one block now, or an
+ * insertion with nothing to show, a line break or a size out of range, or
+ * `EncodingGap` for a character the font cannot show.
+ */
+export type TextBlockEdit =
+  | { readonly kind: 'retypeTextBlock'; readonly page: number; readonly runIds: readonly number[]; readonly text: string }
+  | { readonly kind: 'insertText'; readonly page: number; readonly at: PagePoint; readonly text: string; readonly sizePt: number };
 
 /**
  * An edit of an image a page's content read handed out (`imageId`, valid
