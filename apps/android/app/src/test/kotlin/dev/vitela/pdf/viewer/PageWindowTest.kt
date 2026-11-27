@@ -3,6 +3,7 @@ package dev.vitela.pdf.viewer
 import dev.vitela.pdf.core.PageSize
 import dev.vitela.pdf.text.english
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -161,5 +162,21 @@ class PageWindowTest {
         assertEquals("Page 1 of 10.", visibleRangeStatus(0, 0, 10).english())
         assertEquals("Pages 2-4 of 10.", visibleRangeStatus(1, 3, 10).english())
         assertEquals("No pages.", visibleRangeStatus(0, 0, 0).english())
+    }
+
+    @Test
+    fun wantsRender_rastersEveryPageThatIsNotSharpOnceNoPinchIsLive() {
+        assertTrue(wantsRender(pinching = false, hasPage = false, hasBridge = true))
+        assertTrue(wantsRender(pinching = false, hasPage = false, hasBridge = false))
+        assertFalse(wantsRender(pinching = false, hasPage = true, hasBridge = false))
+    }
+
+    @Test
+    fun wantsRender_underALivePinch_onlyFillsPagesWithNothingToShow() {
+        // Each step of a pinch-out is a new zoom: re-rastering a page that
+        // already shows something would be thrown away by the next step.
+        assertFalse(wantsRender(pinching = true, hasPage = false, hasBridge = true))
+        assertFalse(wantsRender(pinching = true, hasPage = true, hasBridge = false))
+        assertTrue(wantsRender(pinching = true, hasPage = false, hasBridge = false))
     }
 }

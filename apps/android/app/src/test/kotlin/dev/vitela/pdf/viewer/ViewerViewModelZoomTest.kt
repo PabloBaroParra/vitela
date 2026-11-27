@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -72,6 +73,32 @@ class ViewerViewModelZoomTest {
         assertEquals(1.37, viewModel.state.value.zoomFactor, 0.0)
         viewModel.setZoom(40.0)
         assertEquals(MAX_ZOOM_FACTOR, viewModel.state.value.zoomFactor, 0.0)
+    }
+
+    @Test
+    fun aLivePinchStepLaysOutItsZoomBeforeTheFingersLift() = runTest {
+        val viewModel = openedWith(OrganizableDocument(pageCount = 3))
+
+        viewModel.setZoom(0.8, live = true)
+
+        assertEquals(0.8, viewModel.state.value.zoomFactor, 0.0)
+    }
+
+    @Test
+    fun liftingAPinchOnTheZoomItLastSteppedTo_rendersTheWindowSharpAgain() = runTest {
+        val document = OrganizableDocument(pageCount = 3)
+        val viewModel = openedWith(document)
+        viewModel.onReaderPositionChanged(ReaderPosition(0, 1, 0, 1000, 1.0))
+        viewModel.setZoom(0.8, live = true)
+        viewModel.onReaderPositionChanged(ReaderPosition(0, 1, 0, 1000, 0.8))
+        advanceUntilIdle()
+        val renders = document.rendered.size
+
+        // The zoom does not change, so the list reports nothing new: the lift itself must drive the window.
+        viewModel.setZoom(0.8)
+        advanceUntilIdle()
+
+        assertTrue(document.rendered.size > renders)
     }
 
     @Test

@@ -420,7 +420,7 @@ class ViewerViewModel(
     fun goToPage(pageIndex: Int) = reader.goTo(pageIndex)
     fun zoomIn() = reader.zoomIn()
     fun zoomOut() = reader.zoomOut()
-    fun setZoom(zoomFactor: Double) = reader.setZoom(zoomFactor)
+    fun setZoom(zoomFactor: Double, live: Boolean = false) = reader.setZoom(zoomFactor, live)
     fun fitWidth() = reader.fitWidth()
     fun fitPage() = reader.fitPage()
 

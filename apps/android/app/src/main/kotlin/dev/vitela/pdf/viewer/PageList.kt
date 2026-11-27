@@ -86,7 +86,7 @@ internal fun PageList(
     selectionActions: SelectionActions,
     contentEdit: ContentEditActions,
     onFormFieldTap: (Int, AnnotationPoint) -> Unit,
-    onPinch: (zoomFactor: Double) -> Unit,
+    onPinch: (zoomFactor: Double, live: Boolean) -> Unit,
     onFileDrop: (Int, AnnotationPoint, DragAndDropEvent) -> Boolean,
     modifier: Modifier = Modifier,
     columns: Int = 1,
@@ -169,6 +169,31 @@ internal fun PageList(
         // A column narrower than the screen is centred, so its content starts this far in.
         val rowLead by rememberUpdatedState(((viewportWidthPx - rowWidthPx) / 2).coerceAtLeast(0f))
 
+        // Where the list stands now, so a step or a release can scroll back under the fingers once its zoom is laid out.
+        fun commitPinch(target: Double, live: Boolean, now: Long = 0L) {
+            val points = pinch.landingPoints(laidOutZoom)
+            if (points == null) {
+                // No layout the pinch knows to anchor to: commit the zoom as asked, unanchored.
+                if (!live) {
+                    pinch.clear()
+                    currentOnPinch(target, false)
+                }
+                return
+            }
+            val anchor = PinchAnchor(
+                fromZoom = laidOutZoom,
+                toZoom = target,
+                firstItem = listState.firstVisibleItemIndex,
+                firstItemOffset = listState.firstVisibleItemScrollOffset,
+                scrollX = horizontalScrollState.value,
+                leadX = rowLead,
+                from = points.first,
+                to = points.second,
+            )
+            if (live) pinch.step(anchor, now) else pinch.land(anchor)
+            currentOnPinch(target, live)
+        }
+
         // Keep one horizontal position for the entire page column. Geometry,
         // rather than bitmap scaling, changes with zoom so each page re-renders
         // sharply; a pinch scales the picture only until its zoom is laid out.
@@ -187,23 +212,23 @@ internal fun PageList(
                         )
                     },
                     pinch = pinch,
-                ) { target, from, to ->
-                    // Where the list stood when the fingers lifted, to scroll back under them once the new zoom is laid out.
-                    val anchor = PinchAnchor(
-                        fromZoom = laidOutZoom,
-                        toZoom = target,
-                        firstItem = listState.firstVisibleItemIndex,
-                        firstItemOffset = listState.firstVisibleItemScrollOffset,
-                        scrollX = horizontalScrollState.value,
-                        leadX = rowLead,
-                        from = from,
-                        to = to,
-                    )
-                    pinch.land(anchor)
-                    if (target != laidOutZoom) currentOnPinch(target)
-                }
-                .landPinch(anchor = { pinch.pending }, laidOutZoom = { laidOutZoom }, list = listState, horizontal = horizontalScrollState) {
-                    pinch.settle()
+                    onStep = { target, now -> commitPinch(target, live = true, now) },
+                    onAbandon = { currentOnPinch(laidOutZoom, false) },
+                    onRelease = { target -> commitPinch(target, live = false) },
+                )
+                .landPinch(
+                    anchor = { pinch.pending },
+                    laidOutZoom = { laidOutZoom },
+                    list = listState,
+                    horizontal = horizontalScrollState,
+                    lead = { rowLead },
+                ) { outcome, landedAt ->
+                    val deferred = pinch.releaseDeferred
+                    when {
+                        pinch.settle(outcome == PinchLanding.Land, landedAt) -> pinch.target?.let { commitPinch(it, live = false) }
+                        // The step under a lifted pinch can never land: nothing is committed, but renders may resume.
+                        deferred -> currentOnPinch(laidOutZoom, false)
+                    }
                 }
                 .horizontalScroll(horizontalScrollState),
             contentAlignment = Alignment.TopCenter,

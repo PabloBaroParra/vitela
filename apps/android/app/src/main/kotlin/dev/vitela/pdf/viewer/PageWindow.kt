@@ -83,6 +83,16 @@ internal fun renderOrder(first: Int, last: Int, pageCount: Int): List<Int> {
     return visible + pageWindow(first, last, pageCount, PREFETCH_PAGES).filter { it !in visible }
 }
 
+/**
+ * Whether a page in the window is rasterized now: any page not yet sharp,
+ * except while a pinch is [pinching], when a page that shows anything at all —
+ * its old bitmap stretched as a bridge — waits for the fingers to lift. A
+ * pinch-out re-lays the list out at each step, and a render started for one
+ * step's zoom is thrown away by the next.
+ */
+internal fun wantsRender(pinching: Boolean, hasPage: Boolean, hasBridge: Boolean): Boolean =
+    !hasPage && !(pinching && hasBridge)
+
 /** A completion can only update the layout generation that requested it. */
 internal fun acceptsRenderCompletion(startedGeneration: Int, currentGeneration: Int, pageIndex: Int, window: IntRange): Boolean =
     startedGeneration == currentGeneration && pageIndex in window

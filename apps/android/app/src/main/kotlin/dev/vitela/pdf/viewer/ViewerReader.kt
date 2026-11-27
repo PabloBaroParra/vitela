@@ -38,11 +38,20 @@ internal class ViewerReader(private val session: ViewerSession) {
     /** The last position the list reported, so a layout change can drive the same window again. */
     private var lastPosition: ReaderPosition? = null
 
+    /**
+     * A pinch-out is relaying the list out under fingers still on the glass.
+     * Each of its steps is a new zoom, so rasterizing for one would be thrown
+     * away by the next: until the fingers lift only a page with nothing at all
+     * to show is rendered. See [wantsRender].
+     */
+    private var pinching = false
+
     /** A new document replaced the old one: nothing in flight or cached is wanted any more. */
     fun reset() {
         inFlight.clear()
         cacheWindow = IntRange.EMPTY
         lastPosition = null
+        pinching = false
     }
 
     /**
@@ -136,7 +145,7 @@ internal class ViewerReader(private val session: ViewerSession) {
         // The reader's first layout pass calls back with a real one.
         if (renderWidthPx <= 0) return
         for (pageIndex in renderOrder(position.first, position.last, pageCount)) {
-            if (pageIndex !in state.value.pages) renderPage(pageIndex)
+            if (wantsRender(pinching, pageIndex in state.value.pages, pageIndex in state.value.bridgePages)) renderPage(pageIndex)
         }
     }
 
@@ -161,14 +170,28 @@ internal class ViewerReader(private val session: ViewerSession) {
         state.value = state.value.copy(scrollTarget = boundedPageIndex(pageIndex, state.value.pageCount))
     }
 
-    fun zoomIn() = changeZoom(zoomIn(state.value.zoomFactor))
+    fun zoomIn() {
+        changeZoom(zoomIn(state.value.zoomFactor))
+    }
 
-    fun zoomOut() = changeZoom(zoomOut(state.value.zoomFactor))
+    fun zoomOut() {
+        changeZoom(zoomOut(state.value.zoomFactor))
+    }
 
-    /** A pinch lands wherever the fingers stopped, not on a rung. */
-    fun setZoom(zoomFactor: Double) = changeZoom(clampZoomFactor(zoomFactor))
+    /**
+     * A pinch lands wherever the fingers stopped, not on a rung; [live] while
+     * they are still down. Lifting on the zoom the last step already laid out
+     * changes nothing the list would report, so the lift itself drives the
+     * window to render sharp.
+     */
+    fun setZoom(zoomFactor: Double, live: Boolean = false) {
+        pinching = live
+        if (!changeZoom(clampZoomFactor(zoomFactor)) && !live) lastPosition?.let(::onPositionChanged)
+    }
 
-    fun fitWidth() = changeZoom(DEFAULT_ZOOM_FACTOR)
+    fun fitWidth() {
+        changeZoom(DEFAULT_ZOOM_FACTOR)
+    }
 
     /**
      * Shows the current page whole. The list keeps its pixel offset across a
@@ -183,14 +206,16 @@ internal class ViewerReader(private val session: ViewerSession) {
         scrollTo(pageIndex)
     }
 
-    private fun changeZoom(zoomFactor: Double) {
-        if (session.document == null || zoomFactor == state.value.zoomFactor) return
+    /** False when there was nothing to change. */
+    private fun changeZoom(zoomFactor: Double): Boolean {
+        if (session.document == null || zoomFactor == state.value.zoomFactor) return false
         // Page geometry changes immediately. Keep cache-window pages beneath the
         // next generation until their sharp replacements arrive.
         layoutGeneration += 1
         inFlight.clear()
         renderWidthPx = 0
         state.value = state.value.copy(zoomFactor = zoomFactor).withInvalidatedPageBitmaps(cacheWindow)
+        return true
     }
 
     private fun renderPage(pageIndex: Int) {
