@@ -7,20 +7,27 @@ import androidx.compose.ui.geometry.Offset
 
 /**
  * How far a pinch-out may shrink the picture of the zoom laid out before that
- * zoom is laid out for real. A picture smaller than the reader leaves a black
- * margin where nothing is composed; at 0.85 that margin is at most 7.5 % on a
- * side before the next pages fill it, while a pinch from 400 % down to fit
- * width takes about eight relayouts rather than one per finger move.
+ * zoom is asked to be laid out for real. What the shrunken picture reveals is
+ * already laid out up to [READER_OVERSCAN] past the screen, which covers a
+ * picture down to two thirds whatever the fingers hold
+ * ([coveredPictureScale]); the step has to be asked early enough that the
+ * picture is still above that when it lands, a frame or two later. The
+ * fastest pinch measured on a phone shrinks to about 0.78 in that time
+ * ([PINCH_STEP_INTERVAL_MS]), and 0.9 × 0.78 ≈ 0.70 keeps clear of 0.67. A
+ * higher ratio only buys relayouts: a pinch from 400 % down to fit width takes
+ * about thirteen at 0.9.
  */
-internal const val PINCH_STEP_RATIO = 0.85
+internal const val PINCH_STEP_RATIO = 0.9
 
 /**
- * The least time between two pinch-out relayouts. Each one composes the pages
- * the smaller zoom brings on screen; five frames at 60 Hz keeps a fast flick
- * from spending every frame on layout, and is still quicker than the eye
- * notices a margin.
+ * The least time between two pinch-out relayouts: two frames at 60 Hz. A step
+ * lays out in about one frame and steps already go one at a time, so this only
+ * keeps a fast pinch from spending every frame on layout. It must stay short:
+ * the picture keeps shrinking over the old layout for this long plus the
+ * landing, which is what [PINCH_STEP_RATIO] and [READER_OVERSCAN] are sized
+ * against — at the 80 ms this once was, a fast pinch reached 0.54.
  */
-internal const val PINCH_STEP_INTERVAL_MS = 80L
+internal const val PINCH_STEP_INTERVAL_MS = 32L
 
 /** A picture of the reader: [scale]d about [origin], then moved by [translation]. */
 internal data class PinchPicture(val scale: Float, val origin: Offset, val translation: Offset) {
@@ -43,7 +50,8 @@ internal data class PinchBase(val zoom: Double, val at: Offset)
  * down the reader is scaled as a picture — relaying out and re-rasterizing
  * every page on each move would stutter — and the real zoom is committed when
  * they lift. A pinch-out also commits [step]s while the fingers are still
- * down: a picture smaller than the reader would show nothing around it.
+ * down: a picture smaller than the reader shows what is laid out around the
+ * screen, and that overscan only reaches so far.
  *
  * The picture is scaled by [target] over the zoom actually laid out, so the
  * frame in which a committed zoom lays out is also the frame the picture

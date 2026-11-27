@@ -137,8 +137,18 @@ class PinchStateTest {
     @Test
     fun step_isDueOnlyOnceAPinchOutShrinksThePicturePastTheRatio() {
         val laidOut = 2.0
-        assertFalse(pinching(laidOut, target = laidOut * 0.9).stepDue(laidOut, nowMs = 0))
-        assertTrue(pinching(laidOut, target = laidOut * 0.8).stepDue(laidOut, nowMs = 0))
+        assertFalse(pinching(laidOut, target = laidOut * 0.95).stepDue(laidOut, nowMs = 0))
+        assertTrue(pinching(laidOut, target = laidOut * 0.88).stepDue(laidOut, nowMs = 0))
+    }
+
+    @Test
+    fun step_followsAFastPinchEveryOtherFrame() {
+        val pinch = pinching(laidOut = 2.0, target = 1.5)
+        step(pinch, laidOut = 2.0, now = 1_000)
+        pinch.settle(landed = true, landedAt = null)
+        pinch.update(1.0, Offset.Zero)
+        // Two 60 Hz frames after the last step: waiting longer lets a fast pinch outrun the overscan.
+        assertTrue(pinch.stepDue(1.5, nowMs = 1_032))
     }
 
     @Test

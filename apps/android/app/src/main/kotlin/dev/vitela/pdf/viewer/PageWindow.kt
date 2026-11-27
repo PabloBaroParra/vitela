@@ -132,6 +132,17 @@ internal fun renderDpi(size: PageSize?, availableWidthPx: Int, zoomFactor: Doubl
 internal data class VisiblePage(val index: Int, val offset: Int, val size: Int)
 
 /**
+ * The laid-out pages that are on the screen, `[viewportStart, viewportEnd)`.
+ * The reader lays pages out past the screen ([READER_OVERSCAN]), and those
+ * must not count as visible: the visible range is what gets rasterized.
+ *
+ * A page scrolled past the start still counts until its trailing [spacing] has
+ * left too — what a list without overscan reports as its first visible item.
+ */
+internal fun onScreenPages(laidOut: List<VisiblePage>, viewportStart: Int, viewportEnd: Int, spacing: Int): List<VisiblePage> =
+    laidOut.filter { page -> page.offset + page.size + spacing > viewportStart && page.offset < viewportEnd }
+
+/**
  * The page the reader is actually *on*: the one covering the most of the
  * viewport. Reporting the first visible slot instead pins the counter one page
  * short at the end of a document — the previous page keeps a sliver on screen

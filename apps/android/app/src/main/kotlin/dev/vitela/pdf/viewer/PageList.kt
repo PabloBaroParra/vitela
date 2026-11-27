@@ -13,6 +13,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -116,6 +118,9 @@ internal fun PageList(
         val pageGap = PAGE_GAP * state.zoomFactor.toFloat()
         val rowWidth = pageWidth * columns + pageGap * (columns - 1)
         val pageStepPx = with(LocalDensity.current) { (pageWidth + pageGap).roundToPx() }
+        // Laid out past the screen on every side, so a pinch-out's shrunken picture has pages to reveal.
+        val overscanX = maxWidth * READER_OVERSCAN
+        val overscanY = maxHeight * READER_OVERSCAN
 
         LaunchedEffect(columns, state.documentId) {
             preferredPage = state.pageIndex
@@ -127,14 +132,18 @@ internal fun PageList(
         LaunchedEffect(listState, slotWidthPx, viewportHeightPx, state.zoomFactor, rows) {
             snapshotFlow { listState.layoutInfo to preferredPage }
                 .map { (info, preferred) ->
-                    val visible = info.visibleItemsInfo
-                    // Null exactly when nothing is laid out yet, which is what
-                    // makes first()/last() below safe.
-                    val current = dominantPage(
-                        visible.map { item -> VisiblePage(item.index, item.offset, item.size) },
-                        info.viewportStartOffset,
-                        info.viewportEndOffset,
+                    // The list is laid out past the screen (READER_OVERSCAN) and
+                    // reports those pages as visible too. Its offsets start at its
+                    // content padding, which is the top of the real viewport.
+                    val visible = onScreenPages(
+                        info.visibleItemsInfo.map { item -> VisiblePage(item.index, item.offset, item.size) },
+                        viewportStart = 0,
+                        viewportEnd = viewportHeightPx,
+                        spacing = info.mainAxisItemSpacing,
                     )
+                    // Null exactly when nothing is on screen yet, which is what
+                    // makes first()/last() below safe.
+                    val current = dominantPage(visible, viewportStart = 0, viewportEnd = viewportHeightPx)
                     current?.let {
                         ReaderPosition(
                             first = rows.first(visible.first().index),
@@ -237,12 +246,19 @@ internal fun PageList(
                         deferred -> currentOnPinch(laidOutZoom, false)
                     }
                 }
-                .horizontalScroll(horizontalScrollState),
+                // Both scrollers are measured larger than the reader and pad
+                // their content by as much, so every scroll position, item
+                // offset and scroll bound still describes the real viewport;
+                // only their clips, and what the list composes, reach further.
+                .overscan(horizontal = overscanX, vertical = overscanY)
+                .horizontalScroll(horizontalScrollState)
+                .padding(horizontal = overscanX),
             contentAlignment = Alignment.TopCenter,
         ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.width(rowWidth).fillMaxHeight(),
+                contentPadding = PaddingValues(vertical = overscanY),
                 verticalArrangement = Arrangement.spacedBy(pageGap),
             ) {
                 items(count = rows.count, key = { index -> rows.first(index) }) { row ->

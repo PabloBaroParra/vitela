@@ -158,6 +158,39 @@ class PageWindowTest {
     }
 
     @Test
+    fun onScreenPages_dropsThePagesLaidOutOnlyInTheOverscan() {
+        // Viewport 0..1000, the list laid out 500 px past it either way.
+        val laidOut = listOf(
+            VisiblePage(2, -1300, 600),
+            VisiblePage(3, -690, 600),
+            VisiblePage(4, -80, 600),
+            VisiblePage(5, 530, 600),
+            VisiblePage(6, 1140, 600),
+        )
+        assertEquals(
+            listOf(VisiblePage(4, -80, 600), VisiblePage(5, 530, 600)),
+            onScreenPages(laidOut, viewportStart = 0, viewportEnd = 1000, spacing = 10),
+        )
+    }
+
+    @Test
+    fun onScreenPages_keepsAPageWhoseTrailingGapIsStillOnScreen() {
+        // What a list without overscan calls its first visible item: scrolled past, but not past its gap.
+        val laidOut = listOf(VisiblePage(0, -605, 600), VisiblePage(1, 5, 600))
+        assertEquals(laidOut, onScreenPages(laidOut, viewportStart = 0, viewportEnd = 1000, spacing = 10))
+        assertEquals(
+            listOf(VisiblePage(1, 0, 600)),
+            onScreenPages(listOf(VisiblePage(0, -610, 600), VisiblePage(1, 0, 600)), viewportStart = 0, viewportEnd = 1000, spacing = 10),
+        )
+    }
+
+    @Test
+    fun onScreenPages_dropsAPageStartingExactlyAtTheViewportsEnd() {
+        val laidOut = listOf(VisiblePage(0, 0, 990), VisiblePage(1, 1000, 990))
+        assertEquals(listOf(VisiblePage(0, 0, 990)), onScreenPages(laidOut, viewportStart = 0, viewportEnd = 1000, spacing = 10))
+    }
+
+    @Test
     fun visibleRangeStatus_readsAsARangeOnlyWhenMoreThanOnePageShows() {
         assertEquals("Page 1 of 10.", visibleRangeStatus(0, 0, 10).english())
         assertEquals("Pages 2-4 of 10.", visibleRangeStatus(1, 3, 10).english())
