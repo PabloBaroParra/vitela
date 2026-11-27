@@ -52,6 +52,15 @@ async function savedBytes(page: Page): Promise<Buffer> {
   return readFileSync(await download.path());
 }
 
+/**
+ * Waits out the rendering update after typing: WebKit reveals the caret of what was just typed at
+ * the next layout, so a scroll made before it is undone, the pages pulled back to the field. A
+ * person cannot scroll inside that frame; a script can.
+ */
+async function typingLaidOut(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
 /** Opens `bytes` as another document and turns the mode on in it. */
 async function reopen(page: Page, name: string, bytes: Buffer): Promise<void> {
   await openBytes(page, name, bytes);
@@ -176,6 +185,7 @@ test('what is typed is committed when a scroll takes the open editor’s page ou
   const editor = page.getByRole('textbox', { name: 'Edit text “Vitela content line”' });
   await expect(editor).toBeFocused();
   await editor.fill('Typed then scrolled');
+  await typingLaidOut(page);
 
   // A wheel scroll does not move the focus: the field just goes with its page.
   await pages(page).evaluate((scroller) => (scroller.scrollTop = scroller.scrollHeight));
@@ -207,6 +217,7 @@ test('after a scroll commits the open editor, nothing waits for its page: the ke
   await page.keyboard.press('Enter');
   const editor = page.getByRole('textbox', { name: 'Edit text “Line on page 1”' });
   await editor.fill('Typed then scrolled');
+  await typingLaidOut(page);
   await pages(page).evaluate((scroller) => (scroller.scrollTop = scroller.scrollHeight));
   await expect(pageSlot(page, 1)).toHaveCount(0);
   await expect(saveButton(page)).toBeEnabled({ timeout: 30_000 });
