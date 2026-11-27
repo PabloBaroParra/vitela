@@ -32,6 +32,7 @@ pub(crate) use install::{
 
 use super::home::abandon_pending_tool;
 use super::i18n::{tr, tr_args};
+use super::perf;
 use super::state::{
     AnnotationAccess, ContentEditAccess, DocumentSource, OpenedDocument, PageAssemblyAccess,
     TextAccess, Viewer,
@@ -388,12 +389,21 @@ fn start_open(
     placement: Placement,
 ) {
     viewer.status.set_text(&tr("open-busy"));
+    let started = perf::now();
     glib::spawn_future_local({
         let window = window.clone();
         let viewer = viewer.clone();
         async move {
             match open_in_background(source.clone(), None).await {
-                Ok(document) => land_opened(&window, &viewer, document, source, placement),
+                Ok(document) => {
+                    perf::finish(
+                        "open.worker",
+                        started,
+                        &[("pages", document.page_geometry.len().into())],
+                    );
+                    perf::mark(perf::Mark::Open(document.document), started);
+                    land_opened(&window, &viewer, document, source, placement)
+                }
                 Err(RenderError::InvalidPassword) => {
                     prompt_for_password(&window, &viewer, source, placement);
                 }
@@ -483,6 +493,7 @@ pub(crate) fn open_document(
     password: Option<&str>,
 ) -> Result<OpenedDocument, RenderError> {
     let renderer = PdfiumRenderer::new();
+    let started = perf::now();
     let document = match source {
         DocumentSource::File(path) => renderer.open_document(path, password)?,
         // pdfium takes ownership of the buffer for the document's lifetime,
@@ -494,7 +505,10 @@ pub(crate) fn open_document(
             renderer.open_document_from_bytes(bytes.clone(), password)?
         }
     };
+    perf::finish("open.pdfium", started, &[]);
+    let started = perf::now();
     let security = read_security_context(source, password);
+    perf::finish("open.permissions", started, &[]);
     let text_access = text_access_from(&security);
     let (document_model, save_backing) = read_editable_model(source, password, &security)
         .map_or((None, None), |(model, backing)| {
@@ -506,7 +520,10 @@ pub(crate) fn open_document(
     // One batched actor round-trip for every page size, instead of N
     // serialized `page_size` round-trips — first paint no longer waits on
     // a per-page metadata sweep for large documents.
-    match renderer.page_geometry(document, Priority::Visible).wait() {
+    let started = perf::now();
+    let page_geometry = renderer.page_geometry(document, Priority::Visible).wait();
+    perf::finish("open.geometry", started, &[]);
+    match page_geometry {
         Ok(page_geometry) => Ok(OpenedDocument {
             document,
             name: source_name(source),
@@ -663,21 +680,38 @@ fn read_editable_model(
     security: &Result<Option<SecurityContext>, ManipError>,
 ) -> Option<(Document, super::state::SaveBacking)> {
     let security = security.as_ref().ok()?.clone();
+    let started = perf::now();
     let (base, original_bytes) = match source {
-        DocumentSource::File(path) => (
-            pdf_manip::open_document(path, password).ok()?.0,
-            fs::read(path).ok()?,
-        ),
-        DocumentSource::Embedded(bytes) => (
-            pdf_manip::open_document_from_bytes(bytes, password).ok()?.0,
-            bytes.to_vec(),
-        ),
-        DocumentSource::Bytes(bytes) => (
-            pdf_manip::open_document_from_bytes(bytes, password).ok()?.0,
-            bytes.clone(),
-        ),
+        DocumentSource::File(path) => {
+            let base = pdf_manip::open_document(path, password).ok()?.0;
+            perf::finish("open.lopdf", started, &[]);
+            let started = perf::now();
+            let original_bytes = fs::read(path).ok()?;
+            perf::finish(
+                "open.read",
+                started,
+                &[("bytes", original_bytes.len().into())],
+            );
+            (base, original_bytes)
+        }
+        DocumentSource::Embedded(bytes) => {
+            let base = pdf_manip::open_document_from_bytes(bytes, password).ok()?.0;
+            perf::finish("open.lopdf", started, &[]);
+            (base, bytes.to_vec())
+        }
+        DocumentSource::Bytes(bytes) => {
+            let base = pdf_manip::open_document_from_bytes(bytes, password).ok()?.0;
+            perf::finish("open.lopdf", started, &[]);
+            (base, bytes.clone())
+        }
     };
+    let started = perf::now();
     let model = pdf_save::document_from_lopdf(&base, security).ok()?;
+    perf::finish(
+        "open.model",
+        started,
+        &[("pages", model.pages.len().into())],
+    );
     Some((
         model,
         super::state::SaveBacking {

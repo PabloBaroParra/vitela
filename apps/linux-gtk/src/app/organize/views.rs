@@ -73,6 +73,8 @@ pub(super) fn show(viewer: &Viewer, view: &str) {
     // outlive the visit now, and a card that kept its entrance class would
     // arrive next time with the animation already spent. See
     // [`motion::clear_entrance`].
+    let started = crate::app::perf::now();
+    crate::app::perf::thumbnails_begin(started);
     motion::clear_entrance(viewer);
     viewer.organize.views.set_visible_child_name(view);
     viewer
@@ -85,6 +87,13 @@ pub(super) fn show(viewer: &Viewer, view: &str) {
         }));
     populate_visible(viewer);
     motion::run_entrance(viewer);
+    crate::app::perf::thumbnails_sealed();
+    let view_name = if view == DOCUMENTS_VIEW {
+        "documents"
+    } else {
+        "pages"
+    };
+    crate::app::perf::finish("organize.show", started, &[("view", view_name.into())]);
 }
 
 /// Fills whichever view is on show.

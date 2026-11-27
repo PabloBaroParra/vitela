@@ -35,6 +35,7 @@ pub(crate) fn run_search(viewer: &Viewer) {
         "search-running",
         &[("query", query.as_str().into())],
     ));
+    let started = super::perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
         let job_query = query.clone();
@@ -46,7 +47,13 @@ pub(crate) fn run_search(viewer: &Viewer) {
             })
             .await
             .expect("search task panicked");
+            let fields: [super::perf::Field; 2] = [
+                ("matches", result.as_ref().map_or(0, Vec::len).into()),
+                ("query_chars", query.chars().count().into()),
+            ];
+            super::perf::finish("search.worker", started, &fields);
             apply_search_result(&viewer, document, search_id, query, result);
+            super::perf::finish("search.results", started, &fields);
         }
     });
 }

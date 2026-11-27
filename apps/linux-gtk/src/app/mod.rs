@@ -24,6 +24,7 @@ mod mode_bar;
 mod organize;
 mod palette;
 mod pan;
+mod perf;
 mod print;
 mod protect;
 mod recovery;

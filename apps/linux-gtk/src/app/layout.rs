@@ -261,9 +261,10 @@ pub(crate) fn set_placeholder_size(
 }
 
 pub(crate) fn refresh_layout(viewer: &Viewer) {
+    let started = super::perf::now();
     let fit = FitRequest::measure(viewer);
     let viewport = fit.viewport();
-    {
+    let page_count = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
             return;
@@ -287,6 +288,8 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
         session.active_tiles.clear();
         session.zoom_generation += 1;
         session.last_visible = None;
+        super::perf::mark(super::perf::Mark::Zoom(session.document), started);
+        super::perf::mark(super::perf::Mark::ZoomTiles(session.document), started);
         for index in 0..session.pages.len() {
             let page = &mut session.pages[index];
             page.state = PageState::Idle;
@@ -307,9 +310,18 @@ pub(crate) fn refresh_layout(viewer: &Viewer) {
             }
             session.page_heights[index] = box_.logical_height;
         }
-    }
+        session.pages.len()
+    };
     update_viewport(viewer);
     update_zoom_label(viewer);
+    if started.is_some() {
+        let zoom_percent = (current_zoom_factor(viewer) * 100.0).round();
+        super::perf::finish(
+            "layout.refresh",
+            started,
+            &[("pages", page_count.into()), ("zoom", zoom_percent.into())],
+        );
+    }
 }
 
 /// The effective zoom factor for the page nearest the top of the current

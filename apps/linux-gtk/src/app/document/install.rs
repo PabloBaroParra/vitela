@@ -135,6 +135,7 @@ pub(crate) fn clear_page_widgets(viewer: &Viewer) {
 /// fitted to the canvas at fit-width — the zoom a freshly installed session
 /// starts at.
 pub(crate) fn build_pages(viewer: &Viewer, shapes: &[PageShape]) -> BuiltPages {
+    let started = crate::app::perf::now();
     let fit = FitRequest::measure(viewer);
     let mut slots = Vec::with_capacity(shapes.len());
     let mut page_heights = Vec::with_capacity(shapes.len());
@@ -186,6 +187,7 @@ pub(crate) fn build_pages(viewer: &Viewer, shapes: &[PageShape]) -> BuiltPages {
         });
         page_heights.push(logical_height);
     }
+    crate::app::perf::finish("pages.build", started, &[("pages", shapes.len().into())]);
     BuiltPages {
         slots,
         page_heights,
@@ -282,6 +284,7 @@ fn new_session(document: OpenedDocument, built: BuiltPages) -> DocumentSession {
 /// a note dialog, an armed signature, a drop target — is refused when it
 /// lands.
 pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
+    let started = crate::app::perf::now();
     // The Organize thumbnails are pictures of the document being left — see
     // `organize::document_changed` for why a same-length document would
     // otherwise inherit them.
@@ -329,6 +332,7 @@ pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
     } else {
         update_viewport(viewer);
     }
+    crate::app::perf::finish("session.install", started, &[("pages", page_count.into())]);
 }
 
 /// The window with no document at all: what closing the last tab leaves.
