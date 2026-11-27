@@ -306,7 +306,7 @@ impl DocumentModel {
     }
 
     /// Run `run_id` on `page` as the reader sees it now.
-    fn pending_run(&self, page: PageId, run_id: u64) -> Result<TextRun, EngineError> {
+    pub(super) fn pending_run(&self, page: PageId, run_id: u64) -> Result<TextRun, EngineError> {
         let sources = self.imported.pairs();
         pdf_save::read_pending_page_content_of(
             &self.document,

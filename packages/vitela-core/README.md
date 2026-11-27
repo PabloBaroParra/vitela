@@ -197,6 +197,20 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   current base. The reads reject with `TextExtractionDenied`,
   `PageIndexOutOfBounds`, and `textRunStyle` with `UnsupportedOperation` for
   an id the page does not hold now.
+  Text runs (T-259) are edited through `applyEdit` with a `TextRunEdit`
+  naming a run by the id its page's last read handed out: `retypeTextRun`
+  (`text`), `moveTextRun` (`dx, dy` points on the page as drawn),
+  `removeTextRun` and `restyleTextRuns` (`runIds` and a `TextRunLook`: bold,
+  italic, underline, strike — all of them one step). Each is one undo step
+  and moves `paintRevision`; a second retype or move of the same run folds
+  into its step, and an edit that changes nothing records nothing. They
+  reject as `contentEditingRefusal` says, then `PageIndexOutOfBounds`,
+  `UnsupportedOperation` for a run the page does not hold now, or
+  `EncodingGap`. `textRunLook(handle, pageIndex, runId)` reads how a run looks
+  now, a queued restyle included, and whether bold / italic can come off
+  (`canRemoveBold`: `false` for a bold font whose page has no regular
+  sibling); `textRunFontProgram` hands out the program its font embeds
+  (`FontProgram`: `format` and `bytes`; `null` for a standard-14 font).
   Extract and Split: `extractionRefusal(handle)` says why no page can leave
   the document (the core's sentence: its `/P` withholds extraction — bit 5,
   not page assembly — or its encryption cannot survive the rewrite, e.g.

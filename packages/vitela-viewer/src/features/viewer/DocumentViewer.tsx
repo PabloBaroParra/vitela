@@ -25,6 +25,9 @@ import { commentEntries } from '../comments/stops';
 import { ContentStatus } from '../content/ContentStatus';
 import type { ContentInput } from '../content/ContentLayer';
 import { useContentMode } from '../content/useContentMode';
+import { TextRunEditor } from '../content/TextRunEditor';
+import { TextRunToolbar } from '../content/TextRunToolbar';
+import { useTextRunEditing } from '../content/useTextRunEditing';
 import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
@@ -129,7 +132,6 @@ export function DocumentViewer({
     [onEdited, handle, markDirty],
   );
   const editing = useAnnotationEdits(engine, document, report);
-  useSaveWaitsFor(editing.settled);
   useUndoKeys(editing.undo, editing.redo, scope);
   // Read through a ref: a markup's end must see the selection shown then.
   const shownSelection = useRef(selection);
@@ -209,19 +211,94 @@ export function DocumentViewer({
   // The pages on screen, without overscan: the content mode parses only
   // these and one on each side.
   const onScreen = metrics.height > 0 ? visiblePages(layout, top, metrics.height, 0) : null;
+  const rotations = useMemo(() => pages.map((page) => page.rotationDegrees), [pages]);
+  const baseGeneration = document.contentBaseGeneration ?? 0;
   const content = useContentMode({
     engine,
     handle,
     active: contentEditing,
     pageIds,
+    rotations,
+    // Reads go by position: none while a step may be putting another page there.
+    paused: editing.pending,
     paintRevision: document.paintRevision ?? 0,
-    baseGeneration: document.contentBaseGeneration ?? 0,
+    baseGeneration,
     visible: onScreen,
   });
+  const textRuns = useTextRunEditing({
+    engine,
+    handle,
+    info: document.info,
+    baseGeneration,
+    content,
+    queue: editing,
+    focusPages,
+  });
+  // A save takes what is typed in an open editor first.
+  const { commitOpen } = textRuns;
+  const settleWithEditor = useCallback(() => {
+    commitOpen();
+    return editing.settled();
+  }, [commitOpen, editing.settled]);
+  useSaveWaitsFor(settleWithEditor);
+  const { select: contentSelect, hover: contentHover } = content;
+  const { open: openRun, move: moveRun } = textRuns;
   const contentInput = useMemo<ContentInput | null>(
-    () => (content.active ? { onHover: content.hover, onSelect: content.select } : null),
-    [content.active, content.hover, content.select],
+    () =>
+      content.active
+        ? {
+            onHover: contentHover,
+            onSelect: (pageIndex, point) => {
+              // A press beside an open editor commits it (the press keeps the focus where it is).
+              commitOpen();
+              contentSelect(pageIndex, point);
+              focusPages();
+            },
+            // The press before it selected what is there.
+            onOpen: () => openRun(),
+            onDrag: (_pageIndex, dx, dy) => {
+              moveRun(dx, dy);
+              focusPages();
+            },
+          }
+        : null,
+    [content.active, contentHover, contentSelect, commitOpen, focusPages, openRun, moveRun],
   );
+  const selectedRun = textRuns.run;
+  const runOverlay = (textRuns.editor || selectedRun) && (
+    <>
+      {textRuns.editor ? (
+        <TextRunEditor
+          key={`${textRuns.editor.pageKey}#${textRuns.editor.run.id}`}
+          editor={textRuns.editor}
+          scale={scale}
+          rotationDegrees={pages[textRuns.editor.run.pageIndex]?.rotationDegrees ?? 0}
+          onCommit={textRuns.commit}
+          onCancel={textRuns.cancel}
+          onType={textRuns.typing}
+        />
+      ) : (
+        selectedRun && (
+        <TextRunToolbar
+          run={selectedRun}
+          scale={scale}
+          look={textRuns.look}
+          busy={textRuns.busy}
+          onEdit={textRuns.open}
+          onToggle={(face) => {
+            textRuns.toggle(face);
+            focusPages();
+          }}
+          onRemove={() => {
+            textRuns.remove();
+            focusPages();
+          }}
+        />
+        )
+      )}
+    </>
+  );
+  const overlayPage = textRuns.editor?.run.pageIndex ?? selectedRun?.pageIndex ?? null;
   // The mode takes the pointer: text, annotations and drawing let it go.
   const chooseTool = drawing.choose;
   const deselectAnnotation = annotating.deselect;
@@ -319,6 +396,7 @@ export function DocumentViewer({
           contentState={contentInput ? content.stateAt(index) : undefined}
           contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
           contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
+          contentOverlay={overlayPage === index ? runOverlay : null}
         />,
       );
     }
@@ -394,6 +472,11 @@ export function DocumentViewer({
             data-zoom={zoom}
             data-tool={drawing.tool}
             onKeyDown={(event) => {
+              // The selected run's keys, pressed on the pages themselves (not on its toolbar).
+              if (content.active && event.target === event.currentTarget && textRuns.onKey(event.key, event.shiftKey)) {
+                event.preventDefault();
+                return;
+              }
               if (event.key !== 'Escape') return;
               clearSelection();
               navigation.unmark();

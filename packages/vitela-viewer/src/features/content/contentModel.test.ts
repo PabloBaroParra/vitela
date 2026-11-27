@@ -6,6 +6,7 @@ import {
   itemAt,
   keepWanted,
   pagesToParse,
+  readsToSend,
   sameItem,
   type PageContentState,
 } from './contentModel';
@@ -52,22 +53,58 @@ describe('pagesToParse', () => {
 });
 
 describe('contentKey and keepWanted', () => {
-  it('keys a parse on its page id, paint revision and base generation', () => {
-    const keys = new Set([contentKey(7, 0, 0), contentKey(7, 1, 0), contentKey(7, 0, 1), contentKey(8, 0, 0)]);
+  it('keys a parse on its page id, turn, paint revision and base generation', () => {
+    // An undo of a rotation made while the mode is on turns the page under
+    // the same id and revision: its outlines are elsewhere.
+    expect(contentKey(7, 90, 0, 0)).not.toBe(contentKey(7, 0, 0, 0));
+    const keys = new Set([contentKey(7, 0, 0, 0), contentKey(7, 0, 1, 0), contentKey(7, 0, 0, 1), contentKey(8, 0, 0, 0)]);
     expect(keys.size).toBe(4);
-    expect(contentKey(7, 2, 1)).toBe(contentKey(7, 2, 1));
+    expect(contentKey(7, 0, 2, 1)).toBe(contentKey(7, 0, 2, 1));
   });
 
   it('keeps only the parses still wanted', () => {
     const ready: PageContentState = { status: 'ready', content: page };
     const held = new Map<string, PageContentState>([
-      [contentKey(1, 0, 0), ready],
-      [contentKey(2, 0, 0), { status: 'loading' }],
-      [contentKey(3, 0, 0), ready],
+      [contentKey(1, 0, 0, 0), ready],
+      [contentKey(2, 0, 0, 0), { status: 'loading' }],
+      [contentKey(3, 0, 0, 0), ready],
     ]);
-    const kept = keepWanted(held, new Set([contentKey(1, 0, 0), contentKey(3, 1, 0)]));
-    expect([...kept.keys()]).toEqual([contentKey(1, 0, 0)]);
-    expect(kept.get(contentKey(1, 0, 0))).toBe(ready);
+    const kept = keepWanted(held, new Set([contentKey(1, 0, 0, 0), contentKey(3, 0, 1, 0)]));
+    expect([...kept.keys()]).toEqual([contentKey(1, 0, 0, 0)]);
+    expect(kept.get(contentKey(1, 0, 0, 0))).toBe(ready);
+  });
+});
+
+describe('readsToSend', () => {
+  const loading: PageContentState = { status: 'loading' };
+  const ready: PageContentState = { status: 'ready', content: page };
+  const wanted = [
+    { index: 4, key: 'a' },
+    { index: 5, key: 'b' },
+    { index: 6, key: 'c' },
+  ];
+
+  it('sends the wanted pages still waiting, in order, no more than the limit at once', () => {
+    const held = new Map<string, PageContentState>([
+      ['a', ready],
+      ['b', loading],
+      ['c', loading],
+    ]);
+    expect(readsToSend(wanted, held, new Set(), 1)).toEqual([{ index: 5, key: 'b' }]);
+    expect(readsToSend(wanted, held, new Set(), 2)).toEqual([
+      { index: 5, key: 'b' },
+      { index: 6, key: 'c' },
+    ]);
+  });
+
+  it('never asks again for a page whose read is already in flight', () => {
+    const held = new Map([
+      ['a', loading],
+      ['b', loading],
+      ['c', loading],
+    ]);
+    expect(readsToSend(wanted, held, new Set(['a']), 2)).toEqual([{ index: 5, key: 'b' }]);
+    expect(readsToSend(wanted, held, new Set(['a', 'b']), 2)).toEqual([]);
   });
 });
 

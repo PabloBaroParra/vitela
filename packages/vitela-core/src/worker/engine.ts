@@ -71,6 +71,11 @@ export const coreEdits: CoreEdits = {
     core.EditCommand.addTextWatermark(pages, text, fontSize, opacity, rotation, behind),
   addPictureWatermark: (pages, image, scale, opacity, rotation, behind) =>
     core.EditCommand.addPictureWatermark(pages, image, scale, opacity, rotation, behind),
+  retypeTextRun: (page, runId, text) => core.EditCommand.retypeTextRun(page, runId, text),
+  moveTextRun: (page, runId, dx, dy) => core.EditCommand.moveTextRun(page, runId, dx, dy),
+  removeTextRun: (page, runId) => core.EditCommand.removeTextRun(page, runId),
+  restyleTextRuns: (page, runIds, bold, italic, underline, strike) =>
+    core.EditCommand.restyleTextRuns(page, runIds, bold, italic, underline, strike),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

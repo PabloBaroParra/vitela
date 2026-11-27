@@ -661,8 +661,8 @@ thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
 
 ## Edit content
 
-`features/content/` (T-258b), read-only for now: the mode the text, image and
-shape edits of T-259 on will live in. **Edit content** is the last item of
+`features/content/` (T-258b, T-259): the mode the page's own text, images
+and shapes are edited in — text runs since T-259. **Edit content** is the last item of
 **Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
 Organize it switches to the viewer). The viewer's toolbar rows have no room
 for a button of its own: at 1280 px the first row (View, Text) and the second
@@ -686,10 +686,30 @@ page 1.", "Shape selected on page 1."; a run whose font does not say what all
 its characters are says it cannot be retyped). Escape on the pages lets the
 selection go; an edit that repaints the page does too.
 
+**Text runs (T-259).** With a run selected, Enter or a double-click opens a
+camouflaged editor laid over it — in the run's own embedded font when the
+browser takes the program (`FontFace`, TrueType / OpenType), else the family
+its name suggests, at its size, colour, weight and slant. Enter commits,
+Escape cancels, leaving it (a press beside it, a save, leaving the mode)
+commits; it is closed a turn later, never inside its own blur. The arrow keys
+nudge the run 1 pt (Shift: 10 pt) and a drag of its outline moves it; presses
+that come while the step runs add up into one move. Delete or Backspace
+removes it. A small toolbar over the run has **Edit text**, **B** / **I** /
+**U** (pressed as the core reads the run's look) and **Delete**. Every edit is
+one undo step, marks the document dirty, and is what Save writes; the run is
+found again by place once its page is read anew. A run whose font does not
+say what its characters are says it cannot be retyped. While any step runs no
+page is read and a press selects nothing: the parse held may name what the
+step is about to change.
+
 **Only the pages in view and one on each side are parsed** (the Linux shell
 froze parsing every page of a 1619-page file), each parse kept by page id,
 `paintRevision` and `contentBaseGeneration` and dropped once its page is out
-of reach, so memory follows the view, not the document.
+of reach, so memory follows the view, not the document. A parse is also
+keyed by the page's rotation (an undone turn keeps the id and the revision),
+an answer whose position holds another page by the time it lands is dropped
+and read again, and at most two reads are in flight: a page a fast scroll
+already passed is never asked for.
 
 E2E (`e2e/edit-content.spec.ts`, all three browsers): a run under the
 pointer is outlined around the pointer, a press selects it and the status
@@ -699,6 +719,14 @@ are parsed and every farther mounted page waits; the scan of the compress
 corpus outlines and selects an image; a PDF whose `/P` withholds
 modification keeps the item off with the core's sentence as its
 description.
+
+E2E (`e2e/edit-text-runs.spec.ts`, all three browsers): retype in place, undo,
+redo, save and reopen reads the new text; a double-click opens the editor,
+Escape cancels and a press beside it commits; three Shift+Right presses move
+30 pt as one step and a drag moves it further, saved where it was left;
+Delete removes it and the reopened file has no run there; Bold toggles and
+reads back bold after a save; each undone and redone; a PDF that forbids
+modification offers no edit at all.
 
 ## Organize
 

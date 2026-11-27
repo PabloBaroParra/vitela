@@ -85,6 +85,8 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     textRunStyle: async () => null,
     pageFontFamilies: async () => ({}),
     contentBaseGeneration: async () => 0,
+    textRunLook: async () => null,
+    textRunFontProgram: async () => null,
     ...overrides,
   };
 }
@@ -315,6 +317,32 @@ describe('handleRequest', () => {
     });
     await handleRequest(engine, { id: 4, request: { kind: 'contentBaseGeneration', document: 5 } });
     expect(calls).toEqual([[5, 1], [5, 1, 3], [5, 0], [5]]);
+  });
+
+  it("answers a run's look copied and its font program's bytes transferred", async () => {
+    const calls: unknown[] = [];
+    const state = { bold: false, italic: true, underline: false, strike: false, canRemoveBold: true, canRemoveItalic: false };
+    const bytes = new Uint8Array([0, 1, 0, 0]);
+    const engine = fakeEngine({
+      textRunLook: async (...args) => (calls.push(args), state),
+      textRunFontProgram: async (...args) => (calls.push(args), { format: 'trueType', bytes }),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'textRunLook', document: 5, pageIndex: 1, runId: 3 } })).toEqual({
+      message: { type: 'result', id: 1, value: state },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 2, request: { kind: 'textRunFontProgram', document: 5, pageIndex: 1, runId: 3 } }),
+    ).toEqual({
+      message: { type: 'result', id: 2, value: { format: 'trueType', bytes } },
+      transfer: [bytes.buffer],
+    });
+    const none = fakeEngine();
+    expect(await handleRequest(none, { id: 3, request: { kind: 'textRunFontProgram', document: 5, pageIndex: 1, runId: 3 } })).toEqual({
+      message: { type: 'result', id: 3, value: null },
+      transfer: [],
+    });
+    expect(calls).toEqual([[5, 1, 3], [5, 1, 3]]);
   });
 
   it('answers the watermark questions, copied', async () => {

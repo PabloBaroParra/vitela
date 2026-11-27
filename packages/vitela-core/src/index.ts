@@ -72,6 +72,11 @@ export type {
   TextBlock,
   TextLine,
   TextRunStyle,
+  TextRunEdit,
+  TextRunLook,
+  TextRunLookState,
+  FontProgram,
+  FontProgramFormat,
   TextSelection,
 } from './core/types.js';
 export type { MessagePortLike, RequestEnvelope, WorkerMessage } from './core/protocol.js';

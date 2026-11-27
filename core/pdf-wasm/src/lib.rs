@@ -42,10 +42,10 @@ mod geometry;
 #[cfg(target_arch = "wasm32")]
 pub use dto::{
     AnnotationEntry, CommentEntry, CompressRefusalEntry, CompressedSave, ContentImageEntry,
-    ContentPathEntry, ContentRunEntry, DocumentBlock, DocumentPropertiesEntry, FormFieldEntry,
-    FreeTextLines, ImportedPages, OpenedImageExport, PageCharacters, PageContentEntry,
-    PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart, TextBlockEntry,
-    TextLineEntry, TextRun, TextRunStyleEntry, WatermarkLook,
+    ContentPathEntry, ContentRunEntry, DocumentBlock, DocumentPropertiesEntry, FontProgramEntry,
+    FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport, PageCharacters,
+    PageContentEntry, PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart,
+    TextBlockEntry, TextLineEntry, TextRun, TextRunLookEntry, TextRunStyleEntry, WatermarkLook,
 };
 #[cfg(target_arch = "wasm32")]
 pub use engine::{

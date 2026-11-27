@@ -615,6 +615,54 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect(scanned.images[0]!.rect.width).toBeGreaterThan(100);
     await engine.close(scan.handle);
   });
+
+  it('edits a text run through the real core: retype, move, bold, delete, each saved and each undone', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const quote = await engine.open(
+      readFileSync(resolve(here, '../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf')),
+    );
+    const handle = quote.handle;
+    const headingOf = async (doc: number, text: string) =>
+      (await engine.readPageContent(doc, 0)).runs.find((run) => run.text.includes(text));
+    const heading = (await headingOf(handle, 'PRESUPUESTO'))!;
+
+    const program = await engine.textRunFontProgram(handle, 0, heading.id);
+    expect(program?.format).toBe('trueType');
+    expect(program!.bytes.length).toBeGreaterThan(100);
+
+    const retyped = await engine.applyEdit(handle, { kind: 'retypeTextRun', page: 0, runId: heading.id, text: 'PRESUPUESTO WEB' });
+    expect(retyped.canUndo).toBe(true);
+    expect(retyped.paintRevision).toBeGreaterThan(0);
+    const shown = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 0, runId: shown.id, dx: 30, dy: 12 });
+    const moved = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    expect(moved.rect.left).toBeCloseTo(heading.rect.left + 30, 0);
+    expect(moved.rect.top).toBeCloseTo(heading.rect.top + 12, 0);
+    await engine.applyEdit(handle, {
+      kind: 'restyleTextRuns',
+      page: 0,
+      runIds: [moved.id],
+      look: { bold: true, italic: false, underline: false, strike: false },
+    });
+    const bolded = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    expect((await engine.textRunLook(handle, 0, bolded.id))?.bold).toBe(true);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    const saved = (await headingOf(reopened.handle, 'PRESUPUESTO WEB'))!;
+    expect(saved.rect.left).toBeCloseTo(moved.rect.left, 0);
+    expect((await engine.textRunLook(reopened.handle, 0, saved.id))?.bold).toBe(true);
+    await engine.close(reopened.handle);
+
+    await engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: bolded.id });
+    expect(await headingOf(handle, 'PRESUPUESTO WEB')).toBeUndefined();
+    for (let step = 0; step < 4; step++) await engine.undo(handle);
+    const back = (await headingOf(handle, 'PRESUPUESTO'))!;
+    expect(back.text).toBe(heading.text);
+    expect(back.rect.left).toBeCloseTo(heading.rect.left, 0);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    await engine.close(handle);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */

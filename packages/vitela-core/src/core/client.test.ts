@@ -269,6 +269,23 @@ describe('EngineClient', () => {
     await expect(generation).resolves.toBe(2);
   });
 
+  it("sends the text-run editor's reads and resolves with their replies", async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const look = client.textRunLook(4, 1, 7);
+    const program = client.textRunFontProgram(4, 1, 7);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'textRunLook', document: 4, pageIndex: 1, runId: 7 },
+      { kind: 'textRunFontProgram', document: 4, pageIndex: 1, runId: 7 },
+    ]);
+    const state = { bold: true, italic: false, underline: false, strike: false, canRemoveBold: true, canRemoveItalic: true };
+    const bytes = { format: 'trueType' as const, bytes: new Uint8Array([1]) };
+    reply({ type: 'result', id: sent[0]!.message.id, value: state });
+    reply({ type: 'result', id: sent[1]!.message.id, value: bytes });
+    await expect(look).resolves.toEqual(state);
+    await expect(program).resolves.toEqual(bytes);
+  });
+
   it('sends the watermark requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

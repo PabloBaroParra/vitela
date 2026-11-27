@@ -250,6 +250,35 @@ export interface TextRunStyle {
   readonly renderMode: number;
 }
 
+/**
+ * The four face toggles a content editor offers for a run: what the reader
+ * should see, not how it is painted (the core picks a sibling face or
+ * synthesizes one when it writes the change).
+ */
+export interface TextRunLook {
+  readonly bold: boolean;
+  readonly italic: boolean;
+  readonly underline: boolean;
+  readonly strike: boolean;
+}
+
+/** How a run looks now (a queued restyle included), and which styles can come off it. */
+export interface TextRunLookState extends TextRunLook {
+  /** `false` only for a run painted in a bold font whose page has no regular sibling: un-bolding is never faked. */
+  readonly canRemoveBold: boolean;
+  /** The same, for italic. */
+  readonly canRemoveItalic: boolean;
+}
+
+/** What kind of program a font embeds: a browser's `FontFace` takes `trueType` and `openType`. */
+export type FontProgramFormat = 'trueType' | 'openType' | 'cff' | 'type1';
+
+/** A font program the file embeds, decoded. */
+export interface FontProgram {
+  readonly format: FontProgramFormat;
+  readonly bytes: Uint8Array;
+}
+
 /** A colour, each channel 0-255. */
 export interface Rgb {
   readonly r: number;
@@ -402,8 +431,27 @@ export interface WatermarkDefaults {
   readonly pictureBehind: boolean;
 }
 
+/**
+ * An edit of a text run a page's content read handed out (`runId`, valid
+ * against that read), on page position `page`. Page content: one undo step
+ * that the pixels show at once and `paintRevision` moves for. A second
+ * retype or move of the same run folds into its step; an edit that changes
+ * nothing (the same text, a zero move, the look the runs have) records
+ * nothing. `dx, dy` are on the page as drawn (points, y down). A restyle
+ * gives every run of `runIds` the look `look`, as one step. Rejects as
+ * `contentEditingRefusal` says (`EditNotPermitted`, or
+ * `TextExtractionDenied`), then `PageIndexOutOfBounds`,
+ * `UnsupportedOperation` for a run the page does not hold now, or
+ * `EncodingGap` for a character the run's font cannot show.
+ */
+export type TextRunEdit =
+  | { readonly kind: 'retypeTextRun'; readonly page: number; readonly runId: number; readonly text: string }
+  | { readonly kind: 'moveTextRun'; readonly page: number; readonly runId: number; readonly dx: number; readonly dy: number }
+  | { readonly kind: 'removeTextRun'; readonly page: number; readonly runId: number }
+  | { readonly kind: 'restyleTextRuns'; readonly page: number; readonly runIds: readonly number[]; readonly look: TextRunLook };
+
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -796,6 +844,18 @@ export interface Engine {
   pageFontFamilies(document: DocumentHandle, pageIndex: number): Promise<Record<string, string>>;
   /** The base every content read is valid against (see `EditedDocument.contentBaseGeneration`). */
   contentBaseGeneration(document: DocumentHandle): Promise<number>;
+  /**
+   * How run `runId` looks now — a queued restyle included — and which styles
+   * can come off it: what bold / italic / underline toggles show. `null`
+   * when the file cannot say. Same refusals as `textRunStyle`.
+   */
+  textRunLook(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunLookState | null>;
+  /**
+   * The font program run `runId`'s font embeds, or `null` for one that
+   * embeds none (a standard-14 font) or a run only a pending edit holds.
+   * Same refusals as `textRunStyle`.
+   */
+  textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number): Promise<FontProgram | null>;
   /** The core's starting looks for a text and a picture watermark. */
   watermarkDefaults(): Promise<WatermarkDefaults>;
   /**

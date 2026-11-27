@@ -107,6 +107,17 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         return result(id, await engine.pageFontFamilies(request.document, request.pageIndex));
       case 'contentBaseGeneration':
         return result(id, await engine.contentBaseGeneration(request.document));
+      // A run's look is a few flags, copied; its font program is bytes the
+      // UI hands to a FontFace: transferred.
+      case 'textRunLook': {
+        const { document, pageIndex, runId } = request;
+        return result(id, await engine.textRunLook(document, pageIndex, runId));
+      }
+      case 'textRunFontProgram': {
+        const { document, pageIndex, runId } = request;
+        const program = await engine.textRunFontProgram(document, pageIndex, runId);
+        return { message: { type: 'result', id, value: program }, transfer: program ? [program.bytes.buffer as ArrayBuffer] : [] };
+      }
       // The looks are a few numbers, the gate a sentence: copied.
       case 'watermarkDefaults':
         return result(id, await engine.watermarkDefaults());

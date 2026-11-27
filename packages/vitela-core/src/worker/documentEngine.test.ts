@@ -110,7 +110,8 @@ type FakeEdit =
   | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
   | { kind: 'fill'; op: string; id: number; value: unknown; free(): void }
   | { kind: 'metadata'; keys: (string | undefined)[]; free(): void }
-  | { kind: 'watermark'; op: string; args: unknown[]; free(): void };
+  | { kind: 'watermark'; op: string; args: unknown[]; free(): void }
+  | { kind: 'textRun'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -259,6 +260,10 @@ function fakeCore(
     setDocumentProperties: (...keys) => command({ kind: 'metadata', keys }),
     addTextWatermark: (...args) => command({ kind: 'watermark', op: 'addTextWatermark', args }),
     addPictureWatermark: (...args) => command({ kind: 'watermark', op: 'addPictureWatermark', args }),
+    retypeTextRun: (...args) => command({ kind: 'textRun', op: 'retypeTextRun', args }),
+    moveTextRun: (...args) => command({ kind: 'textRun', op: 'moveTextRun', args }),
+    removeTextRun: (...args) => command({ kind: 'textRun', op: 'removeTextRun', args }),
+    restyleTextRuns: (...args) => command({ kind: 'textRun', op: 'restyleTextRuns', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -465,6 +470,26 @@ function fakeCore(
           };
     },
     pageFontFamilies: (doc) => (readable(doc), ['F1', 'Helvetica', 'F2', 'ABCDEF+Vera']),
+    textRunLook: (doc, _page, runId) => {
+      readable(doc);
+      if (runId > 1) throw named('UnsupportedOperation', 'the page has no text run with that id now');
+      return runId === 1
+        ? undefined
+        : {
+            bold: true,
+            italic: false,
+            underline: false,
+            strike: false,
+            canRemoveBold: false,
+            canRemoveItalic: true,
+            free: () => freed.push('look'),
+          };
+    },
+    textRunFontProgram: (doc, _page, runId) => {
+      readable(doc);
+      if (runId !== 1) return undefined;
+      return { format: 'trueType', takeBytes: () => new Uint8Array([0, 1, 0, 0]), free: () => freed.push('program') };
+    },
     contentBaseGeneration: (doc) => (known(doc), 3),
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
@@ -543,6 +568,12 @@ function fakeCore(
         const { next, added } = annotate(entry, edit.op, edit.args);
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
+      }
+      if (edit.kind === 'textRun') {
+        if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
+        // Page content: the step shows in the pixels, repainting pages in place.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
+        return undefined;
       }
       if (edit.kind === 'watermark') {
         if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
@@ -1869,6 +1900,70 @@ describe('documentEngine forms', () => {
     const edited = await engine.applyEdit(handle, { kind: 'move', from: 0, count: 1, to: 1 });
     expect(edited.contentBaseGeneration).toBe(3);
     expect((await engine.undo(handle)).contentBaseGeneration).toBe(3);
+  });
+
+  it('records each text-run edit as one repainting step, a drawn move crossing as a PDF delta', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'retypeTextRun', page: 0, runId: 4, text: 'Howdy' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'textRun', op: 'retypeTextRun', args: [0, 4, 'Howdy'] });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:textRun');
+
+    // Drawn y grows down, PDF y up.
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 0, runId: 4, dx: 5, dy: 10 });
+    expect(applied.at(-1)).toMatchObject({ op: 'moveTextRun', args: [0, 4, 5, -10] });
+    await engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: 4 });
+    expect(applied.at(-1)).toMatchObject({ op: 'removeTextRun', args: [0, 4] });
+    await engine.applyEdit(handle, {
+      kind: 'restyleTextRuns',
+      page: 0,
+      runIds: [4, 5],
+      look: { bold: true, italic: false, underline: true, strike: false },
+    });
+    expect(applied.at(-1)).toMatchObject({ op: 'restyleTextRuns', args: [0, new Float64Array([4, 5]), true, false, true, false] });
+    expect((await engine.undo(handle)).canUndo).toBe(true);
+  });
+
+  it('moves a run on a page past the end untransformed, for the core to refuse', async () => {
+    const { core, edits, applied } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 9, runId: 4, dx: 5, dy: 10 });
+    expect(applied.at(-1)).toMatchObject({ op: 'moveTextRun', args: [9, 4, 5, 10] });
+  });
+
+  it("refuses a text-run edit in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: 0 })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
+    expect(core.canUndo(handle)).toBe(false);
+  });
+
+  it("reads a run's look and its font program as plain values, freeing them", async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.textRunLook(handle, 0, 0)).toEqual({
+      bold: true,
+      italic: false,
+      underline: false,
+      strike: false,
+      canRemoveBold: false,
+      canRemoveItalic: true,
+    });
+    expect(await engine.textRunLook(handle, 0, 1)).toBeNull();
+    await expect(engine.textRunLook(handle, 0, 7)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.textRunFontProgram(handle, 0, 0)).toBeNull();
+    expect(await engine.textRunFontProgram(handle, 0, 1)).toEqual({ format: 'trueType', bytes: new Uint8Array([0, 1, 0, 0]) });
+    expect(freed).toEqual(expect.arrayContaining(['look', 'program']));
+    await expect(engine.textRunLook(handle, 4, 0)).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
   });
 
   it('records a properties change as one step, in the core order of its keys, null as absent', async () => {

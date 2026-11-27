@@ -42,6 +42,7 @@ mod form;
 mod import;
 mod metadata;
 mod protect;
+mod text_run;
 mod watermark;
 
 pub use annotation::{free_text_layout, stamp_placement};
