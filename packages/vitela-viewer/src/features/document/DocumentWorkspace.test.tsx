@@ -4,6 +4,7 @@ import type { DocumentInfo, DocumentProperties, RenderedPage } from '@vitela/cor
 import { fakeEngine } from '../../test/fakeEngine';
 import { createRef } from 'react';
 import type { WritableFileHandle } from '../../platform/fileHandle';
+import { checkFileStamp } from '../../platform/fileStamp';
 import type { DeliverRequest, Delivery } from '../save/delivery';
 import { DocumentWorkspace, type WorkspaceHandle } from './DocumentWorkspace';
 
@@ -163,6 +164,25 @@ describe('DocumentWorkspace', () => {
 
     act(() => workspace.current!.save());
     await waitFor(() => expect(prepared).toEqual([fileHandle]));
+  });
+
+  it('passes on the stamp a host read its file with, so Save notices a change made since', async () => {
+    const fileHandle: WritableFileHandle = {
+      name: 'launched.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      getFile: async () => ({ lastModified: 2000, size: 9 }),
+    };
+    const workspace = createRef<WorkspaceHandle>();
+    const { findByText } = render(
+      <DocumentWorkspace
+        engine={fakeEngine({ open: async () => ({ handle: 1, info }), renderPage: async () => page })}
+        intro={(action) => action}
+        ref={workspace}
+      />,
+    );
+    act(() => workspace.current!.open(new File([new Uint8Array([37])], 'launched.pdf'), fileHandle, { lastModified: 1000, size: 1 }));
+    expect(await findByText('launched.pdf — 2 pages')).toBeTruthy();
+    expect(await checkFileStamp(fileHandle)).toBe('changed');
   });
 
   it('offers Compress in the Tools menu in both screens, delivering the smaller copy where saves go', async () => {

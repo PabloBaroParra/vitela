@@ -11,6 +11,7 @@ export type { ViewerSource } from './embed/source';
 export type { SaveCallback } from './features/save/callbackDelivery';
 export { DocumentWorkspace, type DocumentScreen, type WorkspaceHandle } from './features/document/DocumentWorkspace';
 export type { WritableFileHandle } from './platform/fileHandle';
+export type { FileStamp } from './platform/fileStamp';
 export type { EventScope } from './features/document/editorScope';
 export { useEngineStatus, type EngineStatus } from './engine/useEngineStatus';
 export { StatusLine } from './ui/StatusLine';

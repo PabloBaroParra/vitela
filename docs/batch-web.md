@@ -3666,7 +3666,7 @@ y en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API)
 | **T-265** ✓ | Cabeceras de seguridad en `_headers`: `Content-Security-Policy` estricta (`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `worker-src 'self'`, `manifest-src 'self'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; el worker del motor con la suya, `'wasm-unsafe-eval'` y `'unsafe-eval'`) y la misma política en `vite preview` para que los E2E la sufran. | Playwright: la suite completa en los 3 navegadores sin violaciones de CSP (`securitypolicyviolation` = fallo); un test comprueba que la cabecera llega. |
 | **T-266** ✓ | Abrir PDFs desde el sistema con la app instalada: `file_handlers` en el manifiesto + `launchQueue` (Chromium), con el mismo flujo que el selector. | Vitest del consumidor de `launchQueue`; Playwright (Chromium) simulando un lanzamiento con un `FileSystemFileHandle`; omitido con motivo en Firefox/WebKit. |
 | **T-267** ✓ | Aviso del navegador al cerrar o recargar con cambios sin guardar (`beforeunload`), con el mismo `onDirtyChange` que usa la actualización. | Vitest del gancho; Playwright: con una edición pendiente, cerrar la página dispara el diálogo; guardado, no. |
-| **T-268** | Smoke test tras el deploy: el job de `web-deploy.yml` pide a la URL publicada `/`, `/sw.js`, `/manifest.webmanifest`, una ruta de herramienta y un asset, y comprueba códigos, tipos y cabeceras (`no-cache` del worker, `immutable` de `/assets/*`). | El job falla con una cabecera o un tipo mal servido (probado contra `vite preview` en local). |
+| **T-268** ✓ | Smoke test tras el deploy: el job de `web-deploy.yml` pide a la URL publicada `/`, `/sw.js`, `/manifest.webmanifest`, una ruta de herramienta y un asset, y comprueba códigos, tipos y cabeceras (`no-cache` del worker, `immutable` de `/assets/*`). | El job falla con una cabecera o un tipo mal servido (probado contra `vite preview` en local). |
 
 T-264 bloquea T-266 y T-267 (manifiesto y `onDirtyChange`). T-265 y T-268 son independientes.
 
@@ -3920,6 +3920,82 @@ close").
   3 navegadores (14 pasan, 4 omitidos; 3 repeticiones sin fallos). Suite completa
   (`CI=1 --reporter=line --global-timeout=1500000`, 3 navegadores, 468 tests): **442
   pasan, 26 omitidos, 0 fallos**.
+
+### T-268 — resultado
+
+Tras cada deploy, `web-deploy.yml` comprueba cómo sirve Cloudflare la app recién subida.
+Con esto **la Fase 5 está completa** (T-264…T-268 ✓). Detalle en el README
+("Post-deploy smoke test").
+
+- **`apps/web/scripts/smoke.mjs`** (Node, `fetch`, sin dependencias): parte de `/` y
+  sigue las referencias del propio build, sin nombres con hash fijos: el script de entrada
+  y la hoja de estilos de `index.html`, el worker del motor en el bundle de entrada, la cola
+  de pdfium y los dos WASM en el worker. Pide `/`, una ruta de herramienta (`/edit`),
+  `/manifest.webmanifest`, `/sw.js` y todo eso, y comprueba estado 200 y `Content-Type`
+  (`text/html`, `application/manifest+json`, JavaScript, `text/css`, `application/wasm`).
+  Las cabeceras esperadas salen de `public/_headers` con el mismo parser que usa
+  `vite preview` (`src/features/hosting/headers.ts`, importado como `.ts`: Node 24 quita los
+  tipos): la CSP de la página igual a la del fichero, la del worker la suya (prueba en
+  Cloudflare real el `! Content-Security-Policy` que T-265 dejó sin verificar),
+  `immutable` en `/assets/*`. Además, diga lo que diga `_headers`: `sw.js` y el manifiesto
+  `no-cache`, y la política del worker no incluye la de la página. Una ruta desconocida y un
+  `/assets/*.js` inexistente dan 404, no el shell. Cada problema sale como una línea
+  "`<ruta>: <qué falla>`" (anotación `::error::` en Actions) y el proceso termina en 1.
+- **La URL desplegada:** el paso de publicación define `WRANGLER_OUTPUT_FILE_PATH`, donde
+  wrangler escribe en ND-JSON lo que desplegó; `smoke.mjs --deployment-url <fichero>` lee la
+  `url` de la entrada `pages-deploy-detailed` (`https://<hash>.<proyecto>.pages.dev`), así
+  que se prueba exactamente el build subido. El repo no documenta ninguna URL de
+  producción, así que, si wrangler no da ninguna, el paso usa
+  `https://$CLOUDFLARE_PAGES_PROJECT.pages.dev` con un aviso. La primera petición se
+  reintenta (6 veces, cada 5 s) mientras el deploy nuevo arranca. El mecanismo de deploy y
+  los secretos no cambian; el paso nuevo no usa ninguno.
+- **`vite preview` enruta como Pages** (`scripts/hostRoutes.ts` sobre el
+  `src/features/hosting/routes.ts` puro): las reescrituras de `public/_redirects` sirven el
+  shell, un fichero se sirve tal cual y cualquier otra ruta recibe `404.html` con 404. Hasta
+  ahora preview respondía con el shell (modo SPA de Vite), así que el 404 no se podía
+  comprobar en local; toda la suite E2E corre ahora con el enrutado real.
+- **En cada PR:** `e2e/smoke.spec.ts` ejecuta `smoke()` contra `vite preview` (solo en el
+  proyecto Chromium: es HTTP desde Node), en el mismo `npx playwright test` de `web.yml`.
+- **Seguimiento de la revisión de T-266/T-267:**
+  - `App`: `onDirtyChange` quita el aviso de `beforeunload` **antes** de soltar la retención
+    de la actualización, que puede recargar en el acto.
+  - Lanzamientos: el fichero se lee al llegar y su sello (fecha de modificación y tamaño) se
+    toma de esa misma instantánea `File`; `WorkspaceHandle.open(source, fileHandle?, opened?)`
+    de `@vitela/viewer` (y `useDocument.open`, `recordFileStamp`) lo usa como base en vez de
+    releer el disco al abrir, así que un cambio hecho mientras cargaba el motor lo detecta
+    la comprobación de "cambiado en disco" al Guardar. El selector no cambia (lee y abre a la
+    vez). El paquete exporta el tipo `FileStamp`.
+  - Un lanzamiento sin nada legible (todos ilegibles, o una carpeta) ya no se descarta en
+    silencio: se ofrece como una apertura cuya lectura falla con ese error, y la página
+    muestra el "Could not open <nombre>: <motivo>" de siempre. Un lanzamiento solo de
+    no-PDF ya mostraba el error del motor.
+  - `App.test.tsx`: el test de T-267 abre un PDF y edita el título, y comprueba que llega
+    `true` al aviso.
+- **Tests:** Vitest `scripts/smoke.test.ts` (11, contra un servidor local que sirve un
+  sitio falso con el `_headers` real o editado: un sitio correcto pasa; otra CSP de página,
+  el worker sin detach, `sw.js`/manifiesto cacheados, un WASM con otro tipo, el fallback
+  SPA, un fichero que falta, una página sin script de entrada y un host caído fallan
+  nombrando la ruta; `deploymentUrl` ×2), `scripts/hostRoutes.test.ts` (4),
+  `routes.test.ts` (6), `launchQueue.test.ts` (+2, dos reescritos), `App.test.tsx` (+3, uno reescrito);
+  `@vitela/viewer` `useDocument.test.tsx` (+1) y `DocumentWorkspace.test.tsx` (+1). Escritos
+  antes que el código; los de orden y sello de `App` caen con el código anterior. E2E
+  `e2e/smoke.spec.ts` (1, Chromium) y `e2e/launch.spec.ts` (+1, Chromium: una carpeta
+  lanzada dice "Could not open").
+- **Verificado en local (Windows):** `@vitela/viewer`: `typecheck`, Vitest 112 / 1132. `apps/web`:
+  `typecheck`, Vitest 19 / 143, `build`; `node scripts/smoke.mjs` contra `vite preview` del build
+  real: 12 rutas, todo en verde. Playwright de lo tocado (`smoke`, `launch`, `unload`, `pwa`,
+  `csp`) en los 3 navegadores: 28 pasan, 8 omitidos. Suite completa (`CI=1 --reporter=line
+  --global-timeout=1500000`, 3 navegadores, 474 tests), dos pasadas: **443 pasan, 30
+  omitidos, 1 fallo** y **441 / 30 / 3 fallos**, todos en WebKit y por tiempo de espera de
+  estado (`edit-images` "Insert image…", `edit-clipboard` "Shift+click…", `comments`
+  "follows a page deleted…"). Son intermitentes y no vienen de este cambio: `comments` pasa
+  3 de 3 solo, y `edit-images`/`edit-clipboard` fallan igual (1 de 6 y 3 de 6) con
+  `hostRoutes()` quitado de la config de Vite.
+- **No cubierto:** el paso del workflow no se ha ejecutado contra Cloudflare real (corre en
+  el próximo deploy de `main`); el formato de `WRANGLER_OUTPUT_FILE_PATH` se comprobó en el
+  código de wrangler 4.164, no en la 4.157 fijada (el fallback a la URL de producción cubre
+  un cambio). Preview no emula las *pretty URLs* ni los comodines de Pages (la app no los
+  usa).
 
 ## Verificación
 

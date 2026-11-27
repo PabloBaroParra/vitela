@@ -1046,19 +1046,35 @@ once chosen). Chromium only; Firefox and WebKit install no file handlers.
   together open as several dropped ones do: the first PDF, else the first
   file (the engine then says why it is not a PDF). A handle that cannot be
   read is skipped; one without `createWritable` opens with Save downloading.
+  A launch with nothing readable (every file unreadable, or a folder) is not
+  dropped: it opens as a source whose read fails with that error, so the
+  page shows the usual "Could not open <name>: <why>".
+- **Changed on disk:** each launched file is read once, when the launch
+  arrives, and its stamp (modified time and size) is taken from that same
+  `File` snapshot. `App` passes it on as `WorkspaceHandle.open(file,
+  fileHandle, stamp)`, and `@vitela/viewer` uses it as the baseline instead
+  of re-reading the disk at open, so a change made while the engine loaded
+  is caught by Save's changed-on-disk check rather than written over. A
+  picked file has no such gap and is still stamped when it opens.
 - **Unsaved edits:** the app has no "discard changes?" step when another file
   is picked or dropped over an edited one; a launch does the same, and with
   `navigate-new` it never reaches an edited window anyway.
 - **CSP:** nothing new — the consumer is the app's own bundled script.
 - **Tests:** `launchQueue.test.ts` (fake queue and handles: detection, one
-  consumer, the handle kept or dropped, the first PDF of several, unreadable
-  files and directories skipped, the newest launch wins, handed over once).
-  `App.test.tsx`: a launched file opens only once the engine is ready.
+  consumer, the handle kept or dropped, the stamp of the snapshot read, the
+  first PDF of several, unreadable files skipped, a launch with nothing
+  readable or a folder offered as a failing open, the newest launch wins,
+  handed over once). `App.test.tsx`: a launched file opens only once the
+  engine is ready; an unreadable launch shows the open error; the launch's
+  stamp reaches Save (a later change asks first).
+  `@vitela/viewer`: `useDocument.test.tsx` and `DocumentWorkspace.test.tsx`
+  pin the host-given stamp as the baseline.
   `e2e/launch.spec.ts`: the served manifest has both entries (3 browsers);
   in Chromium a fake `window.launchQueue` (an init script, `e2e/launch.ts`)
   is handed real origin-private-file-system handles for a text file and a
   PDF together — the PDF opens and Save says "Saved over" it, with no
-  download. Skipped in Firefox and WebKit, which have no launch queue.
+  download; a launched folder says "Could not open". Skipped in Firefox and
+  WebKit, which have no launch queue.
 
 ## Unsaved-changes warning on close (T-267)
 
@@ -1068,13 +1084,16 @@ shows the browser's own "Leave site?" warning
 (`preventDefault` plus `returnValue`) is added when `DocumentWorkspace`'s
 `onDirtyChange` reports edits and removed when it reports none, so a clean
 page keeps its back/forward cache. `App` gives the same `onDirtyChange` to
-the update hold and to the warning; the update's Reload refuses while the
-document is dirty, so the reload it does never asks. Saving to a download
+the warning and to the update hold, in that order: releasing the hold can
+reload into a new build at once, and by then the warning is already gone.
+The update's Reload refuses while the document is dirty, so the reload it
+does never asks. Saving to a download
 leaves the document dirty (the edits are not where it lives), so the warning
 stays; saving over the opened file, or opening another file, ends it.
 
 - **Tests:** `unloadWarning.test.ts` (no listener while clean, the warning
-  while dirty, removed once clean, added once) and `App.test.tsx`.
+  while dirty, removed once clean, added once) and `App.test.tsx` (an edit
+  turns the warning on; going clean drops it before the hold is released).
   `e2e/unload.spec.ts` (3 browsers): no warning on a clean reload or close;
   after an edit a reload asks (`beforeunload`) and leaving drops the edits; a
   close asks and staying keeps them; a fresh document stops asking; in
@@ -1088,7 +1107,11 @@ stays; saving over the opened file, or opening another file, ends it.
 policies included, and `vite preview` serves it too (`scripts/hostHeaders.ts`
 reads the built copy with `src/features/hosting/headers.ts`, Cloudflare
 Pages' rules: every matching rule in file order, `! Name` detaches), so every
-e2e spec runs under the policy that ships. The dev server has none (its hot
+e2e spec runs under the policy that ships. Preview also routes like Pages
+(`scripts/hostRoutes.ts`, `src/features/hosting/routes.ts`): the
+`public/_redirects` rewrites serve the shell, a file is itself, and any other
+path gets `404.html` with a 404 — Vite's own preview would answer it with the
+shell, as a single-page app. The dev server has none (its hot
 reload is inline script).
 
 - **The page:** `default-src 'none'; script-src 'self'; style-src 'self';
@@ -1110,3 +1133,47 @@ reload is inline script).
   headers arrive, then opens, renders, highlights, retypes a run in Edit
   content, saves and prints, failing on any `securitypolicyviolation` (page
   or print frame) or console report.
+
+## Post-deploy smoke test (T-268)
+
+`scripts/smoke.mjs` asks a deployed copy of the app for the files that make
+it work and checks how the host serves them. `web-deploy.yml` runs it right
+after the Cloudflare Pages upload; `e2e/smoke.spec.ts` runs the same checks
+against `vite preview` on every pull request (Chromium project only: plain
+HTTP from Node).
+
+```sh
+npm run build && npx vite preview --port 4173 &
+node scripts/smoke.mjs http://127.0.0.1:4173     # exits 1 listing each problem
+```
+
+- **What it checks**, starting from `/` and following the build's own
+  references (no hashed name is hard-coded): status 200 and the right
+  `Content-Type` for `/`, a tool route (`/edit`), `/manifest.webmanifest`,
+  `/sw.js`, the page's hashed entry script and stylesheet, the engine worker,
+  pdfium's glue and both WASM files (`application/wasm`); every header
+  `public/_headers` gives each of those paths, computed with the same parser
+  preview uses (`src/features/hosting/headers.ts`), so the page's
+  `Content-Security-Policy` must equal the file's, the worker must get its
+  own policy (the `! Content-Security-Policy` detach, which only a real
+  Cloudflare deploy proves) and `/assets/*` must be `immutable`. Whatever
+  `_headers` says, `sw.js` and the manifest must be `no-cache` and the
+  worker's policy must not include the page's. An unknown path and a stale
+  `/assets/*.js` must get a 404, not the shell.
+- **The URL:** the deploy step sets `WRANGLER_OUTPUT_FILE_PATH`, where
+  wrangler writes what it deployed as ND-JSON; `node scripts/smoke.mjs
+  --deployment-url <file>` reads the `pages-deploy-detailed` entry's `url`,
+  the deployment's own `https://<hash>.<project>.pages.dev`, so the check
+  hits exactly the build just uploaded. Without one, the step falls back to
+  the project's production URL, `https://<project>.pages.dev`, with a
+  warning. The first request is retried for a while (a new deployment can
+  take seconds to answer); every other one is asked once.
+- **On failure** the run fails with one annotation per problem; the deploy
+  itself stays (Direct Upload has no rollback step here).
+- **Tests:** `scripts/smoke.test.ts` runs it against a local server that
+  serves a fake site under the real or an edited `_headers`: a right site
+  passes; another page policy, an undetached worker policy, a cached `sw.js`
+  or manifest, a WASM file of another type, a single-page-app fallback, a
+  missing file, a page without an entry script and a dead host each fail,
+  naming the path. `scripts/hostRoutes.test.ts` and `routes.test.ts` pin the
+  preview's routing.

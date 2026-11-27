@@ -2,6 +2,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { hostHeaders } from './scripts/hostHeaders.ts';
+import { hostRoutes } from './scripts/hostRoutes.ts';
 import { pwa } from './scripts/pwaPlugin.ts';
 
 // The engine runs in a module worker (`new Worker(url, { type: 'module' })`),
@@ -9,7 +10,8 @@ import { pwa } from './scripts/pwaPlugin.ts';
 export default defineConfig({
   // pwa(): manifest, icons and dist/sw.js, in production builds only.
   // hostHeaders(): `vite preview` answers with public/_headers (the CSP).
-  plugins: [react(), pwa(), hostHeaders()],
+  // hostRoutes(): and routes as the deployed site (_redirects, 404.html).
+  plugins: [react(), pwa(), hostHeaders(), hostRoutes()],
   worker: { format: 'es' },
   build: {
     target: 'es2022',

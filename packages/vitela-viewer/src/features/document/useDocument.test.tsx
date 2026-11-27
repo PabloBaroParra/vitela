@@ -289,6 +289,25 @@ describe('useDocument', () => {
     expect(await checkFileStamp(fileHandle)).toBe('changed');
   });
 
+  it('takes the baseline from the stamp the host read the file with, not from the disk at open', async () => {
+    // A file read before the open (a launch, read while the engine loaded):
+    // a change made since must count as a change.
+    const disk = { lastModified: 2000, size: 5 };
+    const fileHandle: WritableFileHandle = {
+      name: 'a.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+      getFile: async () => ({ ...disk }),
+    };
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf'), fileHandle, { lastModified: 1000, size: 4 }));
+    await waitFor(() => expect(result.current.state.document?.name).toBe('a.pdf'));
+
+    expect(await checkFileStamp(fileHandle)).toBe('changed');
+    Object.assign(disk, { lastModified: 1000, size: 4 });
+    expect(await checkFileStamp(fileHandle)).toBe('unchanged');
+  });
+
   it('takes the edited page list and history of the document on screen', async () => {
     const engine = engineWith(async () => info(3));
     const { result } = renderHook(() => useDocument(engine));

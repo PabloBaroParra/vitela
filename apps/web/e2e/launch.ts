@@ -40,6 +40,14 @@ export async function launchFiles(page: Page, files: readonly { name: string; by
   }, files.map(({ name, bytes }) => ({ name, bytes: [...bytes] })));
 }
 
+/** Launches the app with a folder of the origin private file system, as an OS could hand over a directory. */
+export async function launchFolder(page: Page, name: string): Promise<void> {
+  await page.evaluate(async (folder) => {
+    const handle = await (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true });
+    window.__launch!({ files: [handle as unknown as FileSystemFileHandle] });
+  }, name);
+}
+
 /** The first bytes of `name` in the origin private file system, as text. */
 export function launchedFileHead(page: Page, name: string, length: number): Promise<string> {
   return page.evaluate(

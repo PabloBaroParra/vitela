@@ -6,6 +6,7 @@ import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
 import { canPickWithHandle, pickPdfWithHandle, type WritableFileHandle } from '../../platform/fileHandle';
+import type { FileStamp } from '../../platform/fileStamp';
 import { MarkDirtyContext, SaveWaitsForEditsContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
 import { browserDelivery, type Delivery } from '../save/delivery';
@@ -54,9 +55,11 @@ export interface WorkspaceHandle {
   /**
    * Opens `source` as if the user had picked it (the editor shows how it
    * went). With `fileHandle` (a file the OS launched the app with), Save
-   * writes back over that file, as it does over a picked one.
+   * writes back over that file, as it does over a picked one. `opened` is
+   * the stamp of the file snapshot `source` reads, when the host read it
+   * earlier: Save then calls a change made since a change on disk.
    */
-  open(source: PdfSource, fileHandle?: WritableFileHandle): void;
+  open(source: PdfSource, fileHandle?: WritableFileHandle, opened?: FileStamp): void;
   /** Saves the open document as the Save button does; nothing when none is open. */
   save(): void;
 }
@@ -201,7 +204,11 @@ export function DocumentWorkspace({
     }),
     [pageToolsBusy, openExtract, openSplit],
   );
-  useImperativeHandle(ref, () => ({ open: (source, fileHandle) => open(source, fileHandle), save: save.save }), [open, save.save]);
+  useImperativeHandle(
+    ref,
+    () => ({ open: (source, fileHandle, opened) => open(source, fileHandle, opened), save: save.save }),
+    [open, save.save],
+  );
 
   const picker = filePicker && (
     <FilePicker

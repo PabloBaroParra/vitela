@@ -10,7 +10,9 @@ name: web-deploy
 # A manual run (Actions → web-deploy → Run workflow) always deploys main.
 #
 # Nothing is published unless the exact build being uploaded passes the unit
-# suites and the Playwright flows in Chromium, Firefox and WebKit.
+# suites and the Playwright flows in Chromium, Firefox and WebKit. Once it is
+# published, a smoke test (apps/web/scripts/smoke.mjs) checks how Cloudflare
+# serves it; a failure there fails the run, the deploy stays.
 #
 # Cloudflare's own build runner has no Rust toolchain, so the WASM is built
 # here and only apps/web/dist is uploaded (a Direct Upload project).
@@ -219,14 +221,37 @@ jobs:
           retention-days: 7
 
       # The API token reaches wrangler through the environment only, never the
-      # command line.
+      # command line. Wrangler also writes what it deployed to
+      # WRANGLER_OUTPUT_FILE_PATH (ND-JSON), where the smoke test below finds
+      # this deployment's own URL.
       - name: Publish apps/web/dist to Cloudflare Pages
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
         run: >-
           npx --yes "wrangler@$WRANGLER_VERSION" pages deploy dist
           --project-name "$PAGES_PROJECT"
           --branch main
           --commit-hash "$GITHUB_SHA"
+
+      # T-268: the deployed site serves what the build wrote, as it should:
+      # status and type of the shell, a tool route, the manifest, sw.js, the
+      # hashed assets, the worker and both WASM files; every header
+      # public/_headers gives them (the page's CSP, the worker's own policy,
+      # no-cache, immutable); a 404 for unknown paths. Checked against this
+      # deployment's own URL, the exact build just uploaded; the project's
+      # production URL only when wrangler reported none. Needs no secret.
+      - name: Smoke-test the deployment
+        env:
+          PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+        run: |
+          set -euo pipefail
+          url=$(node scripts/smoke.mjs --deployment-url "$WRANGLER_OUTPUT_FILE_PATH")
+          if [ -z "$url" ]; then
+            url="https://$PAGES_PROJECT.pages.dev"
+            echo "::warning::wrangler reported no deployment URL; smoke-testing the production URL $url"
+          fi
+          node scripts/smoke.mjs "$url"
