@@ -225,15 +225,19 @@ internal class ViewerReader(private val session: ViewerSession) {
         inFlight[pageIndex] = generation
         val dpi = renderDpi(state.value.pageSizes.getOrNull(pageIndex), renderWidthPx, renderZoomFactor)
         session.scope.launch {
-            val result = withContext(session.compute) { openDocument.renderPage(pageIndex, dpi) }
+            // The per-pixel conversion (up to MAX_PAGE_PIXELS) runs off the
+            // main thread too: the main thread only swaps the finished bitmap in.
+            val result = withContext(session.compute) { openDocument.renderPage(pageIndex, dpi).toPageBitmap() }
             if (inFlight[pageIndex] == generation) inFlight.remove(pageIndex)
             // A render outlives the document that started it when the user
             // opens another file mid-scroll, and outlives its own layout when
             // the device rotates. Either way the bitmap belongs to nobody.
+            // Checked here, on the main thread that owns the generation, so a
+            // conversion that finished late is dropped like a late render.
             if (session.document !== openDocument || !acceptsRenderCompletion(generation, layoutGeneration, pageIndex, cacheWindow)) return@launch
             when (result) {
                 is PdfCoreResult.Success -> {
-                    val bitmap = result.value.toImageBitmap() ?: return@launch
+                    val bitmap = result.value ?: return@launch
                     state.value = state.value.withReplacementPage(pageIndex, bitmap)
                 }
                 is PdfCoreResult.Failure -> state.value = state.value.copy(status = userMessage(result.error))

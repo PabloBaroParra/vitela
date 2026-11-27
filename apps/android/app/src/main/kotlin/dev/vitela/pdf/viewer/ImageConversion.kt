@@ -3,10 +3,17 @@ package dev.vitela.pdf.viewer
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import dev.vitela.pdf.core.PdfCoreResult
 import dev.vitela.pdf.core.RenderedPage
 import java.io.ByteArrayOutputStream
 
 internal fun RenderedPage.toImageBitmap(): ImageBitmap? = toBitmap()?.asImageBitmap()
+
+/** A render with its pixels already converted; null in the success when they cannot be. Call off the main thread. */
+internal fun PdfCoreResult<RenderedPage>.toPageBitmap(): PdfCoreResult<ImageBitmap?> = when (this) {
+    is PdfCoreResult.Success -> PdfCoreResult.Success(value.toImageBitmap())
+    is PdfCoreResult.Failure -> this
+}
 
 /** The page as a PNG, for a preview kept on disk; null when it cannot be encoded. */
 internal fun RenderedPage.toPng(): ByteArray? {
