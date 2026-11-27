@@ -1135,6 +1135,16 @@ core ni en `@vitela/core`. Lo que condiciona lo que sigue:
   carácter fuera de WinAnsi se ve al teclearlo. Si el core rechaza el "Add" con `EncodingGap`,
   el diálogo sigue abierto con su mensaje (no pasa a `failure` del visor); cualquier otro fallo
   lo cierra y lo muestra el visor.
+- **Rechazo de un texto ya cambiado (fix posterior).** El área de texto sigue editable
+  mientras el "Add" está en curso, y la vista previa ya muestra el mismo mensaje de
+  `EncodingGap`: si se reescribía antes de que el core respondiera, el rechazo del texto viejo
+  llegaba después y volvía a poner la alerta sobre el texto nuevo (`draw.spec.ts` intermitente
+  en Chromium, 1/40–2/10, una vez en CI). `useDrawing` y `useAnnotationEditing` (retextear un
+  texto libre) cuentan las reescrituras y descartan el mensaje si hubo alguna desde el envío;
+  el diálogo sigue abierto, sin error. Vitest de las respuestas fuera de orden en
+  `useDrawing.test.tsx` y `annotationEditing.test.tsx`; forzando la carrera en el navegador
+  (rechazo retenido hasta el siguiente `input`) `draw.spec.ts` fallaba siempre en la línea
+  101 y pasa con el fix; sin forzarla, 120/120 en los tres navegadores con `--repeat-each=20`.
 - **Guardas:** la misma que el marcado: rechazado mientras corre un paso (los botones de
   herramienta quedan `aria-disabled` y la capa no empieza gesto, `data-busy`), y comprobado
   justo antes de aplicar contra la página en la que **empezó** el gesto (`pageKey` tomado al

@@ -53,6 +53,8 @@ export function useAnnotationEditing(
 ) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [dialog, setDialog] = useState<AnnotationDialogState | null>(null);
+  /** Counts edits typed in the dialog: a refusal describes what was sent only if none came after it. */
+  const dialogEdits = useRef(0);
   const selected = (enabled && annotations.find(({ id }) => id === selectedId)) || null;
   if (selectedId !== null && !selected) setSelectedId(null);
   if (dialog && dialog.id !== selected?.id) setDialog(null);
@@ -100,17 +102,23 @@ export function useAnnotationEditing(
   };
   const cancelDialog = useCallback(() => setDialog((shown) => (shown?.busy ? shown : null)), []);
   /** What was typed changed: the core's last refusal no longer describes it. */
-  const dialogEdited = useCallback(() => setDialog((shown) => (shown?.error ? { ...shown, error: null } : shown)), []);
+  const dialogEdited = useCallback(() => {
+    dialogEdits.current += 1;
+    setDialog((shown) => (shown?.error ? { ...shown, error: null } : shown));
+  }, []);
   const submitDialog = async (build: EditBuild) => {
     if (!selected || !dialog || dialog.busy) return;
     const sent: AnnotationDialogState = { ...dialog, busy: true, error: null };
     setDialog(sent);
+    const typed = dialogEdits.current;
     const outcome = await queue(selected.id, keyOf(selected.pageIndex), build, { shownByCaller: [ENCODING_GAP] });
-    const refused = outcome.status === 'failed' && outcome.kind === ENCODING_GAP ? outcome.message : null;
+    const refused = outcome.status === 'failed' && outcome.kind === ENCODING_GAP;
+    // Edited while the core answered: its refusal is of text no longer in the dialog.
+    const error = refused && dialogEdits.current === typed ? outcome.message : null;
     // Only this dialog: it closed by itself if the annotation went away meanwhile.
     setDialog((shown) => {
       if (shown !== sent) return shown;
-      return refused === null ? null : { ...sent, busy: false, error: refused };
+      return refused ? { ...sent, busy: false, error } : null;
     });
   };
 

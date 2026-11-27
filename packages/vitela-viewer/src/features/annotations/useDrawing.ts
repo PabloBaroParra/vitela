@@ -76,6 +76,8 @@ export function useDrawing(
   const choices = useRef(0);
   const [color, setColor] = useState<Rgb>(PALETTE[0]!.color);
   const [draft, setDraft] = useState<Draft | null>(null);
+  /** Counts retypes: a refusal of text sent describes it only if none came after it. */
+  const retypes = useRef(0);
   const { allowed, add, notify } = edits;
   // Forbidden after all (the core said so): back to Select, the draft goes.
   const tool: DrawTool = allowed ? chosen : 'select';
@@ -145,6 +147,7 @@ export function useDrawing(
     async (text: string) => {
       if (!draft || draft.busy) return;
       setDraft({ ...draft, busy: true, error: null });
+      const sent = retypes.current;
       const outcome = await add(textEdit(draft.tool, draft.pageIndex, draft.rect, text), draft.pageIndex, draft.pageKey, [
         ENCODING_GAP,
       ]);
@@ -152,7 +155,9 @@ export function useDrawing(
       const settle = (next: Draft | null) => setDraft((shown) => (shown?.rect === draft.rect ? next : shown));
       if (outcome.status === 'added') settle(null);
       else if (outcome.status === 'refused') settle({ ...draft, busy: false, error: NOT_NOW });
-      else if (outcome.kind === ENCODING_GAP) settle({ ...draft, busy: false, error: outcome.message });
+      // Retyped while the core answered: its refusal is of text no longer in the box.
+      else if (outcome.kind === ENCODING_GAP)
+        settle({ ...draft, busy: false, error: retypes.current === sent ? outcome.message : null });
       else settle(null);
     },
     [add, draft],
@@ -161,7 +166,10 @@ export function useDrawing(
   // Once the text is sent the edit is queued and will land: wait for it.
   const cancel = useCallback(() => setDraft((shown) => (shown?.busy ? shown : null)), []);
   /** The text changed: the core's last refusal no longer describes it. */
-  const retyped = useCallback(() => setDraft((shown) => (shown?.error ? { ...shown, error: null } : shown)), []);
+  const retyped = useCallback(() => {
+    retypes.current += 1;
+    setDraft((shown) => (shown?.error ? { ...shown, error: null } : shown));
+  }, []);
 
   return { tool, choose, color, setColor, draft, onGesture, pickImage, submit, cancel, retyped };
 }

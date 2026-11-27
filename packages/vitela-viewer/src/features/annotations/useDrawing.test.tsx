@@ -175,6 +175,25 @@ describe('useDrawing', () => {
     expect(result.current.draft?.error).toBeNull();
   });
 
+  it('drops the core’s refusal of text sent when the text was retyped before it answered', async () => {
+    const message = "'\u{65E5}' cannot be shown in Helvetica (WinAnsi)";
+    let answer: (outcome: AddOutcome) => void = () => {};
+    const { result } = drawing(new Promise<AddOutcome>((resolve) => (answer = resolve)));
+    act(() => result.current.onGesture(0, '0/0', 'freeText', { kind: 'box', rect: BOX }));
+    let sent: Promise<void> = Promise.resolve();
+    act(() => {
+      sent = result.current.submit('Total \u{65E5}');
+    });
+    expect(result.current.draft?.busy).toBe(true);
+    // Retyped while the core is still answering for the old text.
+    act(() => result.current.retyped());
+    await act(async () => {
+      answer({ status: 'failed', kind: ENCODING_GAP, message });
+      await sent;
+    });
+    expect(result.current.draft).toMatchObject({ tool: 'freeText', busy: false, error: null });
+  });
+
   it('closes on any other failure (the viewer shows it) and on cancel', async () => {
     const { result } = drawing({ status: 'failed', kind: null, message: 'The page changed' });
     act(() => result.current.onGesture(0, '0/0', 'freeText', { kind: 'box', rect: BOX }));
