@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DocumentInfo, DocumentProperties, RenderedPage } from '@vitela/core';
 import { fakeEngine } from '../../test/fakeEngine';
 import { createRef } from 'react';
+import type { WritableFileHandle } from '../../platform/fileHandle';
 import type { DeliverRequest, Delivery } from '../save/delivery';
 import { DocumentWorkspace, type WorkspaceHandle } from './DocumentWorkspace';
 
@@ -136,6 +137,32 @@ describe('DocumentWorkspace', () => {
     act(() => workspace.current!.save());
     expect(await findByText('Saved from-host.pdf.')).toBeTruthy();
     expect(delivered).toEqual([{ bytes: saved, name: 'from-host.pdf', destination: { kind: 'copy' } }]);
+  });
+
+  it('opens a source with the handle a host got for it, and saves over that file', async () => {
+    const prepared: (WritableFileHandle | undefined)[] = [];
+    const delivery: Delivery = {
+      prepare: async (_intent, source) => (prepared.push(source.fileHandle), { kind: 'copy' }),
+      deliver: async (request) => ({ how: 'delivered', name: request.name }),
+    };
+    const fileHandle: WritableFileHandle = {
+      name: 'launched.pdf',
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+    };
+    const workspace = createRef<WorkspaceHandle>();
+    const { findByText } = render(
+      <DocumentWorkspace
+        engine={fakeEngine({ open: async () => ({ handle: 1, info }), renderPage: async () => page, saveToBytes: async () => new Uint8Array([1]) })}
+        intro={(action) => action}
+        delivery={delivery}
+        ref={workspace}
+      />,
+    );
+    act(() => workspace.current!.open(new File([new Uint8Array([37])], 'launched.pdf'), fileHandle));
+    expect(await findByText('launched.pdf — 2 pages')).toBeTruthy();
+
+    act(() => workspace.current!.save());
+    await waitFor(() => expect(prepared).toEqual([fileHandle]));
   });
 
   it('offers Compress in the Tools menu in both screens, delivering the smaller copy where saves go', async () => {

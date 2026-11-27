@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type ReactNode, type Ref } from 'react';
 import type { Engine } from '@vitela/core';
 import { FilePicker } from '../../ui/FilePicker';
-import { canPickWithHandle, pickPdfWithHandle } from '../../platform/fileHandle';
+import { canPickWithHandle, pickPdfWithHandle, type WritableFileHandle } from '../../platform/fileHandle';
 import { MarkDirtyContext, SaveWaitsForEditsContext } from '../save/MarkDirtyContext';
 import { SaveControls } from '../save/SaveControls';
 import { browserDelivery, type Delivery } from '../save/delivery';
@@ -51,8 +51,12 @@ const SCREENS = [
 
 /** What a host can ask of the workspace, besides what its own controls offer. */
 export interface WorkspaceHandle {
-  /** Opens `source` as if the user had picked it (the editor shows how it went). */
-  open(source: PdfSource): void;
+  /**
+   * Opens `source` as if the user had picked it (the editor shows how it
+   * went). With `fileHandle` (a file the OS launched the app with), Save
+   * writes back over that file, as it does over a picked one.
+   */
+  open(source: PdfSource, fileHandle?: WritableFileHandle): void;
   /** Saves the open document as the Save button does; nothing when none is open. */
   save(): void;
 }
@@ -197,7 +201,7 @@ export function DocumentWorkspace({
     }),
     [pageToolsBusy, openExtract, openSplit],
   );
-  useImperativeHandle(ref, () => ({ open: (source) => open(source), save: save.save }), [open, save.save]);
+  useImperativeHandle(ref, () => ({ open: (source, fileHandle) => open(source, fileHandle), save: save.save }), [open, save.save]);
 
   const picker = filePicker && (
     <FilePicker

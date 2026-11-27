@@ -1,8 +1,9 @@
 // Application shell: engine lifecycle, the route, and top-level layout.
 
-import { useMemo, useSyncExternalStore, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { EngineClient } from '@vitela/core';
-import { DocumentWorkspace, StatusLine, useEngineStatus, type EngineStatus } from '@vitela/viewer';
+import { DocumentWorkspace, StatusLine, useEngineStatus, type EngineStatus, type WorkspaceHandle } from '@vitela/viewer';
+import { NO_LAUNCHES, type AppLaunches } from '../features/launch/launchQueue';
 import { HomePage } from '../features/tools/HomePage';
 import { resolveRoute, type Route } from '../features/tools/route';
 import { ToolPage } from '../features/tools/ToolPage';
@@ -17,7 +18,13 @@ interface AppProps {
   readonly pathname?: string;
   /** New builds of the app (the service worker, production only). Default: none. */
   readonly updates?: AppUpdates;
+  /** PDFs the OS opened the installed app with (Chromium's launchQueue). Default: none. */
+  readonly launches?: AppLaunches;
+  /** Told whether the open document has unsaved edits, so closing the page warns. Default: no warning. */
+  readonly warnOnUnload?: (dirty: boolean) => void;
 }
+
+const NO_WARNING = () => {};
 
 /** What the page shows while no document is open, around its open action. */
 function introFor(route: Route): (action: ReactNode) => ReactNode {
@@ -41,9 +48,30 @@ function standInFor(status: EngineStatus): ReactNode | undefined {
   }
 }
 
-export function App({ engine, pathname = window.location.pathname, updates = NO_UPDATES }: AppProps) {
+export function App({
+  engine,
+  pathname = window.location.pathname,
+  updates = NO_UPDATES,
+  launches = NO_LAUNCHES,
+  warnOnUnload = NO_WARNING,
+}: AppProps) {
   const status = useEngineStatus(engine);
   const update = useSyncExternalStore(updates.subscribe, updates.state);
+  // Edits not yet saved hold a new build's reload and make closing the page warn.
+  const onDirtyChange = useCallback(
+    (dirty: boolean) => {
+      updates.hold(dirty);
+      warnOnUnload(dirty);
+    },
+    [updates, warnOnUnload],
+  );
+  // A launched PDF opens as a picked one does, once the engine can open it.
+  const workspace = useRef<WorkspaceHandle>(null);
+  const launched = useSyncExternalStore(launches.subscribe, launches.pending);
+  useEffect(() => {
+    if (!launched || status.kind !== 'ready' || !workspace.current) return;
+    if (launches.take(launched)) workspace.current.open(launched.file, launched.handle);
+  }, [launched, launches, status.kind]);
   const route = useMemo(() => resolveRoute(pathname), [pathname]);
   const intro = useMemo(() => introFor(route), [route]);
   const appOnly = route.kind === 'tool' && !route.tool.web ? route.tool : null;
@@ -66,8 +94,8 @@ export function App({ engine, pathname = window.location.pathname, updates = NO_
           standIn={standInFor(status)}
           // The page is all editor: every key and dropped PDF on it is the editor's.
           eventScope="window"
-          // A new build's reload waits for the edits to be saved.
-          onDirtyChange={updates.hold}
+          onDirtyChange={onDirtyChange}
+          ref={workspace}
         />
       )}
     </main>

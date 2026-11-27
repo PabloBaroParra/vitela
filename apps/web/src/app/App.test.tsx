@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EngineClient } from '@vitela/core';
 import { fakeEngine } from '../test/fakeEngine';
+import type { LaunchedFile } from '../features/launch/launchQueue';
 import { App } from './App';
 
 afterEach(cleanup);
@@ -87,6 +88,54 @@ describe('App', () => {
       render(<App engine={readyEngine()} pathname="/" updates={updates} />);
       await act(async () => {});
       expect(updates.hold).toHaveBeenLastCalledWith(false);
+    });
+  });
+
+  // T-267: the browser asks before a close or reload would lose the edits.
+  it('tells the unload warning whether the open document has unsaved edits', async () => {
+    const warnOnUnload = vi.fn();
+    const engine = { ...fakeEngine(), ready: Promise.resolve() } as unknown as EngineClient;
+    render(<App engine={engine} pathname="/" warnOnUnload={warnOnUnload} />);
+    await act(async () => {});
+    expect(warnOnUnload).toHaveBeenLastCalledWith(false);
+  });
+
+  // T-266: a PDF the OS opened with the installed app.
+  describe('launched files', () => {
+    function fakeLaunches(launched: LaunchedFile | null) {
+      let pending = launched;
+      return {
+        subscribe: () => () => {},
+        pending: () => pending,
+        take: vi.fn((file: LaunchedFile) => {
+          if (pending !== file) return false;
+          pending = null;
+          return true;
+        }),
+      };
+    }
+
+    it('opens a launched PDF once the engine is ready, with its handle, and only once', async () => {
+      const { engine, finish } = loadingEngine();
+      const opened: Uint8Array[] = [];
+      const recording = {
+        ...engine,
+        open: (bytes: Uint8Array) => {
+          opened.push(bytes);
+          return new Promise(() => {});
+        },
+      } as unknown as EngineClient;
+      const file = new File([new Uint8Array([37, 80, 68, 70])], 'launched.pdf', { type: 'application/pdf' });
+      const launches = fakeLaunches({ file });
+      const { getByText } = render(<App engine={recording} pathname="/" launches={launches} />);
+      // Not while the engine loads: the open action is not there yet.
+      await act(async () => {});
+      expect(launches.take).not.toHaveBeenCalled();
+
+      await act(async () => finish());
+      await waitFor(() => expect(opened).toHaveLength(1));
+      expect(getByText('Opening launched.pdf…')).toBeTruthy();
+      expect(launches.pending()).toBeNull();
     });
   });
 });
