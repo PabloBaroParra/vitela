@@ -648,6 +648,31 @@ describe('the annotation toolbar', () => {
     expect(base.edits).toEqual([{ kind: 'retextAnnotation', id: 7, contents: 'Sum' }]);
   });
 
+  it('drops the core’s refusal of a retype when the text changed before it answered', async () => {
+    let answer: () => void = () => {};
+    const { target, inToolbar, getByRole } = open([textBox], {
+      applyEdit: async () => {
+        await new Promise<void>((resolve) => (answer = resolve));
+        throw new EngineError(ENCODING_GAP, 'no glyph');
+      },
+    });
+    press(target('Text box on page 1'));
+    fireEvent.click(inToolbar('Edit text…'));
+    const dialog = getByRole('dialog', { name: 'Edit the text box' });
+    const field = within(dialog).getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(field, { target: { value: '日' } });
+    await act(async () => {
+      fireEvent.submit(field.form!);
+    });
+    // Retyped while the core is still answering for '日'.
+    fireEvent.change(field, { target: { value: 'Sum' } });
+    await act(async () => answer());
+    // Still open on the new text, with nothing said about it.
+    expect(getByRole('dialog', { name: 'Edit the text box' })).toBe(dialog);
+    expect(field.value).toBe('Sum');
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+  });
+
   it('takes no annotation key typed in a dialog', async () => {
     const { target, edits, inToolbar, getByRole } = open([shape]);
     press(target('Shape on page 1'));
