@@ -178,6 +178,14 @@ impl From<pdf_save::EditRefusal> for FfiError {
     }
 }
 
+impl From<pdf_save::ContentEditRefusal> for FfiError {
+    fn from(refusal: pdf_save::ContentEditRefusal) -> Self {
+        FfiError::UnsupportedOperation {
+            detail: refusal.to_string(),
+        }
+    }
+}
+
 impl From<pdf_save::ImportError> for FfiError {
     fn from(err: pdf_save::ImportError) -> Self {
         use pdf_save::ImportError as E;
@@ -210,6 +218,34 @@ impl From<pdf_save::RecordError> for FfiError {
         match err {
             pdf_save::RecordError::Refused(detail) => FfiError::UnsupportedOperation { detail },
             pdf_save::RecordError::Invalid(err) => err.into(),
+        }
+    }
+}
+
+impl From<pdf_save::ProtectError> for FfiError {
+    fn from(err: pdf_save::ProtectError) -> Self {
+        match err {
+            pdf_save::ProtectError::Save(err) => err.into(),
+            refused => FfiError::InvalidSaveRequest {
+                detail: refused.to_string(),
+            },
+        }
+    }
+}
+
+impl From<pdf_save::ExtractError> for FfiError {
+    fn from(err: pdf_save::ExtractError) -> Self {
+        use pdf_save::ExtractError as E;
+        match err {
+            E::NoPages | E::NotAscending => FfiError::InvalidPageSelection {
+                detail: err.to_string(),
+            },
+            E::PageOutOfBounds(index) => FfiError::PageIndexOutOfBounds { index },
+            E::Prune(detail) => FfiError::UnsupportedOperation { detail },
+            E::Save(err) => err.into(),
+            refused => FfiError::UnsupportedOperation {
+                detail: refused.to_string(),
+            },
         }
     }
 }

@@ -2,8 +2,9 @@
 // column of pages, with zoom, search, text selection, the session's
 // annotations, markup over the selection, the drawing tools, image stamps
 // (picked or dropped on a page), selecting and editing an annotation, going
-// from one annotation to the next, the comments, filling in form fields, and
-// undo/redo. Only pages within a viewport of the visible area are mounted (and
+// from one annotation to the next, the comments, filling in form fields,
+// undo/redo, and the read-only "Edit content" mode (outline and select a text
+// run, an image or a shape). Only pages within a viewport of the visible area are mounted (and
 // so rendered); the rest are empty space.
 
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -21,6 +22,12 @@ import { CommentsPanel } from '../comments/CommentsPanel';
 import { NavigationToolbar } from '../comments/NavigationToolbar';
 import { NoteDialog, type ReadableNote } from '../comments/NoteDialog';
 import { commentEntries } from '../comments/stops';
+import { ContentStatus } from '../content/ContentStatus';
+import type { ContentInput } from '../content/ContentLayer';
+import { useContentMode } from '../content/useContentMode';
+import { TextRunEditor } from '../content/TextRunEditor';
+import { TextRunToolbar } from '../content/TextRunToolbar';
+import { useTextRunEditing } from '../content/useTextRunEditing';
 import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
@@ -46,6 +53,7 @@ import { useUndoKeys } from './useUndoKeys';
 import { useViewerZoom } from './useViewerZoom';
 import { MAX_ZOOM, MIN_ZOOM, zoomIn, zoomOut } from './zoom';
 import { ZoomControls } from './ZoomControls';
+import { ReportCurrentPageContext } from './CurrentPageContext';
 
 /** How long a zoom must hold still before pages re-render at its DPI. */
 const RENDER_SETTLE_MS = 150;
@@ -71,9 +79,22 @@ interface DocumentViewerProps {
    * back), so it is drawn again after a redo or when the viewer remounts.
    */
   readonly onStampImage: (handle: DocumentHandle, id: number, href: string) => void;
+  /** Whether the "Edit content" mode is on (turned on from the workspace's Tools menu, already gated). */
+  readonly contentEditing?: boolean;
+  /** Turns the mode off: its Done button. */
+  readonly onContentEditingEnd?: () => void;
 }
 
-export function DocumentViewer({ engine, document, onEdited, onStampImage }: DocumentViewerProps) {
+const NOTHING = () => {};
+
+export function DocumentViewer({
+  engine,
+  document,
+  onEdited,
+  onStampImage,
+  contentEditing = false,
+  onContentEditingEnd = NOTHING,
+}: DocumentViewerProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const { pages, pageIds } = document.info;
   // Zoom first: its layout effect must scroll before the metrics re-read.
@@ -111,7 +132,6 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
     [onEdited, handle, markDirty],
   );
   const editing = useAnnotationEdits(engine, document, report);
-  useSaveWaitsFor(editing.settled);
   useUndoKeys(editing.undo, editing.redo, scope);
   // Read through a ref: a markup's end must see the selection shown then.
   const shownSelection = useRef(selection);
@@ -188,6 +208,109 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
   const range = visiblePages(layout, top, metrics.height, metrics.height);
   const current = (pageAt(layout, top + metrics.height / 2) ?? 0) + 1;
 
+  // The pages on screen, without overscan: the content mode parses only
+  // these and one on each side.
+  const onScreen = metrics.height > 0 ? visiblePages(layout, top, metrics.height, 0) : null;
+  const rotations = useMemo(() => pages.map((page) => page.rotationDegrees), [pages]);
+  const baseGeneration = document.contentBaseGeneration ?? 0;
+  const content = useContentMode({
+    engine,
+    handle,
+    active: contentEditing,
+    pageIds,
+    rotations,
+    // Reads go by position: none while a step may be putting another page there.
+    paused: editing.pending,
+    paintRevision: document.paintRevision ?? 0,
+    baseGeneration,
+    visible: onScreen,
+  });
+  const textRuns = useTextRunEditing({
+    engine,
+    handle,
+    info: document.info,
+    baseGeneration,
+    content,
+    queue: editing,
+    focusPages,
+  });
+  // A save takes what is typed in an open editor first.
+  const { commitOpen } = textRuns;
+  const settleWithEditor = useCallback(() => {
+    commitOpen();
+    return editing.settled();
+  }, [commitOpen, editing.settled]);
+  useSaveWaitsFor(settleWithEditor);
+  const { select: contentSelect, hover: contentHover } = content;
+  const { open: openRun, move: moveRun } = textRuns;
+  const contentInput = useMemo<ContentInput | null>(
+    () =>
+      content.active
+        ? {
+            onHover: contentHover,
+            onSelect: (pageIndex, point) => {
+              // A press beside an open editor commits it (the press keeps the focus where it is).
+              commitOpen();
+              contentSelect(pageIndex, point);
+              focusPages();
+            },
+            // The press before it selected what is there.
+            onOpen: () => openRun(),
+            onDrag: (_pageIndex, dx, dy) => {
+              moveRun(dx, dy);
+              focusPages();
+            },
+          }
+        : null,
+    [content.active, contentHover, contentSelect, commitOpen, focusPages, openRun, moveRun],
+  );
+  const selectedRun = textRuns.run;
+  const runOverlay = (textRuns.editor || selectedRun) && (
+    <>
+      {textRuns.editor ? (
+        <TextRunEditor
+          key={`${textRuns.editor.pageKey}#${textRuns.editor.run.id}`}
+          editor={textRuns.editor}
+          scale={scale}
+          rotationDegrees={pages[textRuns.editor.run.pageIndex]?.rotationDegrees ?? 0}
+          onCommit={textRuns.commit}
+          onCancel={textRuns.cancel}
+          onType={textRuns.typing}
+        />
+      ) : (
+        selectedRun && (
+        <TextRunToolbar
+          run={selectedRun}
+          scale={scale}
+          look={textRuns.look}
+          busy={textRuns.busy}
+          onEdit={textRuns.open}
+          onToggle={(face) => {
+            textRuns.toggle(face);
+            focusPages();
+          }}
+          onRemove={() => {
+            textRuns.remove();
+            focusPages();
+          }}
+        />
+        )
+      )}
+    </>
+  );
+  const overlayPage = textRuns.editor?.run.pageIndex ?? selectedRun?.pageIndex ?? null;
+  // The mode takes the pointer: text, annotations and drawing let it go.
+  const chooseTool = drawing.choose;
+  const deselectAnnotation = annotating.deselect;
+  useEffect(() => {
+    if (!content.active) return;
+    clearSelection();
+    chooseTool('select');
+    deselectAnnotation();
+  }, [content.active, clearSelection, chooseTool, deselectAnnotation]);
+  const reportCurrentPage = useContext(ReportCurrentPageContext);
+  useEffect(() => reportCurrentPage(current - 1), [reportCurrentPage, current]);
+
   const hits = hitsOf(search.state);
   const pageHits = useMemo(() => hitsByPage(hits), [hits]);
   const shownHit = currentHit(search.state);
@@ -261,13 +384,19 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
           hits={textAllowed ? pageHits.get(index) : undefined}
           currentHit={textAllowed && shownHit?.pageIndex === index ? shownHit.rects : undefined}
           selection={textAllowed && selection?.pageIndex === index ? selection.rects : undefined}
-          textInput={textAllowed ? input : null}
-          drawing={drawingInput}
-          editing={annotating.input}
+          textInput={textAllowed && !content.active ? input : null}
+          drawing={content.active ? null : drawingInput}
+          editing={content.active ? null : annotating.input}
           selectedId={selected?.pageIndex === index ? selected.id : null}
           marked={ringed?.pageIndex === index ? ringed.rect : null}
-          paintKey={forms.paintKeys.get(index) ?? ''}
+          // A field pdfium paints, or a stamp in the page's content: drawn again in place.
+          paintKey={`${document.paintRevision ?? 0}|${forms.paintKeys.get(index) ?? ''}`}
           onImageDrop={stamps.drop}
+          content={contentInput}
+          contentState={contentInput ? content.stateAt(index) : undefined}
+          contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
+          contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
+          contentOverlay={overlayPage === index ? runOverlay : null}
         />,
       );
     }
@@ -325,6 +454,7 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
         >
           <FormsToggle toggle={formsToggle} panelId={formsId} shown={formsShown} onToggle={() => togglePanel('forms')} />
         </NavigationToolbar>
+        <ContentStatus status={content.status} onDone={onContentEditingEnd} />
         {editing.failure && (
           <p className="viewer__failure" role="alert">
             {editing.failure}
@@ -342,9 +472,15 @@ export function DocumentViewer({ engine, document, onEdited, onStampImage }: Doc
             data-zoom={zoom}
             data-tool={drawing.tool}
             onKeyDown={(event) => {
+              // The selected run's keys, pressed on the pages themselves (not on its toolbar).
+              if (content.active && event.target === event.currentTarget && textRuns.onKey(event.key, event.shiftKey)) {
+                event.preventDefault();
+                return;
+              }
               if (event.key !== 'Escape') return;
               clearSelection();
               navigation.unmark();
+              content.clear();
             }}
             // A press beside the selected annotation lets it go (and goes on to select text).
             onPointerDown={(event) => {

@@ -376,13 +376,365 @@ picker are covered the same way). **Not covered:** the browser's own permission
 prompt and a handle onto the real disk. The signature question and Save a copy
 are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
 
+## Tools menu
+
+The document tools — **Compress**, **Export images**, **Print**, **Protect**,
+**Watermark** and **Document properties**, in that order — are one menu
+button, **Tools** (`ui/MenuButton.tsx`, the WAI-ARIA "menu button" pattern),
+in the workspace bar before Save, in both screens and at every width (T-256).
+They have no buttons of their own. A button each no longer fit: in an
+embedding host whose own button styles are larger the bar already took 1191
+of its 1200 px, and Document properties had to move to the viewer's View
+toolbar; one menu is also one code path for the desktop and the phone, where
+these tools were already a "More tools" menu. On a phone (≤ 600 px) the
+button shows three dots instead of the word (its name stays "Tools"), so the
+bar keeps one row. Choosing an item gives the focus back to Tools before the
+dialog opens, so every dialog hands it back there; each tool's status line
+and dialog stay in the bar, so they survive a switch between View and
+Organize. `e2e/phone-bar.spec.ts` checks the single row at 390 px, the DOM
+and Tab order, and the menu's keys; `e2e/properties.spec.ts` checks the bar
+is one row at 1280 px; `e2e/embed.spec.ts` keeps the host's page in frame.
+
+## Compress
+
+`features/compress/` (T-250), the native Compress tiles' order. **Compress**,
+in the **Tools** menu in both screens, first asks the engine the two gates
+(`compressionRefusal`, then — only when there is none —
+`compressionInvalidatesSignatures`) and opens the dialog with the core's presets
+(`compressPresets`, Balanced chosen). An encrypted document is refused there
+(the core's sentence, presets and Compress disabled: the web keeps a document's
+protection, so there is no "strip it" way past). A signed one says the copy's
+signature will not verify, and the button reads **Compress anyway**: confirming
+is the consent, there is no second prompt. A failed gate refuses rather than
+guessing. The run waits for the queued edits (like Save), then
+`saveCompressedToBytes`; only a copy that came out **smaller** is delivered —
+always a new file, `<name>-compressed.pdf` (`Placement` `newFile`: a download,
+or the host's `onSave`); otherwise the status says there was nothing to gain and
+nothing is written. The status reports sizes as "uncompressed → compressed"
+(the ordinary save of the session, not the file on disk) in powers of ten, the
+percentage truncated, and appends any refusal the core reports. The open
+document, its unsaved edits and its undo history are untouched. No predicted
+saving is shown: the core cannot answer that without running. On a phone
+(≤ 600 px) the bar's controls tighten, so the bar stays one row: a taller bar
+takes its height from the pages and the Comments panel under them, whose
+first row then hides under its sticky head.
+
+E2E (`e2e/compress.spec.ts`, all three browsers): a scan from
+`tests/fixtures/compress` comes out smaller, downloads under its name and
+reopens; a deletion made in Organize is in the copy and stays unsaved and
+undoable; an encrypted PDF is refused in the dialog with nothing downloaded;
+a signed PDF asks, and "Compress anyway" downloads the copy. "Nothing to gain"
+is covered by Vitest only: no fixture found reaches it through a real save (the
+save itself writes loosely enough that the repack always wins something).
+
+## Export images
+
+`features/exportImages/` (T-252), the native Export images' order: choices, a
+plan, then one file per page. **Export images**, in **Tools** in both
+screens, opens a dialog with the native shells' three questions: pages (All
+pages, Current page — the page the viewer last showed — or a typed range such
+as `1-3,7`; typing one picks it), PNG or JPEG, and a resolution from 72 to 400
+DPI (150 by default; a cleared box reads as 150). The ceiling is the natives'
+too: the core refuses any raster over 32 Mpx and US Letter at 600 DPI is over
+it. There is no JPEG quality setting: the core's encoder has none, nor do the
+other shells. A document that withholds extraction says so as the dialog opens
+and offers only Cancel.
+
+The formats offered are the core's (`imageExportFormats`, PNG chosen first).
+Export checks the resolution and the permission, waits for the queued edits
+(like Save), then `openImageExport` takes one snapshot of what a save would
+write now — so unsaved page edits, annotations and fills are in the images, as
+on Android and Windows, while the on-screen preview leaves annotations out —
+and answers its page count. The rest is checked against that count while the
+dialog is still open (`planExport.ts`): the range by the core's grammar
+(`parsePageSelection`, its sentence shown as is), the raster ceiling
+(`firstPageTooLargeToExport`) and the names (`pageImageFileNames`: `report.pdf`
+page 3 of 12 is `report-03.jpg`). A refusal closes the snapshot and keeps the
+dialog open on what was typed. Then each page is rendered, encoded
+by the core (`exportPageImage`) and delivered at once as its own file
+(`Placement` `newFile` with the image's media type: a download, or the host's
+`onSave`). The export stops at the first page that fails, on **Cancel export**
+(shown while it runs; the page in hand still goes out) or when the editor
+unmounts, and says how many were written; the snapshot is closed however it
+ends. Nothing about the open
+document changes.
+
+**Several pages are several downloads, not a zip.** No zip writer is in the
+dependency tree (neither npm nor Cargo), and adding one would be the only
+reason for it; the native shells write one file per page into a folder, and
+one download per page is the browser's nearest equivalent. **Blocked
+downloads:** a browser can ask once whether the site may download multiple
+files, or block them by its settings. A page cannot tell whether a download
+was allowed, so "Exported 3 pages" means the files were handed to the
+browser; if fewer arrived, allow multiple downloads for the site and export
+again, or export one page at a time. That prompt is not covered by the tests
+(Playwright accepts every download).
+
+E2E (`e2e/export-images.spec.ts`, all three browsers): the current page (after
+scrolling to page 3) as PNG at 144 DPI is one download, `vector_only-3.png`,
+1224 × 1584; pages `2-3` as JPEG at 72 DPI are `vector_only-2.jpg` and
+`vector_only-3.jpg`, 612 × 792 each (read from the files' headers); a page
+turned in Organize and not saved exports landscape and stays unsaved and
+undoable; a range past the last page shows the core's sentence and 600 DPI the
+range refusal, with nothing downloaded.
+
+## Print
+
+`features/print/` (T-257). **Print**, in **Tools** in both screens, or
+Ctrl+P (⌘+P on Apple platforms) while the key is the editor's — the same
+scope as the history keys: focus in the editor, or nothing focused after the
+user's last click or drop there; on an embedding host's page a key aimed at
+the host is left to the browser, which prints the host's page. The key is
+also left alone while one of the editor's dialogs is open. Native printing is
+the browser's: its dialog picks the printer, copies and paper.
+
+What prints is what a save would write now, as on GTK and Windows (which
+print an annotated session from its output snapshot): Print waits for the
+queued edits, then `openPrintSnapshot` takes the same snapshot as Export
+images, so pending page edits, annotations, fills and watermarks are on the
+paper. Unlike the export it asks **no permission**: the core has no rule for
+the `/P` print bit and no native shell asks one, so a document that withholds
+printing still prints (a decision for the core, not the web, if it changes).
+The pages are drawn at 150 DPI, lowered for a long document so that every
+page together stays within 128 Mpx (`printDpi`: the frame keeps each page
+decoded until the dialog closes, ~512 MB at that budget, about 60 Letter
+pages at full resolution), never below 96 DPI: past ~148 Letter pages the
+document still prints, at 96. The core caps a print snapshot at 150 DPI
+(`exportPageImage` refuses finer), so it is no way around the export's
+permission. A page over the raster ceiling at that resolution is refused up
+front; otherwise each page is rendered and encoded as PNG by the core
+(`exportPageImage`) one at a time, shown as "Preparing page 2 of 5 for
+printing…" with **Cancel print** — heard before each page, after the last
+one and while the frame decodes its pages one by one: until the dialog opens,
+a cancel means no dialog and nothing kept. Only the encoded files are kept,
+as blob URLs; the snapshot is closed before the dialog opens. The snapshot
+lifecycle and page loop are shared with Export images
+(`features/snapshot/`).
+
+The pages go into a hidden `iframe` (`printFrame.ts`, `srcdoc`, laid out at
+0 × 0 because a `display: none` frame does not print in Firefox) inside the
+editor's root, never elsewhere on a host's page, and the frame's own window
+prints: the page around it never does, and no stylesheet crosses either way
+(the frame has one `<style>` of its own and nothing else). Each page is one
+sheet sized in points from its image at the DPI it was drawn at, a named `@page` per distinct
+size, so a page turned a quarter prints landscape. The document title is the
+file name without `.pdf` (what the dialog offers when it saves to a file). The
+frame and its images go once the dialog reports `afterprint`, or with the
+next print, a new document or the editor.
+
+E2E (`e2e/print.spec.ts`, the dialog stubbed by an init script that records
+what the frame held): three pages print as three images in order, 1275 × 1650
+px and the turned one 1650 × 1275, on `612pt 792pt` and `792pt 612pt` sheets;
+in Chromium the frame's document printed to PDF has those two page sizes; a
+pending watermark adds ink to the printed page and the document stays
+unsaved; Ctrl+P with focus in the app prints the frame and never the app; a
+document whose `/P` withholds printing and copying still prints; embedded,
+Ctrl+P on a host button prints nothing of the editor's, and in the editor
+prints one image from a frame inside `#host-frame` with only its own
+stylesheet.
+
+## Protect
+
+`features/protect/` (T-251), the native Protect commands' order: the gates,
+two passwords, then the protected file. **Protect**, in **Tools** in both
+screens, first asks the engine the two
+gates (`protectionRefusal` — a document whose permissions withhold
+modification, the Windows and Android gate — then, only when there is none,
+`protectionInvalidatesSignatures`) and opens **Protect with a password**: the
+PDF's two password roles, as on every shell — **Password to open the
+document** and **Permissions password**, which lifts the permissions — with
+no confirmation fields (none of the native shells has them). A refused
+document says why and offers only Cancel; a signed one warns that its
+signature will no longer verify and the button reads **Protect anyway**:
+confirming is the consent. A failed gate refuses rather than guessing.
+
+Every password rule is the core's (`pdf_save::protect`): the dialog sends what
+was typed and, when the core refuses (one missing, or both the same:
+`InvalidPasswords`), shows its sentence with the dialog still open and what
+was typed still there. The passwords live only in the dialog's own fields
+(`type="password"`, `autocomplete="new-password"`), never in React state; they
+cross to the worker in the one protect request and are kept nowhere, and the
+fields are emptied when the dialog goes. The run waits for the queued edits
+(like Save), then `protectToBytes`: AES-128, every permission granted, the
+unsaved edits in. The copy is always a new file, `<name>-protected.pdf`
+(`Placement` `newFile`: a download, or the host's `onSave`).
+
+**Not reopened in place.** The native shells reopen the protected file as the
+session (under both passwords). The web cannot: the copy is a download, not
+the file the session came from, so the open document — unprotected, with its
+unsaved edits and undo history — stays as it was, and the status says so. To
+work on the protected copy, open it: the app asks for its password, and either
+one opens it.
+
+E2E (`e2e/protect.spec.ts`, all three browsers): a page deleted in Organize and
+protected downloads as `vector_only-protected.pdf` with an `/Encrypt`, the edit
+still unsaved and undoable; the copy refuses a wrong password, opens with the
+open password (2 pages, painted, Organize's Delete enabled: every permission
+granted) and with the permissions password; a missing and a repeated password
+show the core's sentences with nothing downloaded, and the dialog forgets what
+was typed; a signed PDF asks and "Protect anyway" downloads a copy that opens;
+`aes_128_user_and_owner.pdf` opened with its user password (its `/P` withholds
+modification) is refused in the dialog. `e2e/phone-bar.spec.ts` checks Protect
+is listed in Tools at 390 px, its dialog fits, and the focus comes back to
+Tools.
+
+## Document properties
+
+`features/properties/` (T-255), Android's **Document properties** dialog (the
+Windows and Linux shells show the same keys in a panel): **Title**,
+**Author**, **Subject**, **Keywords**, **Creator** and **Producer**, as the
+next save would write them (`documentProperties`: the last pending change,
+else the file's `/Info`). The dates are neither shown nor edited (as on
+Android); every change keeps them. **Document properties** is in **Tools**,
+in both screens (T-255 first put a Properties button at the end of the
+viewer's View toolbar, because the bar had no width left in an embedding
+host; T-256 folded every tool into the menu, see "Tools menu").
+
+**Apply** waits for the queued edits, reads the properties again (an undo may
+have landed) and records only a real change: an emptied box is an absent key,
+never `""`, and boxes that say what the document has close the dialog with
+nothing recorded. The change is one step in the document's history (Undo and
+Redo, from the toolbar or the keyboard, take it back and forth), marks the
+document unsaved and is written by Save; the dialog hands its apply to the
+save, so a save asked for meanwhile waits for it. A document whose permissions
+withhold modification (`metadataRefusal`, the gate every native shell asks)
+shows its properties read-only with the core's sentence and only **Close**. A
+refused apply keeps the dialog and what was typed. No XMP stream is written
+(no shell syncs one).
+
+E2E (`e2e/properties.spec.ts`, all three browsers): title and author typed
+into a new PDF, applied (unsaved, focus back on Tools), undone and redone
+(the dialog shows each state), saved — the downloaded file's `/Info` has them
+(`Ana Peña` included) and no `/Subject` — and reopened, where the dialog shows
+them and an unchanged Apply records nothing; a PDF whose `/P` withholds
+modification, opened with its user password, is read-only with only Close; on
+a phone, Tools opens it, it fits 390 px and the focus comes back to Tools; at
+1280 px the bar is one row, View still shares its row with Text and
+Annotations with Draw. `e2e/phone-bar.spec.ts` lists it in Tools.
+
+## Watermark
+
+`features/watermark/` (T-256), the native **Add watermark** (Android's
+dialog and labels; GTK's and Windows' ranges): the same text or picture
+stamped on the pages the reader picks, as **one** undo step. **Watermark**,
+in **Tools** in both screens, asks the engine the core's starting look
+(`watermarkDefaults`: diagonal grey text at 60 pt, 30 %, 45°, over the
+content; a picture upright at half the page, behind it) and the gate
+(`watermarkRefusal`: the modify-contents permission, then whether the
+rewrite a stamp forces can keep the document's encryption — the gate every
+native shell asks). A refused document gets the core's sentence and only
+**Close**.
+
+The dialog asks **Text** or **Picture**; the text (DRAFT to start) or a PNG
+or JPEG (**Choose picture…**, its name and size shown; decoding is the
+core's); **Size** (8–200 pt, or 5–100 % of the page), **Opacity** (5–100 %)
+and **Angle** (−180…180°) as sliders; **Placement** (over or behind the
+page's content); and **Pages** (all, the page the viewer last showed, or a
+typed range read by the core's grammar). Switching kind resets only the
+angle and the placement to that kind's defaults, as the natives do. No
+colour choice and no live preview: no native shell has either. **Add** waits
+for the queued edits, resolves the pages against the page count the last
+edit left and records one `addWatermark` edit; a character Helvetica cannot
+show (`EncodingGap`, with a hint), a picture that does not decode
+(`InvalidImage`) or a bad range keeps the dialog open on the draft. The
+stamp is page content: it marks the document unsaved, Undo and Redo take it
+off and back on every page at once, and Save paints it into each page's
+content stream (one shared image object for a picture).
+
+**Repaint in place.** A stamp changes what a page shows while its id and turn
+stay the same, which the viewer's bitmaps and Organize's thumbnail cache are
+keyed on. Every edit answer now carries the engine's `paintRevision` (the
+newest page-content step still applied, from `pdf-wasm`'s preview marks), and
+both keys include it: a stamp, its undo and its redo repaint the pages; a
+move, a rotation or an annotation still repaint nothing.
+
+E2E (`e2e/watermark.spec.ts`, all three browsers): text on every page of a
+three-page PDF (focus back on Tools, unsaved, the page's ink changes and Undo
+takes it back, Redo returns it), saved — each page's content has the
+`Tj` and a `/Watermark` artifact — and found three times by the app's search
+in the reopened file; a picture behind the content of pages `1,3` is one
+`/Image` object painted twice (and Add without a picture is refused); text
+Helvetica cannot show and a range past the end keep the dialog; a PDF whose
+`/P` withholds modification is refused with only Close; in Organize the
+thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
+390 px.
+
+## Edit content
+
+`features/content/` (T-258b, T-259): the mode the page's own text, images
+and shapes are edited in — text runs since T-259. **Edit content** is the last item of
+**Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
+Organize it switches to the viewer). The viewer's toolbar rows have no room
+for a button of its own: at 1280 px the first row (View, Text) and the second
+(Draw, History, Annotations) are full, and at 390 px another row would push
+the pages down. The workspace asks the engine once per document whether the
+mode may be offered (`contentEditingRefusal`: the modify permission and the
+rewrite a content edit forces, then the text permission the reads are
+behind). A refused document keeps the item, `aria-disabled`, described by
+the core's sentence ("Content editing is not permitted."). While the mode is
+on a row under the toolbars holds its status and **Done** (which hands the
+focus back to Tools); switching to Organize or opening another document turns
+it off too.
+
+While it is on, a layer over each page has the pointer (no text selection,
+no annotation picking, the drawing tool back to Select): the text run, image
+or shape under it is outlined — runs solid blue, images dashed amber, shapes
+dotted green — and a press selects the smallest item under it (a run over a
+picture, a rule within 3 pt) and the status line, a polite live region,
+names it ("Text “…” selected on page 2.", "Image selected on
+page 1.", "Shape selected on page 1."; a run whose font does not say what all
+its characters are says it cannot be retyped). Escape on the pages lets the
+selection go; an edit that repaints the page does too.
+
+**Text runs (T-259).** With a run selected, Enter or a double-click opens a
+camouflaged editor laid over it — in the run's own embedded font when the
+browser takes the program (`FontFace`, TrueType / OpenType), else the family
+its name suggests, at its size, colour, weight and slant. Enter commits,
+Escape cancels, leaving it (a press beside it, a save, leaving the mode)
+commits; it is closed a turn later, never inside its own blur. The arrow keys
+nudge the run 1 pt (Shift: 10 pt) and a drag of its outline moves it; presses
+that come while the step runs add up into one move. Delete or Backspace
+removes it. A small toolbar over the run has **Edit text**, **B** / **I** /
+**U** (pressed as the core reads the run's look) and **Delete**. Every edit is
+one undo step, marks the document dirty, and is what Save writes; the run is
+found again by place once its page is read anew. A run whose font does not
+say what its characters are says it cannot be retyped. While any step runs no
+page is read and a press selects nothing: the parse held may name what the
+step is about to change.
+
+**Only the pages in view and one on each side are parsed** (the Linux shell
+froze parsing every page of a 1619-page file), each parse kept by page id,
+`paintRevision` and `contentBaseGeneration` and dropped once its page is out
+of reach, so memory follows the view, not the document. A parse is also
+keyed by the page's rotation (an undone turn keeps the id and the revision),
+an answer whose position holds another page by the time it lands is dropped
+and read again, and at most two reads are in flight: a page a fast scroll
+already passed is never asked for.
+
+E2E (`e2e/edit-content.spec.ts`, all three browsers): a run under the
+pointer is outlined around the pointer, a press selects it and the status
+names its text, nothing is selected as text, Escape lets it go, the menu
+item reads checked and Done turns the mode off with the focus on Tools; zoomed out on a 30-page PDF only the pages in view and the next
+are parsed and every farther mounted page waits; the scan of the compress
+corpus outlines and selects an image; a PDF whose `/P` withholds
+modification keeps the item off with the core's sentence as its
+description.
+
+E2E (`e2e/edit-text-runs.spec.ts`, all three browsers): retype in place, undo,
+redo, save and reopen reads the new text; a double-click opens the editor,
+Escape cancels and a press beside it commits; three Shift+Right presses move
+30 pt as one step and a drag moves it further, saved where it was left;
+Delete removes it and the reopened file has no run there; Bold toggles and
+reads back bold after a save; each undone and redone; a PDF that forbids
+modification offers no edit at all.
+
 ## Organize
 
 `features/organize/`, reached with the **View / Organize** switch in the bar
 (every document opens in View; each screen mounts afresh on a switch).
 
 - **Engine:** `applyEdit(handle, edit)` (`move` / `rotate` / `remove` of a run
-  of pages), `undo`, `redo`. Each answers with the edited `DocumentInfo` plus
+  of pages, `insertBlank` of one page), `undo`, `redo`. Each answers with the edited `DocumentInfo` plus
   `canUndo`/`canRedo`, and the worker has already run the core's
   `refreshPreview` inside the same request, so no render can land between an
   edit and its refresh. If the refresh fails the step is taken back.
@@ -426,6 +778,55 @@ are covered end to end by `e2e/organize.spec.ts` (a deletion on a signed PDF).
   `import_refusal`: modify-contents and assembly permissions, and whether the
   encryption survives the rewrite) turns Add PDFs off with the reason as its
   tooltip; the core asks again on `importPrepared`.
+- **Add blank page** (menu button in the toolbar: **Portrait A4** / **Landscape
+  A4**, the two pages every native shell offers): one `insertBlank` edit — the
+  core's `Command::insert_blank_page`, so the document mints the new page's
+  id — placed after the selected pages (after the last page of the selected
+  blocks in the Documents view, where it shows as a "Blank pages" block), or
+  at the end when nothing is selected; then the new card is selected. One undo
+  step. It is an assembly edit that changes the page structure, so the core's
+  gate is the one Move and Delete ask (`check_edit`: the assembly permission,
+  then whether the encryption survives the full rewrite); without the
+  permission the button is off and never opens.
+- **Extract** and **Split** (toolbar buttons; `features/extract/`): page
+  tools that write **new files** and change nothing about the open document,
+  so the assembly permission does not hold them back; like Undo, they are off
+  while an Organize edit is in flight. Organize's edit queue is now one Save
+  waits for (so do Compress, Protect, Export, Extract and Split), and both
+  read the page count as of the last landed edit, not the click's.
+  Their gates are the native shells', asked as the dialog opens
+  (`extractionRefusal`: the copy/extract bit `/P` 5, then whether the
+  encryption survives the full rewrite — a PDF opened with only its user
+  password cannot); a refused document says why and offers only Cancel.
+  **Extract** opens on the selection (`"2-3"`) in a "Pages to extract" field
+  read by the core's grammar (`parsePageSelection`), and downloads
+  `<name>-extract.pdf` (Android's and Windows' name). **Split** asks "Split
+  after page" (`3,7`, the one mode every native shell has), plans with the
+  core (`planSplit`: the parts and their names, `<name>-part1.pdf`…, the same
+  on every shell; a one-page document is refused up front) and delivers one
+  download per part, in order, as Export images does (**Cancel split** while
+  it runs; the part in hand still goes out). The engine is asked for at
+  most one part ahead of the one being written, so a cancel stops the work as
+  well as the downloads and no more than two parts are held in memory (an
+  edit made while a split runs reaches the parts asked for after it). Both wait for the queued edits, so unsaved edits are in the
+  files; a protected source gives protected files, and a signed one files
+  whose signature no longer verifies (the status line says so). The natives
+  write into a folder with one overwrite prompt; a download overwrites
+  nothing, so there is none. **Blocked downloads:** as for Export images
+  (below), a browser may ask once, or refuse, to download several files; if
+  fewer parts arrived than "Split into n PDFs." says, allow multiple
+  downloads for the site and split again. The buttons sit in Organize, with
+  the other page tools, not in the workspace bar: two more bar buttons
+  wrapped the bar onto another row in narrow embeds (the embed host's
+  oversized buttons), taking height from the pages; their status lines and
+  Cancel split do sit in the bar, so they survive a switch to View.
+  E2E (`e2e/extract-split.spec.ts`, all three browsers): pages 2-3 of a
+  five-page PDF → `five-extract.pdf` with exactly those two pages (by their
+  `/MediaBox` widths), which opens with 2 pages; the selection fills the
+  dialog and a pending deletion is in the file, still unsaved; a split after
+  2 and 4 → `five-part1..3.pdf` with 2, 2 and 1 pages; a cut after the last
+  page refused in the dialog with nothing downloaded; a PDF that withholds
+  extraction refused in both dialogs; the Split dialog fits a 390 px phone.
 
 ## Zero-network
 

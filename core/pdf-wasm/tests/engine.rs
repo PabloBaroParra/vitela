@@ -370,6 +370,50 @@ async fn a_refresh_reopens_an_encrypted_document_with_its_password() {
 }
 
 #[wasm_bindgen_test]
+async fn a_blank_page_is_inserted_rendered_blank_and_saved() {
+    let words = ["one", "two"];
+    let mut engine = engine().await;
+    let doc = engine.open(pdfs::text_document(&words), None).unwrap();
+    let ids = engine.page_ids(doc).unwrap();
+
+    engine
+        .apply_edit(doc, &EditCommand::insert_blank_page(1, false))
+        .unwrap();
+    engine
+        .apply_edit(doc, &EditCommand::insert_blank_page(3, true))
+        .unwrap();
+    let now = engine.page_ids(doc).unwrap();
+    assert_eq!((now[0], now[2]), (ids[0], ids[1]));
+    assert!(!ids.contains(&now[1]) && !ids.contains(&now[3]) && now[1] != now[3]);
+    assert!(engine.preview_stale(doc).unwrap());
+
+    engine.refresh_preview(doc).unwrap();
+    let mut blank = engine.render_page(doc, 1, 72, false).unwrap();
+    assert_eq!((blank.width(), blank.height()), (595, 842));
+    assert_eq!(
+        inked_pixels(&blank.take_rgba()),
+        0,
+        "nothing is drawn on it"
+    );
+    let side = engine.render_page(doc, 3, 72, false).unwrap();
+    assert_eq!((side.width(), side.height()), (842, 595));
+
+    assert!(engine.undo(doc).unwrap());
+    assert_eq!(engine.page_count(doc).unwrap(), 3);
+    let reopened = engine
+        .open(engine.save_to_bytes(doc, false).unwrap(), None)
+        .unwrap();
+    assert_eq!(engine.page_count(reopened).unwrap(), 3);
+    let sizes: Vec<(f64, f64)> = engine
+        .page_dimensions(reopened)
+        .unwrap()
+        .iter()
+        .map(|page| (page.width_pt, page.height_pt))
+        .collect();
+    assert_eq!(sizes, [(612.0, 792.0), (595.0, 842.0), (612.0, 792.0)]);
+}
+
+#[wasm_bindgen_test]
 async fn page_edits_are_refused_by_kind() {
     let mut engine = engine().await;
     let doc = engine
@@ -379,6 +423,7 @@ async fn page_edits_are_refused_by_kind() {
         EditCommand::move_pages(0, 1, 2),
         EditCommand::rotate_pages(2, 1, 90),
         EditCommand::remove_pages(5, 1),
+        EditCommand::insert_blank_page(3, false),
     ] {
         let err = engine.apply_edit(doc, &edit).unwrap_err();
         assert_eq!(error_name(err), "PageIndexOutOfBounds");
@@ -395,6 +440,7 @@ async fn page_edits_are_refused_by_kind() {
         EditCommand::rotate_pages(0, 1, 90),
         EditCommand::remove_pages(0, 1),
         EditCommand::remove_pages(5, 1),
+        EditCommand::insert_blank_page(1, false),
     ] {
         let err = engine.apply_edit(restricted, &edit).unwrap_err();
         assert_eq!(error_name(err), "EditNotPermitted");

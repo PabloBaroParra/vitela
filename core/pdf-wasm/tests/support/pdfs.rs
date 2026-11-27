@@ -132,6 +132,39 @@ pub fn commented_document(pages: &[&str]) -> Vec<u8> {
 pub const ACROFORM: &[u8] =
     include_bytes!("../../../../tests/fixtures/forms/reportlab_acroform.pdf");
 
+/// The compression corpus's scan (`tests/fixtures/compress`, T-197): one
+/// US Letter page holding a 1700 x 2200 JPEG, far above every preset's DPI
+/// ceiling, so `balanced` and `small` resample it.
+pub const SCAN_200DPI: &[u8] =
+    include_bytes!("../../../../tests/fixtures/compress/scan_200dpi.pdf");
+
+/// A ReportLab paragraph in an embedded TrueType subset (Vera, with a
+/// `/ToUnicode`; `tests/fixtures/content-edit`): a run whose font program
+/// the file carries.
+pub const EMBEDDED_FONT: &[u8] =
+    include_bytes!("../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf");
+
+/// A document signed once (`tests/fixtures/signed`): a compressed save
+/// would stop its signature from verifying.
+pub const SIGNED: &[u8] = include_bytes!("../../../../tests/fixtures/signed/rsa2048_sha256.pdf");
+
+/// The `/CreationDate` [`described_document`] carries.
+pub const DESCRIBED_CREATED: &str = "D:20240102030405Z";
+
+/// A one-page [`text_document`] whose `/Info` has a title, an author, a
+/// creator and a creation date.
+pub fn described_document() -> Vec<u8> {
+    let mut doc = build(&["described"], 0);
+    let info = doc.add_object(dictionary! {
+        "Title" => Object::string_literal("Quarterly report"),
+        "Author" => Object::string_literal("Ana"),
+        "Creator" => Object::string_literal("Writer"),
+        "CreationDate" => Object::string_literal(DESCRIBED_CREATED),
+    });
+    doc.trailer.set("Info", info);
+    save(doc)
+}
+
 /// [`ACROFORM`] encrypted with AES-128 under [`USER_PASSWORD`] and
 /// [`OWNER_PASSWORD`], printable only: a user-password open may read its
 /// fields but not fill them in (no bit 6).
@@ -149,6 +182,96 @@ pub fn restricted_form() -> Vec<u8> {
         owner_password: OWNER_PASSWORD,
         user_password: USER_PASSWORD,
         permissions: Permissions::PRINTABLE,
+    };
+    let state = EncryptionState::try_from(version).expect("encryption state");
+    doc.encrypt(&state).expect("encrypt");
+    save(doc)
+}
+
+/// The content stream of [`content_document`]: "Hello" and " world" on
+/// one line, two stacked lines below them, a red 1x1 image painted 100 x 50
+/// at (72, 500), a stroked rule and a filled box.
+pub const CONTENT_STREAM: &[u8] = b"BT /F1 12 Tf 72 700 Td (Hello) Tj ( world) Tj ET \
+BT /F1 12 Tf 72 650 Td (First line) Tj 0 -14 Td (Second line) Tj ET \
+q 100 0 0 50 72 500 cm /Im1 Do Q \
+72 400 m 272 400 l S \
+300 300 100 50 re f";
+
+/// A US Letter page painting `content` with `/F1` Helvetica (WinAnsi) and
+/// `/Im1` a red 1x1 RGB image, whatever `content` uses of them.
+pub fn content_document_with(content: &[u8]) -> Vec<u8> {
+    let mut doc = Document::with_version("1.7");
+    let pages_id = doc.new_object_id();
+    let font_id = doc.add_object(dictionary! {
+        "Type" => "Font",
+        "Subtype" => "Type1",
+        "BaseFont" => "Helvetica",
+        "Encoding" => "WinAnsiEncoding",
+    });
+    let image_id = doc.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Image",
+            "Width" => 1,
+            "Height" => 1,
+            "ColorSpace" => "DeviceRGB",
+            "BitsPerComponent" => 8,
+        },
+        vec![255, 0, 0],
+    ));
+    let content_id = doc.add_object(Stream::new(dictionary! {}, content.to_vec()));
+    let page = doc.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+        "Contents" => content_id,
+        "Resources" => dictionary! {
+            "Font" => dictionary! { "F1" => font_id },
+            "XObject" => dictionary! { "Im1" => image_id },
+        },
+    });
+    doc.objects.insert(
+        pages_id,
+        Object::Dictionary(dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![page.into()],
+            "Count" => 1,
+        }),
+    );
+    let catalog_id = doc.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    doc.trailer.set("Root", catalog_id);
+    save(doc)
+}
+
+/// One page of runs, an image and two paths: [`CONTENT_STREAM`].
+pub fn content_document() -> Vec<u8> {
+    content_document_with(CONTENT_STREAM)
+}
+
+/// One run whose second code (0x81) WinAnsi leaves undefined, so it reads
+/// back with U+FFFD.
+pub fn undecodable_document() -> Vec<u8> {
+    content_document_with(b"BT /F1 12 Tf 72 700 Td (A\x81) Tj ET")
+}
+
+/// [`text_document`] encrypted with AES-128 under [`USER_PASSWORD`] and
+/// [`OWNER_PASSWORD`], printable and copyable but **not** modifiable: a
+/// user-password open may read its content but not edit it.
+pub fn unmodifiable_document() -> Vec<u8> {
+    let mut doc = build(&["Hello Vitela"], 0);
+    let crypt_filter: Arc<dyn CryptFilter> = Arc::new(Aes128CryptFilter);
+    let version = EncryptionVersion::V4 {
+        document: &doc,
+        encrypt_metadata: true,
+        crypt_filters: BTreeMap::from([(b"StdCF".to_vec(), crypt_filter)]),
+        stream_filter: b"StdCF".to_vec(),
+        string_filter: b"StdCF".to_vec(),
+        owner_password: OWNER_PASSWORD,
+        user_password: USER_PASSWORD,
+        permissions: Permissions::PRINTABLE | Permissions::COPYABLE,
     };
     let state = EncryptionState::try_from(version).expect("encryption state");
     doc.encrypt(&state).expect("encrypt");

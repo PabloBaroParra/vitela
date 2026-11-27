@@ -49,8 +49,13 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
   const shown = useRef(generation);
   /** The on-disk change the user accepted in the save being retried (e.g. after a signature question). */
   const accepted = useRef<FileStamp | undefined>(undefined);
-  /** Settles once every edit the editing screen has asked for so far has ended. */
-  const editsSettled = useRef<(() => Promise<unknown>) | null>(null);
+  /** Each settles once every edit its owner (the editing screen, the properties dialog) has asked for so far has ended. */
+  const editsSettled = useRef(new Set<() => Promise<unknown>>());
+  /** Settles once the edits asked for so far have ended: what a compressed copy waits for too. */
+  const settleEdits = useCallback(
+    () => Promise.all([...editsSettled.current].map((settled) => settled())).then(() => undefined),
+    [],
+  );
 
   // A new document starts with a clean slate (adjusting state while rendering
   // is React's way to reset state when an input changes).
@@ -85,7 +90,7 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
           return;
         }
         // The edits asked for before the click go in, and count as saved.
-        await editsSettled.current?.();
+        await settleEdits();
         const editsAtStart = edits.current;
         const bytes = await engine.saveToBytes(document.handle, invalidateSignatures);
         // The document was closed while the engine worked: deliver nothing.
@@ -115,7 +120,7 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
         if (running.current === saving) running.current = undefined;
       }
     },
-    [engine, document, delivery],
+    [engine, document, delivery, settleEdits],
   );
 
   const save = useCallback(() => ((accepted.current = undefined), void run('overwrite', false)), [run]);
@@ -136,17 +141,20 @@ export function useSave(engine: Engine, document: OpenDocument | null, delivery:
     setActivity((a) => (a.kind === 'done' ? IDLE : a));
   }, []);
 
-  /** An editing screen hands over its queue; the result takes it back (when the screen goes). */
+  /**
+   * An editing screen (or the properties dialog) hands over its queue; the
+   * result takes it back (when the screen goes). Every queue handed over is
+   * waited for.
+   */
   const waitForEdits = useCallback((settled: () => Promise<unknown>) => {
-    editsSettled.current = settled;
-    return () => {
-      if (editsSettled.current === settled) editsSettled.current = null;
-    };
+    editsSettled.current.add(settled);
+    return () => void editsSettled.current.delete(settled);
   }, []);
 
   return {
     activity,
     dirty,
+    settleEdits,
     save,
     confirmSignatures,
     saveSignedCopy,

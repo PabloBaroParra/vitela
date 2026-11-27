@@ -116,6 +116,41 @@ describe('useSave', () => {
     expect(result.current.dirty).toBe(false);
   });
 
+  it('lends the wait for the edits to others (a compressed copy), settled at once with no screen', async () => {
+    const { engine } = savingEngine([]);
+    const { delivery } = deliveries([]);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    await expect(result.current.settleEdits()).resolves.toBeUndefined();
+    let land: () => void = () => {};
+    const edits = new Promise<void>((resolve) => (land = resolve));
+    act(() => void result.current.waitForEdits(() => edits));
+    let settled = false;
+    void result.current.settleEdits().then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    land();
+    await waitFor(() => expect(settled).toBe(true));
+  });
+
+  it('waits for every queue handed over (a screen and the properties dialog), not only the last', async () => {
+    const { engine } = savingEngine([]);
+    const { delivery } = deliveries([]);
+    const { result } = renderHook(() => useSave(engine, document, delivery));
+    let landScreen: () => void = () => {};
+    const screen = new Promise<void>((resolve) => (landScreen = resolve));
+    let stop: () => void = () => {};
+    act(() => void result.current.waitForEdits(() => screen));
+    act(() => void (stop = result.current.waitForEdits(() => Promise.resolve())));
+    let settled = false;
+    void result.current.settleEdits().then(() => (settled = true));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settled).toBe(false);
+    // Taking one back leaves the other in place.
+    act(() => stop());
+    landScreen();
+    await waitFor(() => expect(settled).toBe(true));
+  });
+
   it('stops waiting for the edits of a screen that has gone', async () => {
     const log: Log = [];
     const { engine } = savingEngine(log);

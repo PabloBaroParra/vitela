@@ -15,22 +15,32 @@
 //! `pdf_save::shows_in_session_preview`); a form fill does, because pdfium
 //! paints the field.
 
+use pdf_document::Orientation;
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
-use crate::model::{AnnotationEdit, FieldFill, PageEdit};
+use crate::model::{
+    AnnotationEdit, DocumentProperties, FieldFill, PageEdit, TextRunEdit, WatermarkRequest,
+};
 
-/// What an `EditCommand` carries: a page edit, an annotation edit or a
-/// form fill.
+/// What an `EditCommand` carries: a page edit, an annotation edit, a form
+/// fill, a change of the document's properties, a watermark or an edit of a
+/// page's text runs.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
     Annotation(AnnotationEdit),
     Form(FieldFill),
+    Metadata(DocumentProperties),
+    Watermark(WatermarkRequest),
+    TextRun(TextRunEdit),
 }
 
 /// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
-/// (`engine/annotation.rs`) or a form fill (`engine/form.rs`). Positions are
+/// (`engine/annotation.rs`), a form fill (`engine/form.rs`) or a change of
+/// the document's properties (`engine/metadata.rs`) or a watermark
+/// (`engine/watermark.rs`) or an edit of a page's text runs
+/// (`engine/text_run.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -61,6 +71,19 @@ impl EditCommand {
     pub fn remove_pages(index: u32, count: u32) -> EditCommand {
         EditCommand(Edit::Page(PageEdit::Remove { index, count }))
     }
+
+    /// Inserts one blank A4 page — portrait, or `landscape` — so it ends up
+    /// at position `index` (`pageCount` appends), as one undo step. The new
+    /// page gets a `pageIds` entry of its own.
+    #[wasm_bindgen(js_name = insertBlankPage)]
+    pub fn insert_blank_page(index: u32, landscape: bool) -> EditCommand {
+        let orientation = if landscape {
+            Orientation::Landscape
+        } else {
+            Orientation::Portrait
+        };
+        EditCommand(Edit::Page(PageEdit::InsertBlank { index, orientation }))
+    }
 }
 
 #[wasm_bindgen]
@@ -72,8 +95,8 @@ impl Engine {
     /// withholds the assembly permission (asked first),
     /// `PageIndexOutOfBounds` naming a position that does not exist, or
     /// `UnsupportedOperation` when the edit cannot be recorded (a move onto
-    /// itself, an empty run, or a rewrite the document's encryption does not
-    /// allow). An annotation edit is refused with `EditNotPermitted` when
+    /// itself, an empty run, a rewrite the document's encryption does not
+    /// allow, or an insert with no page id left to give). An annotation edit is refused with `EditNotPermitted` when
     /// the document withholds the annotate permission (asked first), then
     /// `PageIndexOutOfBounds`, `AnnotationNotFound`, `EncodingGap`,
     /// `InvalidImage` or `UnsupportedOperation`; a retext to the text a box
@@ -81,7 +104,17 @@ impl Engine {
     /// `EditNotPermitted` when the document withholds the annotate-or-fill
     /// permission (asked first), then `FormFieldNotFound` or
     /// `UnsupportedOperation` (a value the field cannot hold); unlike an
-    /// annotation edit it makes `previewStale` true.
+    /// annotation edit it makes `previewStale` true. A properties change is
+    /// refused with `EditNotPermitted` when the document withholds
+    /// modification (`metadataRefusal`); the values it already has record
+    /// nothing. A watermark is refused as `watermarkRefusal` says (asked
+    /// first), then `PageIndexOutOfBounds`, `EncodingGap`, `InvalidImage` or
+    /// `UnsupportedOperation`; like a form fill it makes `previewStale`
+    /// true. A text-run edit is refused as `contentEditingRefusal` says
+    /// (asked first), then `PageIndexOutOfBounds`, `UnsupportedOperation`
+    /// for a run the page does not hold now, `EncodingGap` for a character
+    /// the run's font cannot show; it makes `previewStale` true and moves
+    /// `paintRevision`.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
@@ -93,6 +126,14 @@ impl Engine {
                     open.model.apply_annotation_edit(annotation.clone())
                 }
                 Edit::Form(fill) => open.model.fill_form_field(fill.clone()).map(|()| None),
+                Edit::Metadata(properties) => open
+                    .model
+                    .set_document_properties(properties.clone())
+                    .map(|()| None),
+                Edit::Watermark(request) => {
+                    open.model.add_watermark(request.clone()).map(|()| None)
+                }
+                Edit::TextRun(edit) => open.model.apply_text_run_edit(edit.clone()).map(|()| None),
             })
             .map_err(js_error)
     }
@@ -142,6 +183,18 @@ impl Engine {
     #[wasm_bindgen(js_name = refreshPreview)]
     pub fn refresh_preview(&mut self, doc: u32) -> Result<(), JsValue> {
         self.reopen_render(doc).map_err(js_error)
+    }
+
+    /// Which repaint of the pages in place the history stands at: the
+    /// newest page-content step still applied (a watermark), 0 for the file
+    /// as opened. A page whose id and turn are unchanged shows the same
+    /// pixels at the same revision; a page move, a rotation or an annotation
+    /// leaves it as it is. A number, not a `BigInt`: it counts steps.
+    #[wasm_bindgen(js_name = paintRevision)]
+    pub fn paint_revision(&self, doc: u32) -> Result<f64, JsValue> {
+        self.document(doc)
+            .map(|open| open.model.paint_revision() as f64)
+            .map_err(js_error)
     }
 
     /// Whether the edit history stands at a state the pixels and the text,

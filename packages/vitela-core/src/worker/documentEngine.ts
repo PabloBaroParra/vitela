@@ -17,17 +17,36 @@
 // and undoing across a mixed history refreshes exactly on the page steps.
 // A form fill does change the pixels (pdfium paints the field), so a fill,
 // and its undo and redo, refresh inside the request like a page edit.
+//
+// A properties change is a step like a page edit; the core counts it as one
+// the preview shows, so it refreshes too (a reopen with the same pixels).
+//
+// The page-content reads (T-258) are not steps either: each parses the page
+// the core holds now, pending edits laid on, and places its boxes on the page
+// as drawn like every other box here. A text-run edit (T-259) is page
+// content: a step the pixels show, refreshed like a watermark; its move
+// delta crosses through the page's frame.
+//
+// A compressed save is not a step at all: it records nothing and refreshes
+// nothing, like an ordinary save, and so is a protected copy (its passwords
+// go to the core and are kept nowhere). Neither is an image export: it draws from
+// its own snapshot of what a save would write, which the core keeps apart
+// from the document, so the preview and the history are left alone.
 
 import type {
   Annotation,
   BlockSource,
+  CompressPreset,
   DocumentBlock,
   DocumentHandle,
   DocumentInfo,
+  ImageExportFormat,
   Edit,
   EditedDocument,
   Engine,
   FormEdit,
+  MetadataEdit,
+  WatermarkEdit,
   FormField,
   ImportedDocument,
   OpenedDocument,
@@ -35,7 +54,9 @@ import type {
   PagePoint,
   PageSize,
   PreparedImport,
+  ProtectionPasswords,
   RenderedPage,
+  TextRunEdit,
 } from '../core/types.js';
 import {
   PageFrame,
@@ -48,21 +69,67 @@ import {
   type CoreComment,
   type CoreFreeTextLines,
 } from './annotations.js';
+import {
+  compressPresets,
+  compressRefusal,
+  compressedDocument,
+  type CoreCompressedSave,
+  type CoreCompressRefusal,
+} from './compress.js';
 import { formFieldCommand, formFields, type CoreFormEdits, type CoreFormField } from './forms.js';
+import {
+  documentProperties,
+  metadataCommand,
+  type CoreDocumentProperties,
+  type CoreMetadataEdits,
+} from './metadata.js';
+import {
+  watermarkCommand,
+  watermarkDefaults,
+  type CoreWatermarkEdits,
+  type CoreWatermarkLook,
+} from './watermark.js';
+import {
+  fontFamilies,
+  fontProgram,
+  pageContent,
+  textBlocks,
+  textRunCommand,
+  textRunLook,
+  textRunStyle,
+  type CoreFontProgram,
+  type CorePageContent,
+  type CoreTextBlock,
+  type CoreTextRunEdits,
+  type CoreTextRunLook,
+  type CoreTextRunStyle,
+} from './content.js';
+import { splitParts, type CoreSplitFunctions } from './extract.js';
+import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
-export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits {
+export interface CoreEdits
+  extends CoreAnnotationEdits,
+    CoreFormEdits,
+    CoreMetadataEdits,
+    CoreWatermarkEdits,
+    CoreTextRunEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
+  insertBlankPage(index: number, landscape: boolean): Owned;
 }
 
 /** core/pdf-wasm's free functions: placement, and the geometry asked before an annotation exists. */
-export interface CoreFunctions extends CoreGeometry {
+export interface CoreFunctions extends CoreGeometry, CoreExportFunctions, CoreSplitFunctions {
   freeTextLayout(contents: string, widthPt: number, heightPt: number): CoreFreeTextLines;
   /** `x, y, width, height` in PDF space. */
   stampPlacement(image: Uint8Array, anchorX: number, anchorY: number): Float64Array;
+  /** The core's preset names, strongest-preserving first. */
+  compressPresets(): string[];
+  /** The core's starting watermark looks. */
+  watermarkDefaults(): CoreWatermarkLook;
 }
 
 /** The slice of core/pdf-wasm's `Engine` this module uses. */
@@ -77,6 +144,48 @@ export interface CoreEngine extends CoreText {
   annotationEditingAllowed(doc: number): boolean;
   formFillAllowed(doc: number): boolean;
   saveToBytes(doc: number, invalidateSignatures: boolean): Uint8Array;
+  /** `undefined` (wasm-bindgen's `None`) when the document can be compressed. */
+  compressionRefusal(doc: number): CoreCompressRefusal | null | undefined;
+  compressionInvalidatesSignatures(doc: number): boolean;
+  saveCompressedToBytes(doc: number, preset: string, invalidateSignatures: boolean): CoreCompressedSave;
+  documentProperties(doc: number): CoreDocumentProperties;
+  /** `undefined` (wasm-bindgen's `None`) when the properties can be changed. */
+  metadataRefusal(doc: number): string | null | undefined;
+  /** The newest page-content step still applied (0: as opened). */
+  paintRevision(doc: number): number;
+  /** `undefined` (wasm-bindgen's `None`) when a watermark can be stamped. */
+  watermarkRefusal(doc: number): string | null | undefined;
+  /** `undefined` (wasm-bindgen's `None`) when an editor of the page content can be offered. */
+  contentEditingRefusal(doc: number): string | null | undefined;
+  readPageContent(doc: number, page: number): CorePageContent;
+  readTextBlocks(doc: number, page: number): CoreTextBlock[];
+  readParagraphBlocks(doc: number, page: number): CoreTextBlock[];
+  /** `undefined` (wasm-bindgen's `None`) when the file cannot say. */
+  textRunStyle(doc: number, page: number, runId: number): CoreTextRunStyle | null | undefined;
+  /** `[resource, baseFont, …]`. */
+  pageFontFamilies(doc: number, page: number): string[];
+  /** Bumped by every checkpoint, and by undo or redo across one. */
+  contentBaseGeneration(doc: number): number;
+  /** `undefined` (wasm-bindgen's `None`) when the file cannot say. */
+  textRunLook(doc: number, page: number, runId: number): CoreTextRunLook | null | undefined;
+  /** `undefined` (wasm-bindgen's `None`) for a font that embeds none. */
+  textRunFontProgram(doc: number, page: number, runId: number): CoreFontProgram | null | undefined;
+  /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
+  protectionRefusal(doc: number): string | null | undefined;
+  protectionInvalidatesSignatures(doc: number): boolean;
+  protectToBytes(doc: number, openPassword: string, permissionsPassword: string, invalidateSignatures: boolean): Uint8Array;
+  /** `undefined` (wasm-bindgen's `None`) when pages can be extracted. */
+  extractionRefusal(doc: number): string | null | undefined;
+  extractSourceIsSigned(doc: number): boolean;
+  extractPagesToBytes(doc: number, pages: Uint32Array): Uint8Array;
+  /** `undefined` (wasm-bindgen's `None`) when every page fits. */
+  firstPageTooLargeToExport(doc: number, pages: Uint32Array, dpi: number): number | null | undefined;
+  /** The export's snapshot: its id (its own namespace, not a document id) and page count. */
+  openImageExport(doc: number): Owned & { readonly id: number; readonly pageCount: number };
+  exportPageImage(exportId: number, pageIndex: number, dpi: number, format: string): Uint8Array;
+  closeImageExport(exportId: number): boolean;
+  /** `openImageExport`'s snapshot for printing: no permission asked, drawn at 150 DPI at most. */
+  openPrintSnapshot(doc: number): Owned & { readonly id: number; readonly pageCount: number };
   /** The id of the annotation the edit added, else `undefined`. */
   applyEdit(doc: number, edit: Owned): number | undefined;
   undo(doc: number): boolean;
@@ -206,6 +315,8 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       annotations: snapshot(document),
       addedAnnotationId: added ?? null,
       formFields: fields(document),
+      paintRevision: core.paintRevision(document),
+      contentBaseGeneration: core.contentBaseGeneration(document),
     };
   };
   /** Steps back or forth through the history (`run` answers whether it moved). */
@@ -244,6 +355,140 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       assertOpen(document);
       return core.saveToBytes(document, invalidateSignatures);
     },
+    async compressPresets() {
+      return compressPresets(functions.compressPresets());
+    },
+    async compressionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return compressRefusal(core.compressionRefusal(document));
+    },
+    async compressionInvalidatesSignatures(document: DocumentHandle) {
+      assertOpen(document);
+      return core.compressionInvalidatesSignatures(document);
+    },
+    async saveCompressedToBytes(document: DocumentHandle, preset: CompressPreset, invalidateSignatures: boolean) {
+      assertOpen(document);
+      return compressedDocument(core.saveCompressedToBytes(document, preset, invalidateSignatures));
+    },
+    async documentProperties(document: DocumentHandle) {
+      assertOpen(document);
+      return documentProperties(core.documentProperties(document));
+    },
+    async metadataRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.metadataRefusal(document) ?? null;
+    },
+    async contentEditingRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.contentEditingRefusal(document) ?? null;
+    },
+    // The frame is the page as the UI last saw it described, which is the
+    // page the core reads now: every step re-describes the document.
+    async readPageContent(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return pageContent(core.readPageContent(document, pageIndex), frame, pageIndex);
+    },
+    async readTextBlocks(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return textBlocks(core.readTextBlocks(document, pageIndex), frame);
+    },
+    async readParagraphBlocks(document: DocumentHandle, pageIndex: number) {
+      const frame = new PageFrame(pageOf(document, pageIndex), functions);
+      return textBlocks(core.readParagraphBlocks(document, pageIndex), frame);
+    },
+    async textRunStyle(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return textRunStyle(core.textRunStyle(document, pageIndex, runId));
+    },
+    async pageFontFamilies(document: DocumentHandle, pageIndex: number) {
+      pageOf(document, pageIndex);
+      return fontFamilies(core.pageFontFamilies(document, pageIndex));
+    },
+    async contentBaseGeneration(document: DocumentHandle) {
+      assertOpen(document);
+      return core.contentBaseGeneration(document);
+    },
+    async textRunLook(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return textRunLook(core.textRunLook(document, pageIndex, runId));
+    },
+    async textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return fontProgram(core.textRunFontProgram(document, pageIndex, runId));
+    },
+    async watermarkDefaults() {
+      return watermarkDefaults(functions.watermarkDefaults());
+    },
+    async watermarkRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.watermarkRefusal(document) ?? null;
+    },
+    async protectionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.protectionRefusal(document) ?? null;
+    },
+    async protectionInvalidatesSignatures(document: DocumentHandle) {
+      assertOpen(document);
+      return core.protectionInvalidatesSignatures(document);
+    },
+    async protectToBytes(document: DocumentHandle, passwords: ProtectionPasswords, invalidateSignatures: boolean) {
+      assertOpen(document);
+      return core.protectToBytes(document, passwords.openPassword, passwords.permissionsPassword, invalidateSignatures);
+    },
+    async imageExportFormats() {
+      return imageExportFormats(functions.imageExportFormats());
+    },
+    async parsePageSelection(input: string, totalPages: number) {
+      return Array.from(functions.parsePageSelection(input, totalPages));
+    },
+    async pageImageFileNames(documentName: string, pages: readonly number[], totalPages: number, format: ImageExportFormat) {
+      return pages.map((page) => functions.pageImageFileName(documentName, page, totalPages, format));
+    },
+    async firstPageTooLargeToExport(document: DocumentHandle, pages: readonly number[], dpi: number) {
+      assertOpen(document);
+      return core.firstPageTooLargeToExport(document, Uint32Array.from(pages), dpi) ?? null;
+    },
+    async openImageExport(document: DocumentHandle) {
+      assertOpen(document);
+      const opened = core.openImageExport(document);
+      try {
+        return { handle: opened.id, pageCount: opened.pageCount };
+      } finally {
+        opened.free();
+      }
+    },
+    // An export outlives nothing on this side: the core refuses an id it does
+    // not have (`DocumentNotFound`), whatever document it came from.
+    async exportPageImage(exportHandle: number, pageIndex: number, dpi: number, format: ImageExportFormat) {
+      return core.exportPageImage(exportHandle, pageIndex, dpi, format);
+    },
+    async closeImageExport(exportHandle: number) {
+      return core.closeImageExport(exportHandle);
+    },
+    async openPrintSnapshot(document: DocumentHandle) {
+      assertOpen(document);
+      const opened = core.openPrintSnapshot(document);
+      try {
+        return { handle: opened.id, pageCount: opened.pageCount };
+      } finally {
+        opened.free();
+      }
+    },
+    async extractionRefusal(document: DocumentHandle) {
+      assertOpen(document);
+      return core.extractionRefusal(document) ?? null;
+    },
+    async extractSourceIsSigned(document: DocumentHandle) {
+      assertOpen(document);
+      return core.extractSourceIsSigned(document);
+    },
+    async extractPages(document: DocumentHandle, pages: readonly number[]) {
+      assertOpen(document);
+      return core.extractPagesToBytes(document, Uint32Array.from(pages));
+    },
+    async planSplit(cuts: string, totalPages: number, documentName: string) {
+      return splitParts(functions.planSplit(cuts, totalPages, documentName));
+    },
     async applyEdit(document: DocumentHandle, edit: Edit) {
       return step(
         document,
@@ -253,7 +498,13 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
             ? pageCommand(edits, edit)
             : isFormEdit(edit)
               ? formFieldCommand(edits, edit, () => core.formFillAllowed(document))
-              : annotationCommand(
+              : isMetadataEdit(edit)
+                ? metadataCommand(edits, edit)
+                : isWatermarkEdit(edit)
+                  ? watermarkCommand(edits, edit)
+                  : isTextRunEdit(edit)
+                    ? textRunCommand(edits, edit, frameOf(document))
+                    : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -357,11 +608,28 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
 }
 
 function isPageEdit(edit: Edit): edit is PageEdit {
-  return edit.kind === 'move' || edit.kind === 'rotate' || edit.kind === 'remove';
+  return edit.kind === 'move' || edit.kind === 'rotate' || edit.kind === 'remove' || edit.kind === 'insertBlank';
 }
 
 function isFormEdit(edit: Edit): edit is FormEdit {
   return edit.kind === 'setFieldValue';
+}
+
+function isMetadataEdit(edit: Edit): edit is MetadataEdit {
+  return edit.kind === 'setDocumentProperties';
+}
+
+function isWatermarkEdit(edit: Edit): edit is WatermarkEdit {
+  return edit.kind === 'addWatermark';
+}
+
+function isTextRunEdit(edit: Edit): edit is TextRunEdit {
+  return (
+    edit.kind === 'retypeTextRun' ||
+    edit.kind === 'moveTextRun' ||
+    edit.kind === 'removeTextRun' ||
+    edit.kind === 'restyleTextRuns'
+  );
 }
 
 /** An `Error` named like the core's own refusals, so the UI branches alike. */
@@ -379,6 +647,8 @@ function pageCommand(edits: CoreEdits, edit: PageEdit): Owned {
       return edits.rotatePages(edit.from, edit.count, edit.degrees);
     case 'remove':
       return edits.removePages(edit.from, edit.count);
+    case 'insertBlank':
+      return edits.insertBlankPage(edit.at, edit.orientation === 'landscape');
   }
 }
 

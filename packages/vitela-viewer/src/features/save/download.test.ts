@@ -29,4 +29,12 @@ describe('downloadBytes', () => {
     vi.runAllTimers();
     expect(revoked).toEqual(['blob:vitela/1']);
   });
+
+  it('labels the blob with the media type it is given', () => {
+    const created: Blob[] = [];
+    vi.stubGlobal('URL', { createObjectURL: (blob: Blob) => (created.push(blob), 'blob:vitela/3'), revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    downloadBytes(new Uint8Array([0x89, 0x50]), 'report-1.png', 'image/png');
+    expect(created[0]!.type).toBe('image/png');
+  });
 });

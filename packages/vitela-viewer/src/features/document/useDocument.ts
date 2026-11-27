@@ -49,6 +49,18 @@ export interface OpenDocument {
    */
   readonly formFields?: readonly FormField[];
   /**
+   * The engine's repaint of the pages in place as the last edit, undo or
+   * redo reported it (a watermark; see `EditedDocument.paintRevision`). Unset
+   * (0) until then: the pixels are the file's.
+   */
+  readonly paintRevision?: number;
+  /**
+   * The engine's in-memory base the page-content reads are valid against, as
+   * the last edit, undo or redo reported it (see
+   * `EditedDocument.contentBaseGeneration`). Unset (0) until then.
+   */
+  readonly contentBaseGeneration?: number;
+  /**
    * The file each PDF added to this document came from, by the block source
    * id the import reported (the engine never sees a file name). Unset until
    * the first import.
@@ -95,6 +107,8 @@ export function useDocument(engine: Engine) {
   const locked = useRef<{ file: PdfSource; fileHandle?: WritableFileHandle; attempt: number } | null>(null);
   /** The handle of the document on screen, the one engine document kept. */
   const shown = useRef<DocumentHandle | null>(null);
+  /** The page count of the document on screen as of its last edit, set before any render shows it. */
+  const pageCount = useRef(0);
   const release = useCallback(
     // Nothing to recover if a close fails: the handle is never used again.
     (handle: DocumentHandle) => void engine.close(handle).catch(() => {}),
@@ -136,6 +150,7 @@ export function useDocument(engine: Engine) {
             locked.current = null;
             const previous = shown.current;
             shown.current = handle;
+            pageCount.current = info.pageCount;
             setState({ document: { name: file.name, info, handle, generation: attemptId, fileHandle }, activity: IDLE });
             if (previous !== null) release(previous);
           },
@@ -194,6 +209,7 @@ export function useDocument(engine: Engine) {
    */
   const revise = useCallback((handle: DocumentHandle, edited: EditedDocument): boolean => {
     if (shown.current !== handle) return false;
+    pageCount.current = edited.info.pageCount;
     setState((s) =>
       s.document?.handle === handle
         ? {
@@ -205,6 +221,8 @@ export function useDocument(engine: Engine) {
               canRedo: edited.canRedo,
               annotations: edited.annotations,
               formFields: edited.formFields,
+              paintRevision: edited.paintRevision ?? 0,
+              contentBaseGeneration: edited.contentBaseGeneration ?? 0,
             },
           }
         : s,
@@ -230,5 +248,11 @@ export function useDocument(engine: Engine) {
     );
   }, []);
 
-  return { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage };
+  /**
+   * The page count of the document on screen now: after an edit has landed,
+   * before a render has brought it (what a tool that waited for the edits reads).
+   */
+  const pageCountNow = useCallback(() => pageCount.current, []);
+
+  return { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage, pageCountNow };
 }

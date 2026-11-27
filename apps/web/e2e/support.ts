@@ -46,6 +46,17 @@ export async function openBytes(page: Page, name: string, buffer: Buffer): Promi
   await expectOpened(page, name);
 }
 
+/** The workspace bar's Tools menu button, the one way into the document tools. */
+export function toolsButton(page: Page): Locator {
+  return page.locator('.workspace__bar').getByRole('button', { name: 'Tools', exact: true });
+}
+
+/** Opens `tool` (`Compress`, `Watermark`…) from the Tools menu. */
+export async function openTool(page: Page, tool: string): Promise<void> {
+  await toolsButton(page).click();
+  await page.getByRole('menu', { name: 'Tools' }).getByRole('menuitem', { name: tool, exact: true }).click();
+}
+
 export function fixtureBytes(relativePath: string): Buffer {
   return readFileSync(resolve(FIXTURES, relativePath));
 }

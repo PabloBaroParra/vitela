@@ -37,10 +37,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use pdf_document::{
-    AnnotationId, AnnotationKind, Command, Credential, Document, EncryptionCredentials, ImageItem,
-    PageId, Permissions, SecurityContext, SecurityHandler, TextRun,
-};
+use pdf_document::{AnnotationId, AnnotationKind, Command, Document, ImageItem, PageId, TextRun};
 use pdf_manip::LopdfDocument;
 
 use crate::error::FfiError;
@@ -50,7 +47,7 @@ use crate::types::{
     FfiAnnotation, FfiAnnotationKind, FfiContentImageItem, FfiContentPathItem, FfiContentTextRun,
     FfiDocumentInfo, FfiEditCommand, FfiOrientation, FfiPageContent, FfiPageDimensions,
     FfiPageSize, FfiPoint, FfiRect, FfiRenderOptions, FfiRenderTile, FfiSaveIntent,
-    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun, GRANTED_PROTECTION_PERMISSIONS,
+    FfiSearchResult, FfiSignatureAcknowledgement, FfiTextRun,
 };
 use crate::BitmapHandle;
 
@@ -602,30 +599,21 @@ impl DocumentState {
         signatures: FfiSignatureAcknowledgement,
         f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
     ) -> R {
-        self.with_save_input_for(&self.document, intent, signatures, f)
+        self.with_save_source(|source| {
+            f(source.input_for(source.document, intent.into(), signatures.into()))
+        })
     }
 
-    /// The same save description [`Self::with_save_input`] builds, but
-    /// against a `document` the caller supplies instead of `self.document` —
-    /// what [`crate::extract::extract_pages_to_pdf`] needs to save a **pruned
-    /// clone** without mutating the live handle. `base`, `original_bytes`
-    /// and the imported sources still come from `self`: the source bytes a
-    /// save is computed against never change just because the page set being
-    /// saved does.
-    pub(crate) fn with_save_input_for<R>(
-        &self,
-        document: &Document,
-        intent: FfiSaveIntent,
-        signatures: FfiSignatureAcknowledgement,
-        f: impl FnOnce(pdf_save::SaveInput<'_>) -> R,
-    ) -> R {
+    /// This session's model, base, original bytes and imported PDFs as the
+    /// [`pdf_save::SaveSource`] the `pdf-save` orchestrations that pick their
+    /// own intent and signature policy take — [`protect_to_bytes`] and
+    /// [`crate::extract::extract_pages_to_pdf`].
+    pub(crate) fn with_save_source<R>(&self, f: impl FnOnce(pdf_save::SaveSource<'_>) -> R) -> R {
         self.with_imported_sources(|imported_sources| {
-            f(pdf_save::SaveInput {
-                document,
+            f(pdf_save::SaveSource {
+                document: &self.document,
                 base: &self.base,
                 original_bytes: self.original_bytes.as_deref(),
-                intent: intent.into(),
-                signatures: signatures.into(),
                 imported_sources,
             })
         })
@@ -789,19 +777,11 @@ fn annotation_editing_is_allowed(document: &Document) -> bool {
 }
 
 /// The page-content twin of [`annotation_editing_is_allowed`], gated on the
-/// modify-contents bit instead of the annotate one. A document may grant
-/// either without the other, so neither may be inferred from the other.
-///
-/// Two questions, deliberately answered as one: whether the document permits
-/// the change, and whether the result could ever be written. Every page-
-/// content edit forces a full rewrite (Batch 21 decision 5), and an encrypted
-/// document opened with only one of its two passwords cannot be re-encrypted
-/// — so on such a document a content edit is not a change to be saved later,
-/// it is one that can never be saved at all. A shell that offered it would
-/// collect work it has no way to keep.
+/// modify-contents bit instead of the annotate one, and on whether a full
+/// rewrite could keep the document's encryption. The rule is
+/// `pdf_save::content_editing_allowed`, shared with every boundary.
 pub(crate) fn content_editing_is_allowed(document: &Document) -> bool {
-    pdf_manip::content_editing_is_allowed(document.security.as_ref())
-        && full_rewrite_blocker(document).is_none()
+    pdf_save::content_editing_allowed(document.security.as_ref())
 }
 
 /// Why a full rewrite of `document` could not reproduce its encryption, or
@@ -1206,19 +1186,16 @@ impl DocumentHandle {
     /// Whether an existing run has an unsaved movement. Retyping such a run
     /// is no longer refused when the session can checkpoint (see
     /// `document::checkpoint`); a shell that still gates on this keeps the
-    /// old save-and-reopen rule for sessions that cannot.
+    /// old save-and-reopen rule for sessions that cannot. The rule is
+    /// `pdf_save::text_run_has_pending_move`.
     pub fn text_run_has_pending_move(&self, page: u32, id: u64) -> Result<bool, FfiError> {
         let state = self.lock();
         let page = state.page_id(page)?;
-        Ok(state
-            .document
-            .pending_edits
-            .entries()
-            .iter()
-            .any(|command| {
-                matches!(command, Command::MoveTextRun { item, .. }
-                if item.page == page && item.id.0 == id)
-            }))
+        Ok(pdf_save::text_run_has_pending_move(
+            &state.document,
+            page,
+            pdf_document::ContentItemId(id),
+        ))
     }
 
     /// Parses `page`'s content stream on demand and returns its text runs
@@ -1303,57 +1280,19 @@ impl DocumentHandle {
     /// session that may checkpoint is accepted without reading the file: the
     /// file does not hold it as the reader sees it, and `apply_edit` writes
     /// the queue into a new base and validates the replacement against that.
+    ///
+    /// The policy is `pdf_save::check_image_replacement`.
     pub fn check_image_replacement(&self, item: FfiContentImageItem) -> Result<(), FfiError> {
         let state = self.lock();
+        // Asked before the item is resolved, as it always was: a document
+        // that forbids the change says so even when the page is also wrong.
         if !content_editing_is_allowed(&state.document) {
-            return Err(FfiError::UnsupportedOperation {
-                detail: "image replacement is not permitted".to_string(),
-            });
+            return Err(pdf_save::ContentEditRefusal::ImageReplacement.into());
         }
         let item = state.image_item(item)?;
-        // An image only a pending edit added — a paste — is not in the file
-        // to be checked against; a checkpoint writes it there first.
-        if pdf_edit::pending_log_index(item.id).is_some() && state.may_checkpoint() {
-            return Ok(());
-        }
-        if state
-            .document
-            .pending_edits
-            .entries()
-            .iter()
-            .any(|command| {
-                // `InsertImage` is left out on purpose: shells record an
-                // insert with `id: 0`, which is also the id the page's first
-                // original image reads with. The inserted image itself is
-                // still refused below — the page it is checked against does
-                // not paint it yet.
-                let target = match command {
-                    Command::RemoveImage { item, .. }
-                    | Command::MoveImage { item, .. }
-                    | Command::ResizeImage { item, .. }
-                    | Command::ReplaceImageSource { item, .. } => item,
-                    _ => return false,
-                };
-                target.page == item.page && target.id == item.id
-            })
-        {
-            if state.may_checkpoint() {
-                return Ok(());
-            }
-            return Err(FfiError::UnsupportedOperation {
-                detail: "save before replacing an image with a pending edit".to_string(),
-            });
-        }
-        state.with_imported_sources(|sources| {
-            match pdf_save::page_backing(&state.document, item.page, &state.base, sources)? {
-                pdf_save::origin::PageBacking::Object { document, object } => {
-                    pdf_edit::check_image_source(document.as_lopdf(), object, &item)
-                        .map_err(FfiError::from)
-                }
-                pdf_save::origin::PageBacking::Empty => Err(FfiError::UnsupportedOperation {
-                    detail: "the page has no original image".to_string(),
-                }),
-            }
+        let session: &DocumentState = &state;
+        session.with_imported_sources(|sources| {
+            pdf_save::check_image_replacement::<_, FfiError>(session, sources, &item)
         })
     }
 
@@ -2143,35 +2082,15 @@ pub fn protect_to_bytes(
     permissions_password: String,
     signatures: FfiSignatureAcknowledgement,
 ) -> Result<Vec<u8>, FfiError> {
-    if open_password.is_empty() || permissions_password.is_empty() {
-        return Err(FfiError::InvalidSaveRequest {
-            detail: "both open and permissions passwords are required".to_string(),
-        });
-    }
-    if open_password == permissions_password {
-        return Err(FfiError::InvalidSaveRequest {
-            detail: "the open and permissions passwords must be different".to_string(),
-        });
-    }
-
-    let state = handle.lock();
-    let mut document = state.document.clone();
-    document.security = Some(SecurityContext {
-        handler: SecurityHandler::Aes128,
-        credential: Credential::Owner,
-        credentials: EncryptionCredentials::both(open_password, permissions_password),
-        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
-    });
-    state
-        .with_imported_sources(|imported_sources| {
-            pdf_save::save_document(pdf_save::SaveInput {
-                document: &document,
-                base: &state.base,
-                original_bytes: state.original_bytes.as_deref(),
-                intent: pdf_save::SaveIntent::ApplyProtection,
-                signatures: signatures.into(),
-                imported_sources,
-            })
+    handle
+        .lock()
+        .with_save_source(|source| {
+            pdf_save::protected_bytes(
+                source,
+                &open_password,
+                &permissions_password,
+                signatures.into(),
+            )
         })
         .map_err(Into::into)
 }
@@ -2179,25 +2098,9 @@ pub fn protect_to_bytes(
 /// Whether applying new password protection would invalidate a signature.
 #[uniffi::export]
 pub fn protection_will_invalidate_signatures(handle: &DocumentHandle) -> Result<bool, FfiError> {
-    let state = handle.lock();
-    let mut document = state.document.clone();
-    document.security = Some(SecurityContext {
-        handler: SecurityHandler::Aes128,
-        credential: Credential::Owner,
-        credentials: EncryptionCredentials::both("probe-open", "probe-permissions"),
-        permissions: Permissions(GRANTED_PROTECTION_PERMISSIONS),
-    });
-    state
-        .with_imported_sources(|imported_sources| {
-            pdf_save::will_invalidate_signatures(pdf_save::SaveInput {
-                document: &document,
-                base: &state.base,
-                original_bytes: state.original_bytes.as_deref(),
-                intent: pdf_save::SaveIntent::ApplyProtection,
-                signatures: pdf_save::SignatureAcknowledgement::Unacknowledged,
-                imported_sources,
-            })
-        })
+    handle
+        .lock()
+        .with_save_source(pdf_save::protection_will_invalidate_signatures)
         .map_err(Into::into)
 }
 

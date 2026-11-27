@@ -128,6 +128,116 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
+  it('inserts a blank A4 page through the real core: its own id and block, drawn empty, saved', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(fixture));
+
+    const inserted = await engine.applyEdit(handle, { kind: 'insertBlank', at: 1, orientation: 'portrait' });
+    expect(inserted.info.pageCount).toBe(2);
+    expect(inserted.info.pageIds[0]).toBe(info.pageIds[0]);
+    expect(info.pageIds).not.toContain(inserted.info.pageIds[1]);
+    expect(inserted.info.pages[1]).toMatchObject({ widthPt: 595, heightPt: 842, rotationDegrees: 0 });
+    expect(inserted.info.blocks.map((block) => block.source.kind)).toEqual(['base', 'blank']);
+    const page = await engine.renderPage(handle, 1, 72);
+    expect([page.width, page.height]).toEqual([595, 842]);
+    expect(page.rgba.every((channel) => channel === 255)).toBe(true);
+
+    const saved = await engine.saveToBytes(handle, false);
+    const reopened = await engine.open(saved);
+    expect(reopened.info.pages.map((size) => [size.widthPt, size.heightPt])).toEqual([
+      [612, 792],
+      [595, 842],
+    ]);
+    await expect(engine.applyEdit(handle, { kind: 'insertBlank', at: 3, orientation: 'landscape' })).rejects.toMatchObject({
+      name: 'PageIndexOutOfBounds',
+    });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+  });
+
+  it("changes the document's properties through the real core: read back, undone, redone and saved", async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const before = await engine.documentProperties(handle);
+    expect(await engine.metadataRefusal(handle)).toBeNull();
+
+    const properties = { ...before, title: 'Quarterly report', author: 'Ana Peña', keywords: '' };
+    const edited = await engine.applyEdit(handle, { kind: 'setDocumentProperties', properties });
+    expect(edited.canUndo).toBe(true);
+    // The empty key is an absent one.
+    expect(await engine.documentProperties(handle)).toEqual({ ...properties, keywords: null });
+    await engine.undo(handle);
+    expect(await engine.documentProperties(handle)).toEqual(before);
+    await engine.redo(handle);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    expect(await engine.documentProperties(reopened.handle)).toMatchObject({ title: 'Quarterly report', author: 'Ana Peña', keywords: null });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+  });
+
+  it('stamps a text watermark through the real core: undone, redone, saved with the text on every page', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle, info } = await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf')));
+    expect(await engine.watermarkRefusal(handle)).toBeNull();
+    const look = await engine.watermarkDefaults();
+    expect(look).toMatchObject({ fontSize: 60, textRotationDegrees: 45, textBehind: false, pictureBehind: true });
+    const pages = Array.from({ length: info.pageCount }, (_, index) => index);
+    const before = (await engine.renderPage(handle, 0, 36)).rgba;
+
+    const edited = await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages,
+      mark: { kind: 'text', text: 'VITELADRAFT', fontSize: look.fontSize },
+      opacity: look.textOpacity,
+      rotationDegrees: look.textRotationDegrees,
+      behind: look.textBehind,
+    });
+    expect(edited.canUndo).toBe(true);
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    // The preview was refreshed inside the request: the stamp is in the pixels.
+    expect((await engine.renderPage(handle, 0, 36)).rgba).not.toEqual(before);
+    expect((await engine.search(handle, 'VITELADRAFT')).length).toBe(info.pageCount);
+    expect((await engine.undo(handle)).paintRevision).toBe(0);
+    expect(await engine.search(handle, 'VITELADRAFT')).toEqual([]);
+    await engine.redo(handle);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    expect((await engine.search(reopened.handle, 'VITELADRAFT')).length).toBe(info.pageCount);
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: '日本', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'EncodingGap' });
+    await engine.close(reopened.handle);
+    await engine.close(handle);
+
+    // A page whose content stream the core cannot rewrite (a chain of
+    // filters) fails the preview refresh: the stamp is taken back out, not
+    // left queued for a save that would fail the same way.
+    const form = await engine.open(readFileSync(fixture));
+    await expect(
+      engine.applyEdit(form.handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: 'DRAFT', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'SaveFailed' });
+    expect(await engine.undo(form.handle)).toMatchObject({ canUndo: false });
+    await engine.close(form.handle);
+  });
+
   it('imports a PDF through the real core as one step, with its own block', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
@@ -308,7 +418,275 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expectBox(added.annotations[0]!.kind === 'stamp' ? added.annotations[0]!.rect : null, placed);
     await engine.close(handle);
   });
+
+  it('compresses the scan of the compress corpus through the real core: smaller, reopens, history untouched', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    expect(await engine.compressPresets()).toEqual(['lossless', 'balanced', 'small']);
+    const scan = readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf'));
+    const { handle } = await engine.open(new Uint8Array(scan));
+    expect(await engine.compressionRefusal(handle)).toBeNull();
+    expect(await engine.compressionInvalidatesSignatures(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+
+    const compressed = await engine.saveCompressedToBytes(handle, 'balanced', false);
+    expect(compressed.reduced).toBe(true);
+    expect(compressed.refusals).toEqual([]);
+    expect(compressed.afterBytes).toBe(compressed.bytes.length);
+    expect(compressed.savedBytes).toBe(compressed.beforeBytes - compressed.afterBytes);
+    expect(compressed.bytes.length).toBeLessThan(scan.length);
+
+    // The copy has the pending turn; the session still has it to undo.
+    const copy = await engine.open(compressed.bytes);
+    expect(copy.info.pages[0]!.rotationDegrees).toBe(90);
+    expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+    const undone = await engine.undo(handle);
+    expect(undone.info.pages[0]!.rotationDegrees).toBe(0);
+    await expect(engine.saveCompressedToBytes(handle, 'tiny' as never, false)).rejects.toMatchObject({
+      name: 'UnsupportedOperation',
+    });
+    await engine.close(copy.handle);
+    await engine.close(handle);
+  });
+
+  it('protects a copy through the real core: it needs a password, either one opens it, the edits are in, the session is not', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const vector = readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf'));
+    const { handle, info } = await engine.open(new Uint8Array(vector));
+    expect(info.pageCount).toBe(3);
+    expect(await engine.protectionRefusal(handle)).toBeNull();
+    expect(await engine.protectionInvalidatesSignatures(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+
+    const passwords = { openPassword: 'open-pw', permissionsPassword: 'permissions-pw' };
+    await expect(engine.protectToBytes(handle, { ...passwords, permissionsPassword: 'open-pw' }, false)).rejects.toMatchObject({
+      name: 'InvalidPasswords',
+      message: 'the open and permissions passwords must be different',
+    });
+    const bytes = await engine.protectToBytes(handle, passwords, false);
+    await expect(engine.open(bytes.slice())).rejects.toMatchObject({ name: 'PasswordRequired' });
+    for (const password of [passwords.openPassword, passwords.permissionsPassword]) {
+      const copy = await engine.open(bytes.slice(), password);
+      expect(copy.info.pageCount).toBe(2);
+      expect(copy.info.textExtractionAllowed).toBe(true);
+      expect(copy.info.documentAssemblyAllowed).toBe(true);
+      expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+      await engine.close(copy.handle);
+    }
+    // Not an edit: the removal is still the one step to undo.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+    await engine.close(handle);
+  });
+
+  it('extracts and splits through the real core: the pages as they are now, named by the core, the session untouched', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const vector = readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf'));
+    const { handle, info } = await engine.open(new Uint8Array(vector));
+    expect(info.pageCount).toBe(3);
+    expect(await engine.extractionRefusal(handle)).toBeNull();
+    expect(await engine.extractSourceIsSigned(handle)).toBe(false);
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+
+    const bytes = await engine.extractPages(handle, [1]);
+    const copy = await engine.open(bytes);
+    expect(copy.info.pageCount).toBe(1);
+    expect((await engine.renderPage(copy.handle, 0, 36)).width).toBeGreaterThan(0);
+    await engine.close(copy.handle);
+
+    const parts = await engine.planSplit('1', 2, 'vector_only.pdf');
+    expect(parts).toEqual([
+      { first: 0, last: 0, fileName: 'vector_only-part1.pdf' },
+      { first: 1, last: 1, fileName: 'vector_only-part2.pdf' },
+    ]);
+    await expect(engine.planSplit('2', 2, 'vector_only.pdf')).rejects.toMatchObject({ name: 'InvalidPageSelection' });
+    // Not an edit: the removal is still the one step to undo.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    await engine.close(handle);
+  });
+
+  it('exports pages through the real core: the pending edits drawn, sized by the DPI, named and encoded by the core', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    expect(await engine.imageExportFormats()).toEqual(['png', 'jpeg']);
+    expect(await engine.parsePageSelection('1', 1)).toEqual([0]);
+    await expect(engine.parsePageSelection('2', 1)).rejects.toMatchObject({ name: 'InvalidPageSelection' });
+    expect(await engine.pageImageFileNames('report.pdf', [0], 1, 'jpeg')).toEqual(['report-1.jpg']);
+
+    const { handle } = await engine.open(readFileSync(fixture));
+    expect(await engine.firstPageTooLargeToExport(handle, [0], 400)).toBeNull();
+    expect(await engine.firstPageTooLargeToExport(handle, [0], 600)).toBe(0);
+    const plain = await exportFirstPage(engine, handle, 72, 'png');
+    expect(pngSize(plain)).toEqual([612, 792]);
+
+    // An unsaved highlight: the preview leaves it out, the export draws it.
+    const band = { left: 72, top: 30, width: 200, height: 20 };
+    await engine.applyEdit(handle, { kind: 'addMarkup', page: 0, markup: 'highlight', rect: band, color: { r: 255, g: 255, b: 0 } });
+    const highlighted = await exportFirstPage(engine, handle, 72, 'png');
+    expect(Buffer.from(highlighted).equals(Buffer.from(plain))).toBe(false);
+
+    // An unsaved quarter turn: the image is landscape, and twice as large at 144 DPI.
+    await engine.applyEdit(handle, { kind: 'rotate', from: 0, count: 1, degrees: 90 });
+    expect(pngSize(await exportFirstPage(engine, handle, 144, 'png'))).toEqual([1584, 1224]);
+    const jpeg = await exportFirstPage(engine, handle, 72, 'jpeg');
+    expect([...jpeg.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+
+    // Not an edit: both steps are still there to undo.
+    expect((await engine.undo(handle)).canUndo).toBe(true);
+    await engine.close(handle);
+  });
+
+  it('prints from a snapshot through the real core: the unsaved highlight drawn, nothing recorded', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const draw = async () => {
+      const { handle: print, pageCount } = await engine.openPrintSnapshot(handle);
+      expect(pageCount).toBe(1);
+      try {
+        return await engine.exportPageImage(print, 0, 72, 'png');
+      } finally {
+        expect(await engine.closeImageExport(print)).toBe(true);
+      }
+    };
+    const plain = await draw();
+    expect(pngSize(plain)).toEqual([612, 792]);
+    const band = { left: 72, top: 30, width: 200, height: 20 };
+    await engine.applyEdit(handle, { kind: 'addMarkup', page: 0, markup: 'highlight', rect: band, color: { r: 255, g: 255, b: 0 } });
+    expect(Buffer.from(await draw()).equals(Buffer.from(plain))).toBe(false);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    await engine.close(handle);
+  });
+
+  it('draws a print snapshot no finer than the print resolution, and an export finer', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const { handle } = await engine.open(readFileSync(fixture));
+    const { handle: print } = await engine.openPrintSnapshot(handle);
+    expect(pngSize(await engine.exportPageImage(print, 0, 150, 'png'))).toEqual([1275, 1650]);
+    await expect(engine.exportPageImage(print, 0, 151, 'png')).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.closeImageExport(print)).toBe(true);
+    expect(pngSize(await exportFirstPage(engine, handle, 300, 'png'))).toEqual([2550, 3300]);
+    await engine.close(handle);
+  });
+
+  it('reads a page\'s content model through the real core: runs, paragraphs, a style, fonts and an image, gated', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const quote = await engine.open(
+      readFileSync(resolve(here, '../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf')),
+    );
+    expect(await engine.contentEditingRefusal(quote.handle)).toBeNull();
+    expect(await engine.contentBaseGeneration(quote.handle)).toBe(0);
+
+    const content = await engine.readPageContent(quote.handle, 0);
+    const heading = content.runs.find((run) => run.text.includes('PRESUPUESTO'));
+    expect(heading).toBeDefined();
+    expect(heading!.editable).toBe(true);
+    // Accents only /ToUnicode explains read back as the letters they are.
+    expect(content.runs.some((run) => run.text.includes('COMPOSICIÓN'))).toBe(true);
+    // On the page as drawn: inside the page, top-left origin.
+    const page = quote.info.pages[0]!;
+    expect(heading!.rect.top).toBeGreaterThanOrEqual(0);
+    expect(heading!.rect.top + heading!.rect.height).toBeLessThanOrEqual(page.heightPt);
+    expect(heading!.rect.width).toBeGreaterThan(0);
+
+    const paragraphs = await engine.readParagraphBlocks(quote.handle, 0);
+    const specification = paragraphs.find((block) => block.lines.length >= 4);
+    expect(specification).toBeDefined();
+    expect(specification!.leadingPt).toBeCloseTo(11, 0);
+    const lines = await engine.readTextBlocks(quote.handle, 0);
+    expect(lines.length).toBeGreaterThan(paragraphs.length);
+
+    const style = await engine.textRunStyle(quote.handle, 0, heading!.id);
+    expect(style).toMatchObject({ fontSizePt: 14 });
+    expect(style!.baseFont).toContain('Vera');
+    const fonts = await engine.pageFontFamilies(quote.handle, 0);
+    expect(Object.values(fonts).some((name) => name.includes('Vera'))).toBe(true);
+    await engine.close(quote.handle);
+
+    const scan = await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf')));
+    const scanned = await engine.readPageContent(scan.handle, 0);
+    expect(scanned.images.length).toBeGreaterThan(0);
+    expect(scanned.images[0]!.rect.width).toBeGreaterThan(100);
+    await engine.close(scan.handle);
+  });
+
+  it('edits a text run through the real core: retype, move, bold, delete, each saved and each undone', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const quote = await engine.open(
+      readFileSync(resolve(here, '../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf')),
+    );
+    const handle = quote.handle;
+    const headingOf = async (doc: number, text: string) =>
+      (await engine.readPageContent(doc, 0)).runs.find((run) => run.text.includes(text));
+    const heading = (await headingOf(handle, 'PRESUPUESTO'))!;
+
+    const program = await engine.textRunFontProgram(handle, 0, heading.id);
+    expect(program?.format).toBe('trueType');
+    expect(program!.bytes.length).toBeGreaterThan(100);
+
+    const retyped = await engine.applyEdit(handle, { kind: 'retypeTextRun', page: 0, runId: heading.id, text: 'PRESUPUESTO WEB' });
+    expect(retyped.canUndo).toBe(true);
+    expect(retyped.paintRevision).toBeGreaterThan(0);
+    const shown = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 0, runId: shown.id, dx: 30, dy: 12 });
+    const moved = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    expect(moved.rect.left).toBeCloseTo(heading.rect.left + 30, 0);
+    expect(moved.rect.top).toBeCloseTo(heading.rect.top + 12, 0);
+    await engine.applyEdit(handle, {
+      kind: 'restyleTextRuns',
+      page: 0,
+      runIds: [moved.id],
+      look: { bold: true, italic: false, underline: false, strike: false },
+    });
+    const bolded = (await headingOf(handle, 'PRESUPUESTO WEB'))!;
+    expect((await engine.textRunLook(handle, 0, bolded.id))?.bold).toBe(true);
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    const saved = (await headingOf(reopened.handle, 'PRESUPUESTO WEB'))!;
+    expect(saved.rect.left).toBeCloseTo(moved.rect.left, 0);
+    expect((await engine.textRunLook(reopened.handle, 0, saved.id))?.bold).toBe(true);
+    await engine.close(reopened.handle);
+
+    await engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: bolded.id });
+    expect(await headingOf(handle, 'PRESUPUESTO WEB')).toBeUndefined();
+    for (let step = 0; step < 4; step++) await engine.undo(handle);
+    const back = (await headingOf(handle, 'PRESUPUESTO'))!;
+    expect(back.text).toBe(heading.text);
+    expect(back.rect.left).toBeCloseTo(heading.rect.left, 0);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    await engine.close(handle);
+  });
 });
+
+/** Opens an export of `handle`, encodes its first page and closes the export. */
+async function exportFirstPage(
+  engine: ReturnType<typeof documentEngine>,
+  handle: number,
+  dpi: number,
+  format: 'png' | 'jpeg',
+): Promise<Uint8Array> {
+  const { handle: exportHandle, pageCount } = await engine.openImageExport(handle);
+  expect(pageCount).toBe(1);
+  try {
+    return await engine.exportPageImage(exportHandle, 0, dpi, format);
+  } finally {
+    expect(await engine.closeImageExport(exportHandle)).toBe(true);
+  }
+}
+
+/** A PNG's IHDR width and height, after checking its signature. */
+function pngSize(bytes: Uint8Array): [number, number] {
+  expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return [view.getUint32(16), view.getUint32(20)];
+}
 
 /** A 2 x 1 pixel PNG: a stamp twice as wide as it is tall. */
 const WIDE_PNG = Buffer.from(

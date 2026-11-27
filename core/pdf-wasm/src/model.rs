@@ -28,8 +28,17 @@ pub struct DocumentModel {
     document: Document,
     base: LopdfDocument,
     /// The bytes `base` was parsed from: every save and preview is computed
-    /// from them plus the queued edits, as in `pdf-ffi`.
+    /// from them plus the queued edits, as in `pdf-ffi`. Always present (a
+    /// web session is always opened from bytes), so a session may
+    /// checkpoint ([`checkpoint`]). A checkpoint swaps both for the rewrite
+    /// it took.
     original_bytes: Vec<u8>,
+    /// The bases behind and ahead of this one, which undo and redo walk
+    /// across (`pdf_save::checkpoint`). Fresh at every open.
+    checkpoints: pdf_save::Checkpoints<checkpoint::Base>,
+    /// Whether a password was typed to open the file — asked by the
+    /// checkpoint policy, which never rewrites a password-protected session.
+    has_password: bool,
     /// The PDFs this session imported pages from ([`import`]), which every
     /// save and preview resolves imported pages through — the same registry
     /// `pdf-ffi` uses. Kept for the whole session: a redo of an undone import
@@ -65,6 +74,8 @@ impl DocumentModel {
             document,
             base,
             original_bytes: bytes.to_vec(),
+            checkpoints: pdf_save::Checkpoints::default(),
+            has_password: credentials.render_password().is_some(),
             imported: ImportedSourceRegistry::new(),
             opened_rotations,
             annotation_ids: pdf_annotate::AnnotationIdCursor::new(),
@@ -135,17 +146,42 @@ fn degrees(rotation: Rotation) -> u32 {
 }
 
 mod annotation;
+mod checkpoint;
+mod compress;
+mod content;
 mod edit;
+mod export;
+mod extract;
 mod form;
 mod import;
+mod metadata;
 mod preview;
+mod protect;
+mod text_run;
+mod watermark;
 
 pub use annotation::{
     free_text_layout, stamp_placement, AnnotationEdit, AnnotationShape, AnnotationView,
 };
+pub use compress::{
+    compress_presets, preset_from_name, preset_name, CompressRefusal, CompressedCopy,
+};
+pub use content::{
+    ContentImageView, ContentPathView, ContentRunView, PageContentView, TextBlockView,
+    TextLineView, TextRunStyleView,
+};
 pub use edit::PageEdit;
+pub use export::{
+    encode_page_image, format_from_name, format_name, page_image_file_name, parse_page_selection,
+    SnapshotUse, EXPORT_FORMATS, PRINT_MAX_DPI,
+};
+pub use extract::{plan_split, SplitPartPlan};
 pub use form::{FieldFill, FieldShape, FormFieldView};
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
+pub use metadata::{DocumentProperties, METADATA_FORBIDDEN};
+pub use protect::PROTECTION_FORBIDDEN;
+pub use text_run::TextRunEdit;
+pub use watermark::{watermark_defaults, WatermarkDefaults, WatermarkRequest, WatermarkStamp};
 
 // Declared at file level, not inside `mod tests`: there the path would be
 // resolved through `src/model/tests/`, a directory that does not exist, which

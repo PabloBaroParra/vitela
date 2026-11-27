@@ -303,6 +303,19 @@ describe('useDocument', () => {
     expect(result.current.state.document).toMatchObject({ info: info(2), generation: 1, canUndo: true, canRedo: false });
   });
 
+  it('keeps the repaint in place every edit answers with, 0 when the engine does not say', async () => {
+    const engine = engineWith(async () => info(1));
+    const { result } = renderHook(() => useDocument(engine));
+    act(() => result.current.open(file('a.pdf')));
+    await waitFor(() => expect(result.current.state.document).not.toBeNull());
+    expect(result.current.state.document?.paintRevision ?? 0).toBe(0);
+    const edited = { info: info(1), canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
+    act(() => void result.current.revise(1, { ...edited, paintRevision: 4 }));
+    expect(result.current.state.document?.paintRevision).toBe(4);
+    act(() => void result.current.revise(1, edited));
+    expect(result.current.state.document?.paintRevision).toBe(0);
+  });
+
   it('keeps the annotation snapshot every edit answers with', async () => {
     const engine = engineWith(async () => info(1));
     const { result } = renderHook(() => useDocument(engine));

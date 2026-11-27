@@ -31,8 +31,12 @@ export interface VitelaViewerProps {
   /** Options for the engine the editor starts itself (read once, at mount). Ignored when `engine` is given. */
   readonly engineOptions?: EngineOptions;
   /**
-   * Receives every save: the document's bytes and its name. Without it, a
-   * save writes over the opened file when the browser allows it, else downloads.
+   * Receives every save: the document's bytes, its name and its media type
+   * (`application/pdf`). Every other file the editor writes arrives here too
+   * under its own name — a compressed copy (`application/pdf`), exported page
+   * images (`image/png`, `image/jpeg`, one call per page). Without it, a save
+   * writes over the opened file when the browser allows it, else downloads,
+   * and every other file downloads.
    */
   readonly onSave?: SaveCallback;
   /** Whether the "Open PDF" picker is offered (default: yes). */
@@ -120,7 +124,7 @@ export function VitelaViewer({
   }, [onSave]);
   const hasOnSave = onSave !== undefined;
   const delivery = useMemo(
-    () => (hasOnSave ? callbackDelivery((bytes, savedName) => saveTo.current?.(bytes, savedName)) : undefined),
+    () => (hasOnSave ? callbackDelivery((bytes, savedName, type) => saveTo.current?.(bytes, savedName, type)) : undefined),
     [hasOnSave],
   );
 

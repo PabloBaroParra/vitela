@@ -50,7 +50,7 @@ describe('mountViewer', () => {
     act(() => viewer.open(new Uint8Array([37]), 'mounted.pdf'));
     expect(await screen.findByText('mounted.pdf — 1 page')).toBeTruthy();
     act(() => viewer.save());
-    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(new Uint8Array([9]), 'mounted.pdf'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(new Uint8Array([9]), 'mounted.pdf', 'application/pdf'));
 
     act(() => viewer.destroy());
     expect(element.childElementCount).toBe(0);

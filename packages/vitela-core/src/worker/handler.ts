@@ -68,6 +68,109 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         const { document, pageIndex, image, anchor } = request;
         return result(id, await engine.stampPlacement(document, pageIndex, image, anchor));
       }
+      // The compress questions are a list of names, a refusal and a yes/no: copied.
+      case 'compressPresets':
+        return result(id, await engine.compressPresets());
+      case 'compressionRefusal':
+        return result(id, await engine.compressionRefusal(request.document));
+      case 'compressionInvalidatesSignatures':
+        return result(id, await engine.compressionInvalidatesSignatures(request.document));
+      case 'saveCompressed': {
+        const { document, preset, invalidateSignatures } = request;
+        const compressed = await engine.saveCompressedToBytes(document, preset, invalidateSignatures);
+        // The report is small; the PDF in it is handed over, not copied.
+        return {
+          message: { type: 'result', id, value: compressed },
+          transfer: [compressed.bytes.buffer as ArrayBuffer],
+        };
+      }
+      // The properties are a few strings, the gate a sentence: copied.
+      case 'documentProperties':
+        return result(id, await engine.documentProperties(request.document));
+      case 'metadataRefusal':
+        return result(id, await engine.metadataRefusal(request.document));
+      // The page-content model is plain values (items, blocks, a style, a few
+      // names, a sentence, a number): copied.
+      case 'contentEditingRefusal':
+        return result(id, await engine.contentEditingRefusal(request.document));
+      case 'readPageContent':
+        return result(id, await engine.readPageContent(request.document, request.pageIndex));
+      case 'readTextBlocks':
+        return result(id, await engine.readTextBlocks(request.document, request.pageIndex));
+      case 'readParagraphBlocks':
+        return result(id, await engine.readParagraphBlocks(request.document, request.pageIndex));
+      case 'textRunStyle': {
+        const { document, pageIndex, runId } = request;
+        return result(id, await engine.textRunStyle(document, pageIndex, runId));
+      }
+      case 'pageFontFamilies':
+        return result(id, await engine.pageFontFamilies(request.document, request.pageIndex));
+      case 'contentBaseGeneration':
+        return result(id, await engine.contentBaseGeneration(request.document));
+      // A run's look is a few flags, copied; its font program is bytes the
+      // UI hands to a FontFace: transferred.
+      case 'textRunLook': {
+        const { document, pageIndex, runId } = request;
+        return result(id, await engine.textRunLook(document, pageIndex, runId));
+      }
+      case 'textRunFontProgram': {
+        const { document, pageIndex, runId } = request;
+        const program = await engine.textRunFontProgram(document, pageIndex, runId);
+        return { message: { type: 'result', id, value: program }, transfer: program ? [program.bytes.buffer as ArrayBuffer] : [] };
+      }
+      // The looks are a few numbers, the gate a sentence: copied.
+      case 'watermarkDefaults':
+        return result(id, await engine.watermarkDefaults());
+      case 'watermarkRefusal':
+        return result(id, await engine.watermarkRefusal(request.document));
+      // The protect questions are a sentence and a yes/no: copied.
+      case 'protectionRefusal':
+        return result(id, await engine.protectionRefusal(request.document));
+      case 'protectionInvalidatesSignatures':
+        return result(id, await engine.protectionInvalidatesSignatures(request.document));
+      case 'protect': {
+        const { document, openPassword, permissionsPassword, invalidateSignatures } = request;
+        const bytes = await engine.protectToBytes(document, { openPassword, permissionsPassword }, invalidateSignatures);
+        // A whole PDF: handed over, not copied.
+        return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
+      }
+      // The image-export questions are lists of numbers and names: copied.
+      case 'imageExportFormats':
+        return result(id, await engine.imageExportFormats());
+      case 'parsePageSelection':
+        return result(id, await engine.parsePageSelection(request.input, request.totalPages));
+      case 'pageImageFileNames': {
+        const { documentName, pages, totalPages, format } = request;
+        return result(id, await engine.pageImageFileNames(documentName, pages, totalPages, format));
+      }
+      case 'firstPageTooLargeToExport':
+        return result(id, await engine.firstPageTooLargeToExport(request.document, request.pages, request.dpi));
+      case 'openImageExport':
+        return result(id, await engine.openImageExport(request.document));
+      case 'exportPageImage': {
+        const { pageIndex, dpi, format } = request;
+        const image = await engine.exportPageImage(request.export, pageIndex, dpi, format);
+        // A whole image file: handed over, not copied.
+        return { message: { type: 'result', id, value: image }, transfer: [image.buffer as ArrayBuffer] };
+      }
+      case 'closeImageExport':
+        return result(id, await engine.closeImageExport(request.export));
+      case 'openPrintSnapshot':
+        return result(id, await engine.openPrintSnapshot(request.document));
+      // The extract questions and a split plan are a sentence, a yes/no and a few parts: copied.
+      case 'extractionRefusal':
+        return result(id, await engine.extractionRefusal(request.document));
+      case 'extractSourceIsSigned':
+        return result(id, await engine.extractSourceIsSigned(request.document));
+      case 'planSplit': {
+        const { cuts, totalPages, documentName } = request;
+        return result(id, await engine.planSplit(cuts, totalPages, documentName));
+      }
+      case 'extract': {
+        const bytes = await engine.extractPages(request.document, request.pages);
+        // A whole PDF: handed over, not copied.
+        return { message: { type: 'result', id, value: bytes }, transfer: [bytes.buffer as ArrayBuffer] };
+      }
     }
   } catch (error) {
     // The core names every failure kind (`WrongPassword`, ...): the UI

@@ -2152,6 +2152,1042 @@ Gates (Windows 11, local):
    git push origin refs/tags/npm-v0.1.0
    ```
 
+### Fase 4 — tareas
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-249** | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
+| **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
+| **T-251** ✓ | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
+| **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
+| **T-253** ✓ | Insertar página en blanco (`PageEdit::InsertBlank` + botón en Organize). | Playwright: insertar, deshacer, guardar y contar páginas. |
+| **T-254** ✓ | Extraer y dividir (varias descargas). | Playwright: cada parte se descarga y abre con sus páginas. |
+| **T-255** ✓ | Metadatos. | Playwright: editar, guardar y releer. |
+| **T-256** ✓ | Marca de agua (texto e imagen). | Playwright: aplicar las dos, guardar y verla al reabrir. |
+| **T-257** ✓ | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
+| **T-258a** ✓ (#666) | Core: la orquestación de la edición de contenido sale de `pdf-ffi` a `pdf-save` (`content_edit.rs`) y `pdf-edit` (`group_text_paragraphs`); `pdf-ffi` delega. | Nativo: cero cambio de comportamiento. |
+| **T-258b** ✓ | Modelo de contenido en wasm (`CheckpointSession`, `readPageContent`, bloques y párrafos, `textRunStyle`, familias de fuente, `contentBaseGeneration`) y modo **Edit content** de solo lectura en el visor. | `wasm-bindgen-test` + Vitest contra pdfium real; Playwright del modo. |
+| **T-259** ✓ | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
+| **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
+| **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
+| **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
+| **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
+
+T-258 bloquea T-259…T-263. T-249 bloquea T-251 y T-254. Las demás son independientes.
+
+### T-250 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Compress") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Ninguna regla
+nueva en el core: `pdf_save` ya tenía las tres llamadas. Lo que condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/compress.rs`, `engine/compress.rs`, `dto/compress.rs`): depende de
+  `pdf-compress` (solo por `CompressPreset` y el informe, como `pdf-ffi`). **Mismo orden que
+  `pdf-ffi`:** `compression_blocker`, `compressed_save_will_invalidate_signatures` (no la
+  pregunta ordinaria: un firmado sin editar contesta `true`) y `save_document_compressed`,
+  sobre el mismo `SaveInput` que `saveToBytes` (que pasa a `with_save_input`, compartido),
+  con las ediciones pendientes y `SaveIntent::Default`. Superficie: `compressPresets()` (función
+  libre, nombres `lossless`/`balanced`/`small` en el orden del core), `compressionRefusal`,
+  `compressionInvalidatesSignatures` y `saveCompressedToBytes(doc, preset, invalidateSignatures)`
+  → `CompressedSave` (`beforeBytes`, `afterBytes`, `savedBytes`, `reduced`, `refusals`,
+  `takeBytes()`). Un preset desconocido → `UnsupportedOperation`.
+- **Decisiones.** El preset cruza como texto, no como enum de wasm-bindgen (números en JS).
+  Los tamaños son `f64`, no `BigInt`: un módulo wasm32 no pasa de 4 GiB. El rechazo es
+  `{ kind, message }`: `encryptedDocumentNotRewritable`, `signaturesWouldBeInvalidated` u
+  `other` (la lista del core es abierta; su frase llega igual). `graft_warnings` se descarta,
+  como en `pdf-ffi`. **Sin camino para el cifrado**: la web guarda siempre con
+  `SaveIntent::Default`, así que un PDF protegido se rechaza en el diálogo (como Linux); no hay
+  "quitar la protección y comprimir".
+- **`@vitela/core`:** `Engine` gana `compressPresets`, `compressionRefusal`,
+  `compressionInvalidatesSignatures` y `saveCompressedToBytes` (`CompressedDocument`, los bytes
+  transferidos, no copiados); `worker/compress.ts` decodifica y libera los objetos wasm (un
+  preset que no conoce se omite, un rechazo desconocido pasa a `other`). Tipos nuevos
+  exportados: `CompressPreset`, `CompressRefusal`, `CompressRefusalKind`,
+  `CompressedDocument`. Comprimir no es un paso: ni refresco ni historial.
+- **`@vitela/viewer` (`features/compress/`):** puro con tests `compressText.ts` (tamaños en
+  potencias de diez, porcentaje truncado, `<nombre>-compressed.pdf` como Android, frases);
+  contenedor `useCompress`; vistas `CompressDialog` (`ModalShell`, un radio por preset,
+  Balanced elegido) y `CompressControls`. **El orden de los nativos:** las dos preguntas al
+  abrir (la de firmas solo si no hay rechazo; si falla, rechaza en vez de suponer "sin
+  firmar"), la ejecución, y la copia **solo si salió más pequeña**; si no, "Nothing to gain…" y
+  no se escribe nada. Con firmas el botón dice "Compress anyway" y confirmar es el
+  consentimiento. Textos de Android (que son los de Windows y GTK). El botón va en la barra
+  del documento, junto a Save, en las dos pantallas; espera a la cola de ediciones como Save
+  (`useSave` gana `settleEdits`). La entrega usa el `Delivery` de siempre con un destino nuevo
+  `newFile` (siempre descarga con ese nombre exacto; con `onSave` del anfitrión, llega ahí con
+  ese nombre y no cuenta como guardado).
+- **Medido, no supuesto:** el escaneo de 200 dpi a `balanced` baja de 237 961 a 153 876 bytes
+  (−35 %), no a la mitad. Y **"nada que ganar" no se alcanza con fixtures reales a través de
+  un guardado**: el guardado ordinario escribe suelto y el reempaquetado siempre gana algo
+  (`already_packed.pdf`: 2 931 → 2 688; un PDF de una página: 690 → 627), así que ese caso
+  queda cubierto solo con Vitest. De paso: con `already_packed.pdf` la copia "comprimida"
+  (2 688) es **mayor que el archivo abierto** (2 601), porque el informe compara con el
+  guardado, no con el disco; es la regla del core y de los nativos ("uncompressed", nunca
+  "the original").
+- **Teléfono (≤ 600 px):** con el botón nuevo los controles ya no cabían junto al nombre (a
+  390 px el nombre quedaba en 0 px y fallaban 12 E2E de `comments` en los tres navegadores).
+  Ahora Compress muestra solo su icono (la palabra sigue siendo su nombre accesible) y los
+  controles de la barra se aprietan (relleno lateral 8 px, hueco 6 px), así que la barra
+  **sigue en una fila** y el nombre vuelve a tener el sitio de antes. **No vale una segunda
+  fila para las líneas de estado** (se probó y entró en el PR #655): cada píxel de alto de la
+  barra sale de las páginas y del panel de Comments que va debajo (`max-height: 45 %`); a
+  390 × 600 la barra pasó de 42 a 64 px, el panel de 87 a 77 px y su primera fila quedó bajo
+  la cabecera fija (53 px), que se tragaba el clic: `comments.spec.ts:192` falló en CI en
+  los tres navegadores (en Windows pasaba por las fuentes). Con una fila la barra vuelve a
+  42 px y el panel a 87, lo mismo que antes de T-250. Ese margen (33 px bajo la cabecera para
+  una fila de 35) ya era justo antes de T-250 y no se toca aquí.
+- **Tests:** `pdf-wasm` 7 nativos nuevos (`model/compress.rs`) y 6 `wasm-bindgen-test`
+  (`tests/compress.rs`); `@vitela/core` 16 Vitest nuevos, uno contra pdfium real (escaneo
+  comprimido con un giro pendiente, reabierto girado, el giro aún se deshace, preset
+  desconocido rechazado); `@vitela/viewer` 21 nuevos. Vistos en rojo antes de implementar
+  (los de Rust, por no compilar; los de `compressText`, `CompressControls`, `delivery`,
+  `worker/compress`, `documentEngine`, `handler` y `client`, fallando).
+- **E2E (`e2e/compress.spec.ts`, 4 × 3):** el escaneo a Small baja de tamaño, se descarga como
+  `scan_200dpi-compressed.pdf`, empieza por `%PDF-` y reabre con una página pintada; borrar
+  una página en Organize y comprimir (Lossless) da una copia de 2 páginas y la edición sigue
+  sin guardar y deshacible; `aes_128_user_and_owner.pdf` → alerta del core, Compress y los
+  radios desactivados, Escape devuelve el foco al botón, ninguna descarga; firmado → aviso,
+  Cancel, y "Compress anyway" descarga una copia más pequeña que abre.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test -p pdf-wasm` 98 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  166. `@vitela/viewer`: `tsc -b`, Vitest 74 / 748. `apps/web`: `typecheck`, Vitest 6 / 19,
+  `build`; Playwright completo (Chromium, Firefox, WebKit) **211 pasan, 20 omitidos** (los
+  de File System Access fuera de Chromium), `zero-network` incluido; `compress` + `comments`
+  con `--repeat-each=3`: 108 / 108.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** la herramienta `/compress` de la portada sigue en `web: false`
+  (como `annotate` y `forms`, que tampoco se han encendido: decisión aparte); sin lector de
+  pantalla real.
+
+### T-252 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Export images"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Ninguna regla nueva en el core: `pdf_save` ya tenía la gramática de páginas, los
+nombres y `encode_rgba_image`, y `pdf_render` el techo de raster. Lo que condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/export.rs`, `engine/export.rs`): la superficie de `pdf-ffi`
+  (`export.rs` + `output.rs`) con una diferencia forzada por el target:
+  `pdf_save::export_page_as_image` es solo nativo (usa el renderer con hilos), así que la
+  página la pinta el `SyncRenderer` del engine y la codifica `encode_rgba_image` en Rust, no
+  un canvas. Funciones libres `imageExportFormats()` (`png`, `jpeg`), `parsePageSelection`
+  (rechazo nuevo `InvalidPageSelection`, con la frase del core) y `pageImageFileName`; en el
+  `Engine`, `firstPageTooLargeToExport`, `openImageExport` → id, `exportPageImage(export,
+  page, dpi, format)` → bytes y `closeImageExport`. El formato cruza como texto, como el
+  preset de T-250.
+- **Qué se dibuja: la instantánea de salida, como Android y Windows.** Lo que escribiría un
+  guardado ahora (`with_save_input` con la firma reconocida, como `pdf-ffi`
+  `output_snapshot`: no se escribe nada, solo se rasteriza), abierta una vez por exportación
+  en un mapa propio del engine, aparte de los documentos. Así entran las ediciones de página,
+  las anotaciones y los rellenos sin guardar (el preview en pantalla deja fuera las
+  anotaciones de la sesión). No es un paso: ni historial ni refresco. El permiso es el de
+  extracción de texto, con la frase de `pdf-ffi`.
+- **Sin calidad JPEG:** el codificador del core no la tiene, ni los otros shells. DPI 72–400,
+  150 por defecto, caja vacía = 150 (el mismo techo y la misma razón que los nativos: Letter
+  a 600 DPI pasa de 32 Mpx).
+- **`@vitela/core`:** `Engine` gana `imageExportFormats`, `parsePageSelection`,
+  `pageImageFileNames` (los nombres de varias páginas en una sola petición),
+  `firstPageTooLargeToExport`, `openImageExport`, `exportPageImage` (bytes transferidos, no
+  copiados) y `closeImageExport`. Tipos exportados `ImageExportFormat`, `ImageExportHandle` y
+  la constante `INVALID_PAGE_SELECTION`.
+- **`@vitela/viewer` (`features/exportImages/`):** puro con tests `exportText.ts` (borrador,
+  lectura del DPI, frases de Android) y `planExport.ts` (el plan en el orden de los nativos:
+  DPI, permiso, páginas, techo, nombres; un rechazo deja el diálogo abierto con lo tecleado);
+  contenedor `useExportImages`; vistas `ExportImagesDialog` (`ModalShell`: Pages, Format,
+  Resolution) y `ExportImagesControls`. El botón va en la barra, junto a Compress, en las dos
+  pantallas. Espera a la cola de ediciones como Save. "Current
+  page" es la última página que mostró el visor (`ReportCurrentPageContext`, nuevo), recortada
+  a la última. Se para en la primera página que falla y dice cuántas se escribieron; la
+  instantánea se cierra siempre. La caja de DPI es de texto (solo dígitos, tres como máximo,
+  como Android): con `type="number"` la validación del navegador frenaba el envío con su
+  globo antes de que el diálogo dijera por qué.
+- **Entrega: una descarga por página, no un zip.** No hay escritor zip en el árbol de
+  dependencias (ni npm ni Cargo) y meterlo sería solo para esto; los nativos escriben un
+  archivo por página en una carpeta, y una descarga por página es lo más parecido. Cada
+  imagen sale por el `Delivery` de siempre como `newFile`, que gana un `type` (tipo MIME;
+  PDF si falta) para etiquetar el blob. **Anfitrión:** `onSave` recibe ahora un tercer
+  argumento `type` (`application/pdf`, `image/png`, `image/jpeg`) y una llamada por página,
+  en orden, esperando a cada una; un rechazo para la exportación. Es aditivo: un `onSave` de
+  dos parámetros sigue funcionando. El README del viewer tiene la tabla de qué llega.
+- **Teléfono (≤ 600 px): menú "More tools".** Sobre el arreglo de T-250 (664dd20: la barra en
+  **una** fila, porque cada píxel de alto sale de las páginas y del panel de comentarios),
+  un segundo icono no cabía junto a Save. Un primer intento movía los iconos a otra fila con
+  `order`, que además dejaba el orden del tabulador distinto del visual (WCAG 2.4.3);
+  descartado. Ahora, en teléfono, Compress y Export images se ocultan (`display: none`: fuera
+  del tabulador y del árbol de accesibilidad) y en su lugar del DOM aparece un botón de menú
+  **More tools** (`ui/ToolsMenu.tsx`, patrón "menu button" de la APG: `aria-haspopup`,
+  `aria-expanded`, `aria-controls`; Enter, Espacio o ↓ abren en el primero, ↑ en el último;
+  ↑/↓ con vuelta, Inicio/Fin, Escape cierra y devuelve el foco, Tab cierra; un toque fuera
+  cierra; una herramienta ocupada sale con `aria-disabled`). Al elegir, el foco vuelve al
+  botón **antes** de la acción, así que el diálogo que abre lo devuelve allí también. Es el
+  sitio de las herramientas que vienen (Protect, Extract…): se añaden como una entrada más. En
+  escritorio no cambia nada. Los iconos de Compress de T-250 ya no se muestran en ningún
+  ancho y se quitaron.
+- **Tests:** `pdf-wasm` 8 nativos nuevos (`model/export.rs`) y 4 `wasm-bindgen-test`
+  (`tests/export.rs`); `@vitela/core` 11 Vitest nuevos, uno contra pdfium real (un subrayado
+  sin guardar cambia los bytes del PNG, un giro sin guardar da 1584 × 1224 a 144 DPI, JPEG
+  con su firma, rango rechazado por nombre, el historial intacto); `@vitela/viewer` 36
+  nuevos (8 de `ToolsMenu`, 1 del menú en `DocumentWorkspace`). Vistos en rojo antes de implementar: los de Rust (por no compilar), `documentEngine`
+  (6 fallando), `download`/`delivery`/`callbackDelivery` (3 fallando), los de
+  `features/exportImages/` y `ToolsMenu` (sin módulo), el menú del workspace (fallando) y la
+  caja de DPI (3 fallando con `type="number"`).
+  Los de `handler`, `client` y el de pdfium real se escribieron antes que su código pero no
+  se vieron en rojo por separado.
+- **E2E (`e2e/export-images.spec.ts`, 4 × 3):** la página actual (tras bajar a la 3) en PNG
+  a 144 DPI es una descarga `vector_only-3.png` de 1224 × 1584; el rango `2-3` en JPEG a
+  72 DPI son `vector_only-2.jpg` y `vector_only-3.jpg` de 612 × 792 (leídos de la cabecera
+  de cada archivo); una página girada en Organize sin guardar sale apaisada y la edición
+  sigue sin guardar y deshacible; `2-9` muestra la frase del core y 600 DPI el rechazo del
+  rango, sin ninguna descarga, y Escape devuelve el foco al botón. **`e2e/phone-bar.spec.ts`
+  (2 × 3), a 390 × 600:** la barra es una sola fila (todos sus hijos visibles comparten franja
+  y ninguno se sale), su orden en pantalla es el del DOM, Tab va Organize → More tools → Save,
+  Compress y Export images están ocultos y Save visible; el menú se maneja con teclado (Enter
+  abre en Compress, ↓, Enter abre Export images, Escape devuelve el foco a More tools; Escape
+  cierra el menú) y con un toque abre Compress.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test -p pdf-wasm` 106 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  177. `@vitela/viewer`: `build`, `tsc -b`, Vitest 78 / 784. `apps/web`: `typecheck`, Vitest
+  6 / 19, `build`; Playwright completo (Chromium, Firefox, WebKit) sobre 664dd20 **229 pasan,
+  20 omitidos** (los de File System Access fuera de Chromium), `zero-network` y `comments`
+  390 × 600 incluidos; `comments`, `phone-bar`, `compress` y `export-images` con
+  `--repeat-each=3`: 162 / 162. (Antes del menú, una ejecución completa tuvo un fallo de
+  `draw` en Chromium, una alerta de texto libre que no se repitió después.)
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`; el aviso del navegador de "varias descargas" (Playwright las acepta
+  todas).
+- **No cubierto / pendiente:** el rechazo por página demasiado grande solo se cubre con
+  Vitest y con el test nativo (a 400 DPI ningún fixture pasa del techo); la herramienta de
+  la portada (`/pdf-to-image`) sigue en `web: false`, como `/compress`.
+- **Revisión (después de #657):**
+  - **Recuento de páginas:** `openImageExport` devuelve `{ handle, pageCount }` (DTO
+    `OpenedImageExport` en `pdf-wasm`) y el plan cuenta las páginas de la instantánea,
+    abierta tras asentarse la cola, no las del documento tal como lo vio el viewer (podía
+    no haber alcanzado una edición todavía). Lo que no necesita instantánea (DPI, permiso)
+    se comprueba antes (`precheckExport`); un rechazo del plan cierra la instantánea.
+  - **Cancelar y desmontar:** **Cancel export** mientras corre (la página en curso sale;
+    "Export cancelled. N written."); al desmontarse el editor el bucle para y la
+    instantánea se cierra.
+  - **Foco en teléfono:** al cerrar el diálogo, si el botón propio está oculto
+    (`checkVisibility`), el foco va a **More tools** (`ui/focusShown.ts`), en Compress y en
+    Export images. Playwright 390 × 600: tras Cancel de Compress y tras una exportación
+    lanzada desde el menú, el foco está en More tools.
+  - **Formatos del core:** el diálogo pinta los de `imageExportFormats` (PNG primero si
+    está; si la pregunta falla, rechaza en vez de suponer).
+  - **Descargas bloqueadas:** solo documentado (README de `apps/web`): la página no puede
+    saber si el navegador permitió cada descarga.
+  - `sentence` pasa a `ui/text.ts` (compartido); fuera las líneas en blanco dobles.
+  - **Puertas:** `cargo fmt --check`, clippy `pdf-wasm` nativo y wasm32, `cargo test -p
+    pdf-wasm` 106; `@vitela/core` `build:wasm`, `typecheck`, Vitest 177; `@vitela/viewer`
+    `tsc -b`, Vitest 792; `apps/web` `typecheck`, Vitest 19, `build`; Playwright completo en
+    los tres navegadores **232 pasan, 20 omitidos**. Vistos en rojo antes del código: los
+    12 de `ExportImagesControls`, el de `documentEngine`, el de foco de Compress y los
+    `wasm-bindgen-test` (por no compilar); los dos Playwright de foco nuevos no se vieron
+    en rojo por separado.
+
+### T-251 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Protect"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Ninguna regla nueva en el core: T-249 ya dejó en `pdf_save::protect` las dos
+contraseñas, AES-128 con `GRANTED_PROTECTION_PERMISSIONS` y la pregunta de firmas. Lo que
+condiciona lo que sigue:
+
+- **`pdf-wasm`** (`model/protect.rs`, `engine/protect.rs`): `protectionRefusal(doc)` → frase o
+  `undefined`, `protectionInvalidatesSignatures(doc)` y `protectToBytes(doc, openPassword,
+  permissionsPassword, invalidateSignatures)` → bytes, sobre un `SaveSource` como el de
+  `pdf-ffi` (`with_save_source`, nuevo en `model/edit.rs`; `with_save_input` pasa a usarlo), con
+  las ediciones pendientes. **La puerta de permiso vive en Rust**, no en TS: la de Windows y
+  Android (`content_editing_is_allowed`, el bit de modificar contenido; un propietario siempre
+  pasa), con la frase de los nativos ("this document does not permit protection changes");
+  `protectToBytes` la repite (`EditNotPermitted`). Tipo de error nuevo **`InvalidPasswords`**
+  para `ProtectError::MissingPassword`/`SamePasswords` con la frase del core (en `pdf-ffi` son
+  `InvalidSaveRequest`); `ProtectError::Save` conserva los tipos del guardado. Sin DTO: cruzan
+  texto, booleano y bytes.
+- **Documento ya cifrado:** como Windows y Android, decide el permiso de modificar, no el
+  cifrado. `aes_128_user_and_owner.pdf` con su contraseña de usuario (su `/P` no permite
+  modificar) se rechaza en el diálogo; con la de propietario, o un PDF cifrado que sí permite
+  modificar, se protege con las contraseñas nuevas (tests nativos). GTK pregunta además
+  `full_rewrite_refusal`; con un contexto nuevo completo el core no lo necesita, así que no se
+  añade.
+- **`@vitela/core`:** `Engine` gana `protectionRefusal`, `protectionInvalidatesSignatures` y
+  `protectToBytes(handle, { openPassword, permissionsPassword }, invalidateSignatures)` (un
+  objeto, para que las dos contraseñas no se crucen de sitio; los bytes transferidos). Tipo
+  `ProtectionPasswords` y constante `INVALID_PASSWORDS` exportados. Las contraseñas viajan en
+  la única petición `protect` y no se guardan en ningún lado; ni el cliente ni el worker
+  registran nada (un test comprueba que la respuesta de error no las lleva).
+- **`@vitela/viewer` (`features/protect/`):** puro con tests `protectText.ts`
+  (`<nombre>-protected.pdf` como Android, línea de estado); contenedor `useProtect`; vistas
+  `ProtectDialog` (`ModalShell`: los dos campos con `type="password"` y
+  `autocomplete="new-password"`, textos de Android) y `ProtectControls`. **El orden de los
+  nativos:** las dos preguntas al abrir (la de firmas solo si no hay rechazo; si falla, rechaza
+  en vez de suponer "sin firmar"), las contraseñas y la copia. **Ninguna regla de contraseñas
+  en TS:** el diálogo manda lo tecleado y, si el core lo rechaza (`InvalidPasswords`), muestra
+  su frase con el diálogo abierto y lo tecleado intacto (Android y Windows comprueban antes del
+  selector de archivo porque lo tienen; la web no tiene selector, así que la respuesta del core
+  llega antes de escribir nada). Sin campos de confirmación: ningún shell nativo los tiene.
+  **Contraseñas fuera del estado de React:** viven en los campos (no controlados) del diálogo,
+  salen solo en la llamada, y los campos se vacían al desmontarse. Con firmas el botón dice
+  "Protect anyway" y confirmar es el consentimiento. Espera a la cola de ediciones como Save.
+  Botón en la barra tras Export images y entrada **Protect** en **More tools** (oculto en
+  teléfono como los otros dos).
+- **No se reabre en sitio (diferencia con los nativos):** Android, Windows y GTK reabren el
+  archivo protegido como sesión con las dos contraseñas. En la web la copia es una descarga
+  (`newFile`), no el archivo de la sesión, así que el documento abierto sigue sin proteger, con
+  sus ediciones y su historial, y la línea de estado lo dice ("The open document is not
+  protected."). Para trabajar sobre la copia se abre: la app pide su contraseña y cualquiera de
+  las dos la abre (el `open` de la web solo admite una; la de permisos abre como propietario).
+- **Tests:** `pdf-wasm` 7 nativos nuevos (`model/protect.rs`) y 4 `wasm-bindgen-test`
+  (`tests/protect.rs`); `@vitela/core` 9 Vitest nuevos, uno contra pdfium real
+  (`vector_only.pdf` con una página borrada sin guardar → copia cifrada que pide contraseña, abre
+  con cada una con 2 páginas y todos los permisos, contraseñas iguales rechazadas con la frase
+  del core, el borrado aún se deshace); `@vitela/viewer` 12 nuevos (4 de `protectText`, 7 de
+  `ProtectControls`, 1 del workspace; y el del menú ahora espera tres entradas). Vistos en rojo
+  antes de implementar: los de Rust (por no compilar), los 8 de `client`/`handler`/
+  `documentEngine` y los de `features/protect/` (sin módulo) y del workspace (2 fallando). Los
+  `wasm-bindgen-test` y el de pdfium real se escribieron antes que su código pero no se vieron
+  en rojo por separado.
+- **E2E (`e2e/protect.spec.ts`, 4 × 3):** borrar una página en Organize y proteger descarga
+  `vector_only-protected.pdf` (empieza por `%PDF-`, lleva `/Encrypt`), el foco vuelve a Protect
+  y el borrado sigue sin guardar y deshacible; la copia rechaza una contraseña equivocada, abre
+  con la de apertura (2 páginas, pintada, Delete de Organize activo: todos los permisos) y con
+  la de permisos; contraseña ausente y repetida muestran las frases del core sin ninguna
+  descarga, y al reabrir el diálogo los campos están vacíos; firmado → aviso, Cancel, y
+  "Protect anyway" descarga una copia que abre con su contraseña;
+  `aes_128_user_and_owner.pdf` con la contraseña de usuario → alerta, Protect y los campos
+  desactivados, foco en Cancel, Escape lo devuelve a Protect. **`e2e/phone-bar.spec.ts`
+  (+1 × 3), a 390 × 600:** Protect oculto en la barra, el menú lista Compress, Export images y
+  Protect, el diálogo cabe en la pantalla con el foco en el primer campo y Cancel devuelve el
+  foco a More tools; la barra sigue en una fila.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test --locked -p pdf-wasm` 113 pasan. `@vitela/core`: `build:wasm`, `typecheck`,
+  Vitest 15 / 186. `@vitela/viewer`: `tsc -b`, Vitest 81 / 804. `apps/web`: `typecheck`,
+  Vitest 6 / 19, `build`; Playwright `protect` + `phone-bar` en los tres navegadores 24 / 24;
+  Playwright completo (Chromium, Firefox, WebKit, con `CI=1` para no reutilizar un servidor
+  ajeno) **247 pasan, 20 omitidos** (los de File System Access fuera de Chromium),
+  `zero-network` y `phone-bar` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** la herramienta `/protect` de la portada sigue en `web: false`,
+  igual que `/compress` y `/pdf-to-image`; sin editor de restricciones (`/P` siempre
+  abierto, como en todos los shells); sin lector de pantalla real.
+
+### T-253 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize", **Add blank page**) y
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Ninguna regla
+nueva en el core: `Command::insert_blank_page` ya mintaba el `PageId` desde el `Document` y
+`pdf_save::check_edit` ya clasificaba la inserción. Lo que condiciona lo que sigue:
+
+- **Semántica copiada de `pdf-ffi` (`FfiEditCommand::InsertBlankPage`):** una página A4
+  (595 × 842), vertical u horizontal — lo único que ofrecen Windows (`PdfCoreEdit.InsertBlankPage`
+  siempre con `FfiPageSize.A4`) y Android (`PageEdit.InsertBlank(index, landscape)`) —, insertada
+  para quedar en la posición `index`; `index == pageCount` añade al final. El límite (`len`, no
+  `len - 1`) se comprueba **antes** de mintar el id, como `pdf-ffi`, así que una posición mala no
+  gasta ninguno; `PageIndexOutOfBounds` nombra la posición. Espacio de ids agotado →
+  `UnsupportedOperation` (en `pdf-ffi` es `InvalidSaveRequest`, que la web no tiene). Un paso de
+  deshacer; el redo conserva el mismo id.
+- **Puerta:** la misma de Move/Remove, sin código nuevo: `PageEdit::InsertBlank` es
+  `document_assembly + page_structure` (`EditClass`, verificado contra `EditClass::of` del
+  comando construido en el test de paridad), así que `check_edit` pide el permiso de ensamblado
+  (`EditNotPermitted`) y después `full_rewrite_blocker` (`UnsupportedOperation`: p. ej. un PDF
+  cifrado abierto solo con la contraseña de usuario, aunque conceda ensamblado). `previewStale`
+  queda en `true` y el worker refresca la vista dentro de la misma petición.
+- **`pdf-wasm`** (`model/edit.rs`, `engine/edit.rs`): variante `PageEdit::InsertBlank { index,
+  orientation }`; `PageEdit::command` pasa a `&mut Document` porque la inserción minta el id.
+  JS: `EditCommand.insertBlankPage(index, landscape)`.
+- **`@vitela/core`:** `PageEdit` gana `{ kind: 'insertBlank', at, orientation }` y se exporta el
+  tipo `PageOrientation` (`'portrait' | 'landscape'`). Sin petición nueva: viaja por `applyEdit`.
+- **`@vitela/viewer` (`features/organize/`):** **UX.** Los nativos ponen "+" en cada tarjeta
+  ("insertar antes", con Vertical/Horizontal en Android y Windows) y un "añadir al final"
+  (tarjeta final en Android, dos botones en la cabecera de Windows); GTK no tiene la acción en
+  Organize. La web no tiene botones dentro de las tarjetas (son opciones de un `listbox` con la
+  selección como sujeto de toda la barra), así que la acción es un botón-menú **Add blank page**
+  en la barra (`ToolsMenu`, que gana `disabled`: `aria-disabled` y no se abre) con **Portrait
+  A4** / **Landscape A4**, que inserta **después** de la selección (tras la última página de los
+  bloques elegidos en Documents) o al final si no hay selección, y selecciona la tarjeta nueva.
+  Así cubre los dos casos de los nativos (después de la página N = antes de la N+1; al final)
+  en las dos vistas; en Documents la página sale como bloque "Blank pages". Sin el permiso el
+  botón está desactivado como los demás y el aviso dice ahora "added, moved, rotated or deleted".
+- **Tests:** `pdf-wasm` 4 nativos nuevos (inserción con `/MediaBox` A4 y sin contenido leídos
+  con lopdf, horizontal añadida al final, un paso de deshacer/rehacer con el mismo id, rechazo
+  por reescritura) y casos nuevos en paridad de `EditClass`, fuera de rango y sin permiso; 1
+  `wasm-bindgen-test` nuevo (`tests/engine.rs`: id propio, render 595 × 842 sin tinta, 842 × 595
+  la horizontal, guardar y reabrir) más casos en `page_edits_are_refused_by_kind`.
+  `@vitela/core` 3 Vitest nuevos (2 de `documentEngine`, 1 contra pdfium real: id y bloque
+  `blank` propios, render blanco, `/MediaBox` al reabrir, posición fuera de rango).
+  `@vitela/viewer` 5 nuevos (4 de `OrganizeScreen`: después de una página, después de un rango
+  en horizontal, deshacer, vista Documents; 1 de `ToolsMenu` desactivado) y el de documento
+  bloqueado ampliado. Vistos en rojo antes de implementar: los de `documentEngine` (2), los de
+  `OrganizeScreen` (5) y el de `ToolsMenu`. Los de Rust y el de pdfium real se escribieron
+  junto a su código y no se vieron en rojo por separado.
+- **E2E (`e2e/insert-blank.spec.ts`, 2 × 3):** con la página 1 seleccionada, Portrait A4 → 3
+  tarjetas (`300`, `500` = A4, `400`), la nueva seleccionada ("Page 2 of 3 selected") y el foco
+  de vuelta en el botón; Undo → 2, Redo → 3; el guardado tiene 3 páginas con exactamente un
+  `/MediaBox [0 0 595 842]`, y al reabrirlo "3 pages", la página 2 sin un píxel de tinta y con
+  proporción A4, la 1 con su texto. Documents → Landscape A4 → bloque "Blank pages, 1 page"
+  seleccionado, guardado con un `/MediaBox [0 0 842 595]`. **`e2e/organize.spec.ts`:** el PDF
+  sin permiso de ensamblado tiene Add blank page desactivado y forzar el clic no abre menú ni
+  añade página. Helper nuevo `pageMediaBoxes` en `e2e/pdfObjects.ts`.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `--target wasm32-unknown-unknown` (con
+  `PDFIUM_WASM_DIR`); `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`;
+  `cargo test --locked -p pdf-wasm` 117 pasan. `@vitela/core`: `build:wasm`, `typecheck`,
+  Vitest 15 / 189, `build`. `@vitela/viewer`: `tsc -b`, Vitest 81 / 809, `build`. `apps/web`:
+  `tsc -b`, Vitest 6 / 19, `vite build`; Playwright completo (Chromium, Firefox, WebKit, con
+  `CI=1`) **253 pasan, 20 omitidos** (los de File System Access fuera de Chromium),
+  `zero-network` y `phone-bar` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** sin tamaño Carta ni personalizado (ningún shell nativo lo ofrece
+  en Organize, aunque `FfiPageSize` lo admite); sin "insertar antes" por tarjeta (se cubre con
+  seleccionar la página anterior); sin lector de pantalla real.
+
+### T-254 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Organize", **Extract** y **Split**),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) (qué llega a
+`onSave`). Lo que condiciona lo que sigue:
+
+- **Core (`pdf-save`):** una función nueva, `pdf_save::extraction_refusal(&Document)` → las dos
+  puertas de la extracción que no dependen de la selección (`ExtractionDenied`, luego
+  `RewriteBlocked`), en el orden de `extracted_pages`, que ahora la usa. Así la web pregunta la
+  puerta antes de abrir el diálogo con la frase del core (`rewrite_refusal` es privada) sin
+  copiarla. `pdf-ffi` no cambia.
+- **`pdf-wasm`** (`model/extract.rs`, `engine/extract.rs`, `dto/extract.rs`):
+  `extractionRefusal(doc)` → frase o `undefined`, `extractSourceIsSigned(doc)` (de `base`, como
+  `pdf-ffi`), `extractPagesToBytes(doc, pages)` sobre el `SaveSource` de la sesión (ediciones
+  pendientes incluidas; poda un **clon**, sin paso de deshacer) y la función libre
+  `planSplit(cuts, totalPages, documentName)` → `SplitPart { first, last, fileName }` (el
+  `plan_split` de `pdf-ffi`: `resolve_split_cuts` + `split_parts` + `split_part_file_name`).
+  Errores con el mapeo de `pdf-ffi`: selección vacía o desordenada → `InvalidPageSelection`,
+  posición fuera → `PageIndexOutOfBounds`, permiso o cifrado → `UnsupportedOperation` con la
+  frase del core, guardado → los del guardado; un corte que el core rechaza →
+  `InvalidPageSelection` con su frase.
+- **Cifrado y firmas, como los nativos:** extraer de un PDF protegido da un PDF **protegido**
+  (`SaveIntent::Default` del core: el bit 5 permite sacar contenido, no entregarlo sin
+  protección); abierto solo con la contraseña de usuario se rechaza (la reescritura no puede
+  recifrarlo); con las dos, la copia pide la misma contraseña. De un PDF firmado se extrae igual
+  y el estado lo dice ("…signature no longer verifies"), sin pregunta, como Android y Windows.
+- **`@vitela/core`:** `Engine` gana `extractionRefusal`, `extractSourceIsSigned`,
+  `extractPages(handle, pages)` (bytes transferidos) y `planSplit(cuts, totalPages, name)`;
+  tipo `SplitPart` exportado; `worker/extract.ts` convierte y libera los objetos wasm.
+- **`@vitela/viewer` (`features/extract/`):** puro con tests `extractText.ts` (nombre
+  `<nombre>-extract.pdf` de Android y Windows, pistas y estados con las palabras de Android);
+  contenedores `useExtract` y `useSplit` (las dos preguntas al abrir: si fallan, rechaza; un PDF
+  de una página se rechaza al abrir Split con la frase del core, como el preflight de Windows);
+  vista común `PageRangeDialog` (un campo, pista, rechazo con el diálogo abierto y lo tecleado
+  intacto; con puerta cerrada, alerta y solo Cancel) y `ExtractControls`/`SplitControls` (estado,
+  **Cancel split** y diálogo). **Split en paralelo con Export images:** una descarga por parte,
+  en orden, se para en la primera que falla, al cancelar (tras la parte en curso) o al
+  desmontarse, y cuenta lo escrito; todas las partes se piden al motor justo después del plan,
+  así salen del mismo estado del documento aunque se edite mientras salen. Sin carpeta ni aviso
+  de sobrescritura (los nativos lo tienen; una descarga no sobrescribe). Esperan a la cola de
+  ediciones como Save.
+- **UX: los botones van en Organize, no en la barra.** **Extract** (activo con selección, abre
+  el diálogo con ella: `"2-3"`) y **Split** en la barra de Organize junto a las otras
+  herramientas de páginas (Windows también los tiene en su cabecera de Organize; Android en el
+  menú del lector). No son ediciones: el permiso de ensamblado no los apaga; se apagan mientras uno de los dos
+  corre y, como Undo, mientras una edición de Organize está en curso. **Corrección de revisión
+  (R4-001):** la cola de Organize no se entregaba a `useSave` (solo el visor lo hacía), así que
+  Save, Compress, Protect, Export, Extract y Split no la esperaban; ahora `useOrganize` la
+  registra (`useSaveWaitsFor`), y Extract/Split leen el número de páginas de la última edición
+  aplicada (`useDocument.pageCountNow`, fijado en `revise` antes del render), no el del clic. Primero se pusieron en la barra del workspace
+  (y en **More tools**), pero dos botones más la partían en otra fila en el host de `embed`
+  (botones del host enormes) y bajaban la página fuera de la ventana: los dos tests de
+  `embed.spec.ts` que sueltan/dibujan sobre la página fallaban. En lugar de tocar esos tests se
+  movieron a Organize; sus líneas de estado y Cancel split sí están en la barra, así sobreviven
+  al cambio a View. **More tools no cambia** (Compress, Export images, Protect). Los botones de
+  Organize toman el foco al pulsarse (`opensDialog`): Safari no enfoca un botón pulsado y el
+  diálogo devolvía el foco a la tarjeta.
+- **Parte A (revisión de T-253):** `ui/ToolsMenu.tsx` pasa a `ui/MenuButton.tsx` (componente
+  `MenuButton`, clases `menu-button__*`, cabecera genérica: sirve a More tools y a Add blank
+  page). Al desactivarse abierto se cierra para siempre (un `useLayoutEffect` lo cierra antes de
+  pintar, mientras el foco aún está en el menú) y, si el foco estaba dentro, vuelve al botón;
+  volver a activarlo no lo reabre. Doc de `PageEdit` corregido (`insertBlank` usa `at`, no
+  `from`/`count`).
+- **Tests:** `pdf-save` 1 nativo nuevo (`extraction_refusal` y su orden); `pdf-wasm` 8 nativos
+  nuevos (`model/extract.rs`: páginas y sesión intacta, ediciones pendientes, selecciones y
+  posición fuera, permiso, una contraseña vs. las dos con copia protegida, firmado, plan y sus
+  rechazos) y 5 `wasm-bindgen-test` (`tests/extract.rs`). `@vitela/core` 8 Vitest nuevos (1 de
+  `client`, 2 de `handler`, 4 de `documentEngine`, 1 contra pdfium real: `vector_only.pdf` con
+  una página borrada sin guardar → 1 página extraída que se abre y pinta, plan con nombres del
+  core, corte tras la última rechazado, el borrado aún se deshace). `@vitela/viewer` 22 nuevos (7
+  de `extractText`, 10 de `ExtractControls`/`SplitControls`, 2 de `OrganizeScreen`, 1 del
+  workspace, 2 de `MenuButton`). Vistos en rojo antes de implementar: los de `MenuButton` (1
+  fallando), los de `client`/`handler`/`documentEngine` (7), los de `extractText`, controles
+  (sin módulo) y workspace (2) y el de `extraction_refusal` (no compilaba). Los de `pdf-wasm`, el
+  de pdfium real y los de `OrganizeScreen` se escribieron junto a su código.
+- **E2E (`e2e/extract-split.spec.ts`, 6 × 3):** páginas 2-3 de un PDF de 5 (anchos 300…700) →
+  `five-extract.pdf` con exactamente esas dos (`/MediaBox` 400 y 500), que abre con "2 pages",
+  y el foco vuelve a Extract; la selección rellena el diálogo y un borrado pendiente está en el
+  archivo (500, 600), que sigue sin guardar y deshacible; Split tras 2 y 4 →
+  `five-part1..3.pdf` con 2, 2 y 1 páginas; un corte tras la última página se rechaza en el
+  diálogo sin descargas; un PDF con `/P` sin el bit 5 (abierto con su contraseña de usuario)
+  rechaza en los dos diálogos, con solo Cancel; el diálogo de Split cabe a 390 px. `phone-bar`
+  y `zero-network` siguen en verde sin cambios.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm -p pdf-save --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`);
+  `cargo check --locked --target wasm32-unknown-unknown -p pdf-wasm`; `cargo test --locked -p
+  pdf-wasm` 125 pasan; `cargo test --locked -p pdf-save -- --skip
+  export::tests::exports_a_page` 221 pasan (los 2 omitidos necesitan `pdfium.dll` nativo y fallan
+  igual sin este cambio); `cargo test -p pdf-ffi --lib -- extract split` pasan. `@vitela/core`:
+  `build:wasm`, `typecheck`, Vitest 15 / 197, `build`. `@vitela/viewer`: `tsc -b`, Vitest
+  83 / 831, `build`. `apps/web`: `tsc -b`, Vitest 6 / 19, `npm run build`; Playwright completo
+  (Chromium, Firefox, WebKit, con `CI=1`) **271 pasan, 20 omitidos** (los de File System Access
+  fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** Split solo "después de la página N" (el único modo de los
+  nativos; "cada N páginas" se escribe como cortes, `2,4`); sin Extract/Split en la vista View
+  ni en More tools (están en Organize); sin zip (como Export images); la aceptación de varias
+  descargas del navegador no se prueba (Playwright las acepta todas); sin lector de pantalla
+  real.
+
+### T-255 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Document properties") y
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **Paridad elegida (Android):** diálogo **Document properties** con las seis claves de texto de
+  `/Info` (Title, Author, Subject, Keywords, Creator, Producer), con las etiquetas y el orden de
+  Android; Windows y Linux muestran las mismas en un panel y además editan las dos fechas, que
+  aquí (como en Android) ni se muestran ni se editan: cada cambio las conserva. **Sin XMP:**
+  ningún shell sincroniza un flujo `/Metadata` (`pdf_save::metadata` solo escribe `/Info`), así
+  que el web tampoco. Puerta: el core no la tiene (`EditClass::of(SetDocumentInfo)` no pide
+  nada); los tres nativos preguntan el permiso de modificar contenido
+  (`content_editing_is_allowed`), y eso hace `pdf-wasm`.
+- **`pdf-wasm`** (`model/metadata.rs`, `engine/metadata.rs`, `dto/metadata.rs`):
+  `documentProperties(doc)` → `DocumentPropertiesEntry` (seis `Option<String>`), del último
+  `SetDocumentInfo` pendiente o del `/Info` del archivo (`pdf_save::pending_document_info` sobre
+  `LopdfDocument::document_info`, como `read_document_info` de `pdf-ffi`); `metadataRefusal(doc)`
+  → la frase (`this document does not permit metadata changes`, la de Android) o `undefined`;
+  `EditCommand.setDocumentProperties(title, author, subject, keywords, creator, producer)` por
+  `applyEdit`: un `Command::SetDocumentInfo { before, after }` (todo el diccionario, un paso de
+  deshacer), `""` → clave ausente (regla de Android, ahora en Rust), fechas conservadas, y sin
+  paso si no cambia nada. Rechazo → `EditNotPermitted`, sin registrar. El core cuenta el paso
+  como visible en la vista previa (`shows_in_session_preview`), así que `@vitela/core` refresca
+  (una reapertura con los mismos píxeles); no se tocó esa regla.
+- **`@vitela/core`:** `Engine` gana `documentProperties(handle)` y `metadataRefusal(handle)`;
+  `Edit` gana `MetadataEdit` (`{ kind: 'setDocumentProperties', properties }`); tipos
+  `DocumentProperties` y `MetadataEdit` exportados; `worker/metadata.ts` traduce `null` ↔
+  `undefined` y libera el objeto wasm.
+- **`@vitela/viewer` (`features/properties/`):** puro con tests `propertiesText.ts` (campos,
+  borrador, `propertiesChange`: vacío → `null`, nada nuevo → `null`); contenedor
+  `useDocumentProperties` (lee valores y puerta al abrir; **Apply** espera la cola de
+  ediciones, relee — un deshacer pudo llegar, como Android relee bajo su lane — y solo registra
+  un cambio real; informa con `revise` y marca sucio; un rechazo deja el diálogo y lo tecleado);
+  vistas `PropertiesDialog`, `PropertiesControls` (estado + diálogo, en la barra) y
+  `PropertiesToggle`. **`useSave`** ahora espera **varias** colas (`waitForEdits` guarda un
+  `Set`): la pantalla y el Apply del diálogo; antes la última registrada reemplazaba a la otra.
+- **UX: dónde va Properties.** Primero se puso un botón en la barra del workspace: en el host
+  de `embed` (botones del host enormes) la barra ya ocupa 1191 de 1200 px y el botón la partía
+  en dos filas (falló `embed.spec.ts` "undoes a stamp dropped…"). Después se probó convertir la
+  línea del documento ("report.pdf — 1 page") en el botón (cero ancho): rompía la premisa de
+  `embed.spec.ts` (esa línea no toma el foco) y chocaba con búsquedas por rol (`copy.pdf` contra
+  el botón Copy de `text.spec.ts`). Luego, en la fila **Annotations** del visor junto a
+  **Comments** y **Forms** (donde Windows y Linux tienen el panel): a 1280 px esa fila dejaba de
+  caber junto a Draw e History, aparecía una fila más de barras y el trazo de
+  `draw.spec.ts` salía del viewport en Firefox. Queda **al final de la barra View** del visor
+  (zoom y página): crece para llenar la fila que comparte con Text (~144 px libres en la app,
+  ~770 en el host; el botón ocupa ~100), así no añade filas; `properties.spec.ts` lo fija
+  (View con Text y Annotations con Draw en la misma fila). En el móvil, oculto (≤ 600 px) y en
+  **More tools**. El diálogo y su estado viven en la barra; el foco vuelve al botón, o a More
+  tools si no se ve. En escritorio no hay acceso desde Organize.
+- **Parte A (revisión de T-254):** (1) `useSplit` pide al motor como mucho **una parte por
+  delante** de la que se escribe (como Export images, página a página): Cancel para también el
+  trabajo y solo hay dos partes en memoria. Contrapartida: ya no salen todas del mismo estado;
+  una edición hecha mientras corre llega a las partes pedidas después (la cabecera lo dice).
+  (2) `useOrganize.settledNow` repite mientras haya un paso en curso o uno esperando turno
+  (contador `waiting` de `runInTurn`), así Save espera también la importación encolada.
+- **Tests:** `pdf-wasm` 6 nativos nuevos (`model/metadata.rs`: lectura y claves ausentes, un paso
+  deshecho/rehecho antes de guardar, guardado con la fecha de creación conservada y la clave
+  vaciada borrada, sin cambio no hay paso, permiso denegado de solo lectura, historial mezclado
+  con páginas) y 2 `wasm-bindgen-test` (`tests/metadata.rs`). `@vitela/core` 6 Vitest nuevos (1
+  de `client`, 1 de `handler`, 3 de `documentEngine`, 1 contra pdfium real: cambiar, deshacer,
+  rehacer, guardar y releer). `@vitela/viewer` 18 nuevos (1 de `useSplit`, 1 de `useOrganize`, 1
+  de `useSave`, 5 de `propertiesText`, 9 de `PropertiesControls`, 1 del workspace). Vistos en rojo
+  antes de implementar: los de Parte A (parte 3 pedida; Save no esperaba la importación), el de
+  `useSave`, los de `client`/`handler`/`documentEngine` (5) y los de `PropertiesControls` (sin
+  módulo; y otra vez al cambiar el disparador). Los de `pdf-wasm`, `propertiesText`, pdfium real
+  y el del workspace se escribieron junto a su código.
+- **E2E (`e2e/properties.spec.ts`, 4 × 3):** título y autor (`Ana Peña`) aplicados, sin guardar,
+  deshechos y rehechos (el diálogo muestra cada estado), guardados: el `/Info` del archivo los
+  tiene y no tiene `/Subject` (helper nuevo `documentInfo` en `e2e/pdfObjects.ts`: sigue la
+  referencia `/Info` del tráiler, objeto suelto o dentro de un `/ObjStm`, y decodifica literales
+  y UTF-16BE); reabierto, el diálogo los muestra y un Apply sin cambios no registra nada; un PDF
+  con `/P` sin el bit 4 (abierto con su contraseña de usuario) es de solo lectura con solo Close;
+  en el móvil se abre desde More tools, cabe en 390 px y el foco vuelve a More tools; a 1280 px
+  el botón no crea una fila de barras nueva.
+  `phone-bar.spec.ts` lista Properties en More tools.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p
+  pdf-wasm --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo
+  test --locked -p pdf-wasm` 131 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 /
+  203, `build`. `@vitela/viewer`: `tsc -b`, Vitest 85 / 851, `build`. `apps/web`: `tsc -b`,
+  Vitest 6 / 19, `npm run build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`)
+  **283 pasan, 20 omitidos** (los de File System Access fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32 y los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android,
+  `examples/embed-vite`.
+- **No cubierto / pendiente:** sin fechas (Windows y Linux las editan); sin acceso a Properties
+  desde Organize en escritorio; sin claves personalizadas ni `/Trapped` (fuera de alcance del
+  core, decisión 2 del batch de metadatos); sin lector de pantalla real.
+
+### T-256 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Tools menu" y "Watermark") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **Parte A — menú Tools (decisión del orquestador).** La barra del workspace estaba llena (en el
+  host de `embed`, 1191 de 1200 px; Properties tuvo que irse a la barra View en T-255). Los botones
+  Compress, Export images y Protect de la barra y el Properties de la barra View desaparecen: hay
+  **un** botón de menú **Tools** (`ui/MenuButton`) en la barra, antes de Save, en las dos pantallas
+  y a **todos** los anchos, con Compress, Export images, Protect, Watermark y Document properties.
+  El "More tools" del teléfono es este mismo menú (un solo camino de código); en ≤ 600 px muestra
+  los tres puntos en vez de la palabra (su nombre accesible sigue siendo "Tools") y la barra sigue en
+  una fila. Cada `*Controls` ya no dibuja botón: recibe `trigger` (el botón Tools) y le devuelve el
+  foco al cerrarse su diálogo (`ui/focusShown`); el menú devuelve el foco al botón antes de abrir el
+  diálogo, como antes. Las líneas de estado y los diálogos siguen en la barra (sobreviven al cambio
+  View/Organize). Se borró `PropertiesToggle.tsx` y `ZoomControls` vuelve a no aceptar hijos. Save y
+  las líneas de estado no cambian.
+- **Paridad elegida (Android, con los rangos de GTK y Windows):** diálogo **Add watermark** con
+  Text/Picture, el texto (DRAFT) o un PNG/JPEG (**Choose picture…**), Size (8–200 pt o 5–100 % de la
+  página), Opacity (5–100 %), Angle (−180…180°), Placement (sobre o bajo el contenido) y Pages
+  (todas, la actual o un rango con la gramática del core). Cambiar de tipo solo reinicia ángulo y
+  capa a los del core para ese tipo (regla de los tres nativos). **Sin color ni vista previa en
+  vivo:** ningún nativo los tiene. El aspecto inicial es el del core (`Watermark::diagonal` /
+  `Watermark::picture`), nunca una copia de sus constantes.
+- **`pdf-wasm`** (`model/watermark.rs`, `engine/watermark.rs`, `dto/watermark.rs`): mismo orden que
+  `pdf-ffi` para `AddWatermark`/`AddImageWatermark`: `pdf_save::check_edit` con la clase de contenido
+  (permiso de modificar, luego si la reescritura completa puede conservar el cifrado) **antes** de
+  leer las páginas; posiciones → `PageId` una sola vez (el sello sigue a sus páginas tras mover);
+  `pdf_save::validate_content_command` (= `pdf_edit::check_watermark`) antes de registrar
+  (`EncodingGap`, `InvalidImage`); el modelo rechaza texto en blanco, páginas repetidas o fuera de
+  rango (`UnsupportedOperation`). Superficie: `watermarkDefaults()` (función libre →
+  `WatermarkLook`), `watermarkRefusal(doc)`, `EditCommand.addTextWatermark(pages, text, fontSize,
+  opacity, rotationDegrees, behind)` y `addPictureWatermark(pages, image, scale, …)` por `applyEdit`.
+  Nueva dependencia de ruta `pdf-edit` (ya estaba en el árbol vía `pdf-save`) solo para los tipos de
+  rechazo.
+- **Repintado en el sitio (`paintRevision`).** Un sello cambia lo que muestra una página sin cambiar
+  su id ni su giro, que es la clave de los bitmaps del visor y de la caché de miniaturas de Organize:
+  sin esto, la página seguía mostrando los píxeles viejos (visto en rojo en Playwright). Las marcas de
+  vista previa de `pdf-wasm` (`model/preview.rs`) ganan una segunda marca por paso de contenido
+  (`Command::is_content_edit`); `paintRevision(doc)` es la más nueva aplicada (0 = el archivo). En
+  una historia lineal esa marca nombra todo el conjunto aplicado: deshacer vuelve a la revisión
+  anterior (sus bitmaps vuelven a valer) y un paso nuevo en lugar de uno deshecho tiene la suya.
+  `EditedDocument.paintRevision` (opcional en el tipo: un motor que no la lleve cuenta como 0) entra
+  en el `paintKey` del visor y en `thumbnailKey`; un movimiento, un giro o una anotación siguen sin
+  repintar nada (la regla "un movimiento no renderiza miniaturas" se conserva).
+- **`@vitela/core`:** `Engine` gana `watermarkDefaults()` y `watermarkRefusal(handle)`; `Edit` gana
+  `WatermarkEdit` (`{ kind: 'addWatermark', pages, mark, opacity, rotationDegrees, behind }`, `mark`
+  texto o imagen); `worker/watermark.ts` traduce y libera. Hallazgo: en `reportlab_acroform.pdf` el
+  sello falla en el refresco de la vista previa (`SaveFailed`: flujo de contenido con cadena de
+  filtros, límite del core igual en los nativos) y `step` lo deshace; queda un paso rehacible que
+  volvería a fallar igual (comportamiento previo de `step` para cualquier edición, no se tocó).
+- **`@vitela/viewer` (`features/watermark/`):** puro con tests `watermarkText.ts` (borrador desde el
+  aspecto del core, rangos, cambio de tipo, rechazos de marca, la edición, textos); contenedor
+  `useWatermark` (lee aspecto y puerta al abrir; **Add** espera la cola, resuelve páginas contra
+  `pageCountNow` y la página actual recortada, registra una edición, `revise` + sucio; un rechazo deja
+  el diálogo y el borrador; se entrega a `useSave`); vistas `WatermarkDialog` y `WatermarkControls`.
+  El campo de texto se llama "Watermark text": "Text" chocaba con la radio Text.
+- **Tests:** `pdf-wasm` 8 nativos nuevos (6 de `model/watermark.rs`: defaults del core, texto en todas
+  las páginas como un paso deshecho/rehecho y guardado, el sello sigue a su página tras mover,
+  imagen, rechazos sin registrar, permiso antes que la página; 2 de `model/preview.rs`) y 3
+  `wasm-bindgen-test` (`tests/watermark.rs`). `@vitela/core` 6 Vitest nuevos (1 de `client`, 1 de
+  `handler`, 3 de `documentEngine`, 1 contra pdfium real: sello en `vector_only.pdf`, píxeles,
+  búsqueda, deshacer/rehacer, guardado, `EncodingGap`, y el fallo de refresco deshecho en el
+  formulario). `@vitela/viewer` 18 nuevos (6 de `watermarkText`, 9 de `WatermarkControls`, 1 del
+  workspace, 1 de `thumbnailKey`, 1 de `useDocument`) y uno quitado (el de `PropertiesToggle`);
+  los de Compress/Export/Protect/Properties abren ahora desde un disparador que hace de entrada del
+  menú y comprueban que el foco vuelve a él. Vistos en rojo antes de implementar: los de
+  `client`/`handler`/`documentEngine` (5), los de `thumbnailKey` y `useDocument` (2) y el E2E del
+  texto (la página no se repintaba). Los 5 del workspace fallaron al quitar los botones y se
+  actualizaron después. Los de `pdf-wasm`, pdfium real, `watermarkText` y `WatermarkControls` se
+  escribieron junto a su código.
+- **E2E (`e2e/watermark.spec.ts`, 6 × 3):** texto en las 3 páginas (foco a Tools, sin guardar, la
+  tinta de la página cambia, Undo la quita, Redo la devuelve), guardado: cada página tiene el `Tj` y
+  un artefacto `/Watermark` (helper nuevo `occurrences` en `e2e/pdfObjects.ts`), y la búsqueda de la
+  app lo encuentra 3 veces al reabrir; imagen detrás del contenido de `1,3`: un solo objeto `/Image`
+  pintado dos veces (y Add sin imagen se rechaza); texto que Helvetica no muestra y un rango fuera
+  dejan el diálogo; un PDF con `/P` sin el bit 4 (abierto con su contraseña de usuario) se rechaza con
+  solo Close; en Organize las miniaturas ganan el sello y lo pierden con Undo; en el móvil el diálogo
+  cabe en 390 px. `phone-bar`, `compress`, `export-images`, `protect` y `properties` abren las
+  herramientas por el menú (helpers `toolsButton`/`openTool` en `e2e/support.ts`); `phone-bar` ahora
+  exige que ninguna herramienta tenga botón propio y que se vean los tres puntos, y `properties`
+  que la barra sea una fila a 1280 px.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  --all-targets -- -D warnings` nativo y `cargo clippy --locked --target wasm32-unknown-unknown -p
+  pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+  139 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 209, `build`. `@vitela/viewer`:
+  `tsc -b`, Vitest 87 / 868, `build`. `apps/web`: `typecheck` (`tsc -b`), Vitest 6 / 19, `npm run
+  build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`) **301 pasan, 20 omitidos** (los
+  de File System Access fuera de Chromium), `zero-network`, `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32 y
+  los corre el job `wasm32` de `core.yml`); `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** sin color ni vista previa en vivo (ningún nativo); un PDF cuyo flujo
+  de contenido el core no reescribe (cadena de filtros) rechaza el sello al refrescar (`SaveFailed`)
+  con el mensaje del core; el paso rehacible que deja ese rechazo es de `step`, no de esta tarea; sin
+  lector de pantalla real.
+
+### T-257 — resultado
+
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Print"),
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API) y
+[`packages/vitela-viewer/README.md`](../packages/vitela-viewer/README.md) ("Keys and drops"). Lo
+que condiciona lo que sigue:
+
+- **Parte A — tope de la imagen de la marca de agua (revisión de T-256).** `pickPicture` de
+  `useWatermark` leía el archivo entero sin límite. Ahora reutiliza `MAX_STAMP_BYTES` (20 MB, la
+  constante de los sellos de imagen de T-239, `features/annotations/stamps.ts`): un archivo más
+  grande se rechaza **sin leerlo** con "Pictures larger than 20 MB cannot be stamped on the pages.
+  Choose a smaller one." y el borrador conserva la imagen anterior. 1 Vitest nuevo en
+  `WatermarkControls.test.tsx` (visto en rojo antes del cambio).
+- **Qué se imprime: la instantánea de salida, como GTK y Windows** (imprimen la sesión anotada desde
+  su `output_snapshot`). **Print** espera a la cola de ediciones y abre `openPrintSnapshot`: lo que
+  escribiría un guardado ahora, así que entran las ediciones de página, anotaciones, rellenos y marcas
+  de agua sin guardar. No es un paso: ni historial ni refresco.
+- **Sin puerta de permiso (decisión, no hallazgo).** En el core **no existe** regla para el bit de
+  impresión de `/P` (`pdf-manip/src/security.rs` interpreta extracción, anotar, modificar y
+  ensamblar; nada más), y ningún nativo pregunta antes de su diálogo de impresión (GTK
+  `print_document`, Windows `PreparePrintAsync`, Android `PdfPrintDocumentAdapter`). Por eso la web
+  no inventa una: un PDF con `/P` sin el bit 3 imprime, y el E2E lo fija. `openImageExport` sí exige
+  el permiso de extracción, así que la impresión **no** lo reutiliza: `pdf-wasm` gana
+  `openPrintSnapshot` (la misma instantánea sin esa puerta, `DocumentModel::print_snapshot_bytes`;
+  `output_snapshot_bytes` = puerta + esa función). Si se quiere honrar el bit de impresión, es una
+  regla nueva del core para todos los shells, no de la web.
+- **`pdf-wasm`:** `Engine.openPrintSnapshot(doc)` → `OpenedImageExport` en el mismo mapa que las
+  exportaciones: las páginas salen con `exportPageImage` y se cierra con `closeImageExport`.
+  `open_export` y la impresión comparten `open_snapshot`. 2 tests nativos (`model/export.rs`: la
+  anotación pendiente entra y no se registra nada; un documento sin extracción imprime) y 1
+  `wasm-bindgen-test` (`tests/export.rs`). Los nativos se vieron en rojo.
+- **`@vitela/core`:** `Engine.openPrintSnapshot(handle)` (`client`, `protocol`, `handler`,
+  `documentEngine`). 2 Vitest nuevos (`documentEngine`: un documento restringido imprime y se cierra
+  como una exportación, documento cerrado → `DocumentNotFound`; pdfium real: el resaltado sin
+  guardar cambia los píxeles, nada que deshacer) y 2 ampliados (`client`, `handler`). Vistos en rojo.
+- **`@vitela/viewer` (`features/print/`):** puros con tests `printSheets.ts` (`PRINT_DPI` = 150,
+  `pngSize` del IHDR, `sheetOf` en puntos desde los píxeles, `printStyles` con un `@page` con nombre
+  por tamaño distinto, `writePrintDocument`) y `printText.ts` (`printKey`: ⌘+P en Apple, Ctrl+P en el
+  resto, sin otros modificadores; frases). Adaptador `printFrame.ts` (`iframeSurface`); contenedor
+  `usePrint`; `usePrintKey`; vista `PrintControls` (estado + **Cancel print**). En el menú **Tools**
+  tras Export images. Flujo: cola → instantánea → techo de raster a 150 DPI para todas las páginas
+  (rechazo "Page N is too large to print." antes de dibujar) → una página cada vez a PNG por el core,
+  guardando solo el archivo como blob URL ("Preparing page 2 of 5 for printing…"; Cancel para tras
+  la página en curso) → la instantánea se cierra **antes** del diálogo, acabe como acabe → marco →
+  `print()`. 150 DPI y no los 300 de GTK: la web retiene cada página como imagen hasta que se cierra
+  el diálogo (Letter ≈ 2 Mpx en vez de 8,4).
+- **El marco:** `iframe` oculto (`srcdoc`: Firefox sustituye el primer documento de un marco sin
+  `src` al cargar; 0 × 0 y `visibility: hidden`, no `display: none`, que en Firefox no imprime)
+  **dentro de la raíz del editor**, nunca en otro sitio de la página anfitriona; imprime su propia
+  ventana, así que la página de alrededor nunca se imprime y ningún estilo cruza (el marco tiene un
+  solo `<style>` propio). Cada página es una hoja del tamaño de su imagen en puntos, con un `@page`
+  con nombre por tamaño: la página girada sale apaisada. El título es el nombre sin `.pdf` (lo que el
+  diálogo propone al guardar en archivo). El marco y sus blobs se van con `afterprint`, o con la
+  siguiente impresión, un documento nuevo o el desmontaje (si un navegador no avisa, la siguiente
+  impresión lo limpia).
+- **Ctrl/⌘+P** con el alcance de T-246 (`EditorScope.ownsEvent`): con el foco en el editor, o sin
+  foco tras el último clic/soltado en él; en el anfitrión, la tecla apuntada a la página anfitriona
+  se deja al navegador. Tampoco con un diálogo modal del editor abierto, ni si otro manejador ya la
+  tomó.
+- **Tests:** `@vitela/viewer` 16 nuevos (4 de `printSheets`, 2 de `printText`, 9 de
+  `PrintControls`: orden cola/instantánea/techo/dibujo/cierre/marco/print, hoja apaisada,
+  `afterprint` libera marco y blobs, Cancel, techo, fallo de página, fallo de apertura, una segunda
+  impresión limpia la anterior y un `afterprint` tardío no toca la nueva, desmontaje sin marco, la
+  tecla dentro y fuera/con diálogo; 1 de la marca de agua) y el del menú del workspace actualizado.
+  `printSheets`/`printText` y el test del menú se vieron en rojo; el hook y su test se escribieron
+  juntos, y se comprobó que el test cae al quitar la limpieza previa y la condición del diálogo.
+- **E2E (`e2e/print.spec.ts`, 6 × 3, uno solo en Chromium):** un script de inicio sustituye el
+  `print` del marco (y el de la página) y anota lo que tenía el marco. Tres páginas → tres imágenes
+  en orden, 1275 × 1650 y la girada 1650 × 1275, en hojas `612pt 792pt` / `792pt 612pt`, con tinta,
+  marco `aria-hidden` y `tabindex=-1`, y `afterprint` lo quita; **Chromium:** el documento del marco
+  impreso a PDF (`page.pdf`, `preferCSSPageSize`) tiene esas dos `MediaBox`; una marca de agua sin
+  guardar añade tinta a la hoja y el documento sigue sin guardar; Ctrl+P con el foco en la app
+  imprime el marco y nunca la app; un PDF con `/P` sin imprimir ni copiar imprime; **embed:** Ctrl+P
+  con el foco en un botón del anfitrión no imprime nada del editor, y en el editor imprime una imagen
+  desde un marco dentro de `#host-frame` con una sola hoja de estilo y `margin: 0`. `phone-bar`
+  espera Print en el menú.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  --all-targets -- -D warnings` nativo y `cargo clippy --locked --target wasm32-unknown-unknown -p
+  pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+  141 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 211, `build`. `@vitela/viewer`:
+  `tsc -b`, Vitest 90 / 884, `build`. `apps/web`: `typecheck` (`tsc -b`), Vitest 6 / 19, `npm run
+  build`; Playwright completo (Chromium, Firefox, WebKit, con `CI=1`) **316 pasan, 1 falla, 22 omitidos** (los de File System Access fuera de Chromium y el de `page.pdf` fuera de Chromium). El fallo fue `compress.spec.ts:57` en WebKit (timeout esperando que la primera tarjeta de Organize quede estable, nada de impresión); repetido aislado `--repeat-each=5` pasa 20 / 20, y una pasada completa anterior dio 317 pasan y 0 fallos por test (ese proceso no llegó a imprimir el resumen: quedó colgado al cerrar los servidores de `preview`), `zero-network`,
+  `phone-bar` y `embed` incluidos.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32);
+  `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** el diálogo real de impresión de cada navegador (el E2E lo sustituye) y
+  el papel físico; Safari puede ignorar los `@page` con nombre (la imagen conserva proporción con
+  `object-fit: contain`); sin vista previa propia ni elección de páginas (son del diálogo del
+  navegador); un anfitrión con CSP `style-src` estricta bloquearía el `<style>` del marco (la app no
+  tiene CSP); el bit de impresión de `/P` no se honra (ver arriba).
+- **Revisión de T-257 (rama `fix/web-print-review`).**
+  - **Cancel print** se oía solo antes de cada página. Ahora también tras la última y mientras el
+    marco decodifica (`decodeInOrder` corta, y `usePrint` mira la parada antes de `job.print()`):
+    hasta que se abre el diálogo, cancelar = sin diálogo, marco quitado, blobs revocados.
+  - **Memoria: DPI adaptativo (elegido frente a rechazar).** `printDpi`: 150 DPI mientras todas las
+    páginas sumen ≤ 128 Mpx (`PRINT_PIXEL_BUDGET`; el marco las retiene decodificadas, ~512 MB, ≈ 60
+    Letter a 150), si no la mayor que cabe, con suelo de 96 (`PRINT_MIN_DPI`, ≈ 148 Letter). Por
+    encima del suelo **se sigue imprimiendo** a 96: el usuario espera que imprimir funcione, y
+    rechazar dejaría sin imprimir documentos de 200 páginas; la memoria crece entonces ~3,4 MB
+    decodificados por Letter, como en la impresión del propio navegador. Las páginas sin tamaño
+    conocido (instantánea con una edición pendiente) cuentan como la media. La decodificación es
+    secuencial (antes `Promise.all`). El techo de raster se pregunta al DPI elegido.
+  - **Duplicación:** `features/snapshot/` — `snapshotJob.ts` (`withSnapshot`: cola → abrir →
+    trabajo → cerrar pase lo que pase; `drawPages`: una página cada vez, parada antes de cada una,
+    `PageNotDrawn`) y `useSnapshotJob` (uno a la vez, descartado al cambiar de documento o
+    desmontar, `stop`). Lo usan `useExportImages` (entrega por página y su Cancel, sin cambios de
+    comportamiento) y `usePrint` (el marco).
+  - **`openPrintSnapshot` solo para imprimir:** documentado en `types.ts` y el README del core; en
+    `pdf-wasm` cada instantánea recuerda su uso (`SnapshotUse::{Export, Print}`) y
+    `exportPageImage` sobre una de impresión rechaza más de `PRINT_MAX_DPI` (150) con
+    `UnsupportedOperation`: no es una vía para saltarse el permiso de extracción. Renombrado:
+    `export_snapshot_bytes` (puerta + `snapshot_bytes`) y `print_snapshot_bytes` (=
+    `snapshot_bytes`), así la llamada se lee hacia delante; `output_snapshot_bytes` ya no existe.
+  - **Menores:** fuera `printShortcut` (sin uso); orden de imports en `WatermarkControls.test.tsx`.
+  - **Tests:** Rust 1 nativo (`SnapshotUse::check_dpi`, visto en rojo) + 1 `wasm-bindgen-test`
+    (no corrido en local); `@vitela/core` 1 Vitest pdfium real (150 pasa, 151 rechaza, export a 300
+    pasa; escrito con el wasm ya recompilado, no visto en rojo); `@vitela/viewer` 23 nuevos
+    (`snapshotJob` 9, `useSnapshotJob` 5, `printDpi` 4, `decodeInOrder` 2, `PrintControls` 3:
+    cancelar en la última página, cancelar mientras se monta el marco, documento largo a menos DPI),
+    todos vistos en rojo antes de implementar.
+  - **Verificado en local (Windows):** `cargo fmt --all -- --check`; clippy `pdf-wasm` nativo y
+    wasm32 (`--all-targets -D warnings`, con `PDFIUM_WASM_DIR`); `cargo test --locked -p pdf-wasm`
+    142 pasan. `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 212, `build`.
+    `@vitela/viewer`: `tsc -b`, Vitest 93 / 907, `build`. `apps/web`: `typecheck`, Vitest 6 / 19,
+    `build`. Playwright (`CI=1`, 3 navegadores) print + export-images + phone-bar + embed +
+    zero-network **70 pasan, 2 omitidos**; suite completa **317 pasan, 22 omitidos, 0 fallos**.
+    No corridos: los `wasm-bindgen-test`.
+
+### T-258 — resultado
+
+**T-258a** (#666, sin fusionar al empezar T-258b; su commit se tomó con `cherry-pick`): la
+orquestación de la edición de contenido que solo vivía en `pdf-ffi` pasó a
+`pdf_save::content_edit` (gates, `record_content`, comprobación de reemplazo de imagen) y
+`pdf_edit::group_text_paragraphs`; `pdf-ffi` delega. **T-258b** la usa desde `pdf-wasm`.
+Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Lo que condiciona lo
+que sigue:
+
+- **`CheckpointSession` en `pdf-wasm`** (`model/checkpoint.rs`, espejo de
+  `pdf-ffi/src/document/checkpoint.rs`): `DocumentModel` gana `checkpoints`
+  (`pdf_save::Checkpoints<(LopdfDocument, Vec<u8>)>`) y `has_password` (si la apertura llevó
+  contraseña); `original_bytes` es siempre `Some` (la web abre siempre desde bytes);
+  `has_imported_sources` = el registro de importados no está vacío; `replace_base` cambia base y
+  bytes. `undo`/`redo`/`canUndo`/`canRedo` pasan por `pdf_save::checkpoint::{undo, redo,
+  can_undo, can_redo}`: deshacer cruza un checkpoint paso a paso. Todas las ediciones de página,
+  anotación, formulario, metadatos y marca de agua siguen igual (sus tests, sin tocar, en verde).
+  `DocumentModel::record_content(command)` (aún sin UI: lo usarán T-259+) = `ensure_content_editing`
+  + `pdf_save::content_edit::record_content` con `record_content_command` o, para un
+  `Command::Batch`, `record_content_batch`. Nuevos `From<RecordError>` y
+  `From<ContentEditRefusal>` para `EngineError` (`EncodingGap`/`InvalidImage` conservan su tipo;
+  un permiso, `EditNotPermitted`; "guarda primero", `UnsupportedOperation`).
+- **`PreviewMarks` y la edición de contenido** (`model/preview.rs`). Dos casos nuevos:
+  - **Plegado (amend):** `record_content_command` puede reescribir una entrada ya encolada (segundo
+    retipeo de la misma línea, segundo movimiento de la misma imagen) sin añadir paso, y **no
+    siempre la última**: el segundo movimiento de una línea pliega en su movimiento aunque después
+    haya otra edición. `record_content` compara la cola antes y después, localiza la primera
+    entrada cambiada y `PreviewMarks::amended(n)` da marcas nuevas (vista previa y repintado) a
+    ese paso y a todos los posteriores, y vacía el lado de rehacer como hace `EditLog::amend`.
+    Dar marca nueva solo al último paso (lo que pedía la ficha) dejaría, tras deshacer el último,
+    una revisión de pintado que nombra píxeles anteriores al plegado: bitmaps viejos en caché.
+  - **Checkpoint:** si la generación de base cambió, el reintento es **un** paso nuevo
+    (`recorded`). Las marcas siguen siendo **una pila plana** a través de las bases, sin marco por
+    generación: cada deshacer/rehacer a través de un checkpoint es exactamente un paso del
+    historial del lector y el checkpoint no cambia cuántos pasos hay ni qué muestra cada uno, así
+    que la pila plana coincide paso a paso con la historia (lo comprueban los tests de deshacer y
+    rehacer a través del checkpoint). Desviación consciente de "push/pop a frame".
+- **Lecturas** (`model/content.rs`, `engine/content.rs`, `dto/content.rs`), con las puertas de
+  `pdf-ffi`: todas detrás del permiso de extracción (antes que la página), con los lectores que
+  superponen lo pendiente (`read_pending_page_content_of`, `text_run_style_of`,
+  `page_font_families_of`). Superficie: `contentEditingAllowed(doc)` =
+  `pdf_save::content_editing_allowed`; `contentEditingRefusal(doc)` = la frase de `check_edit`
+  para una edición de contenido y, si no, la del permiso de texto (un editor que no puede leer lo
+  que edita tampoco se ofrece); `readPageContent(doc, page)` → `PageContentEntry` (`takeRuns`,
+  `takeImages`, `takePaths`): runs con `id`, `bbox`, `fontName` (recurso), `fontKind`
+  (`standard14`/`embeddedSimple`/`embeddedComposite`), `text` y `editable`; imágenes con `inline`;
+  trazados con `paint`; `readTextBlocks`/`readParagraphBlocks` (`group_text_lines` /
+  `group_text_paragraphs`, miembros por id como `pdf-ffi`); `textRunStyle(doc, page, runId)` (por
+  id sobre la lectura pendiente: base font, tamaño, color, espaciado, escala, negrita, cursiva,
+  modo; `undefined` para un run que solo existe por una inserción pendiente; id desconocido →
+  `UnsupportedOperation`); `pageFontFamilies` (pares `[recurso, baseFont, …]`) y
+  `contentBaseGeneration` (también en `EditedDocument`). Los ids cruzan como `number`: el core los
+  mantiene < 2^53 (sintéticos `2^40 + índice + (parte << 24)`).
+- **`editable` es regla del core:** `pdf_save::text_run_text_is_decoded` (nuevo, en
+  `content_edit.rs`): un run cuyo texto lleva U+FFFD (código sin `/ToUnicode` utilizable) no se
+  puede retipear (el codificador rechazaría U+FFFD con `EncodingGap`). Ningún shell nativo lo
+  pregunta hoy.
+- **Tamaño y color no van en cada run:** `text_run_style` recorre el flujo de la página por cada
+  run (O(n²) por página); van en `textRunStyle`, que se pide para el run elegido.
+- **`@vitela/core`** (`worker/content.ts`): las entradas wasm pasan a valores planos con las cajas
+  en la página **dibujada** (`PageFrame.rectFromPdf`, como todas las del motor) y se liberan;
+  color 0–255. `Engine`: `contentEditingRefusal`, `readPageContent`, `readTextBlocks`,
+  `readParagraphBlocks`, `textRunStyle`, `pageFontFamilies`, `contentBaseGeneration`; tipos
+  `PageContent`, `ContentItem` (`ContentRun`/`ContentImage`/`ContentPath`), `ContentFontKind`,
+  `TextBlock`, `TextLine`, `TextRunStyle`. `textRunLook` (negrita/cursiva) queda para T-259 (los
+  botones de estilo).
+- **`@vitela/viewer` (`features/content/`):** puro con tests `contentModel.ts`
+  (`pagesToParse`: visibles ± 1, nunca el documento; `contentKey(pageId, paintRevision,
+  generation)`; `keepWanted`: solo se guardan las claves aún deseadas; `itemAt`: el elemento más
+  pequeño bajo el puntero, con 3 pt de holgura para reglas de alto 0; textos), contenedor
+  `useContentMode` (puerta una vez por documento; activo solo para el documento en que se activó;
+  lecturas que solo aterrizan en su clave si sigue esperándolas; hover y selección que caducan si
+  la página cambia de clave; mensaje de la página que no se pudo leer), vistas `ContentLayer`
+  (capa encima de todo en cada página: contornos por tipo — run sólido azul, imagen discontinuo
+  ámbar, trazado punteado verde — y la pulsación) y `ContentStatus` (fila de estado con **Done**).
+  Con el modo activo el texto, las anotaciones y el dibujo sueltan el puntero (herramienta a
+  Select, selección de texto y de anotación fuera); Escape en las páginas suelta la selección.
+- **Dónde va el interruptor: último elemento de Tools**, un `menuitemcheckbox` ("Edit content",
+  `aria-checked`; desde Organize cambia al visor). La puerta (`useContentGate`) se pregunta en el
+  workspace una vez por documento; rechazado, el elemento sigue en la lista `aria-disabled` y
+  descrito (`aria-describedby`) por la frase del core. `ui/MenuButton` gana `checked` y
+  `description` en `MenuTool`. Las barras del visor no tienen sitio (medido en Playwright): tras
+  History, a 1280 px Annotations bajaba a una tercera fila (`properties.spec.ts`, faltaban ~8 px);
+  tras View y Text cabía con 22 px de holgura, pero "Page 120 of 120" la desbordaba
+  (`comments.spec.ts`, las páginas se movían); y a 390 px una fila más tapaba la cabecera del panel
+  de comentarios (`comments.spec.ts:192`). La barra del workspace no cambia (una fila en `embed` y
+  a 390 px, `phone-bar` en verde: un `menuitemcheckbox` no cambia la lista de `menuitem` que
+  comprueba). Con el modo activo, una fila bajo las barras lleva el estado y **Done** (devuelve el
+  foco a Tools); Organize o abrir otro documento también lo apagan.
+- **Tests:** Rust 18 nativos nuevos (15 de `model/content`: los tres tipos, `editable`, puertas y
+  su orden, líneas y párrafos, estilo y fuentes, retipeo pendiente, plegado que repinta, plegado
+  de un paso antiguo, checkpoint como un paso con deshacer/rehacer a través, guardado tras
+  checkpoint, edición de página tras contenido, rechazo sin permiso; 2 de `model/preview`; 1 de
+  `pdf-save` `text_run_text_is_decoded`) y 2 `wasm-bindgen-test` (`tests/content.rs`).
+  `@vitela/core` 7 Vitest nuevos (1 `client`, 1 `handler`, 4 `documentEngine`, 1 pdfium real:
+  `reportlab_quote_paragraph.pdf` con acentos por `/ToUnicode`, párrafo de 4 líneas a 11 pt,
+  estilo Vera 14, fuentes, y la imagen del escaneo). `@vitela/viewer` 22 nuevos (9 de
+  `contentModel`, 2 de `useContentGate`, 5 de `useContentMode`, 2 de `ContentStatus`, 2 de
+  `MenuButton`, 2 del workspace: encender/apagar desde Tools en las dos pantallas, Done y Organize,
+  y el elemento rechazado con su frase). Vistos en rojo antes de
+  implementar: los de plegado (quitando `amended`, 2 caen). El resto se escribió junto a su código.
+- **E2E (`e2e/edit-content.spec.ts`, 4 × 3):** run bajo el puntero contorneado alrededor del
+  puntero, pulsación → estado "Text “Vitela content line” selected on page 1.", sin selección de
+  texto, Escape suelta, el elemento de Tools se lee marcado y Done apaga con el foco en Tools; alejado al mínimo en 30 páginas solo se leen las visibles y la
+  siguiente, y toda página montada más lejos queda `waiting`; el escaneo contornea y selecciona
+  una imagen; un PDF con `/P` sin modificar deja el elemento `aria-disabled` descrito por "Content
+  editing is not permitted." y pulsarlo no hace nada.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check`; `cargo clippy --locked -p pdf-wasm
+  -p pdf-save --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`), sin
+  avisos; `cargo test --locked -p pdf-wasm -p pdf-save` (con `PDFIUM_DYNAMIC_LIB_PATH`) todo en
+  verde (`pdf-wasm` lib 159, `pdf-save` lib 231, 0 fallos). `@vitela/core`: `build:wasm`,
+  `typecheck`, Vitest 15 / 219, `build`. `@vitela/viewer`: `tsc -b`, Vitest 95 / 929, `build`.
+  `apps/web`: `tsc -b`, Vitest 6 / 19, `vite build`. Playwright completo (Chromium, Firefox, WebKit,
+  `CI=1`) **328 pasan, 1 falla, 22 omitidos**: el fallo fue `watermark.spec.ts:103` en WebKit
+  (timeout, nada de contenido); aislado con `--repeat-each=5` pasa 5 / 5, y la pasada completa
+  anterior (con el interruptor aún en las barras) no lo tuvo. `zero-network`, `phone-bar` y
+  `embed` en verde.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32);
+  `linux-gtk`, Android, `examples/embed-vite`.
+- **No cubierto / pendiente:** ninguna edición (T-259+); Tab por los elementos de la página
+  (opcional en la ficha, no hecho); `textRunLook`; sin lector de pantalla real.
+
+### T-259 — resultado
+
+Edición de runs de texto en el modo **Edit content**, más los arreglos de revisión de T-258b
+(parte A). Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API).
+
+- **Parte A — seguimiento de la revisión de T-258b** (`contentModel.ts`, `useContentMode.ts`):
+  (1) la clave de una lectura es `pageId/rotación/paintRevision/generación` (deshacer un giro
+  conserva id y revisión); (2) con `editing.pending` no sale ninguna lectura (las lecturas van por
+  posición y un paso de Organize o un deshacer puede poner otra página ahí) y una respuesta cuya
+  posición tiene ya otra página se descarta y se vuelve a pedir; además, mientras corre un paso
+  ninguna página se lee `ready` y una pulsación no elige nada (la lectura guardada puede nombrar
+  lo que el paso va a cambiar: un clic justo tras **Undo** seleccionaba el run viejo y lo perdía al
+  aterrizar — lo destapó el E2E); (3) `readsToSend`: como mucho 2 lecturas en vuelo, nunca una
+  clave ya en vuelo, y lo que no sale se decide de nuevo al aterrizar una, contra las páginas
+  deseadas entonces: una página que un scroll rápido ya pasó no se pide.
+- **`pdf-wasm`** (`model/text_run.rs`, `engine/text_run.rs`, `dto/text_run.rs`):
+  `DocumentModel::apply_text_run_edit(TextRunEdit)` con `Retype`, `Move { dx, dy }` (puntos PDF,
+  y hacia arriba), `Remove` y `Restyle { runs, look }`; el run se resuelve contra la lectura
+  pendiente (lo que `record_content_command` pliega) y el comando del core va por
+  `DocumentModel::record_content` + las puertas de `pdf_save::content_edit`: un paso de deshacer
+  cada uno; un segundo retipeo o movimiento del mismo run pliega en su paso; lo que no cambia nada
+  (el mismo texto, mover 0, el aspecto que ya tiene) no registra nada; un `Restyle` de varios runs
+  es un `Command::Batch`. El retipeo elige el comando como los shells nativos
+  (`ReplaceTextRunWithInsertedFont` para fuente compuesta, `ReplaceTextRunContent` si no).
+  Lecturas: `textRunLook` (`pdf_save::pending_text_run_look_of`: B/I/U/S, `canRemoveBold`,
+  `canRemoveItalic`) y `textRunFontProgram` (`pdf_save::text_run_font_program_of`, que ya
+  existía; `null` para standard-14 o un run solo pendiente). `applyEdit` con `retypeTextRun`,
+  `moveTextRun`, `removeTextRun`, `restyleTextRuns`: refresco de vista previa y `paintRevision`
+  como toda edición de contenido.
+- **`@vitela/core`:** tipos `TextRunEdit`, `TextRunLook`, `TextRunLookState`, `FontProgram`;
+  `Engine.textRunLook` / `textRunFontProgram`; el worker pasa `dx, dy` de la página dibujada
+  (y hacia abajo) a puntos PDF.
+- **`@vitela/viewer` (`features/content/`):** puro `textRuns.ts` (flechas 1 pt / Mayús 10 pt,
+  umbral de arrastre 3 px, `retypeOf` — vacío = borrar —, `followRun`: el run editado se
+  encuentra de nuevo por sitio y texto, no por id; familias CSS de reserva; `faceOf`;
+  `editorBox` girado con la página), `runFont.ts` (el programa incrustado como `FontFace` si el
+  navegador lo acepta, TrueType/OpenType; si no, la familia de reserva; cacheado por página, base
+  y recurso), contenedor `useTextRunEditing` (sobre la cola `useAnnotationEdits.apply`: marca
+  sucio y el guardado lo espera; cada paso comprueba al llegar su turno que la página en su
+  posición sigue siendo la misma; nada se pide mientras corre un paso o se relee la página — las
+  flechas de entretanto se suman en un movimiento —; el editor confirma con Enter y al perder el
+  foco, cancela con Escape, y se cierra un turno después, nunca dentro de su propio blur, como en
+  GTK; un guardado, salir del modo u otra selección confirman lo escrito), vistas `TextRunEditor`
+  (campo camuflado: fuente, tamaño, color, peso e inclinación del run) y `TextRunToolbar` (Edit
+  text, B/I/U con `aria-pressed`, Delete; no ofrece quitar una negrita que el core no puede
+  quitar). `ContentLayer` informa doble clic y arrastre del contorno del run seleccionado.
+  Enter/doble clic abren, Delete/Retroceso borran. Un run no retipeable lo dice.
+- **Arreglos de esta pasada** (encontrados con el E2E, cada uno con su test en rojo primero):
+  (a) lo de la parte A (2) sobre pulsaciones durante un paso; (b) las flechas pulsadas mientras
+  se relee la página del run movido se perdían (la selección vieja ya no vale y `onKey` no las
+  tomaba): ahora se suman y salen en cuanto el run se encuentra; (c) en Firefox una pulsación al
+  lado del editor lo confirmaba y su blur lo confirmaba otra vez (Firefox mueve el foco aunque se
+  cancele `pointerdown`): un editor abierto se confirma una sola vez.
+- **Hallazgo del core, sin tocar:** al borrar (o editar) un run, el guardado normal deja en el
+  fichero el flujo de contenido original **sin referenciar** (`pdf_edit::own_page_stream` copia
+  el flujo antes de editarlo y deja la limpieza a la poda de un guardado comprimido; está
+  documentado así en `pdf-edit`). El texto borrado no se ve ni se lee al reabrir, pero sigue en
+  los bytes. Es igual en todos los shells; el E2E de borrado comprueba la relectura, no los bytes.
+  Candidato a ficha propia (podar lo inalcanzable en el guardado completo).
+- **Tests:** Rust 16 nativos nuevos (`model/text_run/tests.rs`: un paso por edición, plegado
+  del segundo retipeo y movimiento, nada para lo que no cambia, restyle de varios = un paso,
+  negrita leída/encolada/guardada, deshacer y rehacer a través de un checkpoint, puertas y su
+  orden, programa de fuente incrustada y standard-14) y 2 `wasm-bindgen-test`
+  (`tests/text_runs.rs`). `@vitela/core` 7 Vitest nuevos (1 `client`, 1 `handler`, 4
+  `documentEngine`, 1 pdfium real: `reportlab_quote_paragraph.pdf` retipeado, movido, en negrita,
+  guardado y releído, borrado y deshecho paso a paso). `@vitela/viewer` 37 nuevos (3
+  `contentModel`, 8 `useContentMode`, 12 `textRuns`, 14 `useTextRunEditing` con
+  `TextRunToolbar`/`TextRunEditor`).
+- **E2E (`e2e/edit-text-runs.spec.ts`, 6 × 3):** retipeo en el sitio (editor sobre el contorno,
+  en su tamaño), Enter, deshacer/rehacer, guardar y reabrir lee el texto nuevo; doble clic abre,
+  Escape cancela, una pulsación al lado confirma; tres Mayús+→ = 30 pt en un paso y un arrastre
+  más, guardado donde quedó; Delete borra, deshacer/rehacer, y el fichero reabierto no tiene run
+  ahí; **B** en negrita, deshecho y rehecho, y releído en negrita tras guardar; un PDF que prohíbe
+  modificar no ofrece ninguna edición.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check` limpio; `cargo clippy --locked
+  -p pdf-wasm --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`), sin
+  avisos; `cargo test --locked -p pdf-wasm -p pdf-save` (con `PDFIUM_DYNAMIC_LIB_PATH`) todo en
+  verde (`pdf-wasm` lib 175, `pdf-save` lib 231, 0 fallos). `@vitela/core`: `typecheck`, Vitest
+  15 / 226, `build`. `@vitela/viewer`: `typecheck`, Vitest 97 / 965, `build`. `apps/web`:
+  `typecheck`, Vitest 6 / 19, `build`. Playwright completo (Chromium, Firefox, WebKit, `CI=1`)
+  **347 pasan, 22 omitidos, 0 fallos**, con `zero-network`, `phone-bar` y `embed` en verde.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32;
+  la misma superficie la cubre el Vitest con pdfium real); `linux-gtk`, Android.
+- **No cubierto / pendiente:** tachado (`strike`) sin botón (la ficha pedía B/I/U); editor de una
+  sola línea (sin bloques ni párrafos: T-260+); mover varios runs a la vez; sin lector de
+  pantalla real.
+
 ## Verificación
 
 - **Fachada:** `wasm-bindgen-test` en navegador headless.

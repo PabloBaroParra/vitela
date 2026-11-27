@@ -53,6 +53,12 @@ pub enum ErrorKind {
     EncodingGap,
     /// No form field of the document answers to that id.
     FormFieldNotFound,
+    /// A typed page selection (`"1-3,7"`) the core cannot read. The message
+    /// is the core's sentence for the person who typed it.
+    InvalidPageSelection,
+    /// The two passwords of a new protection cannot be used: one is missing,
+    /// or both are the same. The message is the core's.
+    InvalidPasswords,
 }
 
 impl ErrorKind {
@@ -76,6 +82,8 @@ impl ErrorKind {
             Self::InvalidImage => "InvalidImage",
             Self::EncodingGap => "EncodingGap",
             Self::FormFieldNotFound => "FormFieldNotFound",
+            Self::InvalidPageSelection => "InvalidPageSelection",
+            Self::InvalidPasswords => "InvalidPasswords",
         }
     }
 }
@@ -157,6 +165,18 @@ impl From<pdf_save::SaveError> for EngineError {
     }
 }
 
+impl From<pdf_save::ProtectError> for EngineError {
+    /// A protection the core refused: the two passwords are their own kind
+    /// (`pdf-ffi` reports them as `InvalidSaveRequest`, with the same
+    /// message), and a failed save keeps the save's kinds.
+    fn from(err: pdf_save::ProtectError) -> Self {
+        match err {
+            pdf_save::ProtectError::Save(err) => err.into(),
+            refused => Self::new(ErrorKind::InvalidPasswords, refused.to_string()),
+        }
+    }
+}
+
 impl From<pdf_save::EditRefusal> for EngineError {
     /// A permission the document withholds is `EditNotPermitted`; an edit no
     /// writer could save under its encryption is not a permission question,
@@ -168,6 +188,46 @@ impl From<pdf_save::EditRefusal> for EngineError {
             _ => ErrorKind::EditNotPermitted,
         };
         Self::new(kind, refusal.to_string())
+    }
+}
+
+impl From<pdf_save::ContentEditRefusal> for EngineError {
+    /// A content edit refused before it reached the queue: a withheld
+    /// permission (or a rewrite the encryption cannot survive) is
+    /// `EditNotPermitted`; a queue that cannot take it yet (save first) is
+    /// `UnsupportedOperation`, as `pdf-ffi` reports it.
+    fn from(refusal: pdf_save::ContentEditRefusal) -> Self {
+        use pdf_save::ContentEditRefusal as R;
+        let kind = match refusal {
+            R::ContentEditing | R::Cut | R::ImageReplacement => ErrorKind::EditNotPermitted,
+            _ => ErrorKind::UnsupportedOperation,
+        };
+        Self::new(kind, refusal.to_string())
+    }
+}
+
+impl From<pdf_save::RecordError> for EngineError {
+    /// A content edit the queue refused (`UnsupportedOperation`, the reason
+    /// worded for the reader), or one that does not apply to its page, by
+    /// the kinds `pdf-ffi` gives the same failures: a character the font
+    /// cannot show and a picture that does not decode keep their own.
+    fn from(err: pdf_save::RecordError) -> Self {
+        match err {
+            pdf_save::RecordError::Refused(detail) => {
+                Self::new(ErrorKind::UnsupportedOperation, detail)
+            }
+            pdf_save::RecordError::Invalid(pdf_save::SaveError::Edit(edit)) => {
+                let kind = match edit {
+                    pdf_edit::EditError::EncodingGap { .. } => ErrorKind::EncodingGap,
+                    pdf_edit::EditError::InvalidImage(_) => ErrorKind::InvalidImage,
+                    _ => ErrorKind::UnsupportedOperation,
+                };
+                Self::new(kind, edit.to_string())
+            }
+            pdf_save::RecordError::Invalid(other) => {
+                Self::new(ErrorKind::UnsupportedOperation, other.to_string())
+            }
+        }
     }
 }
 

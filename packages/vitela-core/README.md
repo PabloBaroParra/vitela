@@ -5,7 +5,7 @@ pdfium, both as WebAssembly, running in a module Web Worker behind a typed,
 framework-agnostic client. No server: documents never leave the page.
 
 Today the engine opens (with or without a password), renders pages to RGBA,
-moves, rotates and removes pages (with undo/redo),
+moves, rotates, removes and inserts blank pages (with undo/redo),
 searches, selects text, and saves the document back to bytes.
 
 ## Install
@@ -69,9 +69,16 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `stampPlacement`.
   An edit answers with the document as it is now (`EditedDocument`: page
   sizes, page ids, blocks, undo/redo state, the session's annotations and the
-  id of the one it added, and the form fields), and the engine has already refreshed its preview
+  id of the one it added, the form fields, and `paintRevision`: the newest
+  page-content step still applied, 0 as opened — a viewer that keeps bitmaps
+  by page id and turn adds it to its key, so a watermark and its undo repaint
+  the pages; and `contentBaseGeneration`: which in-memory base the
+  page-content reads are valid against, bumped when the core writes pending
+  content edits into a new base — a checkpoint — or undo or redo steps across
+  one), and the engine has already refreshed its preview
   when the step changed the pixels, so the next render shows it.
-  `applyEdit` takes a page edit (`move`/`rotate`/`remove`) or an annotation
+  `applyEdit` takes a page edit (`move`/`rotate`/`remove`, or `insertBlank`: one
+  A4 page, `portrait` or `landscape`, at a position) or an annotation
   edit (`AnnotationEdit`: add markup, a shape, ink, a note, free text or an
   image stamp; move, resize, recolour, retext or remove one by id), each one
   undo step. Annotation edits change no pixels — the preview leaves the
@@ -115,6 +122,136 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   every prepared source at once as one undo step (`ImportedDocument`: the
   edited document plus each source's block id); `discardImport` drops a
   source a pick abandoned.
+  Compress: `compressPresets()` lists the presets (`lossless`, `balanced`,
+  `small`, the core's own order); `compressionRefusal(handle)` says why a
+  document cannot be compressed (`CompressRefusal`: today only
+  `encryptedDocumentNotRewritable` — the web keeps a document's protection —
+  with the core's message) or `null`; `compressionInvalidatesSignatures(handle)`
+  is `true` for a signed file even with nothing edited (a compressed save is
+  always a full rewrite). `saveCompressedToBytes(handle, preset,
+  invalidateSignatures)` answers a `CompressedDocument`: the PDF with every
+  edit (the bytes are transferred), `beforeBytes` (the ordinary save's size,
+  not the opened file's), `afterBytes`, `savedBytes`, `reduced` and
+  `refusals`. When `reduced` is false the bytes are the ordinary save: there
+  is no smaller copy. It records no edit, and rejects with
+  `SignaturesWouldBeInvalidated` unless told the user agreed.
+  Protect: `protectionRefusal(handle)` says why a document cannot be
+  protected (the core's clause: today only a document whose permissions
+  withhold modification — the Windows and Android gate) or `null`;
+  `protectionInvalidatesSignatures(handle)` asks whether the protected copy
+  breaks a signature. `protectToBytes(handle, { openPassword,
+  permissionsPassword }, invalidateSignatures)` answers the PDF with every
+  edit under new AES-128 protection, every permission granted (the bytes are
+  transferred). Both passwords are required and must differ — the core's
+  rule: it rejects with `InvalidPasswords` (`INVALID_PASSWORDS`) and its
+  sentence, so the UI need not repeat it. It also rejects with
+  `EditNotPermitted`, `SignaturesWouldBeInvalidated` (unless told the user
+  agreed) and `SaveFailed`. It records no edit, the open document's own
+  protection does not change, and the engine keeps neither password.
+  Document properties: `documentProperties(handle)` answers the six text keys
+  of `/Info` (`title`, `author`, `subject`, `keywords`, `creator`,
+  `producer`; `null` for an absent key) as the next save would write them —
+  the last pending change's, else the file's — however restricted the
+  document is. `metadataRefusal(handle)` says why they cannot be changed (the
+  core's clause: the document's permissions withhold modification, the gate
+  every native shell asks) or `null`. A change is an ordinary edit:
+  `applyEdit(handle, { kind: 'setDocumentProperties', properties })` records
+  one undo step (an empty or `null` key is removed, the creation and
+  modification dates are kept, the values the document already has record
+  nothing) and rejects with `EditNotPermitted` on a refused document; Save
+  writes it into `/Info`. No XMP stream is written, as on the native shells.
+  Watermarks: `watermarkDefaults()` answers the core's starting looks (text:
+  size in points, opacity, angle, over the content; picture: scale, opacity,
+  angle, behind the content), and `watermarkRefusal(handle)` says why no
+  stamp can be added (the core's clause: the document withholds
+  modification, or its encryption cannot survive the rewrite) or `null`.
+  `applyEdit(handle, { kind: 'addWatermark', pages, mark, opacity,
+  rotationDegrees, behind })` stamps `mark` — `{ kind: 'text', text,
+  fontSize }` in Helvetica and the core's grey, or `{ kind: 'picture', image,
+  scale }` with PNG or JPEG bytes — on the 0-based `pages`, as one undo step
+  that refreshes the preview and that Save paints into each page's content
+  stream. It rejects with `EditNotPermitted` (or `UnsupportedOperation`) as
+  `watermarkRefusal` says, `PageIndexOutOfBounds`, `EncodingGap`,
+  `InvalidImage`, or `UnsupportedOperation` for blank text, a repeated page
+  or a look outside the core's ranges; nothing is recorded then. A page whose
+  content stream the core cannot rewrite (a chain of filters) fails the
+  preview refresh, and the stamp is taken back out (`SaveFailed`).
+  The page-content model (T-258, read-only; the edits come in T-259 on):
+  `contentEditingRefusal(handle)` says why an editor of the page content
+  cannot be offered (the core's clause: the content edit's own gate — the
+  modify permission, or an encryption the full rewrite cannot keep — then the
+  text permission every content read is behind) or `null`.
+  `readPageContent(handle, pageIndex)` answers what the page paints, every
+  pending content edit laid on: its text runs (`ContentRun`: id, box on the
+  page as drawn, the font's resource name and kind, text, and `editable`,
+  `false` when the font does not say what every code is), images
+  (`ContentImage`) and vector paths (`ContentPath`, stroked, filled or both).
+  It parses the page on every call — cache by page id, `paintRevision` and
+  `contentBaseGeneration`, and ask only for the pages in view.
+  `readTextBlocks` and `readParagraphBlocks` group the runs into one-line
+  blocks or into paragraphs (`TextBlock`: member run ids, box, text, lines,
+  leading, alignment — the core's grouping), `textRunStyle(handle,
+  pageIndex, runId)` reads a run's base font, size, colour, spacing and face
+  (`null` for a run only a pending insertion added), `pageFontFamilies`
+  each font's `/BaseFont` by resource name, and `contentBaseGeneration` the
+  current base. The reads reject with `TextExtractionDenied`,
+  `PageIndexOutOfBounds`, and `textRunStyle` with `UnsupportedOperation` for
+  an id the page does not hold now.
+  Text runs (T-259) are edited through `applyEdit` with a `TextRunEdit`
+  naming a run by the id its page's last read handed out: `retypeTextRun`
+  (`text`), `moveTextRun` (`dx, dy` points on the page as drawn),
+  `removeTextRun` and `restyleTextRuns` (`runIds` and a `TextRunLook`: bold,
+  italic, underline, strike — all of them one step). Each is one undo step
+  and moves `paintRevision`; a second retype or move of the same run folds
+  into its step, and an edit that changes nothing records nothing. They
+  reject as `contentEditingRefusal` says, then `PageIndexOutOfBounds`,
+  `UnsupportedOperation` for a run the page does not hold now, or
+  `EncodingGap`. `textRunLook(handle, pageIndex, runId)` reads how a run looks
+  now, a queued restyle included, and whether bold / italic can come off
+  (`canRemoveBold`: `false` for a bold font whose page has no regular
+  sibling); `textRunFontProgram` hands out the program its font embeds
+  (`FontProgram`: `format` and `bytes`; `null` for a standard-14 font).
+  Extract and Split: `extractionRefusal(handle)` says why no page can leave
+  the document (the core's sentence: its `/P` withholds extraction — bit 5,
+  not page assembly — or its encryption cannot survive the rewrite, e.g.
+  opened with only one of its two passwords) or `null`;
+  `extractSourceIsSigned(handle)` says whether the file as opened is signed
+  (an extracted copy's signature no longer verifies). `extractPages(handle,
+  pages)` answers a new PDF of `pages` (zero-based, ascending, unique; the
+  current order) with every pending edit, protected as the source is (the
+  bytes are transferred); it rejects with `InvalidPageSelection`,
+  `PageIndexOutOfBounds`, `UnsupportedOperation` and `SaveFailed`, and
+  records no edit. `planSplit(cuts, totalPages, documentName)` answers the
+  `SplitPart`s (`{ first, last, fileName }`, `report-part1.pdf`…) a split
+  after the one-based pages `cuts` (`"3,7"`) makes, by the core's grammar and
+  names (rejects with `InvalidPageSelection` and a sentence: one page, no
+  cut, a cut after the last page); each part is then one `extractPages`.
+  Export images: `imageExportFormats()` (`png`, `jpeg`; there is no JPEG
+  quality — the core's encoder has none), `parsePageSelection(input,
+  totalPages)` reads `"1-3,7"` into zero-based pages by the core's grammar
+  (rejects with `InvalidPageSelection`, whose message is a sentence for the
+  person who typed it), `pageImageFileNames(name, pages, totalPages, format)`
+  names each file (`report.pdf` page 3 of 12 as JPEG is `report-03.jpg`), and
+  `firstPageTooLargeToExport(handle, pages, dpi)` names the first page over
+  the raster ceiling (32 Mpx), or `null`. An export is a snapshot of what a
+  save would write now — every pending edit, annotation and fill drawn in,
+  no signature question since nothing is written — opened with
+  `openImageExport(handle)` — it answers `{ handle, pageCount }`, the
+  snapshot's own page count, which is what to plan the export against
+  (rejects with `UnsupportedOperation` when the document withholds
+  extraction) — read one page at a time with
+  `exportPageImage(export, pageIndex, dpi, format)` (the encoded file,
+  transferred; rendered by the core's renderer and encoded by its
+  `encode_rgba_image`, not by a canvas) and freed with
+  `closeImageExport(export)`. Close it however the export ends: the snapshot
+  holds the engine's memory until then. It records no edit.
+  Print: `openPrintSnapshot(handle)` opens the same snapshot **for printing
+  only** — same answer, pages drawn with `exportPageImage`, freed with
+  `closeImageExport` — but asks no permission: no native shell asks one
+  before printing, and the core has no rule for the `/P` print bit. It is
+  not a second way to export: its pages are drawn at 150 DPI at most, and a
+  finer `exportPageImage` on it is refused with `UnsupportedOperation`. Use
+  `openImageExport` to write images.
   `terminate()` stops the worker for good (every open document goes with it):
   pending and later calls fail with "the engine was terminated", and so does
   a `ready` still pending. Calling it again does nothing.
@@ -127,7 +264,10 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `ANNOTATION_NOT_FOUND`, `INVALID_IMAGE`, `FORM_FIELD_NOT_FOUND`.
 - Types: `Engine`, `DocumentHandle`, `DocumentInfo`, `OpenedDocument`,
   `Edit`, `PageEdit`, `AnnotationEdit`, `MarkupKind`, `FormEdit`,
-  `FieldValue`, `EditedDocument`, `Annotation`, `Comment`, `FormField`,
+  `FieldValue`, `WatermarkEdit`, `WatermarkMark`, `WatermarkDefaults`,
+  `PageContent`, `ContentItem`, `ContentRun`, `ContentImage`, `ContentPath`,
+  `ContentFontKind`, `TextBlock`, `TextLine`, `TextRunStyle`,
+  `EditedDocument`, `Annotation`, `Comment`, `FormField`,
   `RadioButton`, `FreeTextLayout`, `FreeTextLine`, `Rgb`,
   `PageRect`, `DocumentBlock`, `BlockSource`, `PreparedImport`,
   `ImportedDocument`, `PageSize`, `PagePoint`, `PageRects`, `RenderedPage`,

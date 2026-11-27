@@ -23,6 +23,10 @@
 //!   time, and reports whether the rewrite invalidates existing signatures.
 //! - [`clipboard`] (B25 T-209): the content clipboard's queue rules — copy,
 //!   paste, and what a selection edit does with a pending paste.
+//! - [`content_edit`] (T-258a): the questions asked around a page-content
+//!   edit — whether it is allowed at all, whether an image could be
+//!   replaced, whether a run has a pending move — and recording one through
+//!   a checkpointing session.
 //! - [`record`] (B25): how a page-content edit joins the pending queue —
 //!   folded into the queued edit of the same item, or validated and
 //!   appended. Every shell records through it.
@@ -34,6 +38,10 @@
 //! - [`strategy`] (T-032, T-033): writer selection and
 //!   the [`save_document`] auto-selection entry point.
 //! - [`export`] (T-037): page export as PNG/JPEG at selectable DPI.
+//! - [`extract`] (T-249): pulling a subset of pages out into a new PDF — the
+//!   permission and rewrite gates, the prune of a clone, and its save.
+//! - [`protect`] (T-249): applying new AES-128 password protection to a
+//!   snapshot of a document.
 //! - [`imported_sources`]: session-lifetime registry of imported PDFs,
 //!   feeding [`ImportedSources`] at save time (batch PDF assembly §1).
 //! - [`import`] (B26 T-223): adding other PDFs' pages as one undo step —
@@ -55,9 +63,11 @@ pub mod clock;
 pub mod comments;
 pub mod compress;
 pub mod content;
+pub mod content_edit;
 pub mod edit_gate;
 pub mod error;
 pub mod export;
+pub mod extract;
 pub mod forms;
 pub mod import;
 pub mod imported_sources;
@@ -65,6 +75,7 @@ pub mod metadata;
 pub mod origin;
 pub mod prepared_source;
 pub mod preview;
+pub mod protect;
 pub mod record;
 pub mod rewrite;
 pub mod run_look;
@@ -94,6 +105,10 @@ pub use content::{
     has_content_edits, replay_content_edits, validate_content_command,
     validate_content_command_after_pending,
 };
+pub use content_edit::{
+    check_image_replacement, content_cut_allowed, content_editing_allowed, ensure_content_editing,
+    text_run_has_pending_move, text_run_text_is_decoded, ContentEditRefusal,
+};
 pub use edit_gate::{
     check_edit, form_field_editing_allowed, form_fill_allowed, EditClass, EditRefusal,
 };
@@ -104,6 +119,7 @@ pub use export::{
     document_file_stem, encode_rgba_image, page_image_file_name, parse_page_selection,
     resolve_split_cuts, split_part_file_name, split_parts, ExportFormat, PageSelectionError,
 };
+pub use extract::{extracted_pages, extraction_refusal, ExtractError};
 pub use forms::{ensure_acroform, remove_form_fields, removed_existing_fields, write_form_fields};
 pub use import::{import_refusal, import_sources, ImportError, ImportOutcome, ImportRefusal};
 pub use imported_sources::ImportedSourceRegistry;
@@ -115,6 +131,10 @@ pub use origin::{
 };
 pub use prepared_source::{prepare_source, PrepareError, PreparedSource};
 pub use preview::{session_preview, shows_in_session_preview};
+pub use protect::{
+    protected_bytes, protection_will_invalidate_signatures, ProtectError,
+    GRANTED_PROTECTION_PERMISSIONS,
+};
 pub use record::{record_content_batch, record_content_command, target, RecordError, Target};
 pub use rewrite::{full_rewrite_blocker, RewriteBlocker};
 pub use run_look::pending_text_run_look_of;
@@ -122,5 +142,5 @@ pub use security::{apply_encryption_for_full_rewrite, build_encryption_state, Sa
 pub use strategy::{
     append_incremental_update, save_document, save_document_with_options,
     save_document_with_report, save_preview, save_preview_with_report, will_invalidate_signatures,
-    SaveInput, SaveOptions, SaveOutcome, SignatureAcknowledgement,
+    SaveInput, SaveOptions, SaveOutcome, SaveSource, SignatureAcknowledgement,
 };

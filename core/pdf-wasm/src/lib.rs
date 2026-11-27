@@ -12,8 +12,9 @@
 //!   build on every target, so the workspace's native `cargo test` covers
 //!   them. `model` holds the edit session too (page edits, undo/redo, save,
 //!   the preview snapshot, import and the Documents view's blocks, and the
-//!   session's annotations and comments, and the form fields and filling
-//!   them in).
+//!   session's annotations and comments, the form fields and filling them
+//!   in, the compressed save, image export, document properties,
+//!   watermarks, and the page-content model with its checkpoints).
 //! - `engine`, `dto` and `geometry` are the `#[wasm_bindgen]` surface and
 //!   exist only on wasm32; they are tested by `wasm-bindgen-test` in a
 //!   headless browser (`tests/engine.rs`).
@@ -40,10 +41,16 @@ mod geometry;
 
 #[cfg(target_arch = "wasm32")]
 pub use dto::{
-    AnnotationEntry, CommentEntry, DocumentBlock, FormFieldEntry, FreeTextLines, ImportedPages,
-    PageCharacters, PageDimensions, PreparedImport, RenderedPage, SearchMatch, TextRun,
+    AnnotationEntry, CommentEntry, CompressRefusalEntry, CompressedSave, ContentImageEntry,
+    ContentPathEntry, ContentRunEntry, DocumentBlock, DocumentPropertiesEntry, FontProgramEntry,
+    FormFieldEntry, FreeTextLines, ImportedPages, OpenedImageExport, PageCharacters,
+    PageContentEntry, PageDimensions, PreparedImport, RenderedPage, SearchMatch, SplitPart,
+    TextBlockEntry, TextLineEntry, TextRun, TextRunLookEntry, TextRunStyleEntry, WatermarkLook,
 };
 #[cfg(target_arch = "wasm32")]
-pub use engine::{free_text_layout, stamp_placement, EditCommand, Engine};
+pub use engine::{
+    compress_presets, free_text_layout, image_export_formats, page_image_file_name,
+    parse_page_selection, plan_split, stamp_placement, watermark_defaults, EditCommand, Engine,
+};
 #[cfg(target_arch = "wasm32")]
 pub use geometry::{place_rects, point_to_pdf};

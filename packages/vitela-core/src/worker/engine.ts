@@ -35,6 +35,12 @@ export const coreFunctions: CoreFunctions = {
   pointToPdf: core.pointToPdf,
   freeTextLayout: core.freeTextLayout,
   stampPlacement: core.stampPlacement,
+  compressPresets: core.compressPresets,
+  watermarkDefaults: core.watermarkDefaults,
+  imageExportFormats: core.imageExportFormats,
+  parsePageSelection: core.parsePageSelection,
+  pageImageFileName: core.pageImageFileName,
+  planSplit: core.planSplit,
 };
 
 /** The core's `EditCommand` constructors, as `documentEngine` takes them. */
@@ -42,6 +48,7 @@ export const coreEdits: CoreEdits = {
   movePages: (from, count, to) => core.EditCommand.movePages(from, count, to),
   rotatePages: (from, count, degrees) => core.EditCommand.rotatePages(from, count, degrees),
   removePages: (index, count) => core.EditCommand.removePages(index, count),
+  insertBlankPage: (index, landscape) => core.EditCommand.insertBlankPage(index, landscape),
   addHighlight: (page, x, y, w, h, rgb) => core.EditCommand.addHighlight(page, x, y, w, h, rgb),
   addUnderline: (page, x, y, w, h, rgb) => core.EditCommand.addUnderline(page, x, y, w, h, rgb),
   addStrikeout: (page, x, y, w, h, rgb) => core.EditCommand.addStrikeout(page, x, y, w, h, rgb),
@@ -58,6 +65,17 @@ export const coreEdits: CoreEdits = {
   setFieldText: (id, text) => core.EditCommand.setFieldText(id, text),
   setFieldChecked: (id, checked) => core.EditCommand.setFieldChecked(id, checked),
   setFieldChoice: (id, option) => core.EditCommand.setFieldChoice(id, option),
+  setDocumentProperties: (title, author, subject, keywords, creator, producer) =>
+    core.EditCommand.setDocumentProperties(title, author, subject, keywords, creator, producer),
+  addTextWatermark: (pages, text, fontSize, opacity, rotation, behind) =>
+    core.EditCommand.addTextWatermark(pages, text, fontSize, opacity, rotation, behind),
+  addPictureWatermark: (pages, image, scale, opacity, rotation, behind) =>
+    core.EditCommand.addPictureWatermark(pages, image, scale, opacity, rotation, behind),
+  retypeTextRun: (page, runId, text) => core.EditCommand.retypeTextRun(page, runId, text),
+  moveTextRun: (page, runId, dx, dy) => core.EditCommand.moveTextRun(page, runId, dx, dy),
+  removeTextRun: (page, runId) => core.EditCommand.removeTextRun(page, runId),
+  restyleTextRuns: (page, runIds, bold, italic, underline, strike) =>
+    core.EditCommand.restyleTextRuns(page, runIds, bold, italic, underline, strike),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

@@ -29,6 +29,33 @@ const annotationFunctions = {
   },
   // A 2:1 image: 144 x 72 pt with its top-left at the anchor.
   stampPlacement: (_image: Uint8Array, x: number, y: number) => new Float64Array([x, y - 72, 144, 72]),
+  compressPresets: () => ['lossless', 'balanced', 'small'],
+  watermarkDefaults: () => ({
+    fontSize: 60,
+    textOpacity: 0.3,
+    textRotationDegrees: 45,
+    textBehind: false,
+    pictureScale: 0.5,
+    pictureOpacity: 0.3,
+    pictureRotationDegrees: 0,
+    pictureBehind: true,
+    free: () => {},
+  }),
+  imageExportFormats: () => ['png', 'jpeg', 'gif'],
+  parsePageSelection: (input: string, total: number) => {
+    if (input === 'bad') throw named('InvalidPageSelection', 'Page selection is not valid');
+    return new Uint32Array([0, total - 1]);
+  },
+  pageImageFileName: (name: string, index: number, total: number, format: string) =>
+    `${name}#${index + 1}of${total}.${format}`,
+  planSplit: (cuts: string, total: number, name: string) => {
+    if (cuts === 'bad') throw named('InvalidPageSelection', 'Split position is not valid');
+    // One cut after the first page, whatever was typed.
+    return [
+      { first: 0, last: 0, fileName: `${name}#1`, free: () => {} },
+      { first: 1, last: total - 1, fileName: `${name}#2`, free: () => {} },
+    ];
+  },
 };
 
 /** Placement that only marks its output, so a test sees it was applied. */
@@ -79,8 +106,12 @@ type FakeEdit =
   | { kind: 'move'; from: number; count: number; to: number; free(): void }
   | { kind: 'rotate'; from: number; count: number; delta: number; free(): void }
   | { kind: 'remove'; from: number; count: number; free(): void }
+  | { kind: 'insertBlank'; index: number; landscape: boolean; free(): void }
   | { kind: 'annotation'; op: string; args: unknown[]; free(): void }
-  | { kind: 'fill'; op: string; id: number; value: unknown; free(): void };
+  | { kind: 'fill'; op: string; id: number; value: unknown; free(): void }
+  | { kind: 'metadata'; keys: (string | undefined)[]; free(): void }
+  | { kind: 'watermark'; op: string; args: unknown[]; free(): void }
+  | { kind: 'textRun'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -102,6 +133,8 @@ interface FakeStep {
   before: FakeState;
   /** Set when the preview shows the step: which state of the history it is. */
   mark: number | undefined;
+  /** Set when the step repaints pages in place (a watermark): its mark. */
+  paint?: number;
 }
 
 function named(name: string, message: string): Error {
@@ -123,6 +156,10 @@ function fakeCore(
     stickyStale?: boolean;
     /** Fields the opened file has: a text field `name` (id 0) and a checkbox `agree` (id 1), on the first page. */
     form?: boolean;
+    /** The opened file is encrypted: compressing it is refused. */
+    encrypted?: boolean;
+    /** The opened file is signed: compressing it breaks the signature. */
+    signed?: boolean;
   } = {},
 ) {
   interface Doc extends FakeState {
@@ -139,6 +176,15 @@ function fakeCore(
   const closed: number[] = [];
   const freed: string[] = [];
   const saves: [number, boolean][] = [];
+  /** Every compressed save the core ran: document, preset, acknowledgement. */
+  const compressions: [number, string, boolean][] = [];
+  /** Every protected save the core ran: document, both passwords, acknowledgement. */
+  const protections: [number, string, string, boolean][] = [];
+  /** Every extraction the core ran: document, zero-based pages (as a plain array). */
+  const extractions: [number, number[]][] = [];
+  /** Open image exports: id -> the marker and page ids of the document at the moment it was opened. */
+  const exports = new Map<number, { marker: number; ids: number[] }>();
+  let nextExport = 50;
   const refreshed: number[] = [];
   /** Every `applyEdit` the core received, as the fake command it was. */
   const applied: FakeEdit[] = [];
@@ -160,9 +206,10 @@ function fakeCore(
   /** The mark of the newest shown step still applied, as the core's `PreviewMarks`. */
   const current = (entry: Doc) => [...entry.undo].reverse().find((step) => step.mark !== undefined)?.mark ?? 0;
   /** Records a step the way the core's log does. */
-  const record = (entry: Doc, next: FakeState, pixels: boolean) => {
+  const record = (entry: Doc, next: FakeState, pixels: boolean, inPlace = false) => {
     const mark = pixels ? ++entry.nextMark : undefined;
-    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark });
+    const paint = inPlace ? mark : undefined;
+    entry.undo.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark, paint });
     entry.redo = [];
     entry.pages = next.pages;
     entry.annotations = next.annotations;
@@ -172,7 +219,11 @@ function fakeCore(
   const step = (entry: Doc, from: FakeStep[], to: FakeStep[]) => {
     const taken = from.pop();
     if (!taken) return false;
-    to.push({ before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, mark: taken.mark });
+    to.push({
+      before: { pages: entry.pages, annotations: entry.annotations, fields: entry.fields },
+      mark: taken.mark,
+      paint: taken.paint,
+    });
     entry.pages = taken.before.pages;
     entry.annotations = taken.before.annotations;
     entry.fields = taken.before.fields;
@@ -189,6 +240,7 @@ function fakeCore(
     movePages: (from, count, to) => command({ kind: 'move', from, count, to }),
     rotatePages: (from, count, delta) => command({ kind: 'rotate', from, count, delta }),
     removePages: (from, count) => command({ kind: 'remove', from, count }),
+    insertBlankPage: (index, landscape) => command({ kind: 'insertBlank', index, landscape }),
     addHighlight: annotation('addHighlight'),
     addUnderline: annotation('addUnderline'),
     addStrikeout: annotation('addStrikeout'),
@@ -205,6 +257,13 @@ function fakeCore(
     setFieldText: (id, value) => command({ kind: 'fill', op: 'setFieldText', id, value }),
     setFieldChecked: (id, value) => command({ kind: 'fill', op: 'setFieldChecked', id, value }),
     setFieldChoice: (id, value) => command({ kind: 'fill', op: 'setFieldChoice', id, value }),
+    setDocumentProperties: (...keys) => command({ kind: 'metadata', keys }),
+    addTextWatermark: (...args) => command({ kind: 'watermark', op: 'addTextWatermark', args }),
+    addPictureWatermark: (...args) => command({ kind: 'watermark', op: 'addPictureWatermark', args }),
+    retypeTextRun: (...args) => command({ kind: 'textRun', op: 'retypeTextRun', args }),
+    moveTextRun: (...args) => command({ kind: 'textRun', op: 'moveTextRun', args }),
+    removeTextRun: (...args) => command({ kind: 'textRun', op: 'removeTextRun', args }),
+    restyleTextRuns: (...args) => command({ kind: 'textRun', op: 'restyleTextRuns', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -322,6 +381,180 @@ function fakeCore(
       return { width: 1, height: 1, takeRgba: () => new Uint8Array([marker, 0, 0, 255]), free: () => {} };
     },
     textExtractionAllowed: (doc) => (known(doc), !options.restricted),
+    compressionRefusal: (doc) => {
+      known(doc);
+      return options.encrypted
+        ? { kind: 'encryptedDocumentNotRewritable', message: 'protected', free: () => freed.push('refusal') }
+        : undefined;
+    },
+    compressionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    // The file's /Info: a title, and no author (wasm-bindgen's `undefined`).
+    documentProperties: (doc) => (
+      known(doc),
+      {
+        title: 'Report',
+        author: undefined,
+        subject: 'Q3',
+        keywords: undefined,
+        creator: undefined,
+        producer: 'Vitela',
+        free: () => freed.push('properties'),
+      }
+    ),
+    metadataRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit metadata changes' : undefined),
+    watermarkRefusal: (doc) => (known(doc), options.restricted ? 'content editing is not permitted' : undefined),
+    contentEditingRefusal: (doc) => (known(doc), options.restricted ? 'content editing is not permitted' : undefined),
+    readPageContent: (doc, page) => {
+      readable(doc);
+      if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
+      const runs = [
+        { id: 0, page, bbox: new Float64Array([72, 700, 30, 12]), fontName: 'F1', fontKind: 'standard14', text: 'Hello', editable: true },
+        { id: 1, page, bbox: new Float64Array([72, 600, 30, 12]), fontName: 'F2', fontKind: 'oddKind', text: 'A\uFFFD', editable: false },
+      ];
+      return {
+        takeRuns: () => runs.map((run) => ({ ...run, free: () => freed.push(`run:${run.id}`) })),
+        takeImages: () => [
+          { id: 0, page, bbox: new Float64Array([72, 500, 100, 50]), inline: false, free: () => freed.push('image:0') },
+        ],
+        takePaths: () => [
+          { id: 0, page, bbox: new Float64Array([72, 400, 200, 0]), paint: 'stroke', free: () => freed.push('path:0') },
+        ],
+        free: () => freed.push('content'),
+      };
+    },
+    readTextBlocks: (doc) => (
+      readable(doc),
+      [
+        {
+          runIds: new Float64Array([0]),
+          bbox: new Float64Array([72, 700, 30, 12]),
+          text: 'Hello',
+          lines: [
+            { runIds: new Float64Array([0]), bbox: new Float64Array([72, 700, 30, 12]), text: 'Hello', free: () => freed.push('line') },
+          ],
+          leading: undefined,
+          alignment: 'left',
+          free: () => freed.push('block'),
+        },
+      ]
+    ),
+    readParagraphBlocks: (doc) => (
+      readable(doc),
+      [
+        {
+          runIds: new Float64Array([0, 1]),
+          bbox: new Float64Array([72, 600, 30, 112]),
+          text: 'Hello\nA',
+          lines: [],
+          leading: 14,
+          alignment: 'center',
+          free: () => freed.push('paragraph'),
+        },
+      ]
+    ),
+    textRunStyle: (doc, _page, runId) => {
+      readable(doc);
+      if (runId > 1) throw named('UnsupportedOperation', 'the page has no text run with that id now');
+      return runId === 1
+        ? undefined
+        : {
+            baseFont: 'Helvetica',
+            fontSize: 12,
+            fillRgb: new Float64Array([1, 0.5, 0]),
+            charSpacing: 0,
+            horizontalScale: 1,
+            bold: false,
+            italic: true,
+            renderMode: 0,
+            free: () => freed.push('style'),
+          };
+    },
+    pageFontFamilies: (doc) => (readable(doc), ['F1', 'Helvetica', 'F2', 'ABCDEF+Vera']),
+    textRunLook: (doc, _page, runId) => {
+      readable(doc);
+      if (runId > 1) throw named('UnsupportedOperation', 'the page has no text run with that id now');
+      return runId === 1
+        ? undefined
+        : {
+            bold: true,
+            italic: false,
+            underline: false,
+            strike: false,
+            canRemoveBold: false,
+            canRemoveItalic: true,
+            free: () => freed.push('look'),
+          };
+    },
+    textRunFontProgram: (doc, _page, runId) => {
+      readable(doc);
+      if (runId !== 1) return undefined;
+      return { format: 'trueType', takeBytes: () => new Uint8Array([0, 1, 0, 0]), free: () => freed.push('program') };
+    },
+    contentBaseGeneration: (doc) => (known(doc), 3),
+    protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
+    protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
+    protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
+      const { marker, pages } = known(doc);
+      if (!openPassword || !permissionsPassword) throw named('InvalidPasswords', 'both open and permissions passwords are required');
+      if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
+      protections.push([doc, openPassword, permissionsPassword, invalidate]);
+      // One byte per page, after the marker: the protected copy of what the session holds now.
+      return new Uint8Array([marker, ...pages.map((page) => page.id)]);
+    },
+    extractionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit extracting its pages' : undefined),
+    extractSourceIsSigned: (doc) => (known(doc), options.signed ?? false),
+    extractPagesToBytes: (doc, pages) => {
+      const entry = known(doc);
+      if (options.restricted) throw named('UnsupportedOperation', 'this document does not permit extracting its pages');
+      const out = Array.from(pages).map((index) => {
+        const page = entry.pages[index];
+        if (page === undefined) throw named('PageIndexOutOfBounds', `page index ${index} is out of bounds`);
+        return page.id;
+      });
+      extractions.push([doc, Array.from(pages)]);
+      // The marker, then the id of each extracted page: what the session holds now.
+      return new Uint8Array([entry.marker, ...out]);
+    },
+    // Over 400 DPI the first asked page is too large, like a Letter page at 600.
+    firstPageTooLargeToExport: (doc, pages, dpi) => (known(doc), dpi > 400 ? pages[0] : undefined),
+    openImageExport: (doc) => {
+      const { marker, pages } = known(doc);
+      if (options.restricted) throw named('UnsupportedOperation', 'this document does not permit extracting its pages as images');
+      const id = nextExport++;
+      exports.set(id, { marker, ids: pages.map((page) => page.id) });
+      return { id, pageCount: pages.length, free: () => freed.push('export') };
+    },
+    exportPageImage: (exportId, pageIndex, dpi, format) => {
+      const snapshot = exports.get(exportId);
+      if (!snapshot) throw named('DocumentNotFound', `no open image export with id ${exportId}`);
+      const id = snapshot.ids[pageIndex];
+      if (id === undefined) throw named('PageIndexOutOfBounds', `page index ${pageIndex} is out of bounds`);
+      return new Uint8Array([snapshot.marker, id, dpi, format === 'png' ? 1 : 2]);
+    },
+    closeImageExport: (exportId) => exports.delete(exportId),
+    // No permission asked: a restricted document prints.
+    openPrintSnapshot: (doc) => {
+      const { marker, pages } = known(doc);
+      const id = nextExport++;
+      exports.set(id, { marker, ids: pages.map((page) => page.id) });
+      return { id, pageCount: pages.length, free: () => freed.push('print') };
+    },
+    saveCompressedToBytes: (doc, preset, invalidate) => {
+      const { marker, pages } = known(doc);
+      if (options.signed && !invalidate) throw named('SignaturesWouldBeInvalidated', 'the document is signed');
+      compressions.push([doc, preset, invalidate]);
+      // One byte per page, after the marker: the compressed copy of what the session holds now.
+      const bytes = new Uint8Array([marker, ...pages.map((page) => page.id)]);
+      return {
+        beforeBytes: 100,
+        afterBytes: bytes.length,
+        savedBytes: 100 - bytes.length,
+        reduced: true,
+        refusals: [],
+        takeBytes: () => bytes,
+        free: () => freed.push('compressed'),
+      };
+    },
     saveToBytes: (doc, invalidate) => {
       const { marker } = known(doc);
       saves.push([doc, invalidate]);
@@ -335,6 +568,24 @@ function fakeCore(
         const { next, added } = annotate(entry, edit.op, edit.args);
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
+      }
+      if (edit.kind === 'textRun') {
+        if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
+        // Page content: the step shows in the pixels, repainting pages in place.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
+        return undefined;
+      }
+      if (edit.kind === 'watermark') {
+        if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
+        // Page content: the step shows in the pixels, repainting pages in place.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
+        return undefined;
+      }
+      if (edit.kind === 'metadata') {
+        if (options.restricted) throw named('EditNotPermitted', 'this document does not permit metadata changes');
+        // The core counts it as a step the preview shows.
+        record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true);
+        return undefined;
       }
       if (edit.kind === 'fill') {
         // pdfium paints a field: the step shows in the pixels.
@@ -350,6 +601,10 @@ function fakeCore(
         for (let i = edit.from; i < edit.from + edit.count; i++) {
           pages[i] = { ...pages[i]!, rotationDegrees: (pages[i]!.rotationDegrees + edit.delta + 360) % 360 };
         }
+      } else if (edit.kind === 'insertBlank') {
+        if (edit.index > pages.length) throw named('PageIndexOutOfBounds', `page ${edit.index} does not exist`);
+        // Blank pages are their own source (none of the opened ones).
+        pages.splice(edit.index, 0, { id: nextPageId++, widthPt: edit.landscape ? 842 : 595, rotationDegrees: 0, source: -1 });
       } else {
         pages.splice(edit.from, edit.count);
       }
@@ -429,6 +684,7 @@ function fakeCore(
       entry.shown = current(entry);
       entry.sticky = false;
     },
+    paintRevision: (doc) => [...known(doc).undo].reverse().find((taken) => taken.paint !== undefined)?.paint ?? 0,
     previewStale: (doc) => {
       const entry = known(doc);
       return options.stickyStale ? entry.sticky : current(entry) !== entry.shown;
@@ -512,7 +768,7 @@ function fakeCore(
       };
     },
   };
-  return { core, edits, closed, freed, saves, refreshed, prepared, applied };
+  return { core, edits, closed, freed, saves, refreshed, prepared, applied, compressions, protections, extractions, exports };
 }
 
 describe('documentEngine', () => {
@@ -550,6 +806,271 @@ describe('documentEngine', () => {
       [b.handle, false],
       [a.handle, true],
     ]);
+  });
+
+  it('lists the presets the core has', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.compressPresets()).toEqual(['lossless', 'balanced', 'small']);
+  });
+
+  it('asks the gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.compressionRefusal(handle)).toBeNull();
+    expect(await engine.compressionInvalidatesSignatures(handle)).toBe(false);
+
+    const locked = fakeCore({ encrypted: true, signed: true });
+    const other = documentEngine(locked.core, geometry, locked.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.compressionRefusal(opened.handle)).toEqual({ kind: 'encryptedDocumentNotRewritable', message: 'protected' });
+    expect(locked.freed).toContain('refusal');
+    expect(await other.compressionInvalidatesSignatures(opened.handle)).toBe(true);
+  });
+
+  it('compresses the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, compressions, refreshed, freed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const compressed = await engine.saveCompressedToBytes(handle, 'balanced', false);
+    expect(compressions).toEqual([[handle, 'balanced', false]]);
+    expect(compressed.bytes).toEqual(new Uint8Array([10, ...removed.info.pageIds]));
+    expect(compressed).toMatchObject({ beforeBytes: 100, afterBytes: 3, savedBytes: 97, reduced: true, refusals: [] });
+    expect(freed).toContain('compressed');
+    expect(refreshed.length).toBe(refreshes);
+    // The history is the one the edit left.
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+  });
+
+  it('passes the signature acknowledgement and forwards the refusal by name', async () => {
+    const { core, edits, compressions } = fakeCore({ signed: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.saveCompressedToBytes(handle, 'small', false)).rejects.toMatchObject({
+      name: 'SignaturesWouldBeInvalidated',
+    });
+    await engine.saveCompressedToBytes(handle, 'small', true);
+    expect(compressions).toEqual([[handle, 'small', true]]);
+  });
+
+  it('refuses every compress request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [
+      engine.compressionRefusal(handle),
+      engine.compressionInvalidatesSignatures(handle),
+      engine.saveCompressedToBytes(handle, 'lossless', false),
+    ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it('asks the protect gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.protectionRefusal(handle)).toBeNull();
+    expect(await engine.protectionInvalidatesSignatures(handle)).toBe(false);
+
+    const restricted = fakeCore({ restricted: true, signed: true });
+    const other = documentEngine(restricted.core, geometry, restricted.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.protectionRefusal(opened.handle)).toBe('this document does not permit protection changes');
+    expect(await other.protectionInvalidatesSignatures(opened.handle)).toBe(true);
+  });
+
+  it('protects the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, protections, refreshed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const bytes = await engine.protectToBytes(handle, { openPassword: 'o', permissionsPassword: 'p' }, false);
+    expect(protections).toEqual([[handle, 'o', 'p', false]]);
+    expect(bytes).toEqual(new Uint8Array([10, ...removed.info.pageIds]));
+    expect(refreshed.length).toBe(refreshes);
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+    expect(undone.canUndo).toBe(false);
+  });
+
+  it("passes the signature acknowledgement and forwards the core's refusals by name", async () => {
+    const { core, edits, protections } = fakeCore({ signed: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const passwords = { openPassword: 'o', permissionsPassword: 'p' };
+    await expect(engine.protectToBytes(handle, passwords, false)).rejects.toMatchObject({
+      name: 'SignaturesWouldBeInvalidated',
+    });
+    await expect(engine.protectToBytes(handle, { openPassword: '', permissionsPassword: 'p' }, true)).rejects.toMatchObject({
+      name: 'InvalidPasswords',
+      message: 'both open and permissions passwords are required',
+    });
+    await engine.protectToBytes(handle, passwords, true);
+    expect(protections).toEqual([[handle, 'o', 'p', true]]);
+  });
+
+  it('refuses every protect request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [
+      engine.protectionRefusal(handle),
+      engine.protectionInvalidatesSignatures(handle),
+      engine.protectToBytes(handle, { openPassword: 'o', permissionsPassword: 'p' }, false),
+    ]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it('asks the extract gates of the document its handle names', async () => {
+    const plain = fakeCore();
+    const engine = documentEngine(plain.core, geometry, plain.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.extractionRefusal(handle)).toBeNull();
+    expect(await engine.extractSourceIsSigned(handle)).toBe(false);
+
+    const restricted = fakeCore({ restricted: true, signed: true });
+    const other = documentEngine(restricted.core, geometry, restricted.edits);
+    const opened = await other.open(new Uint8Array([20]));
+    expect(await other.extractionRefusal(opened.handle)).toBe('this document does not permit extracting its pages');
+    expect(await other.extractSourceIsSigned(opened.handle)).toBe(true);
+    await expect(other.extractPages(opened.handle, [0])).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+  });
+
+  it('extracts the pages of the session as it is now, records no step and refreshes nothing', async () => {
+    const { core, edits, extractions, refreshed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    const bytes = await engine.extractPages(handle, [1]);
+    expect(extractions).toEqual([[handle, [1]]]);
+    expect(bytes).toEqual(new Uint8Array([10, removed.info.pageIds[1]!]));
+    expect(refreshed.length).toBe(refreshes);
+    await expect(engine.extractPages(handle, [5])).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageCount).toBe(3);
+  });
+
+  it("plans a split by the core's rules as plain parts, and forwards its refusal by name", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.planSplit('1', 3, 'a.pdf')).toEqual([
+      { first: 0, last: 0, fileName: 'a.pdf#1' },
+      { first: 1, last: 2, fileName: 'a.pdf#2' },
+    ]);
+    await expect(engine.planSplit('bad', 3, 'a.pdf')).rejects.toMatchObject({
+      name: 'InvalidPageSelection',
+      message: 'Split position is not valid',
+    });
+  });
+
+  it('refuses every extract request for a document once it was closed', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.close(handle);
+    for (const request of [engine.extractionRefusal(handle), engine.extractSourceIsSigned(handle), engine.extractPages(handle, [0])]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
+  });
+
+  it("lists the export formats this package knows, in the core's order", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.imageExportFormats()).toEqual(['png', 'jpeg']);
+  });
+
+  it("reads a page selection by the core's grammar and forwards its refusal by name", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    const pages = await engine.parsePageSelection('1-4', 4);
+    expect(pages).toEqual([0, 3]);
+    expect(Array.isArray(pages)).toBe(true);
+    await expect(engine.parsePageSelection('bad', 4)).rejects.toMatchObject({
+      name: 'InvalidPageSelection',
+      message: 'Page selection is not valid',
+    });
+  });
+
+  it('names each exported page by the core', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, geometry, edits);
+    expect(await engine.pageImageFileNames('report.pdf', [0, 2], 12, 'jpeg')).toEqual([
+      'report.pdf#1of12.jpeg',
+      'report.pdf#3of12.jpeg',
+    ]);
+  });
+
+  it('asks the raster ceiling of the document its handle names', async () => {
+    const { core, edits } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.firstPageTooLargeToExport(handle, [0, 2], 400)).toBeNull();
+    expect(await engine.firstPageTooLargeToExport(handle, [2, 0], 600)).toBe(2);
+  });
+
+  it('exports from a snapshot taken when the export opened, recording and refreshing nothing', async () => {
+    const { core, edits, refreshed, exports, freed } = fakeCore({ pages: 3 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle, info } = await engine.open(new Uint8Array([10]));
+    const opened = await engine.openImageExport(handle);
+    // The snapshot's own page count: what an export is planned against.
+    expect(opened).toEqual({ handle: 50, pageCount: 3 });
+    expect(freed).toContain('export');
+    const exportHandle = opened.handle;
+    // An edit after the export opened does not reach it.
+    await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 1 });
+    const refreshes = refreshed.length;
+
+    expect(await engine.exportPageImage(exportHandle, 0, 150, 'png')).toEqual(
+      new Uint8Array([10, info.pageIds[0]!, 150, 1]),
+    );
+    expect(await engine.exportPageImage(exportHandle, 2, 72, 'jpeg')).toEqual(
+      new Uint8Array([10, info.pageIds[2]!, 72, 2]),
+    );
+    expect(refreshed.length).toBe(refreshes);
+    expect(await engine.closeImageExport(exportHandle)).toBe(true);
+    expect(exports.size).toBe(0);
+    expect(await engine.closeImageExport(exportHandle)).toBe(false);
+    await expect(engine.exportPageImage(exportHandle, 0, 72, 'png')).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('prints from a snapshot a restricted document still gives, drawn and closed like an export', async () => {
+    const { core, edits, exports, freed } = fakeCore({ pages: 2, restricted: true });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle, info } = await engine.open(new Uint8Array([10]));
+    const opened = await engine.openPrintSnapshot(handle);
+    expect(opened).toEqual({ handle: 50, pageCount: 2 });
+    expect(freed).toContain('print');
+    expect(await engine.exportPageImage(opened.handle, 1, 150, 'png')).toEqual(new Uint8Array([10, info.pageIds[1]!, 150, 1]));
+    expect(await engine.closeImageExport(opened.handle)).toBe(true);
+    expect(exports.size).toBe(0);
+    await engine.close(handle);
+    await expect(engine.openPrintSnapshot(handle)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('forwards an export the document withholds, and refuses a closed document', async () => {
+    const restricted = fakeCore({ restricted: true });
+    const engine = documentEngine(restricted.core, geometry, restricted.edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.openImageExport(handle)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    await engine.close(handle);
+    for (const request of [engine.openImageExport(handle), engine.firstPageTooLargeToExport(handle, [0], 150)]) {
+      await expect(request).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    }
   });
 
   it('refuses to save a document once it was closed', async () => {
@@ -664,6 +1185,35 @@ describe('documentEngine', () => {
     const removed = await engine.applyEdit(handle, { kind: 'remove', from: 0, count: 2 });
     expect(removed.info.pageIds).toEqual([100]);
     expect(refreshed).toHaveLength(3);
+  });
+
+  it('inserts a blank page where asked as one refreshed step with a new page id', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore({ pages: 2 });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+
+    const inserted = await engine.applyEdit(handle, { kind: 'insertBlank', at: 1, orientation: 'landscape' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'insertBlank', index: 1, landscape: true });
+    expect(freed).toContain('edit:insertBlank');
+    expect(inserted.info.pageCount).toBe(3);
+    expect(inserted.info.pageIds).toEqual([100, 200, 101]);
+    expect(inserted.info.pages[1]).toEqual({ widthPt: 842, heightPt: 792, rotationDegrees: 0 });
+    expect(inserted).toMatchObject({ canUndo: true, canRedo: false });
+    expect(refreshed).toEqual([handle]);
+
+    await engine.applyEdit(handle, { kind: 'insertBlank', at: 3, orientation: 'portrait' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'insertBlank', index: 3, landscape: false });
+    const undone = await engine.undo(handle);
+    expect(undone.info.pageIds).toEqual([100, 200, 101]);
+  });
+
+  it('passes the core refusal of an insert through by name', async () => {
+    const { core, edits } = fakeCore({ pages: 1, assembly: false });
+    const engine = documentEngine(core, geometry, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'insertBlank', at: 0, orientation: 'portrait' })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
   });
 
   it('steps back and forth through the edits, refreshing the preview each time', async () => {
@@ -1177,6 +1727,271 @@ describe('documentEngine forms', () => {
       },
     ]);
     expect(freed).toEqual(['field:0', 'field:1']);
+  });
+
+  it("reads the document's properties with absent keys as null, and frees the core's entry", async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.documentProperties(handle)).toEqual({
+      title: 'Report',
+      author: null,
+      subject: 'Q3',
+      keywords: null,
+      creator: null,
+      producer: 'Vitela',
+    });
+    expect(freed).toContain('properties');
+    expect(await engine.metadataRefusal(handle)).toBeNull();
+    await expect(engine.documentProperties(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it("answers the core's watermark defaults as plain values", async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    expect(await engine.watermarkDefaults()).toEqual({
+      fontSize: 60,
+      textOpacity: 0.3,
+      textRotationDegrees: 45,
+      textBehind: false,
+      pictureScale: 0.5,
+      pictureOpacity: 0.3,
+      pictureRotationDegrees: 0,
+      pictureBehind: true,
+    });
+  });
+
+  it('records a text and a picture watermark as one step each, refreshing the preview', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.watermarkRefusal(handle)).toBeNull();
+    const edited = await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages: [0, 2],
+      mark: { kind: 'text', text: 'DRAFT', fontSize: 72 },
+      opacity: 0.4,
+      rotationDegrees: 30,
+      behind: false,
+    });
+    const last = applied.at(-1) as Extract<FakeEdit, { kind: 'watermark' }>;
+    expect(last.op).toBe('addTextWatermark');
+    expect(last.args).toEqual([new Uint32Array([0, 2]), 'DRAFT', 72, 0.4, 30, false]);
+    expect(freed).toContain('edit:watermark');
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    // The undo goes back to the pixels the file had; the redo to the stamp's.
+    expect((await engine.undo(handle)).paintRevision).toBe(0);
+    expect((await engine.redo(handle)).paintRevision).toBe(edited.paintRevision);
+
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    await engine.applyEdit(handle, {
+      kind: 'addWatermark',
+      pages: [1],
+      mark: { kind: 'picture', image, scale: 0.6 },
+      opacity: 0.3,
+      rotationDegrees: 0,
+      behind: true,
+    });
+    const picture = applied.at(-1) as Extract<FakeEdit, { kind: 'watermark' }>;
+    expect(picture.op).toBe('addPictureWatermark');
+    expect(picture.args).toEqual([new Uint32Array([1]), image, 0.6, 0.3, 0, true]);
+  });
+
+  it("refuses a watermark in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.watermarkRefusal(handle)).toBe('content editing is not permitted');
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'addWatermark',
+        pages: [0],
+        mark: { kind: 'text', text: 'DRAFT', fontSize: 60 },
+        opacity: 0.3,
+        rotationDegrees: 45,
+        behind: false,
+      }),
+    ).rejects.toMatchObject({ name: 'EditNotPermitted' });
+    expect(core.canUndo(handle)).toBe(false);
+    await expect(engine.watermarkRefusal(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('reads a page\'s content on the page as drawn, freeing every entry', async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.contentEditingRefusal(handle)).toBeNull();
+    expect(await engine.contentBaseGeneration(handle)).toBe(3);
+
+    const content = await engine.readPageContent(handle, 0);
+    expect(content.runs).toEqual([
+      {
+        kind: 'run',
+        id: 0,
+        pageIndex: 0,
+        rect: { left: 72, top: 80, width: 30, height: 12 },
+        fontName: 'F1',
+        fontKind: 'standard14',
+        text: 'Hello',
+        editable: true,
+      },
+      expect.objectContaining({ id: 1, fontKind: 'embeddedComposite', editable: false }),
+    ]);
+    expect(content.images).toEqual([
+      { kind: 'image', id: 0, pageIndex: 0, rect: { left: 72, top: 242, width: 100, height: 50 }, inline: false },
+    ]);
+    expect(content.paths).toEqual([
+      { kind: 'path', id: 0, pageIndex: 0, rect: { left: 72, top: 392, width: 200, height: 0 }, paint: 'stroke' },
+    ]);
+    expect(freed).toEqual(expect.arrayContaining(['run:0', 'run:1', 'image:0', 'path:0', 'content']));
+  });
+
+  it('reads lines, paragraphs, a style and the fonts as plain values', async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+
+    expect(await engine.readTextBlocks(handle, 0)).toEqual([
+      {
+        runIds: [0],
+        rect: { left: 72, top: 80, width: 30, height: 12 },
+        text: 'Hello',
+        lines: [{ runIds: [0], rect: { left: 72, top: 80, width: 30, height: 12 }, text: 'Hello' }],
+        leadingPt: null,
+        alignment: 'left',
+      },
+    ]);
+    const [paragraph] = await engine.readParagraphBlocks(handle, 0);
+    expect(paragraph).toMatchObject({ runIds: [0, 1], leadingPt: 14, alignment: 'center' });
+    expect(await engine.textRunStyle(handle, 0, 0)).toEqual({
+      baseFont: 'Helvetica',
+      fontSizePt: 12,
+      color: { r: 255, g: 128, b: 0 },
+      charSpacingPt: 0,
+      horizontalScale: 1,
+      bold: false,
+      italic: true,
+      renderMode: 0,
+    });
+    expect(await engine.textRunStyle(handle, 0, 1)).toBeNull();
+    await expect(engine.textRunStyle(handle, 0, 7)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.pageFontFamilies(handle, 0)).toEqual({ F1: 'Helvetica', F2: 'ABCDEF+Vera' });
+    expect(freed).toEqual(expect.arrayContaining(['block', 'line', 'paragraph', 'style']));
+  });
+
+  it("passes the content gates' refusals through by name", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.contentEditingRefusal(handle)).toBe('content editing is not permitted');
+    await expect(engine.readPageContent(handle, 0)).rejects.toMatchObject({ name: 'TextExtractionDenied' });
+    await expect(engine.readParagraphBlocks(handle, 0)).rejects.toMatchObject({ name: 'TextExtractionDenied' });
+    await expect(engine.readPageContent(handle, 4)).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+    await expect(engine.readPageContent(99, 0)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+    await expect(engine.contentBaseGeneration(99)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+  });
+
+  it('answers every step with the content base generation', async () => {
+    const { core, edits } = fakeCore({ pages: 2 });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'move', from: 0, count: 1, to: 1 });
+    expect(edited.contentBaseGeneration).toBe(3);
+    expect((await engine.undo(handle)).contentBaseGeneration).toBe(3);
+  });
+
+  it('records each text-run edit as one repainting step, a drawn move crossing as a PDF delta', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'retypeTextRun', page: 0, runId: 4, text: 'Howdy' });
+    expect(applied.at(-1)).toMatchObject({ kind: 'textRun', op: 'retypeTextRun', args: [0, 4, 'Howdy'] });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:textRun');
+
+    // Drawn y grows down, PDF y up.
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 0, runId: 4, dx: 5, dy: 10 });
+    expect(applied.at(-1)).toMatchObject({ op: 'moveTextRun', args: [0, 4, 5, -10] });
+    await engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: 4 });
+    expect(applied.at(-1)).toMatchObject({ op: 'removeTextRun', args: [0, 4] });
+    await engine.applyEdit(handle, {
+      kind: 'restyleTextRuns',
+      page: 0,
+      runIds: [4, 5],
+      look: { bold: true, italic: false, underline: true, strike: false },
+    });
+    expect(applied.at(-1)).toMatchObject({ op: 'restyleTextRuns', args: [0, new Float64Array([4, 5]), true, false, true, false] });
+    expect((await engine.undo(handle)).canUndo).toBe(true);
+  });
+
+  it('moves a run on a page past the end untransformed, for the core to refuse', async () => {
+    const { core, edits, applied } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await engine.applyEdit(handle, { kind: 'moveTextRun', page: 9, runId: 4, dx: 5, dy: 10 });
+    expect(applied.at(-1)).toMatchObject({ op: 'moveTextRun', args: [9, 4, 5, 10] });
+  });
+
+  it("refuses a text-run edit in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.applyEdit(handle, { kind: 'removeTextRun', page: 0, runId: 0 })).rejects.toMatchObject({
+      name: 'EditNotPermitted',
+    });
+    expect(core.canUndo(handle)).toBe(false);
+  });
+
+  it("reads a run's look and its font program as plain values, freeing them", async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.textRunLook(handle, 0, 0)).toEqual({
+      bold: true,
+      italic: false,
+      underline: false,
+      strike: false,
+      canRemoveBold: false,
+      canRemoveItalic: true,
+    });
+    expect(await engine.textRunLook(handle, 0, 1)).toBeNull();
+    await expect(engine.textRunLook(handle, 0, 7)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    expect(await engine.textRunFontProgram(handle, 0, 0)).toBeNull();
+    expect(await engine.textRunFontProgram(handle, 0, 1)).toEqual({ format: 'trueType', bytes: new Uint8Array([0, 1, 0, 0]) });
+    expect(freed).toEqual(expect.arrayContaining(['look', 'program']));
+    await expect(engine.textRunLook(handle, 4, 0)).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+  });
+
+  it('records a properties change as one step, in the core order of its keys, null as absent', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, {
+      kind: 'setDocumentProperties',
+      properties: { title: 'Annual', author: 'Ana', subject: null, keywords: 'k', creator: null, producer: 'p' },
+    });
+    expect(applied.at(-1)).toMatchObject({ kind: 'metadata', keys: ['Annual', 'Ana', undefined, 'k', undefined, 'p'] });
+    expect(freed).toContain('edit:metadata');
+    expect(edited).toMatchObject({ canUndo: true, canRedo: false, addedAnnotationId: null });
+    expect(refreshed).toEqual([handle]);
+  });
+
+  it("refuses a properties change in the core's words when the document withholds modification", async () => {
+    const { core, edits } = fakeCore({ restricted: true });
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    expect(await engine.metadataRefusal(handle)).toBe('this document does not permit metadata changes');
+    await expect(
+      engine.applyEdit(handle, {
+        kind: 'setDocumentProperties',
+        properties: { title: 'x', author: null, subject: null, keywords: null, creator: null, producer: null },
+      }),
+    ).rejects.toMatchObject({ name: 'EditNotPermitted' });
+    expect(core.canUndo(handle)).toBe(false);
   });
 
   it('fills a field as one step, refreshes the preview inside the request, and answers with the fields', async () => {

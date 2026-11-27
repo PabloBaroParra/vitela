@@ -172,7 +172,7 @@ describe('VitelaViewer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved a.pdf.')).toBeTruthy();
-    expect(onSave).toHaveBeenCalledExactlyOnceWith(saved, 'a.pdf');
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(saved, 'a.pdf', 'application/pdf');
   });
 
   it('shows the file picker by default, and none when told not to', async () => {
@@ -216,7 +216,7 @@ describe('VitelaViewer', () => {
     act(() => viewer.current!.open(new Uint8Array([1]), 'handed.pdf'));
     expect(await screen.findByText('handed.pdf — 2 pages')).toBeTruthy();
     act(() => viewer.current!.save());
-    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(new Uint8Array([5]), 'handed.pdf'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledExactlyOnceWith(new Uint8Array([5]), 'handed.pdf', 'application/pdf'));
   });
 
   describe('its own engine', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { EngineClient } from './client.js';
 import { EngineError } from './errors.js';
-import type { MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol.js';
+import type { EngineResults, MessagePortLike, RequestEnvelope, WorkerMessage } from './protocol.js';
 
 /** A port whose sent messages are recorded and whose replies the test drives. */
 function fakePort() {
@@ -183,6 +183,205 @@ describe('EngineClient', () => {
     const bytes = new Uint8Array([37, 80, 68, 70]);
     reply({ type: 'result', id: sent[0]!.message.id, value: bytes });
     await expect(saved).resolves.toBe(bytes);
+  });
+
+  it('sends the compress requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const presets = client.compressPresets();
+    const refusal = client.compressionRefusal(4);
+    const signed = client.compressionInvalidatesSignatures(4);
+    const compressed = client.saveCompressedToBytes(4, 'small', true);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'compressPresets' },
+      { kind: 'compressionRefusal', document: 4 },
+      { kind: 'compressionInvalidatesSignatures', document: 4 },
+      { kind: 'saveCompressed', document: 4, preset: 'small', invalidateSignatures: true },
+    ]);
+    const document = {
+      bytes: new Uint8Array([37]),
+      beforeBytes: 10,
+      afterBytes: 1,
+      savedBytes: 9,
+      reduced: true,
+      refusals: [],
+    };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: ['lossless', 'balanced', 'small'] });
+    reply({ type: 'result', id: ids[1]!, value: null });
+    reply({ type: 'result', id: ids[2]!, value: true });
+    reply({ type: 'result', id: ids[3]!, value: document });
+    await expect(presets).resolves.toEqual(['lossless', 'balanced', 'small']);
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(true);
+    await expect(compressed).resolves.toBe(document);
+  });
+
+  it('sends the protect requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.protectionRefusal(4);
+    const signed = client.protectionInvalidatesSignatures(4);
+    const protectedBytes = client.protectToBytes(4, { openPassword: 'open-pw', permissionsPassword: 'perm-pw' }, true);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'protectionRefusal', document: 4 },
+      { kind: 'protectionInvalidatesSignatures', document: 4 },
+      { kind: 'protect', document: 4, openPassword: 'open-pw', permissionsPassword: 'perm-pw', invalidateSignatures: true },
+    ]);
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: null });
+    reply({ type: 'result', id: ids[1]!, value: true });
+    reply({ type: 'result', id: ids[2]!, value: bytes });
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(true);
+    await expect(protectedBytes).resolves.toBe(bytes);
+  });
+
+  it('sends the page-content requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.contentEditingRefusal(4);
+    const content = client.readPageContent(4, 1);
+    const lines = client.readTextBlocks(4, 1);
+    const paragraphs = client.readParagraphBlocks(4, 1);
+    const style = client.textRunStyle(4, 1, 7);
+    const fonts = client.pageFontFamilies(4, 1);
+    const generation = client.contentBaseGeneration(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'contentEditingRefusal', document: 4 },
+      { kind: 'readPageContent', document: 4, pageIndex: 1 },
+      { kind: 'readTextBlocks', document: 4, pageIndex: 1 },
+      { kind: 'readParagraphBlocks', document: 4, pageIndex: 1 },
+      { kind: 'textRunStyle', document: 4, pageIndex: 1, runId: 7 },
+      { kind: 'pageFontFamilies', document: 4, pageIndex: 1 },
+      { kind: 'contentBaseGeneration', document: 4 },
+    ]);
+    const page = { runs: [], images: [], paths: [] };
+    const values: EngineResults[keyof EngineResults][] = [null, page, [], [], null, { F1: 'Helvetica' }, 2];
+    sent.forEach(({ message }, index) => reply({ type: 'result', id: message.id, value: values[index] }));
+    await expect(refusal).resolves.toBeNull();
+    await expect(content).resolves.toEqual(page);
+    await expect(lines).resolves.toEqual([]);
+    await expect(paragraphs).resolves.toEqual([]);
+    await expect(style).resolves.toBeNull();
+    await expect(fonts).resolves.toEqual({ F1: 'Helvetica' });
+    await expect(generation).resolves.toBe(2);
+  });
+
+  it("sends the text-run editor's reads and resolves with their replies", async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const look = client.textRunLook(4, 1, 7);
+    const program = client.textRunFontProgram(4, 1, 7);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'textRunLook', document: 4, pageIndex: 1, runId: 7 },
+      { kind: 'textRunFontProgram', document: 4, pageIndex: 1, runId: 7 },
+    ]);
+    const state = { bold: true, italic: false, underline: false, strike: false, canRemoveBold: true, canRemoveItalic: true };
+    const bytes = { format: 'trueType' as const, bytes: new Uint8Array([1]) };
+    reply({ type: 'result', id: sent[0]!.message.id, value: state });
+    reply({ type: 'result', id: sent[1]!.message.id, value: bytes });
+    await expect(look).resolves.toEqual(state);
+    await expect(program).resolves.toEqual(bytes);
+  });
+
+  it('sends the watermark requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const defaults = client.watermarkDefaults();
+    const refusal = client.watermarkRefusal(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'watermarkDefaults' },
+      { kind: 'watermarkRefusal', document: 4 },
+    ]);
+    const look = {
+      fontSize: 60,
+      textOpacity: 0.3,
+      textRotationDegrees: 45,
+      textBehind: false,
+      pictureScale: 0.5,
+      pictureOpacity: 0.3,
+      pictureRotationDegrees: 0,
+      pictureBehind: true,
+    };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: look });
+    reply({ type: 'result', id: ids[1]!, value: null });
+    await expect(defaults).resolves.toEqual(look);
+    await expect(refusal).resolves.toBeNull();
+  });
+
+  it('sends the document-properties requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const read = client.documentProperties(4);
+    const refusal = client.metadataRefusal(4);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'documentProperties', document: 4 },
+      { kind: 'metadataRefusal', document: 4 },
+    ]);
+    const properties = { title: 'Report', author: null, subject: null, keywords: null, creator: null, producer: null };
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: properties });
+    reply({ type: 'result', id: ids[1]!, value: 'no' });
+    await expect(read).resolves.toEqual(properties);
+    await expect(refusal).resolves.toBe('no');
+  });
+
+  it('sends the extract and split requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const refusal = client.extractionRefusal(4);
+    const signed = client.extractSourceIsSigned(4);
+    const extracted = client.extractPages(4, [1, 2]);
+    const plan = client.planSplit('2,4', 5, 'report.pdf');
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'extractionRefusal', document: 4 },
+      { kind: 'extractSourceIsSigned', document: 4 },
+      { kind: 'extract', document: 4, pages: [1, 2] },
+      { kind: 'planSplit', cuts: '2,4', totalPages: 5, documentName: 'report.pdf' },
+    ]);
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const parts = [{ first: 0, last: 1, fileName: 'report-part1.pdf' }];
+    const ids = sent.map(({ message }) => message.id);
+    reply({ type: 'result', id: ids[0]!, value: null });
+    reply({ type: 'result', id: ids[1]!, value: false });
+    reply({ type: 'result', id: ids[2]!, value: bytes });
+    reply({ type: 'result', id: ids[3]!, value: parts });
+    await expect(refusal).resolves.toBeNull();
+    await expect(signed).resolves.toBe(false);
+    await expect(extracted).resolves.toBe(bytes);
+    await expect(plan).resolves.toBe(parts);
+  });
+
+  it('sends the image-export requests and resolves with their replies', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const requests = [
+      client.imageExportFormats(),
+      client.parsePageSelection('1-2', 3),
+      client.pageImageFileNames('r.pdf', [0, 1], 3, 'png'),
+      client.firstPageTooLargeToExport(4, [0, 1], 150),
+      client.openImageExport(4),
+      client.exportPageImage(7, 1, 150, 'jpeg'),
+      client.closeImageExport(7),
+      client.openPrintSnapshot(4),
+    ];
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'imageExportFormats' },
+      { kind: 'parsePageSelection', input: '1-2', totalPages: 3 },
+      { kind: 'pageImageFileNames', documentName: 'r.pdf', pages: [0, 1], totalPages: 3, format: 'png' },
+      { kind: 'firstPageTooLargeToExport', document: 4, pages: [0, 1], dpi: 150 },
+      { kind: 'openImageExport', document: 4 },
+      { kind: 'exportPageImage', export: 7, pageIndex: 1, dpi: 150, format: 'jpeg' },
+      { kind: 'closeImageExport', export: 7 },
+      { kind: 'openPrintSnapshot', document: 4 },
+    ]);
+    const image = new Uint8Array([0xff, 0xd8]);
+    const values: EngineResults[keyof EngineResults][] = [['png', 'jpeg'], [0, 1], ['r-1.png', 'r-2.png'], null, { handle: 7, pageCount: 3 }, image, true, { handle: 8, pageCount: 3 }];
+    sent.forEach(({ message }, i) => reply({ type: 'result', id: message.id, value: values[i] }));
+    for (const [i, request] of requests.entries()) await expect(request).resolves.toEqual(values[i]);
   });
 
   it('rejects a save that would break a signature with that name', async () => {

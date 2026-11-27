@@ -16,6 +16,24 @@ const info = {
 };
 const edited = { info, canUndo: true, canRedo: false, annotations: [], addedAnnotationId: null, formFields: [] };
 const opened = { handle: 5, info };
+const compressed = {
+  bytes: new Uint8Array([37, 80, 68, 70]),
+  beforeBytes: 10,
+  afterBytes: 4,
+  savedBytes: 6,
+  reduced: true,
+  refusals: [],
+};
+const look = {
+  fontSize: 60,
+  textOpacity: 0.3,
+  textRotationDegrees: 45,
+  textBehind: false,
+  pictureScale: 0.5,
+  pictureOpacity: 0.3,
+  pictureRotationDegrees: 0,
+  pictureBehind: true,
+};
 
 function fakeEngine(overrides: Partial<Engine> = {}): Engine {
   return {
@@ -37,6 +55,38 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     formFields: async () => [],
     freeTextLayout: async () => ({ fontSizePt: 12, lines: [], overflow: false }),
     stampPlacement: async () => ({ left: 0, top: 0, width: 144, height: 144 }),
+    compressPresets: async () => ['lossless', 'balanced', 'small'],
+    compressionRefusal: async () => null,
+    compressionInvalidatesSignatures: async () => false,
+    saveCompressedToBytes: async () => compressed,
+    imageExportFormats: async () => ['png', 'jpeg'],
+    parsePageSelection: async () => [0, 2],
+    pageImageFileNames: async () => ['a-1.png'],
+    firstPageTooLargeToExport: async () => null,
+    openImageExport: async () => ({ handle: 9, pageCount: 3 }),
+    openPrintSnapshot: async () => ({ handle: 10, pageCount: 3 }),
+    exportPageImage: async () => new Uint8Array([0x89, 0x50]),
+    closeImageExport: async () => true,
+    protectionRefusal: async () => null,
+    protectionInvalidatesSignatures: async () => false,
+    protectToBytes: async () => new Uint8Array(0),
+    extractionRefusal: async () => null,
+    extractSourceIsSigned: async () => false,
+    extractPages: async () => new Uint8Array(0),
+    planSplit: async () => [],
+    documentProperties: async () => ({ title: null, author: null, subject: null, keywords: null, creator: null, producer: null }),
+    metadataRefusal: async () => null,
+    watermarkDefaults: async () => look,
+    watermarkRefusal: async () => null,
+    contentEditingRefusal: async () => null,
+    readPageContent: async () => ({ runs: [], images: [], paths: [] }),
+    readTextBlocks: async () => [],
+    readParagraphBlocks: async () => [],
+    textRunStyle: async () => null,
+    pageFontFamilies: async () => ({}),
+    contentBaseGeneration: async () => 0,
+    textRunLook: async () => null,
+    textRunFontProgram: async () => null,
     ...overrides,
   };
 }
@@ -191,6 +241,301 @@ describe('handleRequest', () => {
     });
     expect(calls).toEqual([[5, true]]);
     expect(reply).toEqual({ message: { type: 'result', id: 4, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('answers the compress questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      compressionRefusal: async (document) => (calls.push(['refusal', document]), { kind: 'other', message: 'no' }),
+      compressionInvalidatesSignatures: async (document) => (calls.push(['signed', document]), true),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'compressPresets' } })).toEqual({
+      message: { type: 'result', id: 1, value: ['lossless', 'balanced', 'small'] },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'compressionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: { kind: 'other', message: 'no' } },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 3, request: { kind: 'compressionInvalidatesSignatures', document: 5 } }),
+    ).toEqual({ message: { type: 'result', id: 3, value: true }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+    ]);
+  });
+
+  it('answers a compressed save with its report, the PDF transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      saveCompressedToBytes: async (...args) => (calls.push(args), compressed),
+    });
+    const reply = await handleRequest(engine, {
+      id: 6,
+      request: { kind: 'saveCompressed', document: 5, preset: 'balanced', invalidateSignatures: true },
+    });
+    expect(calls).toEqual([[5, 'balanced', true]]);
+    expect(reply).toEqual({
+      message: { type: 'result', id: 6, value: compressed },
+      transfer: [compressed.bytes.buffer],
+    });
+  });
+
+  it('answers the page-content questions for the page they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const page = {
+      runs: [
+        {
+          kind: 'run' as const,
+          id: 3,
+          pageIndex: 1,
+          rect: { left: 1, top: 2, width: 3, height: 4 },
+          fontName: 'F1',
+          fontKind: 'standard14' as const,
+          text: 'Hi',
+          editable: true,
+        },
+      ],
+      images: [],
+      paths: [],
+    };
+    const engine = fakeEngine({
+      readPageContent: async (...args) => (calls.push(args), page),
+      textRunStyle: async (...args) => (calls.push(args), null),
+      pageFontFamilies: async (...args) => (calls.push(args), { F1: 'Helvetica' }),
+      contentBaseGeneration: async (...args) => (calls.push(args), 2),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'readPageContent', document: 5, pageIndex: 1 } })).toEqual({
+      message: { type: 'result', id: 1, value: page },
+      transfer: [],
+    });
+    await handleRequest(engine, { id: 2, request: { kind: 'textRunStyle', document: 5, pageIndex: 1, runId: 3 } });
+    expect(await handleRequest(engine, { id: 3, request: { kind: 'pageFontFamilies', document: 5, pageIndex: 0 } })).toEqual({
+      message: { type: 'result', id: 3, value: { F1: 'Helvetica' } },
+      transfer: [],
+    });
+    await handleRequest(engine, { id: 4, request: { kind: 'contentBaseGeneration', document: 5 } });
+    expect(calls).toEqual([[5, 1], [5, 1, 3], [5, 0], [5]]);
+  });
+
+  it("answers a run's look copied and its font program's bytes transferred", async () => {
+    const calls: unknown[] = [];
+    const state = { bold: false, italic: true, underline: false, strike: false, canRemoveBold: true, canRemoveItalic: false };
+    const bytes = new Uint8Array([0, 1, 0, 0]);
+    const engine = fakeEngine({
+      textRunLook: async (...args) => (calls.push(args), state),
+      textRunFontProgram: async (...args) => (calls.push(args), { format: 'trueType', bytes }),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'textRunLook', document: 5, pageIndex: 1, runId: 3 } })).toEqual({
+      message: { type: 'result', id: 1, value: state },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 2, request: { kind: 'textRunFontProgram', document: 5, pageIndex: 1, runId: 3 } }),
+    ).toEqual({
+      message: { type: 'result', id: 2, value: { format: 'trueType', bytes } },
+      transfer: [bytes.buffer],
+    });
+    const none = fakeEngine();
+    expect(await handleRequest(none, { id: 3, request: { kind: 'textRunFontProgram', document: 5, pageIndex: 1, runId: 3 } })).toEqual({
+      message: { type: 'result', id: 3, value: null },
+      transfer: [],
+    });
+    expect(calls).toEqual([[5, 1, 3], [5, 1, 3]]);
+  });
+
+  it('answers the watermark questions, copied', async () => {
+    const calls: unknown[] = [];
+    const engine = fakeEngine({
+      watermarkRefusal: async (document) => (calls.push(document), 'content editing is not permitted'),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'watermarkDefaults' } })).toEqual({
+      message: { type: 'result', id: 1, value: look },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'watermarkRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: 'content editing is not permitted' },
+      transfer: [],
+    });
+    expect(calls).toEqual([5]);
+  });
+
+  it('answers the document-properties questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const properties = { title: 'Report', author: 'Ana', subject: null, keywords: null, creator: null, producer: null };
+    const engine = fakeEngine({
+      documentProperties: async (document) => (calls.push(['read', document]), properties),
+      metadataRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'documentProperties', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: properties },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'metadataRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: 'no' },
+      transfer: [],
+    });
+    expect(calls).toEqual([
+      ['read', 5],
+      ['refusal', 5],
+    ]);
+  });
+
+  it('answers the protect questions for the document they name, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      protectionRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+      protectionInvalidatesSignatures: async (document) => (calls.push(['signed', document]), true),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'protectionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: 'no' },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 2, request: { kind: 'protectionInvalidatesSignatures', document: 5 } }),
+    ).toEqual({ message: { type: 'result', id: 2, value: true }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+    ]);
+  });
+
+  it('answers a protect request with the protected PDF, transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const engine = fakeEngine({ protectToBytes: async (...args) => (calls.push(args), bytes) });
+    const reply = await handleRequest(engine, {
+      id: 7,
+      request: { kind: 'protect', document: 5, openPassword: 'o', permissionsPassword: 'p', invalidateSignatures: true },
+    });
+    expect(calls).toEqual([[5, { openPassword: 'o', permissionsPassword: 'p' }, true]]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('answers the extract questions and a split plan, copied', async () => {
+    const calls: unknown[][] = [];
+    const parts = [{ first: 0, last: 1, fileName: 'a-part1.pdf' }];
+    const engine = fakeEngine({
+      extractionRefusal: async (document) => (calls.push(['refusal', document]), 'no'),
+      extractSourceIsSigned: async (document) => (calls.push(['signed', document]), true),
+      planSplit: async (...args) => (calls.push(['split', ...args]), parts),
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'extractionRefusal', document: 5 } })).toEqual({
+      message: { type: 'result', id: 1, value: 'no' },
+      transfer: [],
+    });
+    expect(await handleRequest(engine, { id: 2, request: { kind: 'extractSourceIsSigned', document: 5 } })).toEqual({
+      message: { type: 'result', id: 2, value: true },
+      transfer: [],
+    });
+    expect(
+      await handleRequest(engine, { id: 3, request: { kind: 'planSplit', cuts: '2', totalPages: 3, documentName: 'a.pdf' } }),
+    ).toEqual({ message: { type: 'result', id: 3, value: parts }, transfer: [] });
+    expect(calls).toEqual([
+      ['refusal', 5],
+      ['signed', 5],
+      ['split', '2', 3, 'a.pdf'],
+    ]);
+  });
+
+  it('answers an extract request with the new PDF, transferred instead of copied', async () => {
+    const calls: unknown[][] = [];
+    const bytes = new Uint8Array([37, 80, 68, 70]);
+    const engine = fakeEngine({ extractPages: async (...args) => (calls.push(args), bytes) });
+    const reply = await handleRequest(engine, { id: 7, request: { kind: 'extract', document: 5, pages: [1, 2] } });
+    expect(calls).toEqual([[5, [1, 2]]]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: bytes }, transfer: [bytes.buffer] });
+  });
+
+  it('forwards InvalidPasswords by name, and its reply carries no password', async () => {
+    const engine = fakeEngine({
+      protectToBytes: async () => {
+        throw Object.assign(new Error('the open and permissions passwords must be different'), { name: 'InvalidPasswords' });
+      },
+    });
+    const reply = await handleRequest(engine, {
+      id: 8,
+      request: { kind: 'protect', document: 5, openPassword: 'secret-1', permissionsPassword: 'secret-1', invalidateSignatures: false },
+    });
+    expect(reply.message).toEqual({
+      type: 'error',
+      id: 8,
+      name: 'InvalidPasswords',
+      message: 'the open and permissions passwords must be different',
+    });
+    expect(JSON.stringify(reply)).not.toContain('secret-1');
+  });
+
+  it('answers the image-export questions with what the engine says, copied', async () => {
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({
+      parsePageSelection: async (...args) => (calls.push(['parse', ...args]), [0, 2]),
+      pageImageFileNames: async (...args) => (calls.push(['names', ...args]), ['r-1.png', 'r-3.png']),
+      firstPageTooLargeToExport: async (...args) => (calls.push(['ceiling', ...args]), 2),
+      openImageExport: async (...args) => (calls.push(['open', ...args]), { handle: 9, pageCount: 3 }),
+      closeImageExport: async (...args) => (calls.push(['close', ...args]), true),
+      openPrintSnapshot: async (...args) => (calls.push(['print', ...args]), { handle: 10, pageCount: 2 }),
+    });
+    const value = async (id: number, request: Parameters<typeof handleRequest>[1]['request']) =>
+      (await handleRequest(engine, { id, request })).message;
+    expect(await value(1, { kind: 'imageExportFormats' })).toEqual({ type: 'result', id: 1, value: ['png', 'jpeg'] });
+    expect(await value(2, { kind: 'parsePageSelection', input: '1,3', totalPages: 3 })).toEqual({
+      type: 'result',
+      id: 2,
+      value: [0, 2],
+    });
+    expect(
+      await value(3, { kind: 'pageImageFileNames', documentName: 'r.pdf', pages: [0, 2], totalPages: 3, format: 'png' }),
+    ).toEqual({ type: 'result', id: 3, value: ['r-1.png', 'r-3.png'] });
+    expect(await value(4, { kind: 'firstPageTooLargeToExport', document: 5, pages: [0, 2], dpi: 600 })).toEqual({
+      type: 'result',
+      id: 4,
+      value: 2,
+    });
+    expect(await value(5, { kind: 'openImageExport', document: 5 })).toEqual({
+      type: 'result',
+      id: 5,
+      value: { handle: 9, pageCount: 3 },
+    });
+    expect(await value(6, { kind: 'closeImageExport', export: 9 })).toEqual({ type: 'result', id: 6, value: true });
+    expect(await value(7, { kind: 'openPrintSnapshot', document: 5 })).toEqual({
+      type: 'result',
+      id: 7,
+      value: { handle: 10, pageCount: 2 },
+    });
+    expect(calls).toEqual([
+      ['parse', '1,3', 3],
+      ['names', 'r.pdf', [0, 2], 3, 'png'],
+      ['ceiling', 5, [0, 2], 600],
+      ['open', 5],
+      ['close', 9],
+      ['print', 5],
+    ]);
+  });
+
+  it('answers an exported page with its bytes transferred instead of copied', async () => {
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const calls: unknown[][] = [];
+    const engine = fakeEngine({ exportPageImage: async (...args) => (calls.push(args), image) });
+    const reply = await handleRequest(engine, {
+      id: 7,
+      request: { kind: 'exportPageImage', export: 9, pageIndex: 1, dpi: 150, format: 'jpeg' },
+    });
+    expect(calls).toEqual([[9, 1, 150, 'jpeg']]);
+    expect(reply).toEqual({ message: { type: 'result', id: 7, value: image }, transfer: [image.buffer] });
+  });
+
+  it("forwards InvalidPageSelection by name with the core's sentence", async () => {
+    const failure = new Error('Page 9 does not exist');
+    failure.name = 'InvalidPageSelection';
+    const engine = fakeEngine({
+      parsePageSelection: async () => {
+        throw failure;
+      },
+    });
+    const reply = await handleRequest(engine, { id: 8, request: { kind: 'parsePageSelection', input: '9', totalPages: 3 } });
+    expect(reply.message).toMatchObject({ type: 'error', id: 8, name: 'InvalidPageSelection', message: 'Page 9 does not exist' });
   });
 
   it('forwards SignaturesWouldBeInvalidated by name', async () => {

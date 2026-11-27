@@ -1,7 +1,7 @@
 # @vitela/viewer
 
 Vitela's PDF editor for any web page: view, organize (reorder, rotate,
-delete, add pages from other PDFs), annotate, stamp, search, select text and
+delete, add blank pages and pages from other PDFs), annotate, stamp, search, select text and
 save, all in the browser on top of [`@vitela/core`](../vitela-core/README.md)
 (the engine, as WebAssembly in a Web Worker). No server: documents never
 leave the page.
@@ -39,8 +39,12 @@ export function Editor() {
     <div style={{ height: 600 }}>
       <VitelaViewer
         source="/files/report.pdf"
-        onSave={async (bytes, name) => {
-          await fetch(`/api/files/${encodeURIComponent(name)}`, { method: 'PUT', body: bytes });
+        onSave={async (bytes, name, type) => {
+          await fetch(`/api/files/${encodeURIComponent(name)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': type },
+            body: bytes,
+          });
         }}
       />
     </div>
@@ -74,7 +78,7 @@ viewer.destroy();           // unmounts, closes the document, stops the editor's
 | `name` | the URL's file name, else `document.pdf` | The document's name (status line, and the name `onSave` receives). A `File` keeps its own unless you give one. |
 | `engine` | none | An engine you started with `createEngine()` from `@vitela/core`. It keeps running after the editor unmounts (the editor only closes its document). Passing a different engine closes the open document in the old one, drops its unsaved edits, and reopens the latest `source`/`open()` in the new one once it is ready. |
 | `engineOptions` | `{}` | Options for the engine the editor starts itself when given no `engine` (see `createEngine` in `@vitela/core`: `assetBaseUrl`, `workerUrl`, `loadTimeoutMs`). Read once, at mount. That engine is terminated when the editor unmounts. |
-| `onSave` | none | `(bytes, name) => void \| Promise<void>`: receives every save. A rejection fails the save and the editor says so; once it resolves the editor counts the edits as saved. Without it, a save writes over the opened file when the browser allows it (Chromium's file handles), else downloads. |
+| `onSave` | none | `(bytes, name, type) => void \| Promise<void>`: receives every file the editor writes — every save, and the other files below — with its media type. A rejection fails that write and the editor says so; once a save resolves the editor counts the edits as saved. Without it, a save writes over the opened file when the browser allows it (Chromium's file handles), else downloads, and every other file downloads. |
 | `filePicker` | `true` | Whether the editor offers its "Open PDF" button. Dropping a PDF on the editor still opens it. |
 | `initialScreen` | `'view'` | The screen every document opens in: `'view'` or `'organize'`. |
 | `eventScope` | `'editor'` | Which page events the editor takes; see [Keys and drops](#keys-and-drops). `'window'` is for a page that is all editor. |
@@ -83,6 +87,22 @@ viewer.destroy();           // unmounts, closes the document, stops the editor's
 `open` and `save` return nothing: the editor shows how the open or the save
 went in its own status line, and saved bytes arrive in `onSave`. Calls on a
 `mountViewer` handle after `destroy()` do nothing.
+
+What reaches `onSave`, told apart by name and `type`:
+
+| From | `name` | `type` | Counts the edits as saved |
+|---|---|---|---|
+| Save, Save anyway, Save a copy | the document's name | `application/pdf` | yes |
+| Compress | `<name>-compressed.pdf` | `application/pdf` | no |
+| Protect | `<name>-protected.pdf` (encrypted: it needs the open password chosen in the dialog) | `application/pdf` | no |
+| Extract (Organize) | `<name>-extract.pdf` (protected when the document is) | `application/pdf` | no |
+| Split (Organize) | one call per part, named by the engine: `<name>-part<n>.pdf`, `n` zero-padded to the number of parts | `application/pdf` | no |
+| Export images | one call per page, named by the engine: `<name>-<page>.png` or `.jpg`, the page number zero-padded to the page count (`report-03.jpg`) | `image/png` or `image/jpeg` | no |
+
+An image export calls `onSave` once per page, in page order, waiting for each
+call to settle; a rejection stops the export there and the editor says how
+many pages went out. A split does the same, once per part. The images show the document as a save would write it
+now, unsaved edits included.
 
 ## Bundler (Vite)
 
@@ -121,10 +141,14 @@ and pass `engineOptions: { workerUrl, assetBaseUrl }` (see `@vitela/core`).
 
 With the default `eventScope: 'editor'`:
 
-- The editor's keys (Ctrl/⌘+Z and Ctrl/⌘+Y, Ctrl/⌘+C, Escape) act only when
+- The editor's keys (Ctrl/⌘+Z and Ctrl/⌘+Y, Ctrl/⌘+C, Ctrl/⌘+P, Escape) act only when
   the focus is inside the editor, or, when nothing has the focus, when the
   user's last click, focus or drop was inside it. Keys elsewhere on your
   page are yours.
+- Ctrl/⌘+P in the editor prints the editor's pages, not your page: they go
+  into a hidden frame inside the editor's root, which prints itself, so your
+  page's print styles are never involved. Pressed elsewhere on your page, the
+  key is the browser's and prints your page as usual.
 - Only files dropped **on the editor** open in it. A file dropped anywhere
   else on your page is your page's business: the editor does not cancel the
   event, so unless your page handles it, the browser does what it does with
@@ -157,7 +181,9 @@ editor's container.
   was not tested.
 - Telling saves apart in `onSave`: when saving would break a signature, the
   editor asks, and both "Save anyway" and "Save a copy" hand the bytes to
-  `onSave` under the document's name.
+  `onSave` under the document's name. The other files (a compressed copy,
+  a protected copy, page images) are told apart by their name and `type` (see the table
+  under Options).
 - Editing a page's existing text (it comes with the engine's content editing).
 
 ## Lower-level exports

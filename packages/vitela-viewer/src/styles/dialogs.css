@@ -152,6 +152,279 @@
   margin: 8px 0 0;
 }
 
+/* Compress PDF: one radio per preset, the refusal or the signature warning. */
+.compress-dialog {
+  width: min(440px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.compress-dialog__detail {
+  margin: 0 0 12px;
+}
+
+.compress-dialog__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.compress-dialog__legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.compress-dialog__preset {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.compress-dialog__preset input {
+  margin-top: 3px;
+}
+
+.compress-dialog__preset-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.compress-dialog__preset-name {
+  font-weight: 600;
+}
+
+.compress-dialog__preset-detail {
+  color: var(--text-muted);
+  font-size: calc(0.9 * var(--font-size));
+}
+
+.compress-dialog__refusal,
+.compress-dialog__signed {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.compress-dialog__signed {
+  margin: 12px 0 0;
+}
+
+/* Protect with a password: the two password roles, the refusal or the signature warning. */
+.protect-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.protect-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.protect-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.protect-dialog__detail {
+  color: var(--text-muted);
+  margin: 2px 0 0;
+}
+
+.protect-dialog__refusal,
+.protect-dialog__signed,
+.protect-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.protect-dialog__signed,
+.protect-dialog__error {
+  margin: 12px 0 0;
+}
+
+/* Document properties: six text boxes, the read-only reason or the refusal. */
+.properties-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.properties-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.properties-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.properties-dialog__field input:read-only {
+  color: var(--text-muted);
+}
+
+.properties-dialog__refusal,
+.properties-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.properties-dialog__error {
+  margin: 2px 0 0;
+}
+
+/* Extract pages and Split: one typed field, its hint, and the refusal. */
+.page-range-dialog {
+  width: min(400px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.page-range-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page-range-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.page-range-dialog__hint {
+  color: var(--text-muted);
+  margin: 6px 0 0;
+}
+
+.page-range-dialog__refusal,
+.page-range-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.page-range-dialog__error {
+  margin: 12px 0 0;
+}
+
+/* Export pages as images: pages, format, resolution, and the last refusal. */
+.export-dialog {
+  width: min(400px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.export-dialog__refusal {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
+.export-dialog__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+.export-dialog__group--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.export-dialog__legend {
+  display: block;
+  padding: 0;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.export-dialog__choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.export-dialog__range,
+.export-dialog__dpi {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.export-dialog__dpi {
+  width: 8em;
+}
+
+/* Add watermark: text or a picture, three sliders, placement, pages. */
+.watermark-dialog {
+  width: min(420px, calc(100vw - 32px));
+  box-sizing: border-box;
+}
+
+.watermark-dialog__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__field input {
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+}
+
+.watermark-dialog__picture {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__summary {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.watermark-dialog__slider {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 10px;
+}
+
+.watermark-dialog__slider input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.watermark-dialog__refusal,
+.watermark-dialog__error {
+  color: var(--error);
+  margin: 0 0 12px;
+}
+
 /* Two typed lengths: Move to, Resize. */
 .lengths-dialog {
   width: min(320px, calc(100vw - 32px));

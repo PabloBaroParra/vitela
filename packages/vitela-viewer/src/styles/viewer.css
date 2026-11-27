@@ -44,6 +44,59 @@
   margin: 8px 0;
 }
 
+/* The document tools as one menu button, at every width: "Tools" and a
+   chevron, three dots on a phone (see below). */
+.workspace__tools {
+  position: relative;
+}
+
+.workspace__tools .menu-button__button {
+  gap: 4px;
+}
+
+.workspace__tools-dots {
+  display: none;
+}
+
+.menu-button__button {
+  display: flex;
+  align-items: center;
+}
+
+.menu-button__list {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 20;
+  min-width: 11em;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--card-shadow);
+}
+
+.menu-button__item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.menu-button__item:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: var(--accent-soft);
+}
+
+.menu-button__item[aria-disabled='true'] {
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .viewer {
   container: vitela-viewer / inline-size;
   display: flex;
@@ -326,11 +379,15 @@
 }
 
 /* Phones: the document bar and the toolbars stay compact so the page gets
-   the screen. The file name gives way first. */
+   the screen. The bar keeps ONE row: every pixel of height it takes comes off
+   the pages and the Comments panel under them (at 390 x 600 the panel's first
+   row must still clear its sticky head). So the controls tighten, the Tools
+   menu shows three dots instead of its word, and the file name gives way
+   first. */
 @media (max-width: 600px) {
   .workspace__bar {
     flex-wrap: nowrap;
-    gap: 10px;
+    gap: 6px;
   }
 
   .workspace__bar .status-line {
@@ -343,9 +400,36 @@
   }
 
   .workspace__bar > :last-child,
+  .workspace__bar > button,
   .workspace__bar .file-picker {
     flex: none;
     white-space: nowrap;
+  }
+
+  .workspace__bar .file-picker {
+    padding-inline: 8px;
+  }
+
+  .workspace__bar button {
+    padding-inline: 8px;
+  }
+
+  .workspace__bar .workspace__tools {
+    flex: none;
+  }
+
+  /* The menu's name stays "Tools" (its aria-label): only the face changes. */
+  .workspace__tools-label,
+  .workspace__tools-chevron {
+    display: none;
+  }
+
+  .workspace__tools-dots {
+    display: block;
+  }
+
+  .workspace__bar .menu-button__button {
+    padding-inline: 6px;
   }
 
   .viewer__toolbars {

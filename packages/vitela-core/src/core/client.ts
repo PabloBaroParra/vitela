@@ -12,7 +12,13 @@ import { EngineError } from './errors.js';
 import type {
   Annotation,
   Comment,
+  CompressedDocument,
+  CompressPreset,
+  CompressRefusal,
   DocumentHandle,
+  ImageExport,
+  ImageExportFormat,
+  ImageExportHandle,
   Edit,
   EditedDocument,
   Engine,
@@ -23,8 +29,17 @@ import type {
   PagePoint,
   PageRect,
   PreparedImport,
+  DocumentProperties,
+  WatermarkDefaults,
+  PageContent,
+  TextBlock,
+  TextRunStyle,
+  TextRunLookState,
+  FontProgram,
+  ProtectionPasswords,
   RenderedPage,
   SearchHit,
+  SplitPart,
   TextSelection,
 } from './types.js';
 
@@ -126,6 +141,152 @@ export class EngineClient implements Engine {
   stampPlacement(document: DocumentHandle, pageIndex: number, image: Uint8Array, anchor: PagePoint): Promise<PageRect> {
     // Copied, not transferred: the caller still has a stamp to add with it.
     return this.send({ kind: 'stampPlacement', document, pageIndex, image, anchor });
+  }
+
+  compressPresets(): Promise<CompressPreset[]> {
+    return this.send({ kind: 'compressPresets' });
+  }
+
+  compressionRefusal(document: DocumentHandle): Promise<CompressRefusal | null> {
+    return this.send({ kind: 'compressionRefusal', document });
+  }
+
+  compressionInvalidatesSignatures(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'compressionInvalidatesSignatures', document });
+  }
+
+  saveCompressedToBytes(
+    document: DocumentHandle,
+    preset: CompressPreset,
+    invalidateSignatures: boolean,
+  ): Promise<CompressedDocument> {
+    return this.send({ kind: 'saveCompressed', document, preset, invalidateSignatures });
+  }
+
+  documentProperties(document: DocumentHandle): Promise<DocumentProperties> {
+    return this.send({ kind: 'documentProperties', document });
+  }
+
+  metadataRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'metadataRefusal', document });
+  }
+
+  contentEditingRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'contentEditingRefusal', document });
+  }
+
+  readPageContent(document: DocumentHandle, pageIndex: number): Promise<PageContent> {
+    return this.send({ kind: 'readPageContent', document, pageIndex });
+  }
+
+  readTextBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]> {
+    return this.send({ kind: 'readTextBlocks', document, pageIndex });
+  }
+
+  readParagraphBlocks(document: DocumentHandle, pageIndex: number): Promise<TextBlock[]> {
+    return this.send({ kind: 'readParagraphBlocks', document, pageIndex });
+  }
+
+  textRunStyle(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunStyle | null> {
+    return this.send({ kind: 'textRunStyle', document, pageIndex, runId });
+  }
+
+  pageFontFamilies(document: DocumentHandle, pageIndex: number): Promise<Record<string, string>> {
+    return this.send({ kind: 'pageFontFamilies', document, pageIndex });
+  }
+
+  contentBaseGeneration(document: DocumentHandle): Promise<number> {
+    return this.send({ kind: 'contentBaseGeneration', document });
+  }
+
+  textRunLook(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunLookState | null> {
+    return this.send({ kind: 'textRunLook', document, pageIndex, runId });
+  }
+
+  textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number): Promise<FontProgram | null> {
+    return this.send({ kind: 'textRunFontProgram', document, pageIndex, runId });
+  }
+
+  watermarkDefaults(): Promise<WatermarkDefaults> {
+    return this.send({ kind: 'watermarkDefaults' });
+  }
+
+  watermarkRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'watermarkRefusal', document });
+  }
+
+  protectionRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'protectionRefusal', document });
+  }
+
+  protectionInvalidatesSignatures(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'protectionInvalidatesSignatures', document });
+  }
+
+  protectToBytes(
+    document: DocumentHandle,
+    { openPassword, permissionsPassword }: ProtectionPasswords,
+    invalidateSignatures: boolean,
+  ): Promise<Uint8Array> {
+    return this.send({ kind: 'protect', document, openPassword, permissionsPassword, invalidateSignatures });
+  }
+
+  extractionRefusal(document: DocumentHandle): Promise<string | null> {
+    return this.send({ kind: 'extractionRefusal', document });
+  }
+
+  extractSourceIsSigned(document: DocumentHandle): Promise<boolean> {
+    return this.send({ kind: 'extractSourceIsSigned', document });
+  }
+
+  extractPages(document: DocumentHandle, pages: readonly number[]): Promise<Uint8Array> {
+    return this.send({ kind: 'extract', document, pages });
+  }
+
+  planSplit(cuts: string, totalPages: number, documentName: string): Promise<SplitPart[]> {
+    return this.send({ kind: 'planSplit', cuts, totalPages, documentName });
+  }
+
+  imageExportFormats(): Promise<ImageExportFormat[]> {
+    return this.send({ kind: 'imageExportFormats' });
+  }
+
+  parsePageSelection(input: string, totalPages: number): Promise<number[]> {
+    return this.send({ kind: 'parsePageSelection', input, totalPages });
+  }
+
+  pageImageFileNames(
+    documentName: string,
+    pages: readonly number[],
+    totalPages: number,
+    format: ImageExportFormat,
+  ): Promise<string[]> {
+    return this.send({ kind: 'pageImageFileNames', documentName, pages, totalPages, format });
+  }
+
+  firstPageTooLargeToExport(document: DocumentHandle, pages: readonly number[], dpi: number): Promise<number | null> {
+    return this.send({ kind: 'firstPageTooLargeToExport', document, pages, dpi });
+  }
+
+  openImageExport(document: DocumentHandle): Promise<ImageExport> {
+    return this.send({ kind: 'openImageExport', document });
+  }
+
+  exportPageImage(
+    exportHandle: ImageExportHandle,
+    pageIndex: number,
+    dpi: number,
+    format: ImageExportFormat,
+  ): Promise<Uint8Array> {
+    return this.send({ kind: 'exportPageImage', export: exportHandle, pageIndex, dpi, format });
+  }
+
+  closeImageExport(exportHandle: ImageExportHandle): Promise<boolean> {
+    return this.send({ kind: 'closeImageExport', export: exportHandle });
+  }
+
+  openPrintSnapshot(document: DocumentHandle): Promise<ImageExport> {
+    return this.send({ kind: 'openPrintSnapshot', document });
   }
 
   /**

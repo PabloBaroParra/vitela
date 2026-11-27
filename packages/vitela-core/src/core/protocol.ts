@@ -6,7 +6,20 @@
 import type {
   Annotation,
   Comment,
+  CompressedDocument,
+  CompressPreset,
+  CompressRefusal,
   DocumentHandle,
+  DocumentProperties,
+  WatermarkDefaults,
+  PageContent,
+  TextBlock,
+  TextRunStyle,
+  TextRunLookState,
+  FontProgram,
+  ImageExport,
+  ImageExportFormat,
+  ImageExportHandle,
   Edit,
   EditedDocument,
   FormField,
@@ -18,6 +31,7 @@ import type {
   PreparedImport,
   RenderedPage,
   SearchHit,
+  SplitPart,
   TextSelection,
 } from './types.js';
 
@@ -66,7 +80,82 @@ export type EngineRequest =
       readonly pageIndex: number;
       readonly image: Uint8Array;
       readonly anchor: PagePoint;
-    };
+    }
+  | { readonly kind: 'compressPresets' }
+  | { readonly kind: 'compressionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'compressionInvalidatesSignatures'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'saveCompressed';
+      readonly document: DocumentHandle;
+      readonly preset: CompressPreset;
+      readonly invalidateSignatures: boolean;
+    }
+  | { readonly kind: 'documentProperties'; readonly document: DocumentHandle }
+  | { readonly kind: 'metadataRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'contentEditingRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'readPageContent'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'readTextBlocks'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'readParagraphBlocks'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | {
+      readonly kind: 'textRunStyle';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
+  | { readonly kind: 'pageFontFamilies'; readonly document: DocumentHandle; readonly pageIndex: number }
+  | { readonly kind: 'contentBaseGeneration'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'textRunLook';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
+  | {
+      readonly kind: 'textRunFontProgram';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
+  | { readonly kind: 'watermarkDefaults' }
+  | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'protectionInvalidatesSignatures'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'protect';
+      readonly document: DocumentHandle;
+      readonly openPassword: string;
+      readonly permissionsPassword: string;
+      readonly invalidateSignatures: boolean;
+    }
+  | { readonly kind: 'extractionRefusal'; readonly document: DocumentHandle }
+  | { readonly kind: 'extractSourceIsSigned'; readonly document: DocumentHandle }
+  | { readonly kind: 'extract'; readonly document: DocumentHandle; readonly pages: readonly number[] }
+  | { readonly kind: 'planSplit'; readonly cuts: string; readonly totalPages: number; readonly documentName: string }
+  | { readonly kind: 'imageExportFormats' }
+  | { readonly kind: 'parsePageSelection'; readonly input: string; readonly totalPages: number }
+  | {
+      readonly kind: 'pageImageFileNames';
+      readonly documentName: string;
+      readonly pages: readonly number[];
+      readonly totalPages: number;
+      readonly format: ImageExportFormat;
+    }
+  | {
+      readonly kind: 'firstPageTooLargeToExport';
+      readonly document: DocumentHandle;
+      readonly pages: readonly number[];
+      readonly dpi: number;
+    }
+  | { readonly kind: 'openImageExport'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'exportPageImage';
+      readonly export: ImageExportHandle;
+      readonly pageIndex: number;
+      readonly dpi: number;
+      readonly format: ImageExportFormat;
+    }
+  | { readonly kind: 'closeImageExport'; readonly export: ImageExportHandle }
+  | { readonly kind: 'openPrintSnapshot'; readonly document: DocumentHandle };
 
 export interface EngineResults {
   open: OpenedDocument;
@@ -87,6 +176,38 @@ export interface EngineResults {
   formFields: FormField[];
   freeTextLayout: FreeTextLayout;
   stampPlacement: PageRect;
+  compressPresets: CompressPreset[];
+  compressionRefusal: CompressRefusal | null;
+  compressionInvalidatesSignatures: boolean;
+  saveCompressed: CompressedDocument;
+  documentProperties: DocumentProperties;
+  metadataRefusal: string | null;
+  contentEditingRefusal: string | null;
+  readPageContent: PageContent;
+  readTextBlocks: TextBlock[];
+  readParagraphBlocks: TextBlock[];
+  textRunStyle: TextRunStyle | null;
+  pageFontFamilies: Record<string, string>;
+  contentBaseGeneration: number;
+  textRunLook: TextRunLookState | null;
+  textRunFontProgram: FontProgram | null;
+  watermarkDefaults: WatermarkDefaults;
+  watermarkRefusal: string | null;
+  protectionRefusal: string | null;
+  protectionInvalidatesSignatures: boolean;
+  protect: Uint8Array;
+  imageExportFormats: ImageExportFormat[];
+  parsePageSelection: number[];
+  pageImageFileNames: string[];
+  firstPageTooLargeToExport: number | null;
+  openImageExport: ImageExport;
+  exportPageImage: Uint8Array;
+  closeImageExport: boolean;
+  openPrintSnapshot: ImageExport;
+  extractionRefusal: string | null;
+  extractSourceIsSigned: boolean;
+  extract: Uint8Array;
+  planSplit: SplitPart[];
 }
 
 /** UI -> worker. `id` correlates the reply. */
