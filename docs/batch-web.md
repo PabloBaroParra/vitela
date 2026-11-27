@@ -2167,7 +2167,7 @@ Gates (Windows 11, local):
 | **T-257** ✓ | Imprimir (render + `window.print`). | Playwright: la vista de impresión tiene una imagen por página. |
 | **T-258a** ✓ (#666) | Core: la orquestación de la edición de contenido sale de `pdf-ffi` a `pdf-save` (`content_edit.rs`) y `pdf-edit` (`group_text_paragraphs`); `pdf-ffi` delega. | Nativo: cero cambio de comportamiento. |
 | **T-258b** ✓ | Modelo de contenido en wasm (`CheckpointSession`, `readPageContent`, bloques y párrafos, `textRunStyle`, familias de fuente, `contentBaseGeneration`) y modo **Edit content** de solo lectura en el visor. | `wasm-bindgen-test` + Vitest contra pdfium real; Playwright del modo. |
-| **T-259** | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
+| **T-259** ✓ | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
 | **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
 | **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
 | **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
@@ -3098,6 +3098,95 @@ que sigue:
   `linux-gtk`, Android, `examples/embed-vite`.
 - **No cubierto / pendiente:** ninguna edición (T-259+); Tab por los elementos de la página
   (opcional en la ficha, no hecho); `textRunLook`; sin lector de pantalla real.
+
+### T-259 — resultado
+
+Edición de runs de texto en el modo **Edit content**, más los arreglos de revisión de T-258b
+(parte A). Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API).
+
+- **Parte A — seguimiento de la revisión de T-258b** (`contentModel.ts`, `useContentMode.ts`):
+  (1) la clave de una lectura es `pageId/rotación/paintRevision/generación` (deshacer un giro
+  conserva id y revisión); (2) con `editing.pending` no sale ninguna lectura (las lecturas van por
+  posición y un paso de Organize o un deshacer puede poner otra página ahí) y una respuesta cuya
+  posición tiene ya otra página se descarta y se vuelve a pedir; además, mientras corre un paso
+  ninguna página se lee `ready` y una pulsación no elige nada (la lectura guardada puede nombrar
+  lo que el paso va a cambiar: un clic justo tras **Undo** seleccionaba el run viejo y lo perdía al
+  aterrizar — lo destapó el E2E); (3) `readsToSend`: como mucho 2 lecturas en vuelo, nunca una
+  clave ya en vuelo, y lo que no sale se decide de nuevo al aterrizar una, contra las páginas
+  deseadas entonces: una página que un scroll rápido ya pasó no se pide.
+- **`pdf-wasm`** (`model/text_run.rs`, `engine/text_run.rs`, `dto/text_run.rs`):
+  `DocumentModel::apply_text_run_edit(TextRunEdit)` con `Retype`, `Move { dx, dy }` (puntos PDF,
+  y hacia arriba), `Remove` y `Restyle { runs, look }`; el run se resuelve contra la lectura
+  pendiente (lo que `record_content_command` pliega) y el comando del core va por
+  `DocumentModel::record_content` + las puertas de `pdf_save::content_edit`: un paso de deshacer
+  cada uno; un segundo retipeo o movimiento del mismo run pliega en su paso; lo que no cambia nada
+  (el mismo texto, mover 0, el aspecto que ya tiene) no registra nada; un `Restyle` de varios runs
+  es un `Command::Batch`. El retipeo elige el comando como los shells nativos
+  (`ReplaceTextRunWithInsertedFont` para fuente compuesta, `ReplaceTextRunContent` si no).
+  Lecturas: `textRunLook` (`pdf_save::pending_text_run_look_of`: B/I/U/S, `canRemoveBold`,
+  `canRemoveItalic`) y `textRunFontProgram` (`pdf_save::text_run_font_program_of`, que ya
+  existía; `null` para standard-14 o un run solo pendiente). `applyEdit` con `retypeTextRun`,
+  `moveTextRun`, `removeTextRun`, `restyleTextRuns`: refresco de vista previa y `paintRevision`
+  como toda edición de contenido.
+- **`@vitela/core`:** tipos `TextRunEdit`, `TextRunLook`, `TextRunLookState`, `FontProgram`;
+  `Engine.textRunLook` / `textRunFontProgram`; el worker pasa `dx, dy` de la página dibujada
+  (y hacia abajo) a puntos PDF.
+- **`@vitela/viewer` (`features/content/`):** puro `textRuns.ts` (flechas 1 pt / Mayús 10 pt,
+  umbral de arrastre 3 px, `retypeOf` — vacío = borrar —, `followRun`: el run editado se
+  encuentra de nuevo por sitio y texto, no por id; familias CSS de reserva; `faceOf`;
+  `editorBox` girado con la página), `runFont.ts` (el programa incrustado como `FontFace` si el
+  navegador lo acepta, TrueType/OpenType; si no, la familia de reserva; cacheado por página, base
+  y recurso), contenedor `useTextRunEditing` (sobre la cola `useAnnotationEdits.apply`: marca
+  sucio y el guardado lo espera; cada paso comprueba al llegar su turno que la página en su
+  posición sigue siendo la misma; nada se pide mientras corre un paso o se relee la página — las
+  flechas de entretanto se suman en un movimiento —; el editor confirma con Enter y al perder el
+  foco, cancela con Escape, y se cierra un turno después, nunca dentro de su propio blur, como en
+  GTK; un guardado, salir del modo u otra selección confirman lo escrito), vistas `TextRunEditor`
+  (campo camuflado: fuente, tamaño, color, peso e inclinación del run) y `TextRunToolbar` (Edit
+  text, B/I/U con `aria-pressed`, Delete; no ofrece quitar una negrita que el core no puede
+  quitar). `ContentLayer` informa doble clic y arrastre del contorno del run seleccionado.
+  Enter/doble clic abren, Delete/Retroceso borran. Un run no retipeable lo dice.
+- **Arreglos de esta pasada** (encontrados con el E2E, cada uno con su test en rojo primero):
+  (a) lo de la parte A (2) sobre pulsaciones durante un paso; (b) las flechas pulsadas mientras
+  se relee la página del run movido se perdían (la selección vieja ya no vale y `onKey` no las
+  tomaba): ahora se suman y salen en cuanto el run se encuentra; (c) en Firefox una pulsación al
+  lado del editor lo confirmaba y su blur lo confirmaba otra vez (Firefox mueve el foco aunque se
+  cancele `pointerdown`): un editor abierto se confirma una sola vez.
+- **Hallazgo del core, sin tocar:** al borrar (o editar) un run, el guardado normal deja en el
+  fichero el flujo de contenido original **sin referenciar** (`pdf_edit::own_page_stream` copia
+  el flujo antes de editarlo y deja la limpieza a la poda de un guardado comprimido; está
+  documentado así en `pdf-edit`). El texto borrado no se ve ni se lee al reabrir, pero sigue en
+  los bytes. Es igual en todos los shells; el E2E de borrado comprueba la relectura, no los bytes.
+  Candidato a ficha propia (podar lo inalcanzable en el guardado completo).
+- **Tests:** Rust 16 nativos nuevos (`model/text_run/tests.rs`: un paso por edición, plegado
+  del segundo retipeo y movimiento, nada para lo que no cambia, restyle de varios = un paso,
+  negrita leída/encolada/guardada, deshacer y rehacer a través de un checkpoint, puertas y su
+  orden, programa de fuente incrustada y standard-14) y 2 `wasm-bindgen-test`
+  (`tests/text_runs.rs`). `@vitela/core` 7 Vitest nuevos (1 `client`, 1 `handler`, 4
+  `documentEngine`, 1 pdfium real: `reportlab_quote_paragraph.pdf` retipeado, movido, en negrita,
+  guardado y releído, borrado y deshecho paso a paso). `@vitela/viewer` 37 nuevos (3
+  `contentModel`, 8 `useContentMode`, 12 `textRuns`, 14 `useTextRunEditing` con
+  `TextRunToolbar`/`TextRunEditor`).
+- **E2E (`e2e/edit-text-runs.spec.ts`, 6 × 3):** retipeo en el sitio (editor sobre el contorno,
+  en su tamaño), Enter, deshacer/rehacer, guardar y reabrir lee el texto nuevo; doble clic abre,
+  Escape cancela, una pulsación al lado confirma; tres Mayús+→ = 30 pt en un paso y un arrastre
+  más, guardado donde quedó; Delete borra, deshacer/rehacer, y el fichero reabierto no tiene run
+  ahí; **B** en negrita, deshecho y rehecho, y releído en negrita tras guardar; un PDF que prohíbe
+  modificar no ofrece ninguna edición.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check` limpio; `cargo clippy --locked
+  -p pdf-wasm --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`), sin
+  avisos; `cargo test --locked -p pdf-wasm -p pdf-save` (con `PDFIUM_DYNAMIC_LIB_PATH`) todo en
+  verde (`pdf-wasm` lib 175, `pdf-save` lib 231, 0 fallos). `@vitela/core`: `typecheck`, Vitest
+  15 / 226, `build`. `@vitela/viewer`: `typecheck`, Vitest 97 / 965, `build`. `apps/web`:
+  `typecheck`, Vitest 6 / 19, `build`. Playwright completo (Chromium, Firefox, WebKit, `CI=1`)
+  **347 pasan, 22 omitidos, 0 fallos**, con `zero-network`, `phone-bar` y `embed` en verde.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy wasm32;
+  la misma superficie la cubre el Vitest con pdfium real); `linux-gtk`, Android.
+- **No cubierto / pendiente:** tachado (`strike`) sin botón (la ficha pedía B/I/U); editor de una
+  sola línea (sin bloques ni párrafos: T-260+); mover varios runs a la vez; sin lector de
+  pantalla real.
 
 ## Verificación
 

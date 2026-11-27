@@ -138,6 +138,12 @@ pub const ACROFORM: &[u8] =
 pub const SCAN_200DPI: &[u8] =
     include_bytes!("../../../../tests/fixtures/compress/scan_200dpi.pdf");
 
+/// A ReportLab paragraph in an embedded TrueType subset (Vera, with a
+/// `/ToUnicode`; `tests/fixtures/content-edit`): a run whose font program
+/// the file carries.
+pub const EMBEDDED_FONT: &[u8] =
+    include_bytes!("../../../../tests/fixtures/content-edit/reportlab_quote_paragraph.pdf");
+
 /// A document signed once (`tests/fixtures/signed`): a compressed save
 /// would stop its signature from verifying.
 pub const SIGNED: &[u8] = include_bytes!("../../../../tests/fixtures/signed/rsa2048_sha256.pdf");

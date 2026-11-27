@@ -10,6 +10,9 @@
 
 import type {
   ContentFontKind,
+  FontProgram,
+  TextRunEdit,
+  TextRunLookState,
   ContentImage,
   ContentPath,
   ContentRun,
@@ -82,6 +85,78 @@ export interface CoreTextRunStyle extends Owned {
   readonly bold: boolean;
   readonly italic: boolean;
   readonly renderMode: number;
+}
+
+/** core/pdf-wasm's text-run `EditCommand` constructors (T-259). */
+export interface CoreTextRunEdits {
+  retypeTextRun(page: number, runId: number, text: string): Owned;
+  /** `dx, dy` in PDF points (y up). */
+  moveTextRun(page: number, runId: number, dx: number, dy: number): Owned;
+  removeTextRun(page: number, runId: number): Owned;
+  restyleTextRuns(page: number, runIds: Float64Array, bold: boolean, italic: boolean, underline: boolean, strike: boolean): Owned;
+}
+
+/** core/pdf-wasm's `TextRunLookEntry`. */
+export interface CoreTextRunLook extends Owned {
+  readonly bold: boolean;
+  readonly italic: boolean;
+  readonly underline: boolean;
+  readonly strike: boolean;
+  readonly canRemoveBold: boolean;
+  readonly canRemoveItalic: boolean;
+}
+
+/** core/pdf-wasm's `FontProgramEntry`. */
+export interface CoreFontProgram extends Owned {
+  readonly format: string;
+  takeBytes(): Uint8Array;
+}
+
+/**
+ * The core command for `edit`. A move's delta is on the page as drawn and
+ * crosses through the page's frame; on a page past the end it crosses as is,
+ * for the core to refuse (`PageIndexOutOfBounds`) after its own gates.
+ */
+export function textRunCommand(edits: CoreTextRunEdits, edit: TextRunEdit, frameOf: (page: number) => PageFrame | undefined): Owned {
+  switch (edit.kind) {
+    case 'retypeTextRun':
+      return edits.retypeTextRun(edit.page, edit.runId, edit.text);
+    case 'moveTextRun': {
+      const [dx, dy] = frameOf(edit.page)?.deltaToPdf(edit.dx, edit.dy) ?? [edit.dx, edit.dy];
+      return edits.moveTextRun(edit.page, edit.runId, dx, dy);
+    }
+    case 'removeTextRun':
+      return edits.removeTextRun(edit.page, edit.runId);
+    case 'restyleTextRuns': {
+      const { bold, italic, underline, strike } = edit.look;
+      return edits.restyleTextRuns(edit.page, Float64Array.from(edit.runIds), bold, italic, underline, strike);
+    }
+  }
+}
+
+/** Copies a run's look into plain values, and frees it. */
+export function textRunLook(look: CoreTextRunLook | null | undefined): TextRunLookState | null {
+  if (!look) return null;
+  try {
+    const { bold, italic, underline, strike, canRemoveBold, canRemoveItalic } = look;
+    return { bold, italic, underline, strike, canRemoveBold, canRemoveItalic };
+  } finally {
+    look.free();
+  }
+}
+
+/** Moves a font program's bytes out, and frees it. */
+export function fontProgram(program: CoreFontProgram | null | undefined): FontProgram | null {
+  if (!program) return null;
+  try {
+    const format = program.format;
+    return {
+      format: format === 'trueType' || format === 'openType' || format === 'cff' ? format : 'type1',
+      bytes: program.takeBytes(),
+    };
+  } finally {
+    program.free();
+  }
 }
 
 /** Copies a page's content into plain values on the page as drawn, and frees it. */

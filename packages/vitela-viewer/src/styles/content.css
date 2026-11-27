@@ -72,3 +72,73 @@
 .content-outline--path.content-outline--selected {
   background: rgb(30 140 80 / 14%);
 }
+
+/* The selected run's edits (B26 T-259): its outline is dragged while the
+   pointer moves it, a small toolbar sits above it, and the camouflaged
+   editor covers it in its own font. */
+
+.content-layer[data-dragging='true'] {
+  cursor: grabbing;
+}
+
+.content-layer[data-dragging='true'] .content-outline--selected {
+  background: rgb(40 110 230 / 22%);
+}
+
+.text-run-toolbar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  padding: 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  cursor: default;
+}
+
+.text-run-toolbar button {
+  min-height: 26px;
+  padding: 2px 8px;
+}
+
+.text-run-toolbar__face {
+  min-width: 28px;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.text-run-toolbar__face--bold {
+  font-weight: 700;
+}
+
+.text-run-toolbar__face--italic {
+  font-style: italic;
+}
+
+.text-run-toolbar__face--underline {
+  text-decoration: underline;
+}
+
+.text-run-toolbar__face[aria-pressed='true'] {
+  background: var(--tone-blue-bg, rgb(40 110 230 / 18%));
+  border-color: var(--tone-blue-fg);
+}
+
+/* Over the run, on the page's own white: the text under it is hidden while it is retyped. */
+.text-run-editor {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: 1.5px solid var(--tone-blue-fg);
+  border-radius: 1px;
+  background: #fff;
+  line-height: 1;
+  transform-origin: center;
+  white-space: pre;
+}

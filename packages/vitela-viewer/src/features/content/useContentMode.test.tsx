@@ -46,14 +46,37 @@ interface Props {
   readonly visible: { first: number; last: number } | null;
   readonly paintRevision?: number;
   readonly baseGeneration?: number;
+  readonly pageIds?: readonly number[];
+  readonly rotations?: readonly number[];
+  readonly paused?: boolean;
 }
+
+const UPRIGHT: readonly number[] = [];
 
 function mode(engine: Engine, initial: Props) {
   return renderHook(
-    ({ active = true, visible, paintRevision = 0, baseGeneration = 0 }: Props) =>
-      useContentMode({ engine, handle: 1, active, pageIds: IDS, paintRevision, baseGeneration, visible }),
+    ({ active = true, visible, paintRevision = 0, baseGeneration = 0, pageIds = IDS, rotations = UPRIGHT, paused = false }: Props) =>
+      useContentMode({ engine, handle: 1, active, pageIds, rotations, paused, paintRevision, baseGeneration, visible }),
     { initialProps: initial },
   );
+}
+
+/** An engine whose reads answer only when the test says so, in any order. */
+function deferredEngine() {
+  const reads: number[] = [];
+  const answers: (() => void)[] = [];
+  const engine: Engine = fakeEngine({
+    readPageContent: (_document, pageIndex) =>
+      new Promise((resolve) => {
+        reads.push(pageIndex);
+        answers.push(() => resolve(contentOf(pageIndex)));
+      }),
+  });
+  /** Answers the read asked `n`-th (0-based). */
+  const answer = async (n: number) => {
+    await act(async () => answers[n]!());
+  };
+  return { engine, reads, answer };
 }
 
 describe('useContentGate', () => {
@@ -125,6 +148,84 @@ describe('useContentMode', () => {
     expect(reads).toHaveLength(6);
   });
 
+  it('parses a page again when it is turned under the same id and revision', async () => {
+    const { engine, reads } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 } });
+    await waitFor(() => expect(result.current.stateAt(1)?.status).toBe('ready'));
+    expect(reads).toEqual([0, 1]);
+    // An undo of a rotation made in the mode: page 0 turns, nothing else.
+    rerender({ visible: { first: 0, last: 0 }, rotations: [90] });
+    expect(result.current.stateAt(0)?.status).not.toBe('ready');
+    await waitFor(() => expect(result.current.stateAt(0)?.status).toBe('ready'));
+    expect(reads).toEqual([0, 1, 0]);
+  });
+
+  it('asks nothing while an edit is pending, then reads the pages as they are', async () => {
+    const { engine, reads } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 }, paused: true });
+    await act(async () => {});
+    expect(reads).toEqual([]);
+    rerender({ visible: { first: 0, last: 0 }, paused: false });
+    await waitFor(() => expect(result.current.stateAt(1)?.status).toBe('ready'));
+    expect(reads).toEqual([0, 1]);
+  });
+
+  it('while an edit is pending, no page is ready and a press picks nothing from a parse it may be about to replace', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 } });
+    await waitFor(() => expect(result.current.stateAt(0)?.status).toBe('ready'));
+    // An undo starts: the parse held for page 1 may name what it is about to take back.
+    rerender({ visible: { first: 0, last: 0 }, paused: true });
+    expect(result.current.stateAt(0)).toBeUndefined();
+    act(() => result.current.select(0, { x: 80, y: 78 }));
+    act(() => result.current.hover(0, { x: 80, y: 78 }));
+    expect(result.current.selected).toBeNull();
+    expect(result.current.hovered).toBeNull();
+    // It lands without changing the page: the same parse is ready and found again.
+    rerender({ visible: { first: 0, last: 0 }, paused: false });
+    expect(result.current.stateAt(0)?.status).toBe('ready');
+    act(() => result.current.select(0, { x: 80, y: 78 }));
+    expect(result.current.selected?.item).toMatchObject({ kind: 'run', text: 'Page 1' });
+  });
+
+  it("drops an answer whose position holds another page by the time it lands, and reads that page where it is", async () => {
+    const { engine, reads, answer } = deferredEngine();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 }, pageIds: [10, 11] });
+    await act(async () => {});
+    expect(reads).toEqual([0, 1]);
+    // The two pages swap places (an Organize move landing) before either read answers.
+    rerender({ visible: { first: 0, last: 0 }, pageIds: [11, 10] });
+    await answer(0);
+    await answer(1);
+    // Both answers were for positions that now hold the other page: read again.
+    await act(async () => {});
+    expect(reads).toHaveLength(4);
+    expect([...reads.slice(2)].sort()).toEqual([0, 1]);
+    await answer(2);
+    await answer(3);
+    expect(result.current.stateAt(0)).toMatchObject({ status: 'ready', content: { runs: [{ text: 'Page 1' }] } });
+  });
+
+  it('reads a few pages at a time, never one already in flight, and skips the pages a fast scroll passed', async () => {
+    const { engine, reads, answer } = deferredEngine();
+    const { rerender } = mode(engine, { visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    expect(reads).toEqual([0, 1]);
+    // Scrolled far and back before either read answered: nothing asked twice.
+    rerender({ visible: { first: 500, last: 500 } });
+    rerender({ visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    expect(reads).toEqual([0, 1]);
+    // Then on, past pages 100 and 200: only where the scroll ends is read.
+    rerender({ visible: { first: 100, last: 100 } });
+    rerender({ visible: { first: 200, last: 200 } });
+    await answer(0);
+    await answer(1);
+    expect(reads).toEqual([0, 1, 199, 200]);
+    await answer(2);
+    expect(reads).toEqual([0, 1, 199, 200, 201]);
+  });
+
   it('outlines what is under the pointer, selects on a press, and lets go on clear, an edit or leaving', async () => {
     const { engine } = engineWith();
     const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
@@ -163,6 +264,50 @@ describe('useContentMode', () => {
     expect(result.current.selected).toBeNull();
   });
 
+  it('selects the edited run again once its page is read after the edit', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    const run = result.current.selected!.item;
+
+    // The edit is asked for, then lands: the page repaints and is read again.
+    act(() => result.current.follow(2, run.rect, 'Page 3'));
+    rerender({ visible: { first: 2, last: 2 }, paused: true });
+    expect(result.current.selected?.item).toBe(run);
+    rerender({ visible: { first: 2, last: 2 }, paused: false, paintRevision: 1 });
+    expect(result.current.selected).toBeNull();
+    await waitFor(() => expect(result.current.selected?.item).toMatchObject({ kind: 'run', text: 'Page 3' }));
+    // Found in the read after the edit (paint revision 1).
+    expect(result.current.selected!.key).toMatch(/\/1\/0$/);
+  });
+
+  it('forgets what to follow when the edit changed nothing, and lets the selection go on a later repaint', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    act(() => result.current.follow(2, result.current.selected!.item.rect, 'Page 3'));
+    rerender({ visible: { first: 2, last: 2 }, paused: true });
+    rerender({ visible: { first: 2, last: 2 }, paused: false });
+    expect(result.current.selected?.item.kind).toBe('run');
+    // An undo elsewhere: nothing follows.
+    rerender({ visible: { first: 2, last: 2 }, paintRevision: 7 });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    expect(result.current.selected).toBeNull();
+  });
+
+  it('follows nothing for a removed run', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    act(() => result.current.follow(2, result.current.selected!.item.rect, null));
+    rerender({ visible: { first: 2, last: 2 }, paintRevision: 1 });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    expect(result.current.selected).toBeNull();
+  });
+
   it('says which page could not be read', async () => {
     const engine = fakeEngine({
       readPageContent: async () => {
@@ -170,7 +315,17 @@ describe('useContentMode', () => {
       },
     });
     const { result } = renderHook(() =>
-      useContentMode({ engine, handle: 1, active: true, pageIds: [5], paintRevision: 0, baseGeneration: 0, visible: { first: 0, last: 0 } }),
+      useContentMode({
+        engine,
+        handle: 1,
+        active: true,
+        pageIds: [5],
+        rotations: [0],
+        paused: false,
+        paintRevision: 0,
+        baseGeneration: 0,
+        visible: { first: 0, last: 0 },
+      }),
     );
     await waitFor(() =>
       expect(result.current.status).toBe('Could not read the content of page 1: Text extraction is not permitted.'),

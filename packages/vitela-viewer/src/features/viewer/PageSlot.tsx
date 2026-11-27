@@ -7,7 +7,7 @@
 // canvas, no annotation layer and no text layer at all. While the "Edit
 // content" mode is on, its layer is over all of them and has the pointer.
 
-import { memo, type DragEvent } from 'react';
+import { memo, type DragEvent, type ReactNode } from 'react';
 import type { Annotation, ContentItem, DocumentHandle, Engine, PageRect, PageRects, PageSize, Rgb } from '@vitela/core';
 import { AnnotationEditLayer } from '../annotations/AnnotationEditLayer';
 import { AnnotationLayer } from '../annotations/AnnotationLayer';
@@ -67,6 +67,8 @@ interface PageSlotProps {
   /** The item under the pointer on this page, and the selected one when it is on this page. */
   readonly contentHovered?: ContentItem | null;
   readonly contentSelected?: ContentItem | null;
+  /** The selected run's toolbar and editor, on its page only. */
+  readonly contentOverlay?: ReactNode;
 }
 
 /** What the drawing layer needs from the viewer, the same for every page. */
@@ -80,7 +82,7 @@ export interface DrawingInput {
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   const { engine, document, index, page, pageKey, paintKey, annotations, stampImages, slot, dpi, label, scale } = props;
   const { hits, currentHit, selection, textInput, drawing, editing, selectedId, marked, onImageDrop } = props;
-  const { content, contentState, contentHovered = null, contentSelected = null } = props;
+  const { content, contentState, contentHovered = null, contentSelected = null, contentOverlay = null } = props;
   const render = usePageRender(engine, document, index, dpi, pageKey, paintKey);
   const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
@@ -147,7 +149,9 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
           hovered={contentHovered}
           selected={contentSelected}
           input={content}
-        />
+        >
+          {contentOverlay}
+        </ContentLayer>
       )}
       {render.status === 'failed' && (
         <p className="page-slot__error" role="alert">{`Could not render this page: ${render.message}`}</p>

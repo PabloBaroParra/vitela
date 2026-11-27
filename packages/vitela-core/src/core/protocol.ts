@@ -15,6 +15,8 @@ import type {
   PageContent,
   TextBlock,
   TextRunStyle,
+  TextRunLookState,
+  FontProgram,
   ImageExport,
   ImageExportFormat,
   ImageExportHandle,
@@ -102,6 +104,18 @@ export type EngineRequest =
     }
   | { readonly kind: 'pageFontFamilies'; readonly document: DocumentHandle; readonly pageIndex: number }
   | { readonly kind: 'contentBaseGeneration'; readonly document: DocumentHandle }
+  | {
+      readonly kind: 'textRunLook';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
+  | {
+      readonly kind: 'textRunFontProgram';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly runId: number;
+    }
   | { readonly kind: 'watermarkDefaults' }
   | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
@@ -175,6 +189,8 @@ export interface EngineResults {
   textRunStyle: TextRunStyle | null;
   pageFontFamilies: Record<string, string>;
   contentBaseGeneration: number;
+  textRunLook: TextRunLookState | null;
+  textRunFontProgram: FontProgram | null;
   watermarkDefaults: WatermarkDefaults;
   watermarkRefusal: string | null;
   protectionRefusal: string | null;

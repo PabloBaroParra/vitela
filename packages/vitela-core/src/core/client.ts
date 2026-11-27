@@ -34,6 +34,8 @@ import type {
   PageContent,
   TextBlock,
   TextRunStyle,
+  TextRunLookState,
+  FontProgram,
   ProtectionPasswords,
   RenderedPage,
   SearchHit,
@@ -195,6 +197,14 @@ export class EngineClient implements Engine {
 
   contentBaseGeneration(document: DocumentHandle): Promise<number> {
     return this.send({ kind: 'contentBaseGeneration', document });
+  }
+
+  textRunLook(document: DocumentHandle, pageIndex: number, runId: number): Promise<TextRunLookState | null> {
+    return this.send({ kind: 'textRunLook', document, pageIndex, runId });
+  }
+
+  textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number): Promise<FontProgram | null> {
+    return this.send({ kind: 'textRunFontProgram', document, pageIndex, runId });
   }
 
   watermarkDefaults(): Promise<WatermarkDefaults> {

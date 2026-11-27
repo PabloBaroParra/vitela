@@ -23,7 +23,9 @@
 //
 // The page-content reads (T-258) are not steps either: each parses the page
 // the core holds now, pending edits laid on, and places its boxes on the page
-// as drawn like every other box here.
+// as drawn like every other box here. A text-run edit (T-259) is page
+// content: a step the pixels show, refreshed like a watermark; its move
+// delta crosses through the page's frame.
 //
 // A compressed save is not a step at all: it records nothing and refreshes
 // nothing, like an ordinary save, and so is a protected copy (its passwords
@@ -54,6 +56,7 @@ import type {
   PreparedImport,
   ProtectionPasswords,
   RenderedPage,
+  TextRunEdit,
 } from '../core/types.js';
 import {
   PageFrame,
@@ -88,11 +91,17 @@ import {
 } from './watermark.js';
 import {
   fontFamilies,
+  fontProgram,
   pageContent,
   textBlocks,
+  textRunCommand,
+  textRunLook,
   textRunStyle,
+  type CoreFontProgram,
   type CorePageContent,
   type CoreTextBlock,
+  type CoreTextRunEdits,
+  type CoreTextRunLook,
   type CoreTextRunStyle,
 } from './content.js';
 import { splitParts, type CoreSplitFunctions } from './extract.js';
@@ -100,7 +109,12 @@ import { imageExportFormats, type CoreExportFunctions } from './imageExport.js';
 import { PageText, type CoreGeometry, type CoreText, type Owned } from './pageText.js';
 
 /** core/pdf-wasm's `EditCommand` constructors (the commands are wasm objects). */
-export interface CoreEdits extends CoreAnnotationEdits, CoreFormEdits, CoreMetadataEdits, CoreWatermarkEdits {
+export interface CoreEdits
+  extends CoreAnnotationEdits,
+    CoreFormEdits,
+    CoreMetadataEdits,
+    CoreWatermarkEdits,
+    CoreTextRunEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -152,6 +166,10 @@ export interface CoreEngine extends CoreText {
   pageFontFamilies(doc: number, page: number): string[];
   /** Bumped by every checkpoint, and by undo or redo across one. */
   contentBaseGeneration(doc: number): number;
+  /** `undefined` (wasm-bindgen's `None`) when the file cannot say. */
+  textRunLook(doc: number, page: number, runId: number): CoreTextRunLook | null | undefined;
+  /** `undefined` (wasm-bindgen's `None`) for a font that embeds none. */
+  textRunFontProgram(doc: number, page: number, runId: number): CoreFontProgram | null | undefined;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -390,6 +408,14 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       assertOpen(document);
       return core.contentBaseGeneration(document);
     },
+    async textRunLook(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return textRunLook(core.textRunLook(document, pageIndex, runId));
+    },
+    async textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number) {
+      pageOf(document, pageIndex);
+      return fontProgram(core.textRunFontProgram(document, pageIndex, runId));
+    },
     async watermarkDefaults() {
       return watermarkDefaults(functions.watermarkDefaults());
     },
@@ -476,7 +502,9 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
                 ? metadataCommand(edits, edit)
                 : isWatermarkEdit(edit)
                   ? watermarkCommand(edits, edit)
-                  : annotationCommand(
+                  : isTextRunEdit(edit)
+                    ? textRunCommand(edits, edit, frameOf(document))
+                    : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -593,6 +621,15 @@ function isMetadataEdit(edit: Edit): edit is MetadataEdit {
 
 function isWatermarkEdit(edit: Edit): edit is WatermarkEdit {
   return edit.kind === 'addWatermark';
+}
+
+function isTextRunEdit(edit: Edit): edit is TextRunEdit {
+  return (
+    edit.kind === 'retypeTextRun' ||
+    edit.kind === 'moveTextRun' ||
+    edit.kind === 'removeTextRun' ||
+    edit.kind === 'restyleTextRuns'
+  );
 }
 
 /** An `Error` named like the core's own refusals, so the UI branches alike. */

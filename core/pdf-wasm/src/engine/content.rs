@@ -8,7 +8,8 @@
 //! `content_base_generation`.
 //!
 //! The rules live in [`crate::model`]'s content module, over the core;
-//! this is the JavaScript boundary. Read-only: the edits come later (T-259+).
+//! this is the JavaScript boundary. Read-only: the text-run edits are in
+//! `engine/text_run.rs` (T-259).
 
 use wasm_bindgen::prelude::*;
 
@@ -130,7 +131,7 @@ impl Engine {
 
 /// A content item id from JavaScript: a whole number the core could have
 /// handed out.
-fn item_id(id: f64) -> Result<u64, EngineError> {
+pub(super) fn item_id(id: f64) -> Result<u64, EngineError> {
     if id.is_finite() && id >= 0.0 && id.fract() == 0.0 && id < 9_007_199_254_740_992.0 {
         Ok(id as u64)
     } else {

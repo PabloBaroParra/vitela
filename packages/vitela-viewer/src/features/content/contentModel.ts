@@ -6,8 +6,11 @@
 // page's whole content stream, so the mode parses only the pages in view and
 // one on each side, never the document: a 1619-page file froze the Linux
 // shell when every page was parsed at once. A parse is valid for exactly one
-// page (its id), one set of applied content edits (the paint revision) and
-// one in-memory base (the core's base generation), so that triple is its key.
+// page (its id) turned one way (its rotation: an undo of a turn keeps the id
+// and the revision), one set of applied content edits (the paint revision)
+// and one in-memory base (the core's base generation), so those four are its
+// key. Reads go out a few at a time (`readsToSend`), so a fast scroll leaves
+// no backlog of pages it has already passed.
 
 import type { ContentItem, PageContent, PagePoint, PageRect } from '@vitela/core';
 
@@ -17,9 +20,12 @@ export const CONTENT_MARGIN_PAGES = 1;
 /** How far, in points, the pointer may miss a thin item (a hairline rule) and still find it. */
 export const HIT_SLOP_PT = 3;
 
-/** The parse of one page is valid for this page id, paint revision and base generation only. */
-export function contentKey(pageId: number, paintRevision: number, baseGeneration: number): string {
-  return `${pageId}/${paintRevision}/${baseGeneration}`;
+/** How many page reads are asked of the core at once. */
+export const CONTENT_READS_IN_FLIGHT = 2;
+
+/** The parse of one page is valid for this page id, turn, paint revision and base generation only. */
+export function contentKey(pageId: number, rotationDegrees: number, paintRevision: number, baseGeneration: number): string {
+  return `${pageId}/${rotationDegrees}/${paintRevision}/${baseGeneration}`;
 }
 
 /**
@@ -57,6 +63,30 @@ export function keepWanted(
   const kept = new Map<string, PageContentState>();
   for (const [key, state] of held) if (wanted.has(key)) kept.set(key, state);
   return kept;
+}
+
+/** One page to read: its position now, and the key its parse is held under. */
+export interface WantedPage {
+  readonly index: number;
+  readonly key: string;
+}
+
+/**
+ * Which of the `wanted` pages to ask the core for now: those still waiting
+ * (`loading`) whose read is not already `inFlight`, in order, so that no more
+ * than `limit` are in flight at once. What is not sent now is decided again
+ * when a read lands, against the pages wanted then: a page a fast scroll has
+ * passed is never read.
+ */
+export function readsToSend(
+  wanted: readonly WantedPage[],
+  held: ReadonlyMap<string, PageContentState>,
+  inFlight: ReadonlySet<string>,
+  limit = CONTENT_READS_IN_FLIGHT,
+): WantedPage[] {
+  const room = limit - inFlight.size;
+  if (room <= 0) return [];
+  return wanted.filter(({ key }) => held.get(key)?.status === 'loading' && !inFlight.has(key)).slice(0, room);
 }
 
 /** Every item of a page, in one list: runs, images, paths. */

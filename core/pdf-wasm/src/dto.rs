@@ -19,6 +19,7 @@ mod extract;
 mod form;
 mod import;
 mod metadata;
+mod text_run;
 mod watermark;
 
 pub use annotation::{AnnotationEntry, CommentEntry, FreeTextLines};
@@ -32,6 +33,7 @@ pub use extract::SplitPart;
 pub use form::FormFieldEntry;
 pub use import::{DocumentBlock, ImportedPages, PreparedImport};
 pub use metadata::DocumentPropertiesEntry;
+pub use text_run::{FontProgramEntry, TextRunLookEntry};
 pub use watermark::WatermarkLook;
 
 /// One page's layout size in PDF points and the clockwise turn (0, 90, 180
