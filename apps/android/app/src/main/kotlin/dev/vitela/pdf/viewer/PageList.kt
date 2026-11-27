@@ -63,6 +63,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
 private val PAGE_GAP = 12.dp
+
+/** What a PDF page is before anything is drawn on it: shown while a pinch uncovers a page with nothing to show yet. */
+private val BLANK_PAGE_COLOR = Color.White
 private const val HANDLE_DRAW_DP = 20
 
 /**
@@ -247,6 +250,7 @@ internal fun PageList(
                                     page = state.pages[index],
                                     bridge = state.bridgePages[index],
                                     preview = state.previewPages[index],
+                                    pinching = pinch.target != null,
                                     size = state.pageSizes.getOrNull(index),
                                     state = state,
                                     stampBitmaps = stampBitmaps,
@@ -273,6 +277,7 @@ private fun PageSlot(
     page: ImageBitmap?,
     bridge: ImageBitmap?,
     preview: ImageBitmap?,
+    pinching: Boolean,
     size: PageSize?,
     state: ViewerState,
     stampBitmaps: Map<Long, ImageBitmap>,
@@ -311,13 +316,16 @@ private fun PageSlot(
         // Selecting text — long-press, double tap, handles, the toolbar — belongs to the plain reader, as the long-press always did.
         val selectionTools = state.activeAnnotationTool == AnnotationTool.Pointer && !tapMode
         LaunchedEffect(pageIndex, contentMode) { if (contentMode) contentEdit.onPageShown(pageIndex) }
+        // Nothing sharp, no bridge, no preview: while a pinch is showing, a
+        // blank page — a spinner on every uncovered page reads as the whole
+        // reader loading. Otherwise the spinner, for a page genuinely loading.
         val nothingToShow = page == null && bridge == null && preview == null
         Box(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(size.aspectRatio())
             .clip(RoundedCornerShape(2.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant),
+            .background(if (nothingToShow && pinching) BLANK_PAGE_COLOR else MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         // The base layer: low resolution, filling the slot until something sharper covers it.
@@ -345,7 +353,7 @@ private fun PageSlot(
                 contentScale = ContentScale.Fit,
             )
         }
-        if (nothingToShow) {
+        if (nothingToShow && !pinching) {
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
         }
         if (size != null) {
