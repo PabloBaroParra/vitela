@@ -23,17 +23,11 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ContentRun, DocumentHandle, DocumentInfo, Edit, Engine, TextRunLook, TextRunLookState, TextRunStyle } from '@vitela/core';
-import { pageKey, type Session } from '../annotations/useAnnotationEdits';
+import { pageKey } from '../annotations/useAnnotationEdits';
+import { useGuardedApply, useHeldMove, type ContentQueue } from './contentEdits';
 import type { ContentMode } from './useContentMode';
 import { createRunFontRegistry, type RunFontRegistry } from './runFont';
 import { nudgeOf, retypeOf, toggled, type FaceToggle } from './textRuns';
-
-/** What the text-run edits need of the viewer's edit queue. */
-export interface TextRunQueue {
-  readonly pending: boolean;
-  readonly apply: (build: (session: Session) => Edit | null) => Promise<unknown>;
-  readonly notify: (message: string) => void;
-}
 
 /** The editor open over a run: the run, where it was selected, and how to draw it. */
 export interface OpenEditor {
@@ -55,7 +49,7 @@ interface TextRunEditingInput {
   readonly handle: DocumentHandle;
   readonly info: Pick<DocumentInfo, 'pages' | 'pageIds'>;
   readonly content: ContentMode;
-  readonly queue: TextRunQueue;
+  readonly queue: ContentQueue;
   /** Gives the keyboard back to the pages (after Enter in the editor). */
   readonly focusPages: () => void;
 }
@@ -81,43 +75,28 @@ export function useTextRunEditing({ engine, handle, info, content, queue, focusP
   }, [engine, handle, run, runKey, busy, look?.key]);
   const shownLook = look && look.key === runKey ? look.state : null;
 
+  const guarded = useGuardedApply(queue, PAGE_CHANGED);
+  const { follow } = content;
   /** Records `edit` as a step for `target`, selecting again the run now at `expected` showing `text`. */
   const submit = useCallback(
     (target: ContentRun, expectedPageKey: string, edit: Edit, text: string | null, dx = 0, dy = 0) => {
       const { rect } = target;
-      content.follow(target.pageIndex, { ...rect, left: rect.left + dx, top: rect.top + dy }, text);
-      void queue.apply((session) => {
-        if (pageKey(session.info, target.pageIndex) !== expectedPageKey) throw new Error(PAGE_CHANGED);
-        return edit;
-      });
+      follow(target.pageIndex, { ...rect, left: rect.left + dx, top: rect.top + dy }, text);
+      guarded(target.pageIndex, expectedPageKey, edit);
     },
-    [content, queue],
+    [follow, guarded],
   );
   const currentPageKey = picked ? pageKey(info, picked.pageIndex) : null;
 
   // Arrow presses while busy add up into one move, sent once the run is found again.
-  const nudged = useRef({ dx: 0, dy: 0 });
-  const move = useCallback(
+  const send = useCallback(
     (dx: number, dy: number) => {
-      // While the moved run is found again its old pick no longer holds, but
-      // the presses meanwhile are still for it.
-      if (busy && (run || content.followingKind === 'run')) {
-        nudged.current = { dx: nudged.current.dx + dx, dy: nudged.current.dy + dy };
-        return;
-      }
-      if (!run || currentPageKey === null || busy) return;
+      if (!run || currentPageKey === null) return;
       submit(run, currentPageKey, { kind: 'moveTextRun', page: run.pageIndex, runId: run.id, dx, dy }, run.text, dx, dy);
     },
-    [run, currentPageKey, busy, content.followingKind, submit],
+    [run, currentPageKey, submit],
   );
-  useEffect(() => {
-    if (busy) return;
-    const { dx, dy } = nudged.current;
-    if (dx === 0 && dy === 0) return;
-    nudged.current = { dx: 0, dy: 0 };
-    // A selection lost meanwhile (the run could not be found) drops the rest.
-    if (run) move(dx, dy);
-  }, [busy, run, move]);
+  const move = useHeldMove(busy, !!run || content.followingKind === 'run', run, send);
 
   const remove = useCallback(() => {
     if (!run || currentPageKey === null || busy) return;

@@ -247,10 +247,14 @@ impl DocumentModel {
     }
 }
 
-/// Refuses bytes that are not a PNG or JPEG the core decodes, as the
-/// placement does.
+/// Refuses, from its header alone, bytes that are not a PNG or JPEG of a
+/// size the core decodes (`pdf_edit::probe_image`, as the placement reads
+/// them). The file is decoded whole once, by the record's validation
+/// (`pdf_save::record_content_command` applies the command before it queues
+/// it), which refuses one whose samples are broken.
 fn decodes(bytes: &[u8]) -> Result<(), EngineError> {
-    super::stamp_placement(bytes, (0.0, 0.0)).map(|_| ())
+    pdf_edit::probe_image(bytes)?;
+    Ok(())
 }
 
 fn unsupported(message: &str) -> EngineError {

@@ -211,11 +211,10 @@ pub fn build_stamp_appearance(annotation: &Annotation) -> Result<StampAppearance
         ));
     };
 
-    let decoded = image::load_from_memory(image_bytes)
-        .map_err(|e| AnnotateError::InvalidImage(e.to_string()))?;
+    let decoded = pdf_edit::decode_image(image_bytes).map_err(crate::placement::invalid_image)?;
     let (width, height) = (decoded.width(), decoded.height());
-    let rgba = decoded.to_rgba8();
-    let raw = rgba.into_raw();
+    // Taken, not copied, when the file already is 8-bit RGBA.
+    let raw = decoded.into_rgba8().into_raw();
 
     let pixel_count = width as usize * height as usize;
     let mut rgb = Vec::with_capacity(pixel_count * 3);
@@ -351,6 +350,16 @@ mod tests {
                 has_alpha: has_alpha_png,
             },
         }
+    }
+
+    #[test]
+    fn a_stamp_larger_than_the_core_decodes_builds_no_appearance() {
+        use crate::placement::tests::{too_large, OVERSIZED_PNG};
+        let mut annotation = stamp_annotation(true);
+        if let AnnotationKind::Stamp { image_bytes, .. } = &mut annotation.kind {
+            *image_bytes = OVERSIZED_PNG.to_vec();
+        }
+        assert!(too_large(build_stamp_appearance(&annotation).map(|_| ())));
     }
 
     #[test]

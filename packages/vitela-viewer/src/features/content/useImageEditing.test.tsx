@@ -36,10 +36,11 @@ function setup({
     stampPlacement: async (_document, _page, _bytes, anchor) => ({ left: anchor.x, top: anchor.y, width: 144, height: 72 }),
     ...overrides,
   });
-  const content = (selected: ContentImage | null) =>
+  const content = (selected: ContentImage | null, key: string) =>
     ({
       active: true,
-      selected: selected && { pageIndex: selected.pageIndex, key: '9/0/0/0', item: selected },
+      selected: selected && { pageIndex: selected.pageIndex, key, item: selected },
+      keyAt: () => key,
       following: following !== null,
       followingKind: following,
       followImage: (...args: unknown[]) => void follows.push(args),
@@ -51,9 +52,9 @@ function setup({
   };
   const focusPages = vi.fn();
   const hook = renderHook(
-    ({ running, selected }: { running: boolean; selected: ContentImage | null }) =>
-      useImageEditing({ engine, handle: 1, info, content: content(selected), queue: { ...queue, pending: running }, focusPages }),
-    { initialProps: { running: pending, selected: image } },
+    ({ running, selected, key = '9/0/0/0' }: { running: boolean; selected: ContentImage | null; key?: string }) =>
+      useImageEditing({ engine, handle: 1, info, content: content(selected, key), queue: { ...queue, pending: running }, focusPages }),
+    { initialProps: { running: pending, selected: image } as { running: boolean; selected: ContentImage | null; key?: string } },
   );
   return { hook, applied, follows, notices, checks, focusPages };
 }
@@ -171,6 +172,100 @@ describe('useImageEditing', () => {
     expect(hook.result.current.armed).toBe(false);
     // A click once disarmed is a click, not a placement.
     expect(hook.result.current.place(0, { x: 1, y: 1 })).toBe(false);
+  });
+
+  it('gives the keyboard to the pages once an insert is armed, so Escape there disarms it', async () => {
+    const { hook, focusPages } = setup({ image: null });
+    act(() => hook.result.current.insert(() => {}));
+    expect(focusPages).not.toHaveBeenCalled();
+    await act(async () => hook.result.current.picked(pngFile()));
+    expect(hook.result.current.armed).toBe(true);
+    expect(focusPages).toHaveBeenCalled();
+  });
+
+  it('places an armed insert only once no step runs, and keeps it armed meanwhile', async () => {
+    const placements: unknown[] = [];
+    const { hook, applied } = setup({
+      image: null,
+      engine: {
+        stampPlacement: async (_document, _page, _bytes, anchor) => {
+          placements.push(anchor);
+          return { left: anchor.x, top: anchor.y, width: 144, height: 72 };
+        },
+      },
+    });
+    act(() => hook.result.current.insert(() => {}));
+    await act(async () => hook.result.current.picked(pngFile()));
+    hook.rerender({ running: true, selected: null });
+    let placed = false;
+    await act(async () => void (placed = hook.result.current.place(0, { x: 50, y: 60 })));
+    // The press is the insert's (it selects nothing), but waits for the step.
+    expect(placed).toBe(true);
+    expect(placements).toEqual([]);
+    expect(applied).toEqual([]);
+    expect(hook.result.current.armed).toBe(true);
+    await act(async () => hook.rerender({ running: false, selected: null }));
+    await waitFor(() => expect(applied).toEqual([{ kind: 'insertImage', page: 0, at: { x: 50, y: 60 }, bytes: PNG }]));
+    expect(hook.result.current.armed).toBe(false);
+  });
+
+  it('waits for a step started by the same press (a retype it committed) before placing', async () => {
+    const placements: unknown[] = [];
+    const { hook, applied } = setup({
+      image: null,
+      engine: {
+        stampPlacement: async (_document, _page, _bytes, anchor) => {
+          placements.push(anchor);
+          return { left: anchor.x, top: anchor.y, width: 144, height: 72 };
+        },
+      },
+    });
+    act(() => hook.result.current.insert(() => {}));
+    await act(async () => hook.result.current.picked(pngFile()));
+    // The press committed a retype first: the step starts in the same turn.
+    act(() => {
+      hook.result.current.place(0, { x: 50, y: 60 });
+      hook.rerender({ running: true, selected: null });
+    });
+    expect(placements).toEqual([]);
+    expect(applied).toEqual([]);
+    await act(async () => hook.rerender({ running: false, selected: null }));
+    await waitFor(() => expect(applied).toHaveLength(1));
+  });
+
+  it('drops a queued placement on Escape', async () => {
+    const { hook, applied } = setup({ image: null });
+    act(() => hook.result.current.insert(() => {}));
+    await act(async () => hook.result.current.picked(pngFile()));
+    hook.rerender({ running: true, selected: null });
+    act(() => void hook.result.current.place(0, { x: 50, y: 60 }));
+    act(() => void hook.result.current.onKey('Escape', false));
+    await act(async () => hook.rerender({ running: false, selected: null }));
+    expect(applied).toEqual([]);
+    expect(hook.result.current.armed).toBe(false);
+  });
+
+  it('refuses a replacement whose page was read anew while its file was read', async () => {
+    const { hook, applied, notices } = setup();
+    await waitFor(() => expect(hook.result.current.replaceable).toBe(true));
+    act(() => hook.result.current.replace(() => {}));
+    const reading = hook.result.current.picked(pngFile());
+    // An edit elsewhere on the page landed meanwhile: the ids are another read's.
+    hook.rerender({ running: false, selected: photo, key: '9/0/1/0' });
+    await act(async () => reading);
+    expect(applied).toEqual([]);
+    expect(notices).toEqual(['The page changed before the image could be edited. Nothing was changed.']);
+  });
+
+  it('refuses a replacement while a step runs once its file is read', async () => {
+    const { hook, applied, notices } = setup();
+    await waitFor(() => expect(hook.result.current.replaceable).toBe(true));
+    act(() => hook.result.current.replace(() => {}));
+    const reading = hook.result.current.picked(pngFile());
+    hook.rerender({ running: true, selected: photo });
+    await act(async () => reading);
+    expect(applied).toEqual([]);
+    expect(notices).toHaveLength(1);
   });
 
   it('disarms on Escape, and says nothing was added', async () => {

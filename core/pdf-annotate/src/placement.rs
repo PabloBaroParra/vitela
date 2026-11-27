@@ -8,10 +8,19 @@
 //! [`stamp_placement`] directly, and WinUI/Compose reach it through
 //! `pdf_ffi::stamp_placement`.
 
-use image::GenericImageView;
 use pdf_document::Rect;
+use pdf_edit::EditError;
 
 use crate::error::AnnotateError;
+
+/// An image the core's bounded decoder (`pdf_edit::decode_image`) refused,
+/// as this crate says it.
+pub(crate) fn invalid_image(error: EditError) -> AnnotateError {
+    match error {
+        EditError::InvalidImage(message) => AnnotateError::InvalidImage(message),
+        other => AnnotateError::InvalidImage(other.to_string()),
+    }
+}
 
 /// Longest side, in PDF points, of a stamp the app places for the user.
 ///
@@ -27,17 +36,18 @@ pub const DEFAULT_STAMP_MAX_SIDE_PT: f64 = 144.0;
 /// `max_side`, anchored by its top-left corner — which in PDF space (y grows
 /// upward) puts the rect's origin at `anchor.1 - height`.
 ///
-/// Decodes `image_bytes` in-memory only, exactly as
-/// [`crate::stamp_from_image_bytes`] does; the two are called with the same
-/// bytes and must agree about what those bytes are.
+/// Reads only `image_bytes`' header (`pdf_edit::probe_image`), under the
+/// same size limits [`crate::stamp_from_image_bytes`] decodes within: the
+/// two are called with the same bytes and must agree about what those
+/// bytes are, and one whose samples are broken is refused by the decode that
+/// builds it.
 pub fn stamp_placement(
     image_bytes: &[u8],
     anchor: (f64, f64),
     max_side: f64,
 ) -> Result<Rect, AnnotateError> {
-    let decoded = image::load_from_memory(image_bytes)
-        .map_err(|e| AnnotateError::InvalidImage(e.to_string()))?;
-    let (pixel_width, pixel_height) = decoded.dimensions();
+    let header = pdf_edit::probe_image(image_bytes).map_err(invalid_image)?;
+    let (pixel_width, pixel_height) = (header.width, header.height);
     if pixel_width == 0 || pixel_height == 0 {
         return Err(AnnotateError::InvalidImage(
             "image has no pixels to scale".to_string(),
@@ -58,7 +68,7 @@ pub fn stamp_placement(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn png(width: u32, height: u32) -> Vec<u8> {
@@ -126,5 +136,28 @@ mod tests {
         let result = stamp_placement(b"not an image", (0.0, 0.0), 144.0);
 
         assert!(matches!(result, Err(AnnotateError::InvalidImage(_))));
+    }
+
+    /// A complete 69-byte PNG whose header declares 11000 × 11000 RGBA
+    /// pixels (about 484 MB once decoded).
+    pub(crate) const OVERSIZED_PNG: [u8; 69] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x2a, 0xf8, 0x00, 0x00, 0x2a, 0xf8, 0x08, 0x06, 0x00, 0x00, 0x00, 0xce,
+        0x2f, 0x9a, 0x8a, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60,
+        0xa0, 0x0c, 0x00, 0x00, 0x00, 0x40, 0x00, 0x01, 0xb7, 0x34, 0x7c, 0xef, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    pub(crate) fn too_large<T: std::fmt::Debug>(result: Result<T, AnnotateError>) -> bool {
+        matches!(result, Err(AnnotateError::InvalidImage(message)) if message.contains("too large"))
+    }
+
+    #[test]
+    fn an_image_declaring_more_pixels_than_the_core_decodes_is_refused() {
+        assert!(too_large(stamp_placement(
+            &OVERSIZED_PNG,
+            (0.0, 0.0),
+            144.0
+        )));
     }
 }

@@ -23,14 +23,7 @@ import { CommentsPanel } from '../comments/CommentsPanel';
 import { NavigationToolbar } from '../comments/NavigationToolbar';
 import { NoteDialog, type ReadableNote } from '../comments/NoteDialog';
 import { commentEntries } from '../comments/stops';
-import { ContentStatus } from '../content/ContentStatus';
-import { ImageOverlay } from '../content/ImageOverlay';
-import { STAMP_ACCEPT } from '../annotations/stamps';
-import type { ContentInput } from '../content/ContentLayer';
-import { useContentMode } from '../content/useContentMode';
-import { TextRunOverlay, textRunOverlayPage } from '../content/TextRunOverlay';
-import { useTextRunEditing } from '../content/useTextRunEditing';
-import { useImageEditing } from '../content/useImageEditing';
+import { ContentOverlay, ContentToolbar, useContentEditing } from '../content/ContentEditing';
 import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
 import { EditorScopeContext } from '../document/editorScope';
@@ -38,7 +31,7 @@ import type { OpenDocument } from '../document/useDocument';
 import { FormsPanel } from '../forms/FormsPanel';
 import { FormsToggle } from '../forms/FormsToggle';
 import { useForms } from '../forms/useForms';
-import { useMarkDirty, useSaveWaitsFor } from '../save/MarkDirtyContext';
+import { useMarkDirty } from '../save/MarkDirtyContext';
 import { currentHit, hitsByPage, hitsOf } from '../search/searchState';
 import { useSearch } from '../search/useSearch';
 import { TextToolbar } from '../text/TextToolbar';
@@ -214,81 +207,16 @@ export function DocumentViewer({
   // The pages on screen, without overscan: the content mode parses only
   // these and one on each side.
   const onScreen = metrics.height > 0 ? visiblePages(layout, top, metrics.height, 0) : null;
-  const rotations = useMemo(() => pages.map((page) => page.rotationDegrees), [pages]);
-  const baseGeneration = document.contentBaseGeneration ?? 0;
-  const content = useContentMode({
+  const contentEdits = useContentEditing({
     engine,
     handle,
+    document,
     active: contentEditing,
-    pageIds,
-    rotations,
-    // Reads go by position: none while a step may be putting another page there.
-    paused: editing.pending,
-    paintRevision: document.paintRevision ?? 0,
-    baseGeneration,
+    queue: editing,
     visible: onScreen,
-  });
-  const textRuns = useTextRunEditing({
-    engine,
-    handle,
-    info: document.info,
-    content,
-    queue: editing,
     focusPages,
   });
-  const images = useImageEditing({
-    engine,
-    handle,
-    info: document.info,
-    content,
-    queue: editing,
-    focusPages,
-  });
-  // The one file picker of the image edits: a replacement or an insert.
-  const imageFile = useRef<HTMLInputElement>(null);
-  const openImagePicker = useCallback(() => {
-    const input = imageFile.current;
-    if (!input) return;
-    // The same file picked twice still reports a change.
-    input.value = '';
-    input.click();
-  }, []);
-  // A save takes what is typed in an open editor first.
-  const { commitOpen } = textRuns;
-  const settleWithEditor = useCallback(() => {
-    commitOpen();
-    return editing.settled();
-  }, [commitOpen, editing.settled]);
-  useSaveWaitsFor(settleWithEditor);
-  const { select: contentSelect, hover: contentHover } = content;
-  const { open: openRun, move: moveRun } = textRuns;
-  const { place: placeImage, move: moveImage } = images;
-  const selectedKind = content.selected?.item.kind ?? null;
-  const contentInput = useMemo<ContentInput | null>(
-    () =>
-      content.active
-        ? {
-            onHover: contentHover,
-            onSelect: (pageIndex, point) => {
-              // A press beside an open editor commits it (the press keeps the focus where it is).
-              commitOpen();
-              // An armed insert takes the press: the image goes there.
-              if (!placeImage(pageIndex, point)) contentSelect(pageIndex, point);
-              focusPages();
-            },
-            // The press before it selected what is there.
-            onOpen: () => openRun(),
-            onDrag: (_pageIndex, dx, dy) => {
-              if (selectedKind === 'image') moveImage(dx, dy);
-              else moveRun(dx, dy);
-              focusPages();
-            },
-          }
-        : null,
-    [content.active, contentHover, contentSelect, commitOpen, focusPages, openRun, moveRun, placeImage, moveImage, selectedKind],
-  );
-  const overlayPage = textRunOverlayPage(textRuns);
-  const imagePage = images.image?.pageIndex ?? null;
+  const { content, input: contentInput } = contentEdits;
   // The mode takes the pointer: text, annotations and drawing let it go.
   const chooseTool = drawing.choose;
   const deselectAnnotation = annotating.deselect;
@@ -386,28 +314,7 @@ export function DocumentViewer({
           contentState={contentInput ? content.stateAt(index) : undefined}
           contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
           contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
-          contentOverlay={
-            overlayPage === index ? (
-              <TextRunOverlay textRuns={textRuns} scale={scale} pages={pages} focusPages={focusPages} />
-            ) : imagePage === index && images.image ? (
-              <ImageOverlay
-                image={images.image}
-                scale={scale}
-                busy={images.busy}
-                replaceable={images.replaceable}
-                replaceRefusal={images.replaceRefusal}
-                onResize={(rect) => {
-                  images.resize(rect);
-                  focusPages();
-                }}
-                onReplace={() => images.replace(openImagePicker)}
-                onRemove={() => {
-                  images.remove();
-                  focusPages();
-                }}
-              />
-            ) : null
-          }
+          contentOverlay={<ContentOverlay editing={contentEdits} pageIndex={index} scale={scale} pages={pages} focusPages={focusPages} />}
         />,
       );
     }
@@ -465,27 +372,7 @@ export function DocumentViewer({
         >
           <FormsToggle toggle={formsToggle} panelId={formsId} shown={formsShown} onToggle={() => togglePanel('forms')} />
         </NavigationToolbar>
-        <ContentStatus
-          status={images.prompt ?? content.status}
-          onDone={onContentEditingEnd}
-          inserting={images.armed}
-          onInsertImage={() => (images.armed ? images.disarm() : images.insert(openImagePicker))}
-        />
-        {content.active && (
-          <input
-            ref={imageFile}
-            type="file"
-            className="viewer__image-file"
-            accept={STAMP_ACCEPT}
-            aria-label="Image file"
-            tabIndex={-1}
-            hidden
-            onChange={(event) => {
-              const file = event.currentTarget.files?.[0];
-              if (file) void images.picked(file);
-            }}
-          />
-        )}
+        <ContentToolbar editing={contentEdits} onDone={onContentEditingEnd} />
         {editing.failure && (
           <p className="viewer__failure" role="alert">
             {editing.failure}
@@ -503,12 +390,8 @@ export function DocumentViewer({
             data-zoom={zoom}
             data-tool={drawing.tool}
             onKeyDown={(event) => {
-              // The selected run's keys, pressed on the pages themselves (not on its toolbar).
-              if (
-                content.active &&
-                event.target === event.currentTarget &&
-                (textRuns.onKey(event.key, event.shiftKey) || images.onKey(event.key, event.shiftKey))
-              ) {
+              // The selected item's keys, pressed on the pages themselves (not on its toolbar).
+              if (content.active && event.target === event.currentTarget && contentEdits.onKey(event.key, event.shiftKey)) {
                 event.preventDefault();
                 return;
               }

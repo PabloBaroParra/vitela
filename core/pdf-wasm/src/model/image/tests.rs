@@ -427,3 +427,88 @@ fn a_moved_image_can_be_replaced_through_a_checkpoint() {
     assert!(model.undo());
     assert_eq!(the_image(&model).bbox.x, 72.0);
 }
+
+/// A complete 69-byte PNG whose header declares 11000 × 11000 RGBA pixels
+/// (about 484 MB once decoded).
+const OVERSIZED_PNG: [u8; 69] = [
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x2a, 0xf8, 0x00, 0x00, 0x2a, 0xf8, 0x08, 0x06, 0x00, 0x00, 0x00, 0xce, 0x2f, 0x9a,
+    0x8a, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60, 0xa0, 0x0c, 0x00,
+    0x00, 0x00, 0x40, 0x00, 0x01, 0xb7, 0x34, 0x7c, 0xef, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e,
+    0x44, 0xae, 0x42, 0x60, 0x82,
+];
+
+fn refused_as_too_large(refused: EngineError) {
+    assert_eq!(refused.kind, ErrorKind::InvalidImage);
+    assert!(refused.message.contains("too large"), "{}", refused.message);
+}
+
+#[test]
+fn an_insert_larger_than_the_core_decodes_is_refused_without_a_step() {
+    let mut model = open(&pdfs::content_document());
+    let refused = model
+        .apply_image_edit(ImageEdit::Insert {
+            page: 0,
+            at: (10.0, 10.0),
+            bytes: OVERSIZED_PNG.to_vec(),
+        })
+        .unwrap_err();
+    refused_as_too_large(refused);
+    assert!(!model.can_undo());
+}
+
+#[test]
+fn a_replacement_larger_than_the_core_decodes_is_refused_without_a_step() {
+    let mut model = open(&pdfs::content_document());
+    let image = the_image(&model).id;
+    let refused = model
+        .apply_image_edit(ImageEdit::Replace {
+            page: 0,
+            image,
+            bytes: OVERSIZED_PNG.to_vec(),
+        })
+        .unwrap_err();
+    refused_as_too_large(refused);
+    assert!(!model.can_undo());
+}
+
+/// A PNG whose header reads but whose samples do not: its `IDAT` CRC is broken.
+fn broken_png() -> Vec<u8> {
+    let mut bytes = png(4, 4);
+    let idat = bytes
+        .windows(4)
+        .position(|window| window == b"IDAT")
+        .expect("an IDAT chunk");
+    let length = u32::from_be_bytes(bytes[idat - 4..idat].try_into().unwrap()) as usize;
+    bytes[idat + 4 + length] ^= 0xff;
+    bytes
+}
+
+#[test]
+fn a_replacement_whose_samples_do_not_decode_is_refused_without_a_step() {
+    let mut model = open(&pdfs::content_document());
+    let image = the_image(&model).id;
+    let refused = model
+        .apply_image_edit(ImageEdit::Replace {
+            page: 0,
+            image,
+            bytes: broken_png(),
+        })
+        .unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::InvalidImage);
+    assert!(!model.can_undo());
+}
+
+#[test]
+fn an_insert_whose_samples_do_not_decode_is_refused_without_a_step() {
+    let mut model = open(&pdfs::content_document());
+    let refused = model
+        .apply_image_edit(ImageEdit::Insert {
+            page: 0,
+            at: (10.0, 10.0),
+            bytes: broken_png(),
+        })
+        .unwrap_err();
+    assert_eq!(refused.kind, ErrorKind::InvalidImage);
+    assert!(!model.can_undo());
+}

@@ -123,6 +123,11 @@ function holds(rect: PageRect, point: PagePoint, slop: number): boolean {
   );
 }
 
+/** Whether two boxes are exactly the same box. */
+export function sameRect(a: PageRect, b: PageRect): boolean {
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+}
+
 /** Whether two items are the same item of the same page. */
 export function sameItem(a: ContentItem | null, b: ContentItem | null): boolean {
   return !!a && !!b && a.kind === b.kind && a.id === b.id && a.pageIndex === b.pageIndex;

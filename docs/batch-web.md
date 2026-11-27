@@ -3340,11 +3340,45 @@ Edición de imágenes en el modo **Edit content**, más tres seguimientos de la 
 - **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
   wasm32; la misma superficie la cubre el Vitest con pdfium real); `linux-gtk`, Android.
 - **No cubierto / pendiente:** girar una imagen; redimensionar con teclado; recortar; editar
-  imágenes en una página con `/Rotate` no está verificado (la geometría pasa por `PageFrame`
-  como la de los runs, pero ningún test lo cubre, y una inserción se ancla por su esquina
-  superior izquierda en espacio PDF, como `stampPlacement`); sin lector de pantalla real. El
+  imágenes en una página con `/Rotate` solo lo cubre el E2E de 90° añadido en el seguimiento
+  (mover y redimensionar; una inserción se ancla por su esquina superior izquierda en espacio
+  PDF, como `stampPlacement`, sin test en página girada); sin lector de pantalla real. El
   hallazgo de T-259 sigue: un borrado deja el flujo original sin referenciar en un guardado
   normal (por eso el E2E comprueba la relectura y el `/Width` presente, no la ausencia).
+- **Seguimiento de la revisión de T-260** (cada uno con su test en rojo primero):
+  (1) **Insert image** devuelve el teclado a las páginas al armar (como Replace), así Escape
+  desarma sin enfocarlas a mano; el E2E ya no las enfoca y comprueba el foco (rojo sin el
+  arreglo). (2) **`place` respeta `busy`:** la pulsación queda guardada y se coloca cuando no
+  corre ningún paso (también uno que la misma pulsación empezó al confirmar un retipeo); la
+  imagen sigue armada hasta entonces y Escape suelta las dos. (3) **Replace** recuerda la
+  `contentKey` de la página al abrir el selector; si al terminar de leer el fichero corre un paso
+  o la página se leyó de nuevo, se rechaza con el aviso de página cambiada (el id ya no vale).
+  `ContentMode` expone `keyAt`. (4) **El seguimiento** solo se suelta por estar fuera de la
+  ventana cuando la ventana se conoce (`visible !== null`): un relayout de zoom sin ventana ya
+  no lo pierde. (5) **Límites de decodificación** (`pdf_edit::decode`, nuevo):
+  `probe_image` lee solo la cabecera y `decode_image` decodifica con `image::Limits`; los dos
+  rechazan antes de reservar más de `MAX_IMAGE_SIDE` 16384 px por lado o `MAX_IMAGE_PIXELS`
+  32 Mpx (los techos de `pdf-render`), con `max_alloc` de respaldo. Lo usan todos los sitios
+  de sellos e imágenes de contenido: `image_xobject`, `build_stamp_appearance`,
+  `stamp_from_image_bytes` (decodificación entera) y `stamp_placement` (solo cabecera). En
+  `pdf-wasm` la comprobación previa de Replace/Insert es ahora solo de cabecera: el fichero se
+  decodifica entero una vez, en la validación del registro (`record_content_command`), que
+  rechaza antes de encolar uno con muestras rotas (tests nuevos). `into_rgba8` en vez de
+  `to_rgba8` ahorra una copia. Test con un PNG de 69 bytes que declara 11000 × 11000.
+  (6) **Duplicación:** `contentEdits.ts` (`ContentQueue`, `useGuardedApply`, `useHeldMove`)
+  lo comparten runs e imágenes; `sameRect` vive en `contentModel`; el seguimiento guarda un
+  `sought` explícito (`run` con texto, `image`, `removed`) en vez de texto vacío/`null`/caja
+  ficticia; `ContentEditing.tsx` (`useContentEditing`, `ContentOverlay`, `ContentToolbar`) saca
+  del `DocumentViewer` (593 → 476 líneas) el modo, las capas y el selector de fichero, sin
+  cambio de conducta. (7) **E2E en página girada 90°:** mover y redimensionar en lo dibujado,
+  guardar y releer en su sitio.
+  Verificado en local (Windows): `cargo fmt --all -- --check` limpio; clippy `-D warnings`
+  nativo (`pdf-wasm`, `pdf-save`, `pdf-annotate`, `pdf-edit`) y wasm32 (`pdf-wasm`) sin avisos;
+  `cargo test -p pdf-wasm -p pdf-save -p pdf-annotate -p pdf-edit -p pdf-ffi` 1501 pasan, 0
+  fallos. `@vitela/core` Vitest 15 / 231, `@vitela/viewer` 100 / 1015, `apps/web` 6 / 19;
+  typecheck y build de los tres. Playwright (`CI=1`) `edit-images` + `edit-text-runs` +
+  `edit-content` + `stamp` + `embed` + `zero-network` en los 3 navegadores en verde; suite
+  completa **377 pasan, 22 omitidos, 0 fallos**.
 
 ## Verificación
 

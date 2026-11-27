@@ -27,16 +27,24 @@ import {
   pagesToParse,
   readsToSend,
   sameItem,
+  sameRect,
   type PageContentState,
   type WantedPage,
 } from './contentModel';
 
 /** The item under the pointer, or the selected one, with the parse it was found in. */
-interface Picked {
+export interface Picked {
   readonly pageIndex: number;
   readonly key: string;
   readonly item: ContentItem;
 }
+
+/** What an edit leaves to select again: a run where it is now and what it shows, an image, or nothing. */
+type Sought =
+  | { readonly kind: 'run'; readonly expected: PageRect; readonly text: string }
+  | { readonly kind: 'image'; readonly expected: PageRect }
+  /** The edit removed it: select nothing once the page is read anew. */
+  | { readonly kind: 'removed' };
 
 /** The run or image an edit is waiting to select again. */
 interface Following {
@@ -44,9 +52,7 @@ interface Following {
   readonly pageIndex: number;
   /** The key its page had when the edit was asked for. */
   readonly fromKey: string;
-  readonly expected: PageRect;
-  /** A run's text after the edit; an image's is `''`. `null`: it was removed, select nothing. */
-  readonly text: string | null;
+  readonly sought: Sought;
   /** Whether an edit was seen running since: until then, an unchanged key means nothing yet. */
   readonly seenPending: boolean;
 }
@@ -221,9 +227,16 @@ export function useContentMode({
         if (!next || next.item.kind === 'path') return null;
         const { item } = next;
         // The edited item itself: keep following it where the edit puts it.
-        if (next.pageIndex === waiting.pageIndex && item.kind === waiting.kind && sameRect(item.rect, waiting.expected)) return waiting;
-        const text = item.kind === 'run' ? item.text : '';
-        return { ...waiting, kind: item.kind, pageIndex: next.pageIndex, fromKey: next.key, expected: item.rect, text };
+        const { sought } = waiting;
+        const same = sought.kind !== 'removed' && item.kind === sought.kind && sameRect(item.rect, sought.expected);
+        if (next.pageIndex === waiting.pageIndex && same) return waiting;
+        return {
+          ...waiting,
+          kind: item.kind,
+          pageIndex: next.pageIndex,
+          fromKey: next.key,
+          sought: item.kind === 'run' ? { kind: 'run', expected: item.rect, text: item.text } : { kind: 'image', expected: item.rect },
+        };
       });
     },
     [pick],
@@ -240,7 +253,8 @@ export function useContentMode({
   const follow = useCallback(
     (index: number, expected: PageRect, text: string | null) => {
       const fromKey = keyAt(index);
-      setFollowing(fromKey === undefined ? null : { kind: 'run', pageIndex: index, fromKey, expected, text, seenPending: false });
+      const sought: Sought = text === null ? { kind: 'removed' } : { kind: 'run', expected, text };
+      setFollowing(fromKey === undefined ? null : { kind: 'run', pageIndex: index, fromKey, sought, seenPending: false });
     },
     [keyAt],
   );
@@ -252,18 +266,8 @@ export function useContentMode({
   const followImageAt = useCallback(
     (index: number, expected: PageRect | null) => {
       const fromKey = keyAt(index);
-      setFollowing(
-        fromKey === undefined
-          ? null
-          : {
-              kind: 'image',
-              pageIndex: index,
-              fromKey,
-              expected: expected ?? { left: 0, top: 0, width: 0, height: 0 },
-              text: expected ? '' : null,
-              seenPending: false,
-            },
-      );
+      const sought: Sought = expected === null ? { kind: 'removed' } : { kind: 'image', expected };
+      setFollowing(fromKey === undefined ? null : { kind: 'image', pageIndex: index, fromKey, sought, seenPending: false });
     },
     [keyAt],
   );
@@ -273,8 +277,10 @@ export function useContentMode({
     // A page outside the parse window is never read again (an editor
     // committed because its page scrolled out): waiting for it would hold
     // every edit up until the user scrolls back. Nothing on it is shown
-    // selected anyway, so the follow is dropped.
-    if (!wanted.some(({ index }) => index === following.pageIndex)) return void setFollowing(null);
+    // selected anyway, so the follow is dropped — but only against a known
+    // window: with none (a zoom's relayout, before the first layout) nothing
+    // is wanted for a moment, and the follow waits for the window to return.
+    if (visible !== null && !wanted.some(({ index }) => index === following.pageIndex)) return void setFollowing(null);
     if (paused) {
       if (!following.seenPending) setFollowing({ ...following, seenPending: true });
       return;
@@ -289,12 +295,15 @@ export function useContentMode({
     if (key !== undefined && (state === undefined || state.status === 'loading')) return;
     setFollowing(null);
     if (key === undefined || state?.status !== 'ready') return;
+    const { sought } = following;
     const found =
-      following.kind === 'image'
-        ? followImage(state.content, following.text === null ? null : following.expected)
-        : followRun(state.content, following.expected, following.text);
+      sought.kind === 'removed'
+        ? null
+        : sought.kind === 'image'
+          ? followImage(state.content, sought.expected)
+          : followRun(state.content, sought.expected, sought.text);
     setSelected(found && { pageIndex: following.pageIndex, key, item: found });
-  }, [following, active, paused, keyAt, held, wanted]);
+  }, [following, active, paused, keyAt, held, wanted, visible]);
 
   // A pick holds only while its page still shows the parse it was found in:
   // an edit, an undo or a move elsewhere makes it name something else.
@@ -327,15 +336,13 @@ export function useContentMode({
     followingKind: following?.kind ?? null,
     /** The base every read is valid against (the cheap key of a run's font). */
     baseGeneration,
+    /** The read page `index` shows now (`contentKey`): an item's id holds only for it. */
+    keyAt,
     status,
   };
 }
 
 export type ContentMode = ReturnType<typeof useContentMode>;
-
-function sameRect(a: PageRect, b: PageRect): boolean {
-  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
-}
 
 function samePick(a: Picked | null, b: Picked | null): boolean {
   if (!a || !b) return a === b;
