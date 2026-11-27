@@ -76,6 +76,11 @@ export const coreEdits: CoreEdits = {
   removeTextRun: (page, runId) => core.EditCommand.removeTextRun(page, runId),
   restyleTextRuns: (page, runIds, bold, italic, underline, strike) =>
     core.EditCommand.restyleTextRuns(page, runIds, bold, italic, underline, strike),
+  moveImage: (page, imageId, dx, dy) => core.EditCommand.moveImage(page, imageId, dx, dy),
+  resizeImage: (page, imageId, x, y, width, height) => core.EditCommand.resizeImage(page, imageId, x, y, width, height),
+  removeImage: (page, imageId) => core.EditCommand.removeImage(page, imageId),
+  replaceImage: (page, imageId, bytes) => core.EditCommand.replaceImage(page, imageId, bytes),
+  insertImage: (page, x, y, bytes) => core.EditCommand.insertImage(page, x, y, bytes),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

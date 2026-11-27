@@ -80,5 +80,6 @@ export type {
   FontProgramFormat,
   FontProgram,
   TextRunEdit,
+  ImageEdit,
 } from './core/content.js';
 export type { MessagePortLike, RequestEnvelope, WorkerMessage } from './core/protocol.js';

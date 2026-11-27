@@ -8,12 +8,15 @@
 // revision and base generation, and keeps the item under the pointer and the
 // one clicked.
 //
-// No edit is made here yet (T-259 on): what it hands the pages is what to
-// outline, and what it hands the status line is what was selected.
+// The edits themselves are `useTextRunEditing`'s (T-259) and
+// `useImageEditing`'s (T-260): this hands the pages what to outline, the
+// status line what was selected, and finds the edited item again — by place,
+// ids hold only for the read they came from — once its page is read anew.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { errorMessage, type ContentItem, type DocumentHandle, type Engine, type PagePoint, type PageRect } from '@vitela/core';
 import { sentence } from '../../ui/text';
+import { followImage } from './images';
 import { followRun } from './textRuns';
 import {
   CONTENT_HINT,
@@ -35,12 +38,14 @@ interface Picked {
   readonly item: ContentItem;
 }
 
-/** The run an edit is waiting to select again. */
+/** The run or image an edit is waiting to select again. */
 interface Following {
+  readonly kind: 'run' | 'image';
   readonly pageIndex: number;
   /** The key its page had when the edit was asked for. */
   readonly fromKey: string;
   readonly expected: PageRect;
+  /** A run's text after the edit; an image's is `''`. `null`: it was removed, select nothing. */
   readonly text: string | null;
   /** Whether an edit was seen running since: until then, an unchanged key means nothing yet. */
   readonly seenPending: boolean;
@@ -213,11 +218,12 @@ export function useContentMode({
       setSelected(next);
       setFollowing((waiting) => {
         if (!waiting) return waiting;
-        if (!next || next.item.kind !== 'run') return null;
-        const { rect, text } = next.item;
-        // The edited run itself: keep following it where the edit puts it.
-        if (next.pageIndex === waiting.pageIndex && sameRect(rect, waiting.expected)) return waiting;
-        return { ...waiting, pageIndex: next.pageIndex, fromKey: next.key, expected: rect, text };
+        if (!next || next.item.kind === 'path') return null;
+        const { item } = next;
+        // The edited item itself: keep following it where the edit puts it.
+        if (next.pageIndex === waiting.pageIndex && item.kind === waiting.kind && sameRect(item.rect, waiting.expected)) return waiting;
+        const text = item.kind === 'run' ? item.text : '';
+        return { ...waiting, kind: item.kind, pageIndex: next.pageIndex, fromKey: next.key, expected: item.rect, text };
       });
     },
     [pick],
@@ -234,13 +240,41 @@ export function useContentMode({
   const follow = useCallback(
     (index: number, expected: PageRect, text: string | null) => {
       const fromKey = keyAt(index);
-      setFollowing(fromKey === undefined ? null : { pageIndex: index, fromKey, expected, text, seenPending: false });
+      setFollowing(fromKey === undefined ? null : { kind: 'run', pageIndex: index, fromKey, expected, text, seenPending: false });
+    },
+    [keyAt],
+  );
+  /**
+   * Selects again, once page `index` has been edited and read anew, the
+   * image now at `expected` (`null`: it was removed, select nothing). Call
+   * it with the edit, before the step lands.
+   */
+  const followImageAt = useCallback(
+    (index: number, expected: PageRect | null) => {
+      const fromKey = keyAt(index);
+      setFollowing(
+        fromKey === undefined
+          ? null
+          : {
+              kind: 'image',
+              pageIndex: index,
+              fromKey,
+              expected: expected ?? { left: 0, top: 0, width: 0, height: 0 },
+              text: expected ? '' : null,
+              seenPending: false,
+            },
+      );
     },
     [keyAt],
   );
   useEffect(() => {
     if (!following) return;
     if (!active) return void setFollowing(null);
+    // A page outside the parse window is never read again (an editor
+    // committed because its page scrolled out): waiting for it would hold
+    // every edit up until the user scrolls back. Nothing on it is shown
+    // selected anyway, so the follow is dropped.
+    if (!wanted.some(({ index }) => index === following.pageIndex)) return void setFollowing(null);
     if (paused) {
       if (!following.seenPending) setFollowing({ ...following, seenPending: true });
       return;
@@ -255,9 +289,12 @@ export function useContentMode({
     if (key !== undefined && (state === undefined || state.status === 'loading')) return;
     setFollowing(null);
     if (key === undefined || state?.status !== 'ready') return;
-    const run = followRun(state.content, following.expected, following.text);
-    setSelected(run && { pageIndex: following.pageIndex, key, item: run });
-  }, [following, active, paused, keyAt, held]);
+    const found =
+      following.kind === 'image'
+        ? followImage(state.content, following.text === null ? null : following.expected)
+        : followRun(state.content, following.expected, following.text);
+    setSelected(found && { pageIndex: following.pageIndex, key, item: found });
+  }, [following, active, paused, keyAt, held, wanted]);
 
   // A pick holds only while its page still shows the parse it was found in:
   // an edit, an undo or a move elsewhere makes it name something else.
@@ -283,8 +320,13 @@ export function useContentMode({
     select,
     clear,
     follow,
-    /** Whether an edited run is still to be found again (its page not read yet). */
+    followImage: followImageAt,
+    /** Whether an edited run or image is still to be found again (its page not read yet). */
     following: following !== null,
+    /** What is being found again, or `null`. */
+    followingKind: following?.kind ?? null,
+    /** The base every read is valid against (the cheap key of a run's font). */
+    baseGeneration,
     status,
   };
 }

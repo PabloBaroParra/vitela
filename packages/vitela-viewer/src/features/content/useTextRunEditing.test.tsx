@@ -92,6 +92,7 @@ describe('useTextRunEditing', () => {
         // Its page was edited and is read again: the old pick no longer holds.
         selected: selected ? { pageIndex: 0, key: '9/0/1/0', item: { ...hello, id: 7 } } : null,
         following: !selected,
+        followingKind: selected ? null : 'run',
         follow: () => {},
       }) as unknown as ContentMode;
     const queue = { pending: false, apply: async (build: (s: Session) => Edit | null) => void applied.push(build(session)), notify: () => {} };
@@ -181,6 +182,29 @@ describe('useTextRunEditing', () => {
     await waitFor(() => expect(hook.result.current.look?.italic).toBe(true));
     act(() => hook.result.current.open());
     expect(hook.result.current.editor?.look).toMatchObject({ bold: false, italic: true });
+  });
+
+  it('takes the look into an editor opened before the look read landed', async () => {
+    let answer: (look: TextRunLookState) => void = () => {};
+    const engine = fakeEngine({
+      textRunLook: () => new Promise<TextRunLookState>((resolve) => (answer = resolve)),
+      textRunStyle: async () => null,
+      textRunFontProgram: async () => null,
+    });
+    const content = {
+      active: true,
+      selected: { pageIndex: 0, key: '9/0/0/0', item: hello },
+      following: false,
+      baseGeneration: 0,
+      follow: () => {},
+    } as unknown as ContentMode;
+    const queue = { pending: false, apply: async () => {}, notify: () => {} };
+    const hook = renderHook(() => useTextRunEditing({ engine, handle: 1, info, content, queue, focusPages: () => {} }));
+    act(() => hook.result.current.open());
+    expect(hook.result.current.editor?.look).toBeNull();
+    await act(async () => answer({ ...PLAIN, bold: true }));
+    expect(hook.result.current.editor?.look).toMatchObject({ bold: true });
+    expect(hook.result.current.editor?.draft).toBe('Hello');
   });
 
   it('says why a run whose characters are unknown cannot be retyped', () => {

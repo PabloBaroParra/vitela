@@ -118,6 +118,11 @@ export async function handleRequest(engine: Engine, { id, request }: RequestEnve
         const program = await engine.textRunFontProgram(document, pageIndex, runId);
         return { message: { type: 'result', id, value: program }, transfer: program ? [program.bytes.buffer as ArrayBuffer] : [] };
       }
+      // The answer is a yes, or a refusal like any other: nothing to copy.
+      case 'checkImageReplacement': {
+        const { document, pageIndex, imageId } = request;
+        return result(id, await engine.checkImageReplacement(document, pageIndex, imageId));
+      }
       // The looks are a few numbers, the gate a sentence: copied.
       case 'watermarkDefaults':
         return result(id, await engine.watermarkDefaults());

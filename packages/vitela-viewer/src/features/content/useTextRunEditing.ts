@@ -101,14 +101,14 @@ export function useTextRunEditing({ engine, handle, info, content, queue, focusP
     (dx: number, dy: number) => {
       // While the moved run is found again its old pick no longer holds, but
       // the presses meanwhile are still for it.
-      if (busy && (run || content.following)) {
+      if (busy && (run || content.followingKind === 'run')) {
         nudged.current = { dx: nudged.current.dx + dx, dy: nudged.current.dy + dy };
         return;
       }
       if (!run || currentPageKey === null || busy) return;
       submit(run, currentPageKey, { kind: 'moveTextRun', page: run.pageIndex, runId: run.id, dx, dy }, run.text, dx, dy);
     },
-    [run, currentPageKey, busy, content.following, submit],
+    [run, currentPageKey, busy, content.followingKind, submit],
   );
   useEffect(() => {
     if (busy) return;
@@ -176,8 +176,20 @@ export function useTextRunEditing({ engine, handle, info, content, queue, focusP
       (style) => update({ style }),
       () => {},
     );
-    void fonts.current?.load(target.pageIndex, target.id).then((family) => family && update({ family }));
-  }, [run, currentPageKey, busy, editor, queue, engine, handle, shownLook]);
+    const pageId = info.pageIds[target.pageIndex];
+    if (pageId !== undefined) {
+      const at = { pageIndex: target.pageIndex, runId: target.id, pageId, fontName: target.fontName, baseGeneration: content.baseGeneration };
+      void fonts.current?.load(at).then((family) => family && update({ family }));
+    }
+  }, [run, currentPageKey, busy, editor, queue, engine, handle, shownLook, info.pageIds, content.baseGeneration]);
+
+  // An editor opened before the look read landed takes it when it does:
+  // the camouflage shows the run's queued restyle, not the file's face.
+  const editorRunKey = editor && picked && editor.run === run ? runKey : null;
+  useEffect(() => {
+    if (!editorRunKey || !shownLook || editorRunKey !== runKey) return;
+    setEditor((shown) => (shown && shown.look === null ? { ...shown, look: shownLook } : shown));
+  }, [editorRunKey, runKey, shownLook]);
 
   /** Closes the editor a turn later: never inside the blur that may have committed it. */
   const close = useCallback(() => {
@@ -261,7 +273,7 @@ export function useTextRunEditing({ engine, handle, info, content, queue, focusP
       if (editor) return false;
       if (!run) {
         // Only an arrow, and only while the run it moves is being found again.
-        const nudge = content.following ? nudgeOf(key, shift) : null;
+        const nudge = content.followingKind === 'run' ? nudgeOf(key, shift) : null;
         if (nudge) move(nudge.dx, nudge.dy);
         return nudge !== null;
       }
@@ -278,7 +290,7 @@ export function useTextRunEditing({ engine, handle, info, content, queue, focusP
       move(nudge.dx, nudge.dy);
       return true;
     },
-    [run, editor, content.following, open, remove, move],
+    [run, editor, content.followingKind, open, remove, move],
   );
 
   return {

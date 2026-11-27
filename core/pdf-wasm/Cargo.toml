@@ -44,3 +44,5 @@ wasm-bindgen-futures = "0.4"
 
 [dev-dependencies]
 lopdf = "0.45"
+# Builds the PNGs the image-edit tests insert and replace with (T-260).
+image = { version = "0.25", default-features = false, features = ["png"] }

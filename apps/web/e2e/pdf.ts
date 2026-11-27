@@ -15,6 +15,12 @@ export interface PageSpec {
   readonly notes?: readonly NoteSpec[];
   /** AcroForm text fields on the page, in `/Fields` order after those of earlier pages. */
   readonly fields?: readonly TextFieldSpec[];
+  /**
+   * Images the page paints, each a 2 x 1 RGB XObject (`/Im1`, `/Im2`, …:
+   * red then blue) drawn into its box: left, bottom, width, height in PDF
+   * space.
+   */
+  readonly images?: readonly (readonly [number, number, number, number])[];
 }
 
 /** A one-line AcroForm text field, drawn in Helvetica. */
@@ -69,7 +75,7 @@ export function lineBaseline(page: PageSpec, index: number): number {
  */
 export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): Buffer {
   const objects: { body: string | Body; stream?: string }[] = [];
-  // Object number n is objects[n - 1].
+  // Object number n is objects[n - 1]. A stream's `body` is its dictionary's entries besides `/Length`.
   const add = (body: string | Body, stream?: string) => {
     objects.push({ body, stream });
     return objects.length;
@@ -88,7 +94,12 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
       ...(page.lines ?? []).map(
         (line, row) => `BT /F1 ${LINE_FONT_PT} Tf 72 ${lineBaseline(page, row)} Td (${escape(line)}) Tj ET`,
       ),
+      ...(page.images ?? []).map(([x, y, w, h], at) => `q ${w} 0 0 ${h} ${x} ${y} cm /Im${at + 1} Do Q`),
     ].join('\n');
+    const images = (page.images ?? []).map(() =>
+      add('/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8', '\xff\x00\x00\x00\x00\xff'),
+    );
+    const xobjects = images.length ? ` /XObject << ${images.map((image, at) => `/Im${at + 1} ${image} 0 R`).join(' ')} >>` : '';
     const notes = (page.notes ?? []).map((note) => add((text) => noteBody(note, text)));
     const pageFields = (page.fields ?? []).map((field) => add((text) => textFieldBody(field, text)));
     fields.push(...pageFields);
@@ -99,7 +110,7 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.widthPt} ${page.heightPt}]` +
         `${page.rotate ? ` /Rotate ${page.rotate}` : ''}` +
         `${annots.length ? ` /Annots [${annots.map((annot) => `${annot} 0 R`).join(' ')}]` : ''}` +
-        ` /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageNumber + 1} 0 R >>`,
+        ` /Resources << /Font << /F1 3 0 R >>${xobjects} >> /Contents ${pageNumber + 1} 0 R >>`,
     );
     add('', content);
   });
@@ -131,7 +142,8 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
     }
     let data: Buffer = Buffer.from(stream, 'latin1');
     if (security) data = security.encrypt(number, data);
-    out += `${number} 0 obj\n<< /Length ${data.length} >>\nstream\n${data.toString('latin1')}\nendstream\nendobj\n`;
+    const entries = typeof body === 'string' && body ? `${body} ` : '';
+    out += `${number} 0 obj\n<< ${entries}/Length ${data.length} >>\nstream\n${data.toString('latin1')}\nendstream\nendobj\n`;
   });
   const xref = out.length;
   out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;

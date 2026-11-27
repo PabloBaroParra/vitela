@@ -286,6 +286,21 @@ describe('EngineClient', () => {
     await expect(program).resolves.toEqual(bytes);
   });
 
+  it('asks whether an image can be replaced, and rejects with its refusal', async () => {
+    const { port, sent, reply } = fakePort();
+    const client = new EngineClient(port);
+    const allowed = client.checkImageReplacement(4, 1, 7);
+    const refused = client.checkImageReplacement(4, 1, 8);
+    expect(sent.map(({ message }) => message.request)).toEqual([
+      { kind: 'checkImageReplacement', document: 4, pageIndex: 1, imageId: 7 },
+      { kind: 'checkImageReplacement', document: 4, pageIndex: 1, imageId: 8 },
+    ]);
+    reply({ type: 'result', id: sent[0]!.message.id, value: undefined });
+    reply({ type: 'error', id: sent[1]!.message.id, name: 'EditNotPermitted', message: 'image replacement is not permitted' });
+    await expect(allowed).resolves.toBeUndefined();
+    await expect(refused).rejects.toMatchObject({ name: 'EditNotPermitted' });
+  });
+
   it('sends the watermark requests and resolves with their replies', async () => {
     const { port, sent, reply } = fakePort();
     const client = new EngineClient(port);

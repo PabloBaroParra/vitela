@@ -142,3 +142,83 @@
   transform-origin: center;
   white-space: pre;
 }
+
+/* The selected image's edits (B26 T-260): eight resize handles on its box,
+   the box a handle drag would give it, and a toolbar above it. Insert image
+   sits in the status row, pressed while an insert waits for a click. */
+
+.content-status__insert {
+  flex: none;
+}
+
+.content-status__insert[aria-pressed='true'] {
+  background: var(--tone-amber-bg, rgb(230 150 30 / 18%));
+  border-color: var(--tone-amber-fg);
+}
+
+.image-edit__handle {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--tone-amber-fg);
+  border-radius: 2px;
+  background: var(--surface, #fff);
+  touch-action: none;
+}
+
+.image-edit__handle--nw,
+.image-edit__handle--se {
+  cursor: nwse-resize;
+}
+
+.image-edit__handle--ne,
+.image-edit__handle--sw {
+  cursor: nesw-resize;
+}
+
+.image-edit__handle--n,
+.image-edit__handle--s {
+  cursor: ns-resize;
+}
+
+.image-edit__handle--e,
+.image-edit__handle--w {
+  cursor: ew-resize;
+}
+
+.image-edit__preview {
+  position: absolute;
+  z-index: 2;
+  box-sizing: border-box;
+  border: 2px dashed var(--tone-amber-fg);
+  background: rgb(230 150 30 / 14%);
+  pointer-events: none;
+}
+
+.image-edit__toolbar {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: max-content;
+  padding: 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
+  cursor: default;
+}
+
+.image-edit__toolbar button {
+  min-height: 26px;
+  padding: 2px 8px;
+}
+
+.image-edit__toolbar button[aria-disabled='true'] {
+  opacity: 0.55;
+}

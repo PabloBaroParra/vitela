@@ -7,6 +7,7 @@ import type {
   TextRunLookState,
   FontProgram,
   TextRunEdit,
+  ImageEdit,
 } from './content.js';
 
 // Declared in `content.ts`; re-exported here for the worker and the client.
@@ -25,6 +26,7 @@ export type {
   FontProgramFormat,
   FontProgram,
   TextRunEdit,
+  ImageEdit,
 } from './content.js';
 
 /**
@@ -340,7 +342,7 @@ export interface WatermarkDefaults {
 }
 
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit;
+export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit | ImageEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -745,6 +747,15 @@ export interface Engine {
    * Same refusals as `textRunStyle`.
    */
   textRunFontProgram(document: DocumentHandle, pageIndex: number, runId: number): Promise<FontProgram | null>;
+  /**
+   * Whether image `imageId` on a page could be replaced now: ask before
+   * opening a file picker. Rejects with `EditNotPermitted` when the
+   * document forbids content changes, or `UnsupportedOperation` for an image
+   * with an unsaved edit in a session that cannot take a checkpoint, an
+   * image the page does not paint now, or a picture undo could not put back;
+   * else as `readPageContent`.
+   */
+  checkImageReplacement(document: DocumentHandle, pageIndex: number, imageId: number): Promise<void>;
   /** The core's starting looks for a text and a picture watermark. */
   watermarkDefaults(): Promise<WatermarkDefaults>;
   /**

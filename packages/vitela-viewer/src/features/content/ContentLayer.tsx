@@ -1,9 +1,9 @@
-// One page's layer of the "Edit content" mode (B26 T-258b, T-259): over
-// everything else on the page while the mode is on, it takes the pointer,
-// outlines the item under it and the one selected — a text run, an image or
-// a shape, each in its own style — and reports a press, a double-click, and
-// a drag of the selected run (its outline follows the pointer until it is
-// let go). What else the selected item has — its toolbar, its editor —
+// One page's layer of the "Edit content" mode (B26 T-258b, T-259, T-260):
+// over everything else on the page while the mode is on, it takes the
+// pointer, outlines the item under it and the one selected — a text run, an
+// image or a shape, each in its own style — and reports a press, a
+// double-click, and a drag of the selected run or image (its outline follows
+// the pointer until it is let go). What else the selected item has — its toolbar, its editor —
 // comes in as `children`. Presentational: what is under a point, and what a
 // drag records, is the container's to decide.
 
@@ -19,7 +19,7 @@ export interface ContentInput {
   readonly onSelect: (pageIndex: number, point: PagePoint) => void;
   /** A double-click: select what is there and open it. */
   readonly onOpen: (pageIndex: number, point: PagePoint) => void;
-  /** The selected run was dragged by `dx, dy` points on the page as drawn and let go. */
+  /** The selected run or image was dragged by `dx, dy` points on the page as drawn and let go. */
   readonly onDrag: (pageIndex: number, dx: number, dy: number) => void;
 }
 
@@ -52,7 +52,7 @@ export function ContentLayer({ pageIndex, scale, state, hovered, selected, input
   const press = useRef<Press | null>(null);
   /** How far the selected run's outline is dragged, in CSS px; `null` while it is not. */
   const [offset, setOffset] = useState<{ x: number; y: number } | null>(null);
-  const draggable = selected?.kind === 'run' ? selected : null;
+  const draggable = selected?.kind === 'run' || selected?.kind === 'image' ? selected : null;
   return (
     <div
       className="content-layer"

@@ -207,6 +207,10 @@ export class EngineClient implements Engine {
     return this.send({ kind: 'textRunFontProgram', document, pageIndex, runId });
   }
 
+  checkImageReplacement(document: DocumentHandle, pageIndex: number, imageId: number): Promise<void> {
+    return this.send({ kind: 'checkImageReplacement', document, pageIndex, imageId });
+  }
+
   watermarkDefaults(): Promise<WatermarkDefaults> {
     return this.send({ kind: 'watermarkDefaults' });
   }
