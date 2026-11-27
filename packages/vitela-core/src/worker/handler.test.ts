@@ -87,6 +87,7 @@ function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     contentBaseGeneration: async () => 0,
     textRunLook: async () => null,
     textRunFontProgram: async () => null,
+    checkImageReplacement: async () => {},
     ...overrides,
   };
 }
@@ -343,6 +344,23 @@ describe('handleRequest', () => {
       transfer: [],
     });
     expect(calls).toEqual([[5, 1, 3], [5, 1, 3]]);
+  });
+
+  it('answers whether an image can be replaced, and relays its refusal', async () => {
+    const calls: unknown[] = [];
+    const engine = fakeEngine({
+      checkImageReplacement: async (...args) => {
+        calls.push(args);
+        if (args[2] === 9) throw Object.assign(new Error('save before replacing an image with a pending edit'), { name: 'UnsupportedOperation' });
+      },
+    });
+    expect(await handleRequest(engine, { id: 1, request: { kind: 'checkImageReplacement', document: 5, pageIndex: 1, imageId: 3 } })).toEqual({
+      message: { type: 'result', id: 1, value: undefined },
+      transfer: [],
+    });
+    const refused = await handleRequest(engine, { id: 2, request: { kind: 'checkImageReplacement', document: 5, pageIndex: 1, imageId: 9 } });
+    expect(refused.message).toMatchObject({ type: 'error', id: 2, name: 'UnsupportedOperation' });
+    expect(calls).toEqual([[5, 1, 3], [5, 1, 9]]);
   });
 
   it('answers the watermark questions, copied', async () => {

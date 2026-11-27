@@ -153,6 +153,7 @@ mod edit;
 mod export;
 mod extract;
 mod form;
+mod image;
 mod import;
 mod metadata;
 mod preview;
@@ -177,6 +178,7 @@ pub use export::{
 };
 pub use extract::{plan_split, SplitPartPlan};
 pub use form::{FieldFill, FieldShape, FormFieldView};
+pub use image::ImageEdit;
 pub use import::{BlockSpan, ImportReport, PreparedInfo, PreparedSources, SpanSource};
 pub use metadata::{DocumentProperties, METADATA_FORBIDDEN};
 pub use protect::PROTECTION_FORBIDDEN;

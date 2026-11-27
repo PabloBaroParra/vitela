@@ -341,6 +341,75 @@ describe('useContentMode', () => {
     expect(result.current.selected).toBeNull();
   });
 
+  it('selects the edited image again by its new box once its page is read after the edit', async () => {
+    let moved = false;
+    const engine: Engine = fakeEngine({
+      readPageContent: async (_document, pageIndex) => {
+        const content = contentOf(pageIndex);
+        const [image] = content.images;
+        return moved ? { ...content, images: [{ ...image!, id: 5, rect: { ...image!.rect, left: 92 } }] } : content;
+      },
+    });
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 100, y: 350 }));
+    const image = result.current.selected!.item;
+    expect(image.kind).toBe('image');
+
+    act(() => result.current.followImage(2, { ...image.rect, left: 92 }));
+    expect(result.current.following).toBe(true);
+    expect(result.current.followingKind).toBe('image');
+    moved = true;
+    rerender({ visible: { first: 2, last: 2 }, paused: true });
+    rerender({ visible: { first: 2, last: 2 }, paused: false, paintRevision: 1 });
+    await waitFor(() => expect(result.current.selected?.item).toMatchObject({ kind: 'image', id: 5 }));
+    expect(result.current.following).toBe(false);
+
+    // A removed image selects nothing.
+    act(() => result.current.followImage(2, null));
+    rerender({ visible: { first: 2, last: 2 }, paused: false, paintRevision: 2 });
+    await waitFor(() => expect(result.current.following).toBe(false));
+    expect(result.current.selected).toBeNull();
+  });
+
+  it('follows an image pressed while a run edit lands', async () => {
+    const { engine } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    act(() => {
+      result.current.follow(2, result.current.selected!.item.rect, 'Page 3');
+      result.current.select(2, { x: 100, y: 350 });
+    });
+    expect(result.current.followingKind).toBe('image');
+    rerender({ visible: { first: 2, last: 2 }, paused: false, paintRevision: 1 });
+    await waitFor(() => expect(result.current.selected?.item.kind).toBe('image'));
+    expect(result.current.selected!.key).toMatch(/\/1\/0$/);
+  });
+
+  it('drops the follow of a run whose page scrolled out of the parse window, so edits are not held up', async () => {
+    const { engine, reads } = engineWith();
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    const run = result.current.selected!.item;
+
+    // The editor's page scrolled far away and the commit that caused asks to follow it.
+    rerender({ visible: { first: 40, last: 40 } });
+    act(() => result.current.follow(2, run.rect, 'Page 3!'));
+    rerender({ visible: { first: 40, last: 40 }, paused: true });
+    rerender({ visible: { first: 40, last: 40 }, paused: false, paintRevision: 1 });
+    // Page 3 is never read again (it is not wanted), and nothing waits for it.
+    await waitFor(() => expect(result.current.stateAt(40)?.status).toBe('ready'));
+    expect(result.current.following).toBe(false);
+    expect(reads.filter((page) => page === 2)).toHaveLength(1);
+
+    // Coming back reads it, and selects nothing the user did not pick.
+    rerender({ visible: { first: 2, last: 2 }, paintRevision: 1 });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    expect(result.current.selected).toBeNull();
+  });
+
   it('follows nothing for a removed run', async () => {
     const { engine } = engineWith();
     const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
@@ -392,5 +461,16 @@ describe('ContentStatus', () => {
     expect(status.getAttribute('aria-live')).toBe('polite');
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(done).toBe(1);
+  });
+
+  it('offers Insert image, pressed while an insert waits for a click', () => {
+    let asked = 0;
+    const { rerender } = render(<ContentStatus status="x" onDone={() => {}} onInsertImage={() => asked++} />);
+    const insert = screen.getByRole('button', { name: 'Insert image' });
+    expect(insert.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(insert);
+    expect(asked).toBe(1);
+    rerender(<ContentStatus status="x" onDone={() => {}} onInsertImage={() => asked++} inserting />);
+    expect(screen.getByRole('button', { name: 'Insert image' }).getAttribute('aria-pressed')).toBe('true');
   });
 });

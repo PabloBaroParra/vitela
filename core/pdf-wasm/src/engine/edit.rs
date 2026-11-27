@@ -20,12 +20,13 @@ use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
 use crate::model::{
-    AnnotationEdit, DocumentProperties, FieldFill, PageEdit, TextRunEdit, WatermarkRequest,
+    AnnotationEdit, DocumentProperties, FieldFill, ImageEdit, PageEdit, TextRunEdit,
+    WatermarkRequest,
 };
 
 /// What an `EditCommand` carries: a page edit, an annotation edit, a form
-/// fill, a change of the document's properties, a watermark or an edit of a
-/// page's text runs.
+/// fill, a change of the document's properties, a watermark, or an edit of a
+/// page's text runs or images.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
@@ -34,13 +35,14 @@ pub(super) enum Edit {
     Metadata(DocumentProperties),
     Watermark(WatermarkRequest),
     TextRun(TextRunEdit),
+    Image(ImageEdit),
 }
 
 /// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
 /// (`engine/annotation.rs`), a form fill (`engine/form.rs`) or a change of
 /// the document's properties (`engine/metadata.rs`) or a watermark
 /// (`engine/watermark.rs`) or an edit of a page's text runs
-/// (`engine/text_run.rs`). Positions are
+/// (`engine/text_run.rs`) or images (`engine/image.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -114,6 +116,10 @@ impl Engine {
     /// (asked first), then `PageIndexOutOfBounds`, `UnsupportedOperation`
     /// for a run the page does not hold now, `EncodingGap` for a character
     /// the run's font cannot show; it makes `previewStale` true and moves
+    /// `paintRevision`. An image edit is refused the same way, then
+    /// `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the page
+    /// does not hold now or a box with no area, `InvalidImage` for bytes
+    /// that do not decode; it makes `previewStale` true and moves
     /// `paintRevision`.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
@@ -134,6 +140,7 @@ impl Engine {
                     open.model.add_watermark(request.clone()).map(|()| None)
                 }
                 Edit::TextRun(edit) => open.model.apply_text_run_edit(edit.clone()).map(|()| None),
+                Edit::Image(edit) => open.model.apply_image_edit(edit.clone()).map(|()| None),
             })
             .map_err(js_error)
     }

@@ -211,6 +211,23 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   (`canRemoveBold`: `false` for a bold font whose page has no regular
   sibling); `textRunFontProgram` hands out the program its font embeds
   (`FontProgram`: `format` and `bytes`; `null` for a standard-14 font).
+  Images (T-260) are edited through `applyEdit` with an `ImageEdit` naming an
+  image by the id its page's last read handed out: `moveImage` (`dx, dy`
+  points on the page as drawn), `resizeImage` (`rect`, the box on the page as
+  drawn), `removeImage`, `replaceImage` (`bytes`, a PNG or JPEG) — or a new
+  one: `insertImage` (`page`, `at`, the top-left corner on the page as drawn,
+  and `bytes`; the size is the core's, the image's own proportions with the
+  longest side two inches, the same box `stampPlacement` answers). Each is
+  one undo step and moves `paintRevision`; a second move or resize of the
+  same image folds into its step (a resize after a move too), and one that
+  changes nothing records nothing. They reject as `contentEditingRefusal`
+  says, then `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the
+  page does not hold now or a box with no area, or `InvalidImage`.
+  `checkImageReplacement(handle, pageIndex, imageId)` resolves when the image
+  can be replaced and rejects with the core's refusal otherwise
+  (`EditNotPermitted`, or `UnsupportedOperation`: an unsaved edit in a
+  session that cannot checkpoint, a picture undo could not put back): ask it
+  before opening a file picker.
   Extract and Split: `extractionRefusal(handle)` says why no page can leave
   the document (the core's sentence: its `/P` withholds extraction — bit 5,
   not page assembly — or its encryption cannot survive the rewrite, e.g.

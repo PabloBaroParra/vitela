@@ -57,6 +57,7 @@ import type {
   ProtectionPasswords,
   RenderedPage,
   TextRunEdit,
+  ImageEdit,
 } from '../core/types.js';
 import {
   PageFrame,
@@ -92,12 +93,14 @@ import {
 import {
   fontFamilies,
   fontProgram,
+  imageCommand,
   pageContent,
   textBlocks,
   textRunCommand,
   textRunLook,
   textRunStyle,
   type CoreFontProgram,
+  type CoreImageEdits,
   type CorePageContent,
   type CoreTextBlock,
   type CoreTextRunEdits,
@@ -114,7 +117,8 @@ export interface CoreEdits
     CoreFormEdits,
     CoreMetadataEdits,
     CoreWatermarkEdits,
-    CoreTextRunEdits {
+    CoreTextRunEdits,
+    CoreImageEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
   removePages(index: number, count: number): Owned;
@@ -170,6 +174,8 @@ export interface CoreEngine extends CoreText {
   textRunLook(doc: number, page: number, runId: number): CoreTextRunLook | null | undefined;
   /** `undefined` (wasm-bindgen's `None`) for a font that embeds none. */
   textRunFontProgram(doc: number, page: number, runId: number): CoreFontProgram | null | undefined;
+  /** Throws the core's refusal; returns when the image could be replaced. */
+  checkImageReplacement(doc: number, page: number, imageId: number): void;
   /** `undefined` (wasm-bindgen's `None`) when the document can be protected. */
   protectionRefusal(doc: number): string | null | undefined;
   protectionInvalidatesSignatures(doc: number): boolean;
@@ -416,6 +422,11 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
       pageOf(document, pageIndex);
       return fontProgram(core.textRunFontProgram(document, pageIndex, runId));
     },
+    async checkImageReplacement(document: DocumentHandle, pageIndex: number, imageId: number) {
+      // The core asks its permission before the page: no `pageOf` first.
+      assertOpen(document);
+      core.checkImageReplacement(document, pageIndex, imageId);
+    },
     async watermarkDefaults() {
       return watermarkDefaults(functions.watermarkDefaults());
     },
@@ -504,7 +515,9 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
                   ? watermarkCommand(edits, edit)
                   : isTextRunEdit(edit)
                     ? textRunCommand(edits, edit, frameOf(document))
-                    : annotationCommand(
+                    : isImageEdit(edit)
+                      ? imageCommand(edits, edit, frameOf(document))
+                      : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -629,6 +642,16 @@ function isTextRunEdit(edit: Edit): edit is TextRunEdit {
     edit.kind === 'moveTextRun' ||
     edit.kind === 'removeTextRun' ||
     edit.kind === 'restyleTextRuns'
+  );
+}
+
+function isImageEdit(edit: Edit): edit is ImageEdit {
+  return (
+    edit.kind === 'moveImage' ||
+    edit.kind === 'resizeImage' ||
+    edit.kind === 'removeImage' ||
+    edit.kind === 'replaceImage' ||
+    edit.kind === 'insertImage'
   );
 }
 

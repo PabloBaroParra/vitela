@@ -116,6 +116,12 @@ export type EngineRequest =
       readonly pageIndex: number;
       readonly runId: number;
     }
+  | {
+      readonly kind: 'checkImageReplacement';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly imageId: number;
+    }
   | { readonly kind: 'watermarkDefaults' }
   | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
@@ -191,6 +197,7 @@ export interface EngineResults {
   contentBaseGeneration: number;
   textRunLook: TextRunLookState | null;
   textRunFontProgram: FontProgram | null;
+  checkImageReplacement: void;
   watermarkDefaults: WatermarkDefaults;
   watermarkRefusal: string | null;
   protectionRefusal: string | null;

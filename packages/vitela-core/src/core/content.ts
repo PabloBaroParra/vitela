@@ -1,9 +1,9 @@
-// Domain types of a page's content and its text-run edits (B26 T-258b, T-259):
+// Domain types of a page's content and its edits (B26 T-258b, T-259, T-260):
 // what a page paints as the core reads it, how a run looks, the font program
-// it embeds, and the edits of a run. Re-exported by `types.ts` (the engine's
+// it embeds, and the edits of a run or an image. Re-exported by `types.ts` (the engine's
 // interface uses them) and by the package entry.
 
-import type { PageRect, Rgb } from './types.js';
+import type { PagePoint, PageRect, Rgb } from './types.js';
 
 /** How a text run's font is held: the 14 standard fonts, an embedded simple font, or a composite (CID) font. */
 export type ContentFontKind = 'standard14' | 'embeddedSimple' | 'embeddedComposite';
@@ -142,3 +142,26 @@ export type TextRunEdit =
   | { readonly kind: 'moveTextRun'; readonly page: number; readonly runId: number; readonly dx: number; readonly dy: number }
   | { readonly kind: 'removeTextRun'; readonly page: number; readonly runId: number }
   | { readonly kind: 'restyleTextRuns'; readonly page: number; readonly runIds: readonly number[]; readonly look: TextRunLook };
+
+/**
+ * An edit of an image a page's content read handed out (`imageId`, valid
+ * against that read), on page position `page`, or of a new one. Page
+ * content: one undo step that the pixels show at once and `paintRevision`
+ * moves for. A second move or resize of the same image folds into its step;
+ * one that changes nothing (a zero move, the box it has) records nothing.
+ * Geometry is on the page as drawn (points, y down): `dx, dy` a move, `rect`
+ * the box a resize paints it into, `at` the top-left corner of an inserted
+ * image, whose size is the core's (its own proportions, the longest side two
+ * inches). `bytes` are an encoded PNG or JPEG; ask `checkImageReplacement`
+ * before a replacement is chosen. Rejects as `contentEditingRefusal` says
+ * (`EditNotPermitted`, or `TextExtractionDenied`), then
+ * `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the page does
+ * not hold now or a box with no area, or `InvalidImage` for bytes that do
+ * not decode.
+ */
+export type ImageEdit =
+  | { readonly kind: 'moveImage'; readonly page: number; readonly imageId: number; readonly dx: number; readonly dy: number }
+  | { readonly kind: 'resizeImage'; readonly page: number; readonly imageId: number; readonly rect: PageRect }
+  | { readonly kind: 'removeImage'; readonly page: number; readonly imageId: number }
+  | { readonly kind: 'replaceImage'; readonly page: number; readonly imageId: number; readonly bytes: Uint8Array }
+  | { readonly kind: 'insertImage'; readonly page: number; readonly at: PagePoint; readonly bytes: Uint8Array };

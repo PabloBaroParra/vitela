@@ -663,6 +663,67 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect((await engine.undo(handle)).canUndo).toBe(false);
     await engine.close(handle);
   });
+
+  it('edits an image through the real core: move, resize, replace, insert, delete, saved and undone', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const scan = await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf')));
+    const handle = scan.handle;
+    const imagesOf = async (doc: number) => (await engine.readPageContent(doc, 0)).images;
+    const [original] = await imagesOf(handle);
+    expect(original).toBeDefined();
+
+    const moved = await engine.applyEdit(handle, { kind: 'moveImage', page: 0, imageId: original!.id, dx: -20, dy: 30 });
+    expect(moved.canUndo).toBe(true);
+    expect(moved.paintRevision).toBeGreaterThan(0);
+    const [afterMove] = await imagesOf(handle);
+    expect(afterMove!.rect.left).toBeCloseTo(original!.rect.left - 20, 1);
+    expect(afterMove!.rect.top).toBeCloseTo(original!.rect.top + 30, 1);
+
+    const box = { left: 50, top: 60, width: 300, height: 200 };
+    await engine.applyEdit(handle, { kind: 'resizeImage', page: 0, imageId: afterMove!.id, rect: box });
+    const [resized] = await imagesOf(handle);
+    expect(resized!.rect.left).toBeCloseTo(50, 1);
+    expect(resized!.rect.top).toBeCloseTo(60, 1);
+    expect(resized!.rect.width).toBeCloseTo(300, 1);
+    expect(resized!.rect.height).toBeCloseTo(200, 1);
+
+    await expect(engine.checkImageReplacement(handle, 0, resized!.id)).resolves.toBeUndefined();
+    await engine.applyEdit(handle, { kind: 'replaceImage', page: 0, imageId: resized!.id, bytes: new Uint8Array(WIDE_PNG) });
+    await expect(
+      engine.applyEdit(handle, { kind: 'replaceImage', page: 0, imageId: resized!.id + 1000, bytes: new Uint8Array(WIDE_PNG) }),
+    ).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+
+    // The core sizes an insert: the picture's own 2:1, the longest side 144 pt, its top-left at the point.
+    await engine.applyEdit(handle, { kind: 'insertImage', page: 0, at: { x: 400, y: 500 }, bytes: new Uint8Array(WIDE_PNG) });
+    const both = await imagesOf(handle);
+    expect(both).toHaveLength(2);
+    const inserted = both.find((image) => Math.abs(image.rect.left - 400) < 0.5)!;
+    expect(inserted.rect.top).toBeCloseTo(500, 1);
+    expect(inserted.rect.width).toBeCloseTo(144, 1);
+    expect(inserted.rect.height).toBeCloseTo(72, 1);
+    await expect(
+      engine.applyEdit(handle, { kind: 'insertImage', page: 0, at: { x: 1, y: 1 }, bytes: new Uint8Array([1, 2, 3]) }),
+    ).rejects.toMatchObject({ name: 'InvalidImage' });
+
+    const reopened = await engine.open(await engine.saveToBytes(handle, false));
+    const saved = await imagesOf(reopened.handle);
+    expect(saved).toHaveLength(2);
+    expect(saved.some((image) => Math.abs(image.rect.left - 50) < 0.5 && Math.abs(image.rect.width - 300) < 0.5)).toBe(true);
+    expect(saved.some((image) => Math.abs(image.rect.left - 400) < 0.5 && Math.abs(image.rect.width - 144) < 0.5)).toBe(true);
+    await engine.close(reopened.handle);
+
+    await engine.applyEdit(handle, { kind: 'removeImage', page: 0, imageId: inserted.id });
+    expect(await imagesOf(handle)).toHaveLength(1);
+    // Four steps: the resize folds into the move (one geometry step per
+    // image, the core's rule), then the replace, the insert and the delete.
+    for (let step = 0; step < 3; step++) expect((await engine.undo(handle)).canUndo).toBe(true);
+    expect((await engine.undo(handle)).canUndo).toBe(false);
+    const [back] = await imagesOf(handle);
+    expect(back!.rect.left).toBeCloseTo(original!.rect.left, 1);
+    expect(back!.rect.width).toBeCloseTo(original!.rect.width, 1);
+    await engine.close(handle);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */

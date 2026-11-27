@@ -206,6 +206,21 @@ impl From<pdf_save::ContentEditRefusal> for EngineError {
     }
 }
 
+impl From<pdf_edit::EditError> for EngineError {
+    /// A content edit `pdf-edit` refused when asked about it up front (an
+    /// image replacement checked before the file picker), by the kinds a
+    /// recorded edit gets: a picture that does not decode and a character a
+    /// font cannot show keep their own.
+    fn from(err: pdf_edit::EditError) -> Self {
+        let kind = match err {
+            pdf_edit::EditError::EncodingGap { .. } => ErrorKind::EncodingGap,
+            pdf_edit::EditError::InvalidImage(_) => ErrorKind::InvalidImage,
+            _ => ErrorKind::UnsupportedOperation,
+        };
+        Self::new(kind, err.to_string())
+    }
+}
+
 impl From<pdf_save::RecordError> for EngineError {
     /// A content edit the queue refused (`UnsupportedOperation`, the reason
     /// worded for the reader), or one that does not apply to its page, by

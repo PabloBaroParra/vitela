@@ -19,7 +19,8 @@
 //! [`export`]; extracting pages and splitting are in [`extract`]; the document's
 //! properties are in [`metadata`]; watermarks are in [`watermark`]; the page
 //! content model (what a page paints, its text blocks, a run's style) is in
-//! [`content`].
+//! [`content`]; editing a page's text runs is in [`text_run`] and its images
+//! in [`image`].
 
 use std::collections::HashMap;
 
@@ -39,6 +40,7 @@ mod edit;
 mod export;
 mod extract;
 mod form;
+mod image;
 mod import;
 mod metadata;
 mod protect;

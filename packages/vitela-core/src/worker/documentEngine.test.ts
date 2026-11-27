@@ -111,7 +111,8 @@ type FakeEdit =
   | { kind: 'fill'; op: string; id: number; value: unknown; free(): void }
   | { kind: 'metadata'; keys: (string | undefined)[]; free(): void }
   | { kind: 'watermark'; op: string; args: unknown[]; free(): void }
-  | { kind: 'textRun'; op: string; args: unknown[]; free(): void };
+  | { kind: 'textRun'; op: string; args: unknown[]; free(): void }
+  | { kind: 'image'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -264,6 +265,11 @@ function fakeCore(
     moveTextRun: (...args) => command({ kind: 'textRun', op: 'moveTextRun', args }),
     removeTextRun: (...args) => command({ kind: 'textRun', op: 'removeTextRun', args }),
     restyleTextRuns: (...args) => command({ kind: 'textRun', op: 'restyleTextRuns', args }),
+    moveImage: (...args) => command({ kind: 'image', op: 'moveImage', args }),
+    resizeImage: (...args) => command({ kind: 'image', op: 'resizeImage', args }),
+    removeImage: (...args) => command({ kind: 'image', op: 'removeImage', args }),
+    replaceImage: (...args) => command({ kind: 'image', op: 'replaceImage', args }),
+    insertImage: (...args) => command({ kind: 'image', op: 'insertImage', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -491,6 +497,12 @@ function fakeCore(
       return { format: 'trueType', takeBytes: () => new Uint8Array([0, 1, 0, 0]), free: () => freed.push('program') };
     },
     contentBaseGeneration: (doc) => (known(doc), 3),
+    checkImageReplacement: (doc, page, imageId) => {
+      if (options.restricted) throw named('EditNotPermitted', 'image replacement is not permitted');
+      readable(doc);
+      if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
+      if (imageId !== 0) throw named('UnsupportedOperation', 'the page has no image with that id now: read its content again');
+    },
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
     protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
@@ -569,7 +581,7 @@ function fakeCore(
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
       }
-      if (edit.kind === 'textRun') {
+      if (edit.kind === 'textRun' || edit.kind === 'image') {
         if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
         // Page content: the step shows in the pixels, repainting pages in place.
         record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
@@ -1926,6 +1938,43 @@ describe('documentEngine forms', () => {
     });
     expect(applied.at(-1)).toMatchObject({ op: 'restyleTextRuns', args: [0, new Float64Array([4, 5]), true, false, true, false] });
     expect((await engine.undo(handle)).canUndo).toBe(true);
+  });
+
+  it('records each image edit as one repainting step, drawn geometry crossing in PDF space', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'moveImage', page: 0, imageId: 2, dx: 5, dy: 10 });
+    // Drawn y grows down, PDF y up.
+    expect(applied.at(-1)).toMatchObject({ kind: 'image', op: 'moveImage', args: [0, 2, 5, -10] });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:image');
+
+    await engine.applyEdit(handle, { kind: 'resizeImage', page: 0, imageId: 2, rect: { left: 72, top: 242, width: 200, height: 100 } });
+    expect(applied.at(-1)).toMatchObject({ op: 'resizeImage', args: [0, 2, 72, 450, 200, 100] });
+    await engine.applyEdit(handle, { kind: 'removeImage', page: 0, imageId: 2 });
+    expect(applied.at(-1)).toMatchObject({ op: 'removeImage', args: [0, 2] });
+    const bytes = new Uint8Array([137, 80]);
+    await engine.applyEdit(handle, { kind: 'replaceImage', page: 0, imageId: 2, bytes });
+    expect(applied.at(-1)).toMatchObject({ op: 'replaceImage', args: [0, 2, bytes] });
+    await engine.applyEdit(handle, { kind: 'insertImage', page: 0, at: { x: 300, y: 92 }, bytes });
+    expect(applied.at(-1)).toMatchObject({ op: 'insertImage', args: [0, 300, 700, bytes] });
+  });
+
+  it('asks whether an image can be replaced, its permission before its page', async () => {
+    const { core, edits } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    await expect(engine.checkImageReplacement(handle, 0, 0)).resolves.toBeUndefined();
+    await expect(engine.checkImageReplacement(handle, 0, 9)).rejects.toMatchObject({ name: 'UnsupportedOperation' });
+    await expect(engine.checkImageReplacement(99, 0, 0)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+
+    const restricted = fakeCore({ restricted: true });
+    const refusing = documentEngine(restricted.core, upright, restricted.edits);
+    const opened = await refusing.open(new Uint8Array([10]));
+    await expect(refusing.checkImageReplacement(opened.handle, 9, 0)).rejects.toMatchObject({ name: 'EditNotPermitted' });
   });
 
   it('moves a run on a page past the end untransformed, for the core to refuse', async () => {

@@ -49,10 +49,10 @@ export const STAMP_NOT_READ = 'The image could not be read. Nothing was added.';
 export const STAMP_TOO_LARGE = `Images larger than ${MAX_STAMP_BYTES / (1024 * 1024)} MB cannot be added to a page.`;
 export const STAMP_NOT_ALLOWED = 'This PDF does not allow annotations, so the image was not added.';
 
-type ReadResult = { readonly image: StampImage } | { readonly refusal: string };
+export type ReadResult = { readonly image: StampImage } | { readonly refusal: string };
 
 /** `file` as a stamp image, or why it cannot be one. Never throws. */
-async function readStampImage(file: File): Promise<ReadResult> {
+export async function readStampImage(file: File): Promise<ReadResult> {
   if (file.size > MAX_STAMP_BYTES) return { refusal: STAMP_TOO_LARGE };
   let bytes: Uint8Array;
   try {

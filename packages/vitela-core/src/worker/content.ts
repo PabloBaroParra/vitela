@@ -11,6 +11,7 @@
 import type {
   ContentFontKind,
   FontProgram,
+  ImageEdit,
   TextRunEdit,
   TextRunLookState,
   ContentImage,
@@ -96,6 +97,15 @@ export interface CoreTextRunEdits {
   restyleTextRuns(page: number, runIds: Float64Array, bold: boolean, italic: boolean, underline: boolean, strike: boolean): Owned;
 }
 
+/** core/pdf-wasm's image `EditCommand` constructors (T-260); geometry in PDF points (y up). */
+export interface CoreImageEdits {
+  moveImage(page: number, imageId: number, dx: number, dy: number): Owned;
+  resizeImage(page: number, imageId: number, x: number, y: number, width: number, height: number): Owned;
+  removeImage(page: number, imageId: number): Owned;
+  replaceImage(page: number, imageId: number, bytes: Uint8Array): Owned;
+  insertImage(page: number, x: number, y: number, bytes: Uint8Array): Owned;
+}
+
 /** core/pdf-wasm's `TextRunLookEntry`. */
 export interface CoreTextRunLook extends Owned {
   readonly bold: boolean;
@@ -130,6 +140,35 @@ export function textRunCommand(edits: CoreTextRunEdits, edit: TextRunEdit, frame
     case 'restyleTextRuns': {
       const { bold, italic, underline, strike } = edit.look;
       return edits.restyleTextRuns(edit.page, Float64Array.from(edit.runIds), bold, italic, underline, strike);
+    }
+  }
+}
+
+/**
+ * The core command for an image `edit`. Its geometry is on the page as
+ * drawn and crosses through the page's frame; on a page past the end it
+ * crosses as is, for the core to refuse (`PageIndexOutOfBounds`) after its
+ * own gates.
+ */
+export function imageCommand(edits: CoreImageEdits, edit: ImageEdit, frameOf: (page: number) => PageFrame | undefined): Owned {
+  const frame = frameOf(edit.page);
+  switch (edit.kind) {
+    case 'moveImage': {
+      const [dx, dy] = frame?.deltaToPdf(edit.dx, edit.dy) ?? [edit.dx, edit.dy];
+      return edits.moveImage(edit.page, edit.imageId, dx, dy);
+    }
+    case 'resizeImage': {
+      const { left, top, width, height } = edit.rect;
+      const [x, y, w, h] = frame?.rectToPdf(edit.rect) ?? [left, top, width, height];
+      return edits.resizeImage(edit.page, edit.imageId, x, y, w, h);
+    }
+    case 'removeImage':
+      return edits.removeImage(edit.page, edit.imageId);
+    case 'replaceImage':
+      return edits.replaceImage(edit.page, edit.imageId, edit.bytes);
+    case 'insertImage': {
+      const [x, y] = frame?.pointToPdf(edit.at) ?? [edit.at.x, edit.at.y];
+      return edits.insertImage(edit.page, x, y, edit.bytes);
     }
   }
 }

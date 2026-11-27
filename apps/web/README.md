@@ -661,8 +661,8 @@ thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
 
 ## Edit content
 
-`features/content/` (T-258b, T-259): the mode the page's own text, images
-and shapes are edited in — text runs since T-259. **Edit content** is the last item of
+`features/content/` (T-258b, T-259, T-260): the mode the page's own text,
+images and shapes are edited in — text runs since T-259, images since T-260. **Edit content** is the last item of
 **Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
 Organize it switches to the viewer). The viewer's toolbar rows have no room
 for a button of its own: at 1280 px the first row (View, Text) and the second
@@ -702,6 +702,25 @@ say what its characters are says it cannot be retyped. While any step runs no
 page is read and a press selects nothing: the parse held may name what the
 step is about to change.
 
+**Images (T-260).** With an image selected, eight handles sit on its box: a
+corner resizes it keeping its proportions (Shift frees them; the native
+shells resize from four free corners), a side changes one dimension, and
+the box it would take is drawn while a handle is dragged. A drag of its body
+moves it, the arrow keys nudge it 1 pt (Shift: 10 pt), Delete or Backspace
+removes it. A toolbar over it has **Replace** and **Delete**: the core is
+asked whether the image can be replaced (`checkImageReplacement`) as soon as
+it is selected, and Replace opens the file picker only when it said yes
+(else it says why); the file is checked like a stamp's (PNG or JPEG, at most
+`MAX_STAMP_BYTES`). **Insert image**, in the mode's status row, picks a file
+and then arms a click on a page (pressed while armed; Escape or a second
+press disarms): the core sizes the image (`stampPlacement`, the longest side
+two inches, its top-left corner at the click) and inserts it, and it is
+selected where it lands. Each edit is one undo step, marks the document
+dirty, and the image is found again by its box once its page is read anew.
+A commit made because the editor's page scrolled out does not wait for that
+page to be read again (it is not in the parse window): the keys stay the
+pages'.
+
 **Only the pages in view and one on each side are parsed** (the Linux shell
 froze parsing every page of a 1619-page file), each parse kept by page id,
 `paintRevision` and `contentBaseGeneration` and dropped once its page is out
@@ -727,6 +746,17 @@ Escape cancels and a press beside it commits; three Shift+Right presses move
 Delete removes it and the reopened file has no run there; Bold toggles and
 reads back bold after a save; each undone and redone; a PDF that forbids
 modification offers no edit at all.
+
+E2E (`e2e/edit-images.spec.ts`, all three browsers): an image moves by the
+arrows and by a drag of its body as one step, saved and reopened where it was
+left; a corner handle resizes it in proportion, with Shift freely, one step
+with the move, saved and reopened in its new box; Delete and the toolbar's
+Delete remove it, undone and redone, and the reopened file paints nothing
+there; Replace asks the core, then the picker, and the saved file holds the
+new picture (its XObject's `/Width`) in the same box; Insert image arms a
+click, Escape disarms it, the inserted image is placed at the core's size,
+moved before any save, undone and redone, and saved; a PDF that forbids
+modification offers no image edit.
 
 ## Organize
 

@@ -2178,7 +2178,7 @@ Gates (Windows 11, local):
 | **T-258a** ✓ (#666) | Core: la orquestación de la edición de contenido sale de `pdf-ffi` a `pdf-save` (`content_edit.rs`) y `pdf-edit` (`group_text_paragraphs`); `pdf-ffi` delega. | Nativo: cero cambio de comportamiento. |
 | **T-258b** ✓ | Modelo de contenido en wasm (`CheckpointSession`, `readPageContent`, bloques y párrafos, `textRunStyle`, familias de fuente, `contentBaseGeneration`) y modo **Edit content** de solo lectura en el visor. | `wasm-bindgen-test` + Vitest contra pdfium real; Playwright del modo. |
 | **T-259** ✓ | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
-| **T-260** | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
+| **T-260** ✓ | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
 | **T-261** | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
 | **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
 | **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
@@ -3235,6 +3235,116 @@ Edición de runs de texto en el modo **Edit content**, más los arreglos de revi
   repetirlo solo). Otro intermitente de `draw.spec` en Chromium (1 / 40): el aviso "no se puede
   mostrar en Helvetica" del cuadro de texto que sigue visible tras reescribir, una carrera del
   diálogo de dibujo, que este cambio no toca (0 / 40 sobre el código anterior; sin arreglar aquí).
+
+### T-260 — resultado
+
+Edición de imágenes en el modo **Edit content**, más tres seguimientos de la revisión de T-259
+(parte A). Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API).
+
+- **Parte A — seguimiento de la revisión de T-259** (cada uno con su test en rojo primero):
+  (1) **edición atascada:** un commit hecho porque la página del editor salió de la vista
+  (`detach`) pedía seguir el run en una página fuera de la ventana de lectura, que nunca se
+  vuelve a leer: `content.following` quedaba en `true`, `busy` también, y las flechas se
+  tomaban como movimientos de ese run (acumulados para cuando se leyera, con el
+  `preventDefault` que quitaba el scroll con teclado). Ahora `useContentMode` suelta el
+  seguimiento de una página que no está en `wanted` (no se ve seleccionado nada en ella de todas
+  formas). Vitest (`useContentMode`) y E2E (`edit-text-runs.spec.ts`: tras el scroll, las
+  flechas hacen scroll, un run de la página 12 se borra sin volver, y el run retipeado sigue en
+  su sitio), los dos en rojo contra el código anterior. (2) **`runFont.ts`** pedía el programa
+  entero al worker en cada apertura del editor antes de mirar la caché: ahora la primera clave es
+  barata (id de página + recurso de la fuente + `baseGeneration`, `RunFontAt`) y los bytes solo
+  se piden si falla; la cara se sigue deduplicando por los bytes. Se guarda también "sin
+  programa" (standard-14) por esa clave; un fallo de lectura no. Hueco conocido, documentado en
+  el módulo: dos Form XObjects de una página que llaman `F1` a fuentes distintas comparten la
+  clave barata (el camuflaje del segundo puede salir en la cara del primero; el texto es el del
+  core igualmente). (3) **El aspecto llega tarde:** el editor copiaba el `textRunLook` al abrir;
+  si la lectura aterrizaba después, el camuflaje se quedaba sin negrita/cursiva. Ahora un efecto
+  lo completa cuando llega (el estilo, `textRunStyle`, ya se actualizaba). Vitest.
+- **`pdf-wasm`** (`model/image.rs`, `engine/image.rs`): `DocumentModel::apply_image_edit(ImageEdit)`
+  con `Move { dx, dy }`, `Resize { to }`, `Remove`, `Replace { bytes }` e `Insert { at, bytes }`
+  (puntos PDF, y hacia arriba), la imagen resuelta contra la lectura pendiente y el comando del
+  core (`MoveImage`, `ResizeImage`, `RemoveImage`, `ReplaceImageSource`, `InsertImage`) por
+  `DocumentModel::record_content` + las puertas de `pdf_save::content_edit`. Lo que no cambia nada
+  (mover 0, la caja que ya tiene) no registra nada; una caja sin área o una distancia no finita es
+  `UnsupportedOperation`; bytes que no decodifican, `InvalidImage` antes de encolar. **Un
+  redimensionado tras un movimiento de la misma imagen pliega en su paso** (regla del core: una
+  edición de geometría por imagen). `Replace` pregunta antes `check_image_replacement`.
+  `checkImageReplacement(doc, page, id)` = `pdf_save::check_image_replacement` (permiso antes que
+  la imagen, como `pdf-ffi`); nuevo `From<pdf_edit::EditError>` para `EngineError`. `Insert`:
+  tamaño del core (`pdf_annotate::stamp_placement`, lado mayor 144 pt, esquina superior izquierda
+  en el punto, como Android y GTK) y nombre `/XObject` aleatorio `VitelaImage<16 hex>`
+  (`pdf_save::RandomIdGenerator`) que no use ninguna imagen de la página ni ninguna inserción o
+  borrado encolado — como el adaptador Android: el core rechaza un nombre ocupado en vez de
+  reutilizarlo, y un nombre secuencial podría chocar con lo que una imagen borrada dejó en los
+  recursos tras guardar. Una imagen insertada (id sintético) se puede mover antes de guardar: el
+  core toma un checkpoint. `image` (solo PNG) como dev-dependency de los tests.
+- **`@vitela/core`:** tipo `ImageEdit` (`moveImage`, `resizeImage` con `rect`, `removeImage`,
+  `replaceImage`, `insertImage` con `at`; geometría en la página dibujada, cruzada por
+  `PageFrame`: `deltaToPdf`, `rectToPdf`, `pointToPdf`) y `Engine.checkImageReplacement`.
+- **`@vitela/viewer` (`features/content/`):** puro `images.ts` (8 asas; `resizedRect`: una
+  esquina conserva la proporción salvo con Mayús, un lado cambia una dimensión, mínimo 4 pt, la
+  esquina o lado opuesto fijo; `handleBox`; `followImage`: la imagen editada se encuentra de nuevo
+  por su caja, la más cercana entre las que solapan), contenedor `useImageEditing` (sobre la cola
+  `useAnnotationEdits.apply` como los runs; flechas 1 pt / Mayús 10 pt sumadas mientras corre un
+  paso; Delete/Retroceso; pregunta `checkImageReplacement` en cuanto la imagen está seleccionada
+  y Replace abre el selector solo si dijo que sí — si no, dice la frase del core —; el fichero se
+  comprueba como un sello: PNG o JPEG, `MAX_STAMP_BYTES`, `readStampImage` ahora exportado;
+  **Insert image** elige el fichero y arma la siguiente pulsación en una página — como Android —,
+  Escape o pulsarlo otra vez desarma; el tamaño se pide antes al core, `stampPlacement`, para
+  seleccionar la imagen donde aterriza), vista `ImageOverlay` (asas, caja de vista previa durante
+  el arrastre de un asa, barra **Replace** / **Delete**). `useContentMode` gana `followImage` y
+  `followingKind` (el seguimiento sabe si busca un run o una imagen; una pulsación sobre una
+  imagen durante un seguimiento lo re-apunta a ella); `useTextRunEditing` solo acumula flechas
+  cuando sigue un run. `ContentLayer` arrastra también una imagen seleccionada por su cuerpo.
+  `ContentStatus` gana **Insert image** (`aria-pressed` mientras está armado); la fila de estado
+  dice "Click the page where the image goes. Press Escape to cancel." mientras tanto.
+- **Desviación de los nativos, consciente:** los shells nativos redimensionan desde 4 esquinas
+  libres; la web pone 8 asas y conserva la proporción desde una esquina por defecto (Mayús da la
+  conducta nativa), como pedía la ficha. Mover una imagen con teclas es solo de la web.
+- **Tests:** Rust 15 nativos nuevos (`model/image/tests.rs`: mover, plegar el segundo
+  movimiento, redimensionar, nada para lo que no cambia, caja sin área, borrar, reemplazar con
+  el `/Width` nuevo en el fichero y el viejo tras deshacer, bytes que no decodifican, insertar al
+  tamaño del core, mover una inserción antes de guardar, dos inserciones con dos nombres, ids y
+  páginas desconocidos, documento que prohíbe modificar, reemplazar tras mover a través de un
+  checkpoint) — vistos en rojo con el cuerpo de `apply_image_edit` vaciado (13 de 15 caen) — y 2
+  `wasm-bindgen-test` (`tests/images.rs`, compilan con clippy wasm32). `@vitela/core` 5 Vitest
+  nuevos (1 `client`, 1 `handler`, 2 `documentEngine`, 1 pdfium real: el escaneo movido,
+  redimensionado, reemplazado, con una imagen insertada a 144 × 72, guardado y releído, borrado y
+  deshecho paso a paso). `@vitela/viewer` 30 nuevos (7 `images`, 3+1 `useContentMode` /
+  `ContentStatus`, 16 `useImageEditing` con `ImageOverlay`, 2 `runFont`, 1 `useTextRunEditing`).
+  Los de `useImageEditing`/`ImageOverlay` se escribieron antes de que el código corriera, pero la
+  primera pasada fue ya contra la implementación: su rojo se comprobó después rompiendo el hook y
+  la vista (9 de 16 caen).
+- **E2E (`e2e/edit-images.spec.ts`, 6 × 3)** sobre un PDF con una imagen XObject de 2 × 1
+  (`pdf.ts` gana `images`): mover con flechas y arrastre, un paso, guardado y reabierto donde
+  quedó; esquina en proporción y con Mayús libre, un paso con el movimiento, guardado y
+  reabierto; Delete y el Delete de la barra, deshacer/rehacer, nada en el fichero reabierto;
+  Replace pregunta al core y luego el selector, el fichero guardado tiene el `/Width` nuevo en la
+  misma caja; Insert image arma, Escape desarma, se inserta al tamaño del core, se mueve antes de
+  guardar, deshacer/rehacer, guardado y releído; un PDF que prohíbe modificar no ofrece nada.
+  Y el E2E de la parte A en `edit-text-runs.spec.ts`.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check` limpio; `cargo clippy --locked
+  -p pdf-wasm -p pdf-save --all-targets -- -D warnings` nativo y `cargo clippy --locked --target
+  wasm32-unknown-unknown -p pdf-wasm --all-targets -- -D warnings` (con `PDFIUM_WASM_DIR`), sin
+  avisos; `cargo test --locked -p pdf-wasm -p pdf-save` (con `PDFIUM_DYNAMIC_LIB_PATH`) todo en
+  verde (`pdf-wasm` lib 190, `pdf-save` lib 231, 0 fallos). `@vitela/core`: `build:wasm`,
+  `typecheck`, Vitest 15 / 231, `build`. `@vitela/viewer`: `typecheck`, Vitest 100 / 1008,
+  `build`. `apps/web`: `typecheck`, Vitest 6 / 19, `build`. Playwright `edit-images` +
+  `edit-text-runs` + `edit-content` en los 3 navegadores (`CI=1`): 57 pasan. Suite completa
+  (`CI=1 --reporter=line`): **372 pasan, 22 omitidos, 2 fallos**: `draw.spec.ts:53` en Chromium
+  (el aviso de Helvetica del cuadro de texto que sigue visible, la carrera ya anotada en T-259;
+  repetido solo 10 veces: 8 / 10) y `export-images.spec.ts:59` en WebKit (timeout en el radio
+  "Current page"; repetido solo: 10 / 10). Ninguno toca contenido; `zero-network`, `phone-bar` y
+  `embed` en verde.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver; compilan con clippy
+  wasm32; la misma superficie la cubre el Vitest con pdfium real); `linux-gtk`, Android.
+- **No cubierto / pendiente:** girar una imagen; redimensionar con teclado; recortar; editar
+  imágenes en una página con `/Rotate` no está verificado (la geometría pasa por `PageFrame`
+  como la de los runs, pero ningún test lo cubre, y una inserción se ancla por su esquina
+  superior izquierda en espacio PDF, como `stampPlacement`); sin lector de pantalla real. El
+  hallazgo de T-259 sigue: un borrado deja el flujo original sin referenciar en un guardado
+  normal (por eso el E2E comprueba la relectura y el `/Width` presente, no la ausencia).
 
 ## Verificación
 

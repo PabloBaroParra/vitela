@@ -52,6 +52,15 @@ async function savedBytes(page: Page): Promise<Buffer> {
   return readFileSync(await download.path());
 }
 
+/**
+ * Waits out the rendering update after typing: WebKit reveals the caret of what was just typed at
+ * the next layout, so a scroll made before it is undone, the pages pulled back to the field. A
+ * person cannot scroll inside that frame; a script can.
+ */
+async function typingLaidOut(page: Page): Promise<void> {
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+}
+
 /** Opens `bytes` as another document and turns the mode on in it. */
 async function reopen(page: Page, name: string, bytes: Buffer): Promise<void> {
   await openBytes(page, name, bytes);
@@ -176,6 +185,7 @@ test('what is typed is committed when a scroll takes the open editor’s page ou
   const editor = page.getByRole('textbox', { name: 'Edit text “Vitela content line”' });
   await expect(editor).toBeFocused();
   await editor.fill('Typed then scrolled');
+  await typingLaidOut(page);
 
   // A wheel scroll does not move the focus: the field just goes with its page.
   await pages(page).evaluate((scroller) => (scroller.scrollTop = scroller.scrollHeight));
@@ -189,6 +199,56 @@ test('what is typed is committed when a scroll takes the open editor’s page ou
   const bytes = await savedBytes(page);
   expect(occurrences(bytes, '(Typed then scrolled)')).toBeGreaterThan(0);
   expect(occurrences(bytes, '(Vitela content line)')).toBe(0);
+});
+
+test('after a scroll commits the open editor, nothing waits for its page: the keys scroll and edit the page in view', async ({
+  page,
+}) => {
+  // The commit follows a run on page 1, which is no longer read. Waiting for it would keep every
+  // edit busy and take the arrow keys as moves of that run, to be applied once it is read again.
+  const lines = (number: number): PageSpec => ({ widthPt: 612, heightPt: 792, lines: [`Line on page ${number}`] });
+  const document = buildPdf(Array.from({ length: 12 }, (_, index) => lines(index + 1)));
+  await loadApp(page);
+  await openBytes(page, 'scrolled-edit.pdf', document);
+  await enterMode(page);
+  await selectRun(page, 'Line on page 1');
+  const before = (await selectedOutline(page).boundingBox())!;
+  const pageTop = (await pageSlot(page, 1).boundingBox())!.y;
+  await page.keyboard.press('Enter');
+  const editor = page.getByRole('textbox', { name: 'Edit text “Line on page 1”' });
+  await editor.fill('Typed then scrolled');
+  await typingLaidOut(page);
+  await pages(page).evaluate((scroller) => (scroller.scrollTop = scroller.scrollHeight));
+  await expect(pageSlot(page, 1)).toHaveCount(0);
+  await expect(saveButton(page)).toBeEnabled({ timeout: 30_000 });
+  await expect(history(page, 'Undo')).not.toHaveAttribute('aria-disabled', 'true', { timeout: 30_000 });
+
+  // The arrows are the pages' again: they scroll, and move nothing.
+  await pages(page).focus();
+  const scrolled = await pages(page).evaluate((scroller) => scroller.scrollTop);
+  for (let press = 0; press < 3; press++) await page.keyboard.press('ArrowUp');
+  await expect.poll(() => pages(page).evaluate((scroller) => scroller.scrollTop), { timeout: 10_000 }).toBeLessThan(scrolled);
+
+  // The last page's run is selected and deleted without scrolling back.
+  const last = pageSlot(page, 12);
+  await last.evaluate((slot) => slot.scrollIntoView({ block: 'start' }));
+  await expect(last.locator('.content-layer')).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  const box = (await last.boundingBox())!;
+  await page.mouse.click(box.x + 90 * SCALE, box.y + LINE_TOP * SCALE);
+  await expect(status(page)).toHaveText('Text “Line on page 12” selected on page 12.', { timeout: 30_000 });
+  await page.keyboard.press('Delete');
+  await expect(status(page)).toHaveText('Point at text, an image or a shape on a page, and click to select it.', {
+    timeout: 30_000,
+  });
+
+  // Back on page 1, the retyped run is where it was.
+  await pages(page).evaluate((scroller) => (scroller.scrollTop = 0));
+  await selectRun(page, 'Typed then scrolled');
+  const after = (await selectedOutline(page).boundingBox())!;
+  const pageTopNow = (await pageSlot(page, 1).boundingBox())!.y;
+  expect(after.y - pageTopNow).toBeCloseTo(before.y - pageTop, 0);
+  const bytes = await savedBytes(page);
+  expect(occurrences(bytes, '(Typed then scrolled)')).toBeGreaterThan(0);
 });
 
 test('a press on another run while the editor is open commits it and selects the run pressed', async ({ page }) => {
