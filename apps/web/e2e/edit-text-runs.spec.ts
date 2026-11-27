@@ -165,6 +165,57 @@ test('a run moves by the arrow keys and by a drag of its outline, saved where it
   expect(saved.y - reopenedPage.y).toBeCloseTo(dropped.y - pageBox.y, 0);
 });
 
+test('what is typed is committed when a scroll takes the open editor’s page out of view', async ({ page }) => {
+  // Twelve pages: the last ones are far past the one viewport of overscan kept mounted around page 1.
+  const document = buildPdf([LETTER, ...Array.from({ length: 11 }, () => ({ widthPt: 612, heightPt: 792 }))]);
+  await loadApp(page);
+  await openBytes(page, 'scrolled.pdf', document);
+  await enterMode(page);
+  await selectRun(page, 'Vitela content line');
+  await page.keyboard.press('Enter');
+  const editor = page.getByRole('textbox', { name: 'Edit text “Vitela content line”' });
+  await expect(editor).toBeFocused();
+  await editor.fill('Typed then scrolled');
+
+  // A wheel scroll does not move the focus: the field just goes with its page.
+  await pages(page).evaluate((scroller) => (scroller.scrollTop = scroller.scrollHeight));
+  await expect(pageSlot(page, 1)).toHaveCount(0);
+  await expect(editor).toHaveCount(0);
+  await expect(saveButton(page)).toBeEnabled({ timeout: 30_000 });
+
+  await pages(page).evaluate((scroller) => (scroller.scrollTop = 0));
+  await expect(editor).toHaveCount(0);
+  await selectRun(page, 'Typed then scrolled');
+  const bytes = await savedBytes(page);
+  expect(occurrences(bytes, '(Typed then scrolled)')).toBeGreaterThan(0);
+  expect(occurrences(bytes, '(Vitela content line)')).toBe(0);
+});
+
+test('a press on another run while the editor is open commits it and selects the run pressed', async ({ page }) => {
+  const TWO: PageSpec = { widthPt: 612, heightPt: 792, lines: ['First line here', 'Second line here'] };
+  const secondTop = TWO.heightPt - lineBaseline(TWO, 1) - LINE_FONT_PT / 2;
+  await loadApp(page);
+  await openBytes(page, 'two-lines.pdf', buildPdf([TWO]));
+  await enterMode(page);
+  await selectRun(page, 'First line here');
+  await page.keyboard.press('Enter');
+  const editor = page.getByRole('textbox', { name: 'Edit text “First line here”' });
+  await expect(editor).toBeFocused();
+  await editor.fill('First line edited');
+
+  await clickAt(page, 90, secondTop);
+  await expect(editor).toHaveCount(0);
+  await expect(history(page, 'Undo')).not.toHaveAttribute('aria-disabled', 'true', { timeout: 30_000 });
+  // Once the page is read again after the retype, the run pressed is the one selected.
+  await expect(status(page)).toHaveText('Text “Second line here” selected on page 1.', { timeout: 30_000 });
+  await expect(layer(page)).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  await expect(status(page)).toHaveText('Text “Second line here” selected on page 1.');
+  // The retype went in. (Not checked by a press: the selected run's toolbar sits over the first line.)
+  const bytes = await savedBytes(page);
+  expect(occurrences(bytes, '(First line edited)')).toBeGreaterThan(0);
+  expect(occurrences(bytes, '(First line here)')).toBe(0);
+});
+
 test('Delete removes the selected run; undo brings it back, redo removes it again, and the save leaves it out', async ({
   page,
 }) => {
@@ -217,6 +268,12 @@ test("Bold turns the run's face bold, read back as the core's look after the sav
   await history(page, 'Redo').click();
   await selectRun(page, 'Vitela content line');
   await expect(bold).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+  // The editor opened over it is drawn bold too (the look queued, not the file's regular face).
+  await page.keyboard.press('Enter');
+  const editor = page.getByRole('textbox', { name: 'Edit text “Vitela content line”' });
+  await expect(editor).toHaveCSS('font-weight', '700');
+  await editor.press('Escape');
+  await expect(editor).toHaveCount(0);
 
   const bytes = await savedBytes(page);
   await reopen(page, 'bolded.pdf', bytes);

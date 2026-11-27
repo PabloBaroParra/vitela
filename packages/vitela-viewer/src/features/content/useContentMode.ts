@@ -197,11 +197,31 @@ export function useContentMode({
     },
     [pick],
   );
-  const select = useCallback((index: number, point: PagePoint) => setSelected(pick(index, point)), [pick]);
-
   // After an edit of the selected run, the page is read again and the run is
   // found there by place (ids hold only for the read they came from).
   const [following, setFollowing] = useState<Following | null>(null);
+  /**
+   * A press selects what is under it, and wins over an edit still waiting
+   * to select its run again (a press beside an open editor commits it, then
+   * selects). Every page's read goes stale when the edit lands, so a run
+   * pressed is followed instead, by its place and text; anything else drops
+   * the follow.
+   */
+  const select = useCallback(
+    (index: number, point: PagePoint) => {
+      const next = pick(index, point);
+      setSelected(next);
+      setFollowing((waiting) => {
+        if (!waiting) return waiting;
+        if (!next || next.item.kind !== 'run') return null;
+        const { rect, text } = next.item;
+        // The edited run itself: keep following it where the edit puts it.
+        if (next.pageIndex === waiting.pageIndex && sameRect(rect, waiting.expected)) return waiting;
+        return { ...waiting, pageIndex: next.pageIndex, fromKey: next.key, expected: rect, text };
+      });
+    },
+    [pick],
+  );
   const clear = useCallback(() => {
     setSelected(null);
     setFollowing(null);
@@ -270,6 +290,10 @@ export function useContentMode({
 }
 
 export type ContentMode = ReturnType<typeof useContentMode>;
+
+function sameRect(a: PageRect, b: PageRect): boolean {
+  return a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+}
 
 function samePick(a: Picked | null, b: Picked | null): boolean {
   if (!a || !b) return a === b;

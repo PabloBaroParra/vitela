@@ -3,9 +3,11 @@
 // embedded program when the browser loaded it, else the family its name
 // suggests), size, colour, weight and slant, so typing looks like editing
 // the page. Enter commits, Escape cancels, leaving it commits.
-// Presentational: what a commit records is the container's.
+// Presentational: what is typed (the draft), whether a commit counts and what
+// it records are the container's (`useTextRunEditing`), so the draft outlives
+// the field when its page slot is unmounted by a scroll (`onDetach`).
 
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import type { TextRunStyle } from '@vitela/core';
 import { editorBox, faceOf, fallbackFamilies } from './textRuns';
 import type { OpenEditor } from './useTextRunEditing';
@@ -16,32 +18,33 @@ interface TextRunEditorProps {
   readonly scale: number;
   readonly rotationDegrees: number;
   /** Enter (`refocus`: give the keyboard back to the pages) or leaving the field. */
-  readonly onCommit: (text: string, refocus: boolean) => void;
+  readonly onCommit: (refocus: boolean) => void;
   readonly onCancel: () => void;
-  /** Each change of the text, so a save or leaving the mode commits what is typed. */
+  /** Each change of the text: the draft is the container's. */
   readonly onType: (text: string) => void;
+  /** The field is mounted, and when it goes (its page slot unmounted, or the editor closed). */
+  readonly onAttach: () => void;
+  readonly onDetach: () => void;
 }
 
 /** About how wide a glyph is for its size: the field grows with what is typed. */
 const AVERAGE_ADVANCE = 0.6;
 
-export function TextRunEditor({ editor, scale, rotationDegrees, onCommit, onCancel, onType }: TextRunEditorProps) {
-  const { run, style, family } = editor;
-  const [text, setText] = useState(run.text);
+export function TextRunEditor({ editor, scale, rotationDegrees, onCommit, onCancel, onType, onAttach, onDetach }: TextRunEditorProps) {
+  const { run, style, look, family, draft: text } = editor;
   const field = useRef<HTMLInputElement>(null);
-  /** Set once Enter or Escape ended it: the blur that follows commits nothing more. */
-  const ended = useRef(false);
   useEffect(() => {
     field.current?.focus({ preventScroll: true });
     field.current?.select();
-    onType(run.text);
-    // Once, on open.
+    onAttach();
+    return onDetach;
+    // Once per mount: the callbacks are the container's, and stable.
   }, []);
 
   const box = editorBox(run.rect, rotationDegrees, scale);
   const fontPx = (style?.fontSizePt ?? run.rect.height * 0.8) * scale;
   const width = Math.max(box.width, text.length * fontPx * AVERAGE_ADVANCE);
-  const face = faceOf(style, null);
+  const face = faceOf(style, look);
   const families = [...(family ? [family] : []), ...fallbackFamilies(style?.baseFont ?? '')];
   const css: CSSProperties = {
     left: box.left,
@@ -66,28 +69,19 @@ export function TextRunEditor({ editor, scale, rotationDegrees, onCommit, onCanc
       autoComplete="off"
       style={css}
       data-family={family ?? ''}
-      onChange={(event) => {
-        setText(event.target.value);
-        onType(event.target.value);
-      }}
+      onChange={(event) => onType(event.target.value)}
       // The pages' keys (arrows move the run, Delete removes it) are not this field's.
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === 'Enter') {
           event.preventDefault();
-          ended.current = true;
-          onCommit(text, true);
+          onCommit(true);
         } else if (event.key === 'Escape') {
           event.preventDefault();
-          ended.current = true;
           onCancel();
         }
       }}
-      onBlur={() => {
-        if (ended.current) return;
-        ended.current = true;
-        onCommit(text, false);
-      }}
+      onBlur={() => onCommit(false)}
       onPointerDown={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     />
