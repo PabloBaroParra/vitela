@@ -20,14 +20,14 @@ use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
 use crate::model::{
-    AnnotationEdit, DocumentProperties, FieldFill, ImageEdit, PageEdit, SelectionEdit,
+    AnnotationEdit, DocumentProperties, FieldFill, ImageEdit, PageEdit, PathEdit, SelectionEdit,
     TextBlockEdit, TextRunEdit, WatermarkRequest,
 };
 
 /// What an `EditCommand` carries: a page edit, an annotation edit, a form
 /// fill, a change of the document's properties, a watermark, an edit of a
-/// page's text runs, text blocks or images, or of a selection of its
-/// content, or a paste of a content clip.
+/// page's text runs, text blocks, images or vector paths, or of a selection
+/// of its content, or a paste of a content clip.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
@@ -38,6 +38,7 @@ pub(super) enum Edit {
     TextRun(TextRunEdit),
     TextBlock(TextBlockEdit),
     Image(ImageEdit),
+    Path(PathEdit),
     Selection(SelectionEdit),
     /// A clip's box top-left corner at `at` on page `page` (PDF points).
     Paste {
@@ -52,7 +53,8 @@ pub(super) enum Edit {
 /// the document's properties (`engine/metadata.rs`) or a watermark
 /// (`engine/watermark.rs`) or an edit of a page's text runs
 /// (`engine/text_run.rs`), text blocks (`engine/text_block.rs`), images
-/// (`engine/image.rs`) or a selection of them, or a paste
+/// (`engine/image.rs`), vector paths (`engine/path.rs`) or a selection of
+/// them, or a paste
 /// (`engine/selection.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
@@ -135,7 +137,10 @@ impl Engine {
     /// `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the page
     /// does not hold now or a box with no area, `InvalidImage` for bytes
     /// that do not decode; it makes `previewStale` true and moves
-    /// `paintRevision`. A selection edit is refused the same way, then
+    /// `paintRevision`. A path edit is refused the same way, then
+    /// `PageIndexOutOfBounds`, `UnsupportedOperation` for a path the page
+    /// does not hold now or a box that takes a side it has to nothing; it
+    /// makes `previewStale` true and moves `paintRevision`. A selection edit is refused the same way, then
     /// `PageIndexOutOfBounds`, `UnsupportedOperation` for an empty
     /// selection, an item the page does not hold now or part of a pending
     /// paste; a paste is refused as `contentEditingRefusal`'s first gate
@@ -165,6 +170,7 @@ impl Engine {
                     .apply_text_block_edit(edit.clone())
                     .map(|()| None),
                 Edit::Image(edit) => open.model.apply_image_edit(edit.clone()).map(|()| None),
+                Edit::Path(edit) => open.model.apply_path_edit(edit.clone()).map(|()| None),
                 Edit::Selection(edit) => {
                     open.model.apply_selection_edit(edit.clone()).map(|()| None)
                 }

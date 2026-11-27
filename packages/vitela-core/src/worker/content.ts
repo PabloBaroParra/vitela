@@ -15,6 +15,7 @@ import type {
   SelectionEdit,
   FontProgram,
   ImageEdit,
+  PathEdit,
   TextBlockEdit,
   TextRunEdit,
   TextRunLookState,
@@ -119,6 +120,13 @@ export interface CoreImageEdits {
   insertImage(page: number, x: number, y: number, bytes: Uint8Array): Owned;
 }
 
+/** core/pdf-wasm's vector-path `EditCommand` constructors (T-263); geometry in PDF points (y up). */
+export interface CorePathEdits {
+  movePath(page: number, pathId: number, dx: number, dy: number): Owned;
+  resizePath(page: number, pathId: number, x: number, y: number, width: number, height: number): Owned;
+  removePath(page: number, pathId: number): Owned;
+}
+
 /** core/pdf-wasm's selection and paste `EditCommand` constructors (T-262); geometry in PDF points (y up). */
 export interface CoreSelectionEdits {
   moveContentSelection(page: number, runIds: Float64Array, imageIds: Float64Array, pathIds: Float64Array, dx: number, dy: number): Owned;
@@ -214,6 +222,29 @@ export function imageCommand(edits: CoreImageEdits, edit: ImageEdit, frameOf: (p
       const [x, y] = frame?.pointToPdf(edit.at) ?? [edit.at.x, edit.at.y];
       return edits.insertImage(edit.page, x, y, edit.bytes);
     }
+  }
+}
+
+/**
+ * The core command for a vector-path `edit`. Its geometry is on the page as
+ * drawn and crosses through the page's frame; on a page past the end it
+ * crosses as is, for the core to refuse (`PageIndexOutOfBounds`) after its
+ * own gates.
+ */
+export function pathCommand(edits: CorePathEdits, edit: PathEdit, frameOf: (page: number) => PageFrame | undefined): Owned {
+  const frame = frameOf(edit.page);
+  switch (edit.kind) {
+    case 'movePath': {
+      const [dx, dy] = frame?.deltaToPdf(edit.dx, edit.dy) ?? [edit.dx, edit.dy];
+      return edits.movePath(edit.page, edit.pathId, dx, dy);
+    }
+    case 'resizePath': {
+      const { left, top, width, height } = edit.rect;
+      const [x, y, w, h] = frame?.rectToPdf(edit.rect) ?? [left, top, width, height];
+      return edits.resizePath(edit.page, edit.pathId, x, y, w, h);
+    }
+    case 'removePath':
+      return edits.removePath(edit.page, edit.pathId);
   }
 }
 

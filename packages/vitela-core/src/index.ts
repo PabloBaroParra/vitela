@@ -82,6 +82,7 @@ export type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  PathEdit,
   ContentClip,
   ContentMembers,
   SelectionEdit,

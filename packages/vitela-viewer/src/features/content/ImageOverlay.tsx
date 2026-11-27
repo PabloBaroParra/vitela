@@ -7,9 +7,8 @@
 // of its body, which the content layer itself reports.
 
 import type { ContentImage, PageRect } from '@vitela/core';
-import { useState } from 'react';
-import { handleBox, IMAGE_HANDLES, resizedRect, type ImageHandle } from './images';
-import { isDrag } from './textRuns';
+import { IMAGE_HANDLES, resizedRect } from './images';
+import { ResizeHandles, useHandleDrag } from './ResizeHandles';
 
 interface ImageOverlayProps {
   readonly image: ContentImage;
@@ -27,87 +26,26 @@ interface ImageOverlayProps {
   readonly onRemove: () => void;
 }
 
-const HANDLE_LABELS: Record<ImageHandle, string> = {
-  nw: 'top-left corner',
-  n: 'top side',
-  ne: 'top-right corner',
-  e: 'right side',
-  se: 'bottom-right corner',
-  s: 'bottom side',
-  sw: 'bottom-left corner',
-  w: 'left side',
-};
-
 /** How far above the image the toolbar sits, in CSS px. */
 const GAP_PX = 8;
 /** Its height, to put it under the image when there is no room above. */
 const HEIGHT_PX = 34;
 
-/** A handle being dragged: where its press started, in client px. */
-interface Grab {
-  readonly handle: ImageHandle;
-  readonly pointerId: number;
-  readonly x: number;
-  readonly y: number;
+/** Where an item's toolbar goes over a box at `rect`: above it, or under it when there is no room above. */
+export function toolbarPlace(rect: PageRect, scale: number): { left: number; top: number } {
+  const { left, top, height } = rect;
+  const above = top * scale - GAP_PX - HEIGHT_PX;
+  return { left: Math.max(0, left * scale), top: above >= 0 ? above : (top + height) * scale + GAP_PX };
 }
 
 export function ImageOverlay({ image, scale, busy, replaceable, replaceRefusal = null, onResize, onReplace, onRemove }: ImageOverlayProps) {
-  const [grab, setGrab] = useState<Grab | null>(null);
-  const [preview, setPreview] = useState<PageRect | null>(null);
-  const boxOf = (held: Grab, clientX: number, clientY: number, free: boolean) =>
-    resizedRect(image.rect, held.handle, (clientX - held.x) / scale, (clientY - held.y) / scale, free);
-  const { left, top, height } = image.rect;
-  const above = top * scale - GAP_PX - HEIGHT_PX;
-  const toolbarStyle = { left: Math.max(0, left * scale), top: above >= 0 ? above : (top + height) * scale + GAP_PX };
+  // A corner keeps the proportions; Shift frees them.
+  const drag = useHandleDrag((handle, dx, dy, shift) => resizedRect(image.rect, handle, dx, dy, shift), scale, onResize);
+  const { preview } = drag;
+  const toolbarStyle = toolbarPlace(image.rect, scale);
   return (
     <>
-      {preview && (
-        <div
-          className="image-edit__preview"
-          style={{ left: preview.left * scale, top: preview.top * scale, width: preview.width * scale, height: preview.height * scale }}
-        />
-      )}
-      {!busy &&
-        IMAGE_HANDLES.map((handle) => (
-          <button
-            key={handle}
-            type="button"
-            // Pointer-only: the keyboard moves the image with the arrows.
-            tabIndex={-1}
-            className={`image-edit__handle image-edit__handle--${handle}`}
-            aria-label={`Resize from the ${HANDLE_LABELS[handle]}`}
-            style={handleBox(image.rect, handle, scale)}
-            onPointerDown={(event) => {
-              // The handle is not the page: the press neither selects nor drags the image.
-              event.stopPropagation();
-              event.preventDefault();
-              if (event.button !== 0 || !event.isPrimary) return;
-              event.currentTarget.setPointerCapture?.(event.pointerId);
-              setGrab({ handle, pointerId: event.pointerId, x: event.clientX, y: event.clientY });
-            }}
-            onPointerMove={(event) => {
-              event.stopPropagation();
-              if (!grab || grab.pointerId !== event.pointerId) return;
-              if (preview || isDrag(event.clientX - grab.x, event.clientY - grab.y)) {
-                setPreview(boxOf(grab, event.clientX, event.clientY, event.shiftKey));
-              }
-            }}
-            onPointerUp={(event) => {
-              event.stopPropagation();
-              if (!grab || grab.pointerId !== event.pointerId) return;
-              setGrab(null);
-              setPreview(null);
-              if (preview || isDrag(event.clientX - grab.x, event.clientY - grab.y)) {
-                onResize(boxOf(grab, event.clientX, event.clientY, event.shiftKey));
-              }
-            }}
-            onPointerCancel={() => {
-              setGrab(null);
-              setPreview(null);
-            }}
-            onDoubleClick={(event) => event.stopPropagation()}
-          />
-        ))}
+      <ResizeHandles rect={image.rect} scale={scale} handles={IMAGE_HANDLES} drag={drag} busy={busy} />
       {!preview && (
         <div
           className="image-edit__toolbar"

@@ -32,7 +32,7 @@ const PLAIN: TextRunLookState = {
 const info = { pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }], pageIds: [9] };
 const session: Session = { info, annotations: [] };
 
-function setup({ run = hello, pending = false, look = PLAIN }: { run?: ContentRun; pending?: boolean; look?: TextRunLookState } = {}) {
+function setup({ run = hello, pending = false, look = PLAIN, clipping = false }: { run?: ContentRun; pending?: boolean; look?: TextRunLookState; clipping?: boolean } = {}) {
   const applied: (Edit | null)[] = [];
   const follows: unknown[][] = [];
   const notices: string[] = [];
@@ -55,13 +55,24 @@ function setup({ run = hello, pending = false, look = PLAIN }: { run?: ContentRu
   const focusPages = vi.fn();
   const hook = renderHook(
     ({ pending: running }: { pending: boolean }) =>
-      useTextRunEditing({ engine, handle: 1, info, content, queue: { ...queue, pending: running }, focusPages }),
+      useTextRunEditing({ engine, handle: 1, info, content, queue: { ...queue, pending: running }, focusPages, clipping }),
     { initialProps: { pending } },
   );
   return { hook, applied, follows, notices, focusPages };
 }
 
 describe('useTextRunEditing', () => {
+  it('opens no editor and asks for nothing while a cut is being read', () => {
+    const { hook, applied } = setup({ clipping: true });
+    expect(hook.result.current.busy).toBe(true);
+    act(() => {
+      hook.result.current.open();
+      hook.result.current.remove();
+    });
+    expect(hook.result.current.editor).toBeNull();
+    expect(applied).toEqual([]);
+  });
+
   it('moves the selected run by an arrow and follows it to its new place', () => {
     const { hook, applied, follows } = setup();
     let used = false;

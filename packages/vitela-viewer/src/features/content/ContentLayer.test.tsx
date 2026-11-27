@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { ContentImage, ContentRun, PageContent } from '@vitela/core';
+import type { ContentImage, ContentPath, ContentRun, PageContent } from '@vitela/core';
 import { ContentLayer, type ContentInput } from './ContentLayer';
 
 afterEach(cleanup);
@@ -17,7 +17,9 @@ const hello: ContentRun = {
   pending: false,
 };
 const photo: ContentImage = { kind: 'image', id: 3, pageIndex: 0, rect: { left: 200, top: 100, width: 100, height: 50 }, inline: false, pending: false };
-const content: PageContent = { runs: [hello], images: [photo], paths: [] };
+const rule: ContentPath = { kind: 'path', id: 4, pageIndex: 0, rect: { left: 50, top: 300, width: 200, height: 0 }, paint: 'stroke', pending: false };
+const frame: ContentPath = { kind: 'path', id: 5, pageIndex: 0, rect: { left: 50, top: 400, width: 200, height: 100 }, paint: 'stroke', pending: false };
+const content: PageContent = { runs: [hello], images: [photo], paths: [rule, frame] };
 
 function setup(props: Partial<Parameters<typeof ContentLayer>[0]> = {}) {
   const calls: unknown[][] = [];
@@ -89,5 +91,26 @@ describe('ContentLayer', () => {
     expect(layer.getAttribute('data-dragging')).toBe('true');
     release(200, 130);
     expect(calls).toEqual([['drag', 0, 30, 10]]);
+  });
+
+  it('drags a selected rule of no height by a press within reach of it', () => {
+    const { calls, layer, press, move, release } = setup({ selected: rule });
+    press(120, 302);
+    move(150, 322);
+    expect(layer.getAttribute('data-dragging')).toBe('true');
+    release(150, 322);
+    expect(calls).toEqual([['drag', 0, 30, 20]]);
+  });
+
+  it('drags a selected outline by its border, and a press inside it is a press on the page', () => {
+    const { calls, press, move, release } = setup({ selected: frame });
+    press(51, 450);
+    move(61, 450);
+    release(61, 450);
+    expect(calls).toEqual([['drag', 0, 10, 0]]);
+    calls.length = 0;
+    press(150, 450);
+    release(150, 450);
+    expect(calls).toEqual([['select', 0, { x: 150, y: 450 }]]);
   });
 });

@@ -661,9 +661,9 @@ thumbnails gain the stamp and lose it on Undo; on a phone the dialog fits
 
 ## Edit content
 
-`features/content/` (T-258b, T-259, T-260, T-261): the mode the page's own text,
+`features/content/` (T-258b, T-259…T-263): the mode the page's own text,
 images and shapes are edited in — text runs since T-259, images since T-260,
-paragraphs and inserted text since T-261. **Edit content** is the last item of
+paragraphs and inserted text since T-261, shapes since T-263. **Edit content** is the last item of
 **Tools**, a `menuitemcheckbox` (checked while the mode is on; chosen from
 Organize it switches to the viewer). The viewer's toolbar rows have no room
 for a button of its own: at 1280 px the first row (View, Text) and the second
@@ -772,6 +772,20 @@ page is read again (the items that read `pending` where it landed: a group,
 or one image alone as a click selects it), so a drag moves the whole paste
 and it stays one step. Every refusal is the core's sentence.
 
+**Shapes (T-263).** A filled shape is hit anywhere inside it, an outline (a
+stroked path, a table frame) only within 3 pt of its edges — further in is
+its cell, as the native shells decide it. With a shape selected, eight
+handles sit on its box and resize it freely (Shift keeps the proportions;
+the line width is kept, the core rewrites the coordinates); a rule gets only
+the two handles at its ends and stays flat. A drag of its body moves it, the
+arrow keys nudge it 1 pt (Shift: 10 pt), Delete or Backspace removes it, and
+its toolbar has **Delete**. Each edit is one undo step (`movePath`,
+`resizePath`, `removePath`; a second move or resize of the same shape folds
+into its step) and the shape is found again by its box once its page is read
+anew. While a cut is being read nothing is asked of the selected item (its
+toolbar and handles are busy, a double-click opens nothing) and only Delete,
+Backspace and the arrows are taken by the pages, doing nothing.
+
 **Only the pages in view and one on each side are parsed** (the Linux shell
 froze parsing every page of a 1619-page file), each parse kept by page id,
 `paintRevision` and `contentBaseGeneration` and dropped once its page is out
@@ -833,6 +847,14 @@ two Shift+Down move the group 20 pt as one step, Delete removes a marqueed
 group as one step, saved and read back; a clip copied in one PDF pastes into
 the next one opened, and Ctrl/⌘+V in the search box pastes nothing on the
 page.
+
+E2E (`e2e/edit-paths.spec.ts`, all three browsers): a filled box moves by
+two Shift+Down and a drag of its body as one step (undone, redone), saved and
+read back where it was left; a corner resizes it freely, a rule (two handles
+only) lengthens from its end and stays flat, both saved and read back;
+Delete removes the box and the toolbar the rule, two steps undone and
+redone, and the saved file paints neither; on a page turned 90° a box moves
+and resizes as drawn and is saved there.
 
 ## Organize
 

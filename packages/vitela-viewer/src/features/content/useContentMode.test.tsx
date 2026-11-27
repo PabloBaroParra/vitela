@@ -373,6 +373,30 @@ describe('useContentMode', () => {
     expect(result.current.selected).toBeNull();
   });
 
+  it('selects the edited path again by its new box once its page is read after the edit, a rule of no height included', async () => {
+    let moved = false;
+    const rule = { kind: 'path', id: 0, pageIndex: 2, rect: { left: 72, top: 500, width: 200, height: 0 }, paint: 'stroke', pending: false } as const;
+    const engine: Engine = fakeEngine({
+      readPageContent: async (_document, pageIndex) => ({
+        ...contentOf(pageIndex),
+        paths: [moved ? { ...rule, id: 7, rect: { ...rule.rect, top: 520 } } : rule],
+      }),
+    });
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });
+    await waitFor(() => expect(result.current.stateAt(2)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 150, y: 501 }));
+    expect(result.current.selected?.item.kind).toBe('path');
+    expect(result.current.status).toBe('Shape selected on page 3.');
+
+    act(() => result.current.followPath(2, { ...rule.rect, top: 520 }));
+    expect(result.current.followingKind).toBe('path');
+    moved = true;
+    rerender({ visible: { first: 2, last: 2 }, paused: true });
+    rerender({ visible: { first: 2, last: 2 }, paused: false, paintRevision: 1 });
+    await waitFor(() => expect(result.current.selected?.item).toMatchObject({ kind: 'path', id: 7 }));
+    expect(result.current.following).toBe(false);
+  });
+
   it('follows an image pressed while a run edit lands', async () => {
     const { engine } = engineWith();
     const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });

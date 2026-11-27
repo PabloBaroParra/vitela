@@ -95,16 +95,15 @@ export function contentItems(content: PageContent): ContentItem[] {
 }
 
 /**
- * The item under `point` (drawn points): the smallest one whose box, widened
- * by `slop`, holds it, so a run painted over an image is found rather than
- * the image, and a rule with a box of no height is still found. `null` over
- * nothing.
+ * The item under `point` (drawn points): the smallest one `hits`, so a run
+ * painted over an image is found rather than the image, and a rule with a
+ * box of no height is still found. `null` over nothing.
  */
 export function itemAt(content: PageContent, point: PagePoint, slop = HIT_SLOP_PT): ContentItem | null {
   let found: ContentItem | null = null;
   let foundArea = Infinity;
   for (const item of contentItems(content)) {
-    if (!holds(item.rect, point, slop)) continue;
+    if (!hits(item, point, slop)) continue;
     const area = (item.rect.width + 2 * slop) * (item.rect.height + 2 * slop);
     if (area < foundArea) {
       found = item;
@@ -112,6 +111,49 @@ export function itemAt(content: PageContent, point: PagePoint, slop = HIT_SLOP_P
     }
   }
   return found;
+}
+
+/**
+ * Whether a press at `point` means `item`: anywhere in its box widened by
+ * `slop`, except for an outline (a stroked path), which is hit only within
+ * `slop` of its edges — further inside a frame is its cell, not its border,
+ * as the native shells decide it (GTK's `path_hit`).
+ */
+export function hits(item: ContentItem, point: PagePoint, slop = HIT_SLOP_PT): boolean {
+  const { rect } = item;
+  if (!holds(rect, point, slop)) return false;
+  if (item.kind !== 'path' || item.paint !== 'stroke') return true;
+  const inner = { left: rect.left + slop, top: rect.top + slop, width: rect.width - 2 * slop, height: rect.height - 2 * slop };
+  return inner.width <= 0 || inner.height <= 0 || !holds(inner, point, 0);
+}
+
+/**
+ * The item among `items` whose box is closest to `expected` (where an edited
+ * item should be now) among those overlapping it; `null` when `expected` is
+ * `null` (it was removed) or nothing overlaps. Ids are valid only against
+ * the read they came from, so an edited item is found again by place.
+ */
+export function nearestTo<T extends { readonly rect: PageRect }>(items: readonly T[], expected: PageRect | null): T | null {
+  if (!expected) return null;
+  let best: T | null = null;
+  let bestDistance = Infinity;
+  for (const item of items) {
+    if (!overlaps(item.rect, expected)) continue;
+    const distance =
+      Math.abs(item.rect.left - expected.left) +
+      Math.abs(item.rect.top - expected.top) +
+      Math.abs(item.rect.width - expected.width) +
+      Math.abs(item.rect.height - expected.height);
+    if (distance < bestDistance) {
+      best = item;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
+function overlaps(a: PageRect, b: PageRect): boolean {
+  return a.left <= b.left + b.width && b.left <= a.left + a.width && a.top <= b.top + b.height && b.top <= a.top + a.height;
 }
 
 function holds(rect: PageRect, point: PagePoint, slop: number): boolean {

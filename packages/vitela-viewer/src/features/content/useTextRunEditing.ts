@@ -10,9 +10,10 @@
 // checkpoint, the bold sibling. Here: what to ask for and when.
 //
 // - An edit names the run by its id in the read it was selected in, so none
-//   is asked for while another step runs or the page has not been read again
-//   since the last one (`busy`): arrow presses meanwhile add up and go as one
-//   move once the run is found again (`ContentMode.follow`).
+//   is asked for while another step runs, the page has not been read again
+//   since the last one or a cut is still being read (`busy`): arrow presses
+//   meanwhile add up and go as one move once the run is found again
+//   (`ContentMode.follow`).
 // - Each step checks, when its turn comes, that the page at the run's
 //   position is still the one it was selected on (`pageKey`).
 // - The editor commits on Enter and when it loses focus, and cancels on
@@ -52,13 +53,15 @@ interface TextRunEditingInput {
   readonly queue: ContentQueue;
   /** Gives the keyboard back to the pages (after Enter in the editor). */
   readonly focusPages: () => void;
+  /** Whether a copy for a cut is still being read: it removes the selection itself once read, so nothing is asked of it meanwhile. */
+  readonly clipping?: boolean;
 }
 
-export function useTextRunEditing({ engine, handle, info, content, queue, focusPages }: TextRunEditingInput) {
+export function useTextRunEditing({ engine, handle, info, content, queue, focusPages, clipping = false }: TextRunEditingInput) {
   const picked = content.selected;
   const run = picked?.item.kind === 'run' ? picked.item : null;
   const runKey = picked && run ? `${picked.key}#${run.id}` : null;
-  const busy = queue.pending || content.following;
+  const busy = queue.pending || content.following || clipping;
 
   // The look the toggles show, read for the selected run once nothing runs.
   const [look, setLook] = useState<{ readonly key: string; readonly state: TextRunLookState | null } | null>(null);

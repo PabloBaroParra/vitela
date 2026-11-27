@@ -12,9 +12,10 @@
 // replaced. Here: what to ask for and when.
 //
 // - An edit names the image by its id in the read it was selected in, so
-//   none is asked for while another step runs or an edited item is still to
-//   be found again (`busy`): arrow presses meanwhile add up and go as one
-//   move once the image is found again (`ContentMode.followImage`).
+//   none is asked for while another step runs, an edited item is still to
+//   be found again or a cut is still being read (`busy`): arrow presses
+//   meanwhile add up and go as one move once the image is found again
+//   (`ContentMode.followImage`).
 // - Each step checks, when its turn comes, that the page at the image's
 //   position is still the one it was selected on (`pageKey`).
 // - Replace asks the core first (`checkImageReplacement`, once per selection
@@ -51,6 +52,8 @@ interface ImageEditingInput {
   readonly queue: ContentQueue;
   /** Gives the keyboard back to the pages (after a toolbar button). */
   readonly focusPages: () => void;
+  /** Whether a copy for a cut is still being read: it removes the selection itself once read, so nothing is asked of it meanwhile. */
+  readonly clipping?: boolean;
 }
 
 /** What the file picker was opened for. */
@@ -77,12 +80,12 @@ interface Replaceability {
   readonly refusal: string | null;
 }
 
-export function useImageEditing({ engine, handle, info, content, queue, focusPages }: ImageEditingInput) {
+export function useImageEditing({ engine, handle, info, content, queue, focusPages, clipping = false }: ImageEditingInput) {
   const picked = content.selected;
   const image = picked?.item.kind === 'image' ? picked.item : null;
   const pickedKey = picked?.key ?? null;
   const imageKey = picked && image ? `${picked.key}#${image.id}` : null;
-  const busy = queue.pending || content.following;
+  const busy = queue.pending || content.following || clipping;
   const currentPageKey = picked ? pageKey(info, picked.pageIndex) : null;
   const { notify } = queue;
   // Read through a ref: a file read that finishes later checks what holds then.

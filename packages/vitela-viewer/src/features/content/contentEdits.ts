@@ -32,6 +32,16 @@ export function useGuardedApply(queue: ContentQueue, pageChanged: string) {
   );
 }
 
+/**
+ * Whether the pages take `key` and do nothing with it while a cut is being
+ * read: a Delete, a Backspace or an arrow would edit what the cut is about
+ * to remove. Every other key (Escape, a disarm, a key the browser has a use
+ * for) goes on as it would.
+ */
+export function heldWhileClipping(key: string): boolean {
+  return key === 'Delete' || key === 'Backspace' || key.startsWith('Arrow');
+}
+
 const STILL = { dx: 0, dy: 0 };
 
 /**

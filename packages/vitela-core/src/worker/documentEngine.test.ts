@@ -114,6 +114,7 @@ type FakeEdit =
   | { kind: 'textRun'; op: string; args: unknown[]; free(): void }
   | { kind: 'textBlock'; op: string; args: unknown[]; free(): void }
   | { kind: 'image'; op: string; args: unknown[]; free(): void }
+  | { kind: 'path'; op: string; args: unknown[]; free(): void }
   | { kind: 'selection'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
@@ -272,6 +273,9 @@ function fakeCore(
     removeImage: (...args) => command({ kind: 'image', op: 'removeImage', args }),
     replaceImage: (...args) => command({ kind: 'image', op: 'replaceImage', args }),
     insertImage: (...args) => command({ kind: 'image', op: 'insertImage', args }),
+    movePath: (...args) => command({ kind: 'path', op: 'movePath', args }),
+    resizePath: (...args) => command({ kind: 'path', op: 'resizePath', args }),
+    removePath: (...args) => command({ kind: 'path', op: 'removePath', args }),
     retypeTextBlock: (...args) => command({ kind: 'textBlock', op: 'retypeTextBlock', args }),
     insertText: (...args) => command({ kind: 'textBlock', op: 'insertText', args }),
     moveContentSelection: (...args) => command({ kind: 'selection', op: 'moveContentSelection', args }),
@@ -600,7 +604,7 @@ function fakeCore(
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
       }
-      if (edit.kind === 'textRun' || edit.kind === 'textBlock' || edit.kind === 'image' || edit.kind === 'selection') {
+      if (edit.kind === 'textRun' || edit.kind === 'textBlock' || edit.kind === 'image' || edit.kind === 'path' || edit.kind === 'selection') {
         if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
         // Page content: the step shows in the pixels, repainting pages in place.
         record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
@@ -1981,6 +1985,24 @@ describe('documentEngine forms', () => {
     expect(applied.at(-1)).toMatchObject({ op: 'replaceImage', args: [0, 2, bytes] });
     await engine.applyEdit(handle, { kind: 'insertImage', page: 0, at: { x: 300, y: 92 }, bytes });
     expect(applied.at(-1)).toMatchObject({ op: 'insertImage', args: [0, 300, 700, bytes] });
+  });
+
+  it('records each path edit as one repainting step, drawn geometry crossing in PDF space', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const edited = await engine.applyEdit(handle, { kind: 'movePath', page: 0, pathId: 3, dx: 5, dy: 10 });
+    // Drawn y grows down, PDF y up.
+    expect(applied.at(-1)).toMatchObject({ kind: 'path', op: 'movePath', args: [0, 3, 5, -10] });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:path');
+
+    await engine.applyEdit(handle, { kind: 'resizePath', page: 0, pathId: 3, rect: { left: 72, top: 392, width: 200, height: 0 } });
+    expect(applied.at(-1)).toMatchObject({ op: 'resizePath', args: [0, 3, 72, 400, 200, 0] });
+    await engine.applyEdit(handle, { kind: 'removePath', page: 0, pathId: 3 });
+    expect(applied.at(-1)).toMatchObject({ op: 'removePath', args: [0, 3] });
   });
 
   it('records a block retype and an insertion as repainting steps, the insertion point crossing in PDF space', async () => {

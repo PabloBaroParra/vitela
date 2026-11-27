@@ -197,6 +197,26 @@ export type ImageEdit =
   | { readonly kind: 'replaceImage'; readonly page: number; readonly imageId: number; readonly bytes: Uint8Array }
   | { readonly kind: 'insertImage'; readonly page: number; readonly at: PagePoint; readonly bytes: Uint8Array };
 
+/**
+ * An edit of a vector path a page's content read handed out (`pathId`,
+ * valid against that read), on page position `page`: a rule, a border, a
+ * shaded box. Page content: one undo step that the pixels show at once and
+ * `paintRevision` moves for. A second move or resize of the same path, or
+ * its removal, folds into its step; one that changes nothing (a zero move,
+ * the box it has) records nothing. Geometry is on the page as drawn (points,
+ * y down): `dx, dy` a move, `rect` the box a resize reshapes it into. A
+ * resize keeps the line width; a side the path is flat along (a rule's
+ * height) stays flat whatever `rect` gives it, and one it has may not go to
+ * nothing. Rejects as `contentEditingRefusal` says (`EditNotPermitted`, or
+ * `TextExtractionDenied`), then `PageIndexOutOfBounds`, or
+ * `UnsupportedOperation` for a path the page does not hold now or a box
+ * that takes a side it has to nothing.
+ */
+export type PathEdit =
+  | { readonly kind: 'movePath'; readonly page: number; readonly pathId: number; readonly dx: number; readonly dy: number }
+  | { readonly kind: 'resizePath'; readonly page: number; readonly pathId: number; readonly rect: PageRect }
+  | { readonly kind: 'removePath'; readonly page: number; readonly pathId: number };
+
 /** The members of a selection on one page, by the ids that page's content read handed out. */
 export interface ContentMembers {
   readonly runIds: readonly number[];

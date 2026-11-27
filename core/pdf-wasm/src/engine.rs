@@ -43,6 +43,7 @@ mod form;
 mod image;
 mod import;
 mod metadata;
+mod path;
 mod protect;
 mod selection;
 mod text_block;
