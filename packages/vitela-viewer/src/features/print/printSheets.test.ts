@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { PRINT_DPI, PRINT_MIN_DPI, PRINT_PIXEL_BUDGET, pngSize, printDpi, printStyles, sheetOf, writePrintDocument } from './printSheets';
+import {
+  PRINT_DPI,
+  PRINT_MIN_DPI,
+  PRINT_PIXEL_BUDGET,
+  applyStylesheet,
+  pngSize,
+  printDpi,
+  printStyles,
+  sheetOf,
+  writePrintDocument,
+} from './printSheets';
 
 /** The first 24 bytes of a PNG: signature, IHDR length and type, width, height. */
 function pngHeader(width: number, height: number): Uint8Array {
@@ -100,5 +110,32 @@ describe('writePrintDocument', () => {
     writePrintDocument(doc, 'report.pdf', sheets.slice(0, 1));
     expect(doc.body.querySelectorAll('.sheet')).toHaveLength(1);
     expect(doc.head.querySelectorAll('style')).toHaveLength(1);
+  });
+});
+
+describe('applyStylesheet', () => {
+  class FakeSheet {
+    text = '';
+    replaceSync(css: string) {
+      this.text = css;
+    }
+  }
+
+  it("adopts a stylesheet made in the document's own window, with no inline <style> a strict CSP would refuse", () => {
+    const doc = window.document.implementation.createHTMLDocument('');
+    doc.head.append(doc.createElement('style'));
+    Object.defineProperty(doc, 'defaultView', { value: { CSSStyleSheet: FakeSheet } });
+    Object.defineProperty(doc, 'adoptedStyleSheets', { value: [], writable: true });
+    applyStylesheet(doc, '@page { margin: 0; }');
+    applyStylesheet(doc, '@page { margin: 1pt; }');
+    expect(doc.head.querySelectorAll('style')).toHaveLength(0);
+    expect((doc.adoptedStyleSheets as unknown as FakeSheet[]).map((sheet) => sheet.text)).toEqual(['@page { margin: 1pt; }']);
+  });
+
+  it('falls back to one <style> without constructed stylesheets', () => {
+    const doc = window.document.implementation.createHTMLDocument('');
+    applyStylesheet(doc, '@page { margin: 0; }');
+    applyStylesheet(doc, '@page { margin: 1pt; }');
+    expect([...doc.head.querySelectorAll('style')].map((style) => style.textContent)).toEqual(['@page { margin: 1pt; }']);
   });
 });

@@ -24,7 +24,7 @@ async function waitForOfflineReady(page: Page): Promise<string[]> {
 test.describe('offline', () => {
   test.use({ serviceWorkers: 'allow' });
 
-  test('opens and renders a PDF offline after one online visit', async ({ page, context, baseURL }) => {
+  test('opens and renders a PDF offline after one online visit', async ({ page, context, baseURL, browserName }) => {
     await loadApp(page);
     const cached = await waitForOfflineReady(page);
     const origin = new URL(baseURL!).origin;
@@ -37,15 +37,34 @@ test.describe('offline', () => {
     expect(cached.filter((url) => new URL(url).origin !== origin)).toEqual([]);
 
     await context.setOffline(true);
-    // Really offline, worker included: a URL it does not cache goes through
-    // it to the network, and fails.
-    const probe = await page.evaluate(() =>
-      fetch(`/not-cached-${Date.now()}`).then(
-        () => 'reached the network',
-        () => 'offline',
-      ),
-    );
-    expect(probe).toBe('offline');
+    // Really offline, the worker included. A URL the worker does not handle
+    // would go from the page itself, proving nothing about the worker; so a
+    // precached file is taken out of the cache first: the worker answers it
+    // (a cached file still loads) and, missing it, fetches it itself — the
+    // worker's own request to the network, which must fail. Both asked for
+    // with `cache: 'no-cache'`, which the worker's fetch keeps, so the HTTP
+    // cache cannot answer in the network's place.
+    //
+    // Not in Firefox: there an offline context fails no-store and reload
+    // requests before the worker sees them, and answers the others from the
+    // HTTP cache, stale or not, so the worker's own network cannot be told
+    // apart. The rest of the test still runs offline there.
+    if (browserName !== 'firefox') {
+      const probe = await page.evaluate(async () => {
+        const name = (await caches.keys()).find((key) => key.startsWith('vitela-'))!;
+        if (!(await (await caches.open(name)).delete('/manifest.webmanifest'))) return { served: false, missing: 'not precached' };
+        const served = await fetch('/icons/vitela-512.png', { cache: 'no-cache' }).then(
+          (response) => response.ok,
+          () => false,
+        );
+        const missing = await fetch('/manifest.webmanifest', { cache: 'no-cache' }).then(
+          () => 'reached the network',
+          () => 'offline',
+        );
+        return { served, missing };
+      });
+      expect(probe).toEqual({ served: true, missing: 'offline' });
+    }
     await page.reload();
     await expect(page.locator('main.app')).toHaveAttribute('data-engine', 'ready', { timeout: 30_000 });
     await openFixture(page, 'forms/reportlab_acroform.pdf');
@@ -59,6 +78,10 @@ test.describe('offline', () => {
     const after = await waitForOfflineReady(page);
     expect(after.filter((url) => !cached.includes(url))).toEqual([]);
     expect(after.some((url) => /\.pdf$/i.test(url))).toBe(false);
+
+    // A path the app does not route is the host's (its 404), never the
+    // shell: offline, it goes to the network and fails.
+    await expect(page.goto('/no-such-page')).rejects.toThrow();
   });
 });
 

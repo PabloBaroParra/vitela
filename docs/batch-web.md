@@ -3663,7 +3663,7 @@ y en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API)
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
 | **T-264** ✓ | App instalable y offline tras la primera carga: manifiesto (`manifest.webmanifest`, iconos de la marca), service worker escrito a mano (`dist/sw.js`) que precachea el build entero (shell, worker del motor, los dos WASM) en una caché con versión por contenido, registro solo en producción y aviso "nueva versión, recargar" que nunca recarga con cambios sin guardar. | Vitest de la lista de precache, la versión, las reglas de petición, el manifiesto y el bloqueo de la actualización; Playwright sobre el build de producción: cargar, desconectar, recargar, abrir un fixture y pintarlo; manifiesto válido y servido. |
-| **T-265** | Cabeceras de seguridad en `_headers`: `Content-Security-Policy` estricta (`default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, `worker-src 'self'`, `manifest-src 'self'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`) y la misma política en `vite preview` para que los E2E la sufran. | Playwright: la suite completa en los 3 navegadores sin violaciones de CSP (`securitypolicyviolation` = fallo); un test comprueba que la cabecera llega. |
+| **T-265** ✓ | Cabeceras de seguridad en `_headers`: `Content-Security-Policy` estricta (`default-src 'none'`, `script-src 'self'`, `style-src 'self'`, `worker-src 'self'`, `manifest-src 'self'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`; el worker del motor con la suya, `'wasm-unsafe-eval'` y `'unsafe-eval'`) y la misma política en `vite preview` para que los E2E la sufran. | Playwright: la suite completa en los 3 navegadores sin violaciones de CSP (`securitypolicyviolation` = fallo); un test comprueba que la cabecera llega. |
 | **T-266** | Abrir PDFs desde el sistema con la app instalada: `file_handlers` en el manifiesto + `launchQueue` (Chromium), con el mismo flujo que el selector. | Vitest del consumidor de `launchQueue`; Playwright (Chromium) simulando un lanzamiento con un `FileSystemFileHandle`; omitido con motivo en Firefox/WebKit. |
 | **T-267** | Aviso del navegador al cerrar o recargar con cambios sin guardar (`beforeunload`), con el mismo `onDirtyChange` que usa la actualización. | Vitest del gancho; Playwright: con una edición pendiente, cerrar la página dispara el diálogo; guardado, no. |
 | **T-268** | Smoke test tras el deploy: el job de `web-deploy.yml` pide a la URL publicada `/`, `/sw.js`, `/manifest.webmanifest`, una ruta de herramienta y un asset, y comprueba códigos, tipos y cabeceras (`no-cache` del worker, `immutable` de `/assets/*`). | El job falla con una cabecera o un tipo mal servido (probado contra `vite preview` en local). |
@@ -3752,6 +3752,95 @@ La app es instalable y funciona offline tras la primera visita. Detalle en
   necesitaría servir dos builds seguidos); la instalación en sí (el diálogo del
   navegador) no se puede automatizar; Lighthouse no se pasó. CSP, `file_handlers`,
   `beforeunload` y el smoke tras el deploy son T-265…T-268.
+
+### T-265 — resultado
+
+La app y su worker corren bajo una `Content-Security-Policy` estricta, la misma en el
+deploy y en los E2E. Detalle en [`apps/web/README.md`](../apps/web/README.md)
+("Content-Security-Policy").
+
+- **Una sola fuente:** `apps/web/public/_headers`. `vite preview` (el servidor de
+  Playwright) la sirve con `scripts/hostHeaders.ts`, que lee la copia de `dist/` con
+  `src/features/hosting/headers.ts` (puro): las reglas de Cloudflare Pages tal como las
+  documenta — toda regla que casa se aplica en orden de fichero, una cabecera repetida
+  se une con `, ` y `! Nombre` quita lo que pusieron reglas anteriores. Así toda la
+  suite corre bajo la política que se publica. El servidor de desarrollo no la lleva
+  (su recarga en caliente es script inline).
+- **Política de la página** (`/*`): `default-src 'none'; script-src 'self'; style-src
+  'self'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self';
+  manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none';
+  object-src 'none'`. Mínima, comprobada quitando directivas: el build no emite script
+  inline (no hacen falta hashes); `blob:` son las hojas de impresión y `data:` las
+  imágenes de los sellos; no se pide ninguna fuente (la fuente de un run es un
+  `FontFace` de bytes) ni hace falta `frame-src` (el marco de impresión es `srcdoc`);
+  no se usan Google Fonts. Cubre también `sw.js`, cuyos `fetch` son `connect-src`.
+- **Política del worker del motor** (`/assets/worker-*`, con `! Content-Security-Policy`
+  y la suya): `default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval';
+  connect-src 'self'`. Compila los dos WASM y evalúa el glue Emscripten de pdfium
+  (verificado por SHA-256) como cuerpo de función (`new Function`,
+  `packages/vitela-core/src/worker/pdfium.ts`), así que necesita `'unsafe-eval'`; la
+  página no. Los tres navegadores aplican al worker la política de su propia respuesta.
+- **Cambio en `@vitela/viewer` (impresión):** el marco `srcdoc` hereda la política, y
+  tenía estilo inline. `printFrame.ts` pone su tamaño con `frame.style.cssText` (CSSOM,
+  permitido) en vez de `setAttribute('style')`, y `printSheets.ts` gana
+  `applyStylesheet`: una hoja construida en la ventana del marco y adoptada
+  (`adoptedStyleSheets`) en vez de un `<style>`, con `<style>` solo donde no hay hojas
+  construidas (jsdom, navegadores viejos). Beneficia también a quien incruste el visor
+  bajo una CSP estricta.
+- **Tests:** Vitest nuevos: `headers.test.ts` (9: lectura, splat/placeholder, orden,
+  detach, middleware), `csp.test.ts` (8: las dos políticas exactas contra el fichero
+  real, sin `unsafe-`/hash/nonce/otros orígenes en la página, solo el worker con eval,
+  límites de Cloudflare de 100 reglas y 2000 caracteres por línea) y
+  `scripts/hostHeaders.test.ts` (2: el plugin está en la config de Vite y sirve a cada
+  ruta lo que da el fichero; Vitest incluye ahora `scripts/**/*.test.ts` y
+  `tsconfig.node.json` tipa `scripts/`). `@vitela/viewer`: 2 de `applyStylesheet`.
+  E2E `e2e/csp.spec.ts` (2 × 3): llegan las dos cabeceras (página, ruta de herramienta,
+  worker sin políticas unidas por coma); y un flujo abrir → pintar → resaltar una
+  palabra → Edit content con un retype en el editor camuflado → guardar → imprimir
+  (diálogo sustituido) que falla con cualquier `securitypolicyviolation` (página o marco
+  de impresión) o informe de CSP en consola. La primera pasada falló en los tres
+  navegadores por el estilo inline del marco de impresión, que es lo que se arregló.
+  `print.spec.ts` lee ahora la hoja adoptada y pasa las imágenes por un canvas (la CSP
+  no deja hacer `fetch` de `blob:`).
+
+**Seguimiento de la revisión de T-264** (`apps/web/src/features/pwa/*`):
+
+1. **Sin catch-all:** el worker sirve el shell solo a navegaciones a rutas de la app
+   (`servesShell`, que usa `resolveRoute`, las mismas rutas que reescribe
+   `_redirects`); cualquier otra ruta va a la red y el host responde `404.html`.
+2. **Retención entre pestañas:** `SKIP_WAITING` ya no activa sin más. El worker pregunta
+   a cada pestaña de la app (`clients.matchAll`, `HOLD_QUERY` por un `MessageChannel`,
+   que `updates.ts` contesta con `{ held }`) y si alguna tiene cambios sin guardar — o
+   no contesta en 2 s, o contesta otra cosa — no toma el control y manda
+   `TAKEOVER_REFUSED` a la pestaña que lo pidió, que dice "Another Vitela tab has
+   unsaved changes" y deja reintentar. Se eligió esto frente a conservar la caché vieja
+   porque el `claim` sigue cambiando todas las pestañas a la vez.
+3. **El aviso ya no se atasca:** tras un `controllerchange` (de esta pestaña o de otra)
+   Reload recarga sin más; si el build en espera pasa a `redundant` el aviso desaparece
+   (o queda el más nuevo); y una toma pedida que se cayó porque esta pestaña tenía
+   cambios se reintenta (o recarga) al guardarlos.
+4. El worker se registra tras el `load` de la ventana (`windowLoaded`).
+5. **Sonda offline del E2E:** ahora prueba la red del propio worker: borra el manifiesto
+   de la caché y lo pide con `cache: 'no-cache'` (el worker lo atiende, no lo tiene, lo
+   pide él y falla), con un icono cacheado que sí carga. En Firefox la sonda se omite:
+   ahí un contexto offline falla las peticiones `no-store`/`reload` antes del worker y
+   responde las demás desde la caché HTTP, así que la red del worker no se distingue;
+   el resto del test (recargar, abrir y pintar offline) sí corre. Estable en 5 × 3
+   repeticiones, sin reintento. Se añadió además que una ruta sin enrutar offline no es
+   el shell.
+   Vitest: `updates` 13 → 25, `swRules` 8 → 17, `UpdateBanner` 2 → 3.
+
+- **Verificado en local (Windows):** `@vitela/core` `build:wasm` y `build` (sin cambios).
+  `@vitela/viewer`: `tsc -b`, Vitest 112 / 1129. `apps/web`: `typecheck`, Vitest 14 / 98,
+  `build` (`sw.js` precachea 13 ficheros). Playwright `csp` + `pwa` + `print` en los 3
+  navegadores. Suite completa (`CI=1 --reporter=line --global-timeout=1500000`, 3
+  navegadores, 450 tests): **428 pasan, 22 omitidos, 0 fallos**.
+- **No cubierto / pendiente:** las violaciones dentro del worker solo se ven si rompen
+  el motor (el evento es del `WorkerGlobalScope`); el detach de `_headers` sigue la
+  documentación de Cloudflare pero no se ha probado contra Pages real (T-268 puede
+  comprobar la cabecera del worker tras el deploy); el comportamiento entre pestañas de
+  la actualización solo tiene Vitest; quitar `'unsafe-eval'` del worker exigiría cargar
+  el glue de pdfium sin `new Function` (un módulo generado en el build).
 
 ## Verificación
 

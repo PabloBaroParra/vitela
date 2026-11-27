@@ -1,4 +1,7 @@
-# Cloudflare Pages response headers (copied into dist/ by Vite).
+# Cloudflare Pages response headers (copied into dist/ by Vite). `vite
+# preview` serves them too (scripts/hostHeaders.ts), so every e2e spec runs
+# under them; src/features/hosting/csp.test.ts pins the policies below.
+# Rules apply in file order: a later rule's `! Name` drops an earlier one's.
 
 # Vite content-hashes every file under /assets/, so a new build gets new
 # names and these can be cached for good.
@@ -15,9 +18,25 @@
   Content-Type: application/manifest+json
   Cache-Control: no-cache
 
-# No Content-Security-Policy yet (Fase 5, T-265). When one is added it must
-# allow worker-src 'self' (the engine worker and sw.js) and manifest-src 'self'.
+# The page's Content-Security-Policy (T-265): only the app's own files run or
+# load. No inline script or style (the build emits none; the print frame
+# styles itself through the CSSOM) and no eval; scripts, styles, workers (the
+# engine and sw.js), the manifest and fetches are same-origin. Images are
+# also blob: (the print sheets) and data: (stamp images). No fonts are
+# fetched (a run's own font is a FontFace made from bytes) and no frame
+# loads a URL (the print frame is a srcdoc). Nothing may frame the app,
+# change its base URL, post a form or load a plugin. It also covers sw.js,
+# whose fetches are connect-src.
 /*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; object-src 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# The engine worker runs under its own response's policy. It compiles both
+# WASM modules ('wasm-unsafe-eval') and evaluates pdfium's Emscripten glue,
+# fetched and sha256-checked, as a function body ('unsafe-eval'; see
+# packages/vitela-core/src/worker/pdfium.ts). Only the worker gets those.
+/assets/worker-*
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; connect-src 'self'

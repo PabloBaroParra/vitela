@@ -53,7 +53,7 @@ export function App({ engine, pathname = window.location.pathname, updates = NO_
     // anything the app does afterwards (see e2e/zero-network.spec.ts).
     <main className="app" data-engine={status.kind}>
       <SiteHeader />
-      {update.ready && <UpdateBanner held={update.held} onReload={updates.apply} />}
+      {update.ready && <UpdateBanner held={update.held} blocked={update.blocked} onReload={updates.apply} />}
       {appOnly ? (
         <div className="workspace">
           <ToolUnavailable tool={appOnly} />
