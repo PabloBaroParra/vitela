@@ -7,11 +7,14 @@
 //! Cyclic references between sibling modules are fine — it is all one crate.
 
 mod annotations;
+mod arming;
 mod brand;
 mod content_edit;
 mod document;
 mod editor_toolbar;
+mod escape;
 mod export;
+mod feedback;
 mod forms;
 mod freetext_overlay;
 mod home;
@@ -198,13 +201,15 @@ fn build_ui(application: &Application) -> BuiltUi {
     // long message shorten itself rather than force the window wider than the
     // screen; `status.text()` still returns the message in full.
     status.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    // Ellipsizing costs the user the tail of every long message, and this
-    // label is the only place an open or save failure is ever reported —
-    // "Could not open PDF: …" truncated at the width of the window says
-    // nothing about what went wrong. Mirroring the text into the tooltip
-    // keeps it readable without letting it drive the window's width again.
-    // Wired to the property rather than to the ~20 `set_text` call sites, so
-    // a message added later cannot forget to bring its tooltip along.
+    // Ellipsizing costs the user the tail of every long message. Mirroring
+    // the text into the tooltip keeps it readable without letting it drive
+    // the window's width again. Wired to the property rather than to the
+    // callers, so a message added later cannot forget to bring its tooltip
+    // along.
+    //
+    // This line carries ambient information only — the visible pages, an
+    // armed tool, work in progress. Failures, refusals and finished work are
+    // toasts (`feedback`), which the next message here cannot overwrite.
     status.connect_label_notify(|label| label.set_tooltip_text(Some(&label.text())));
 
     // Its own row rather than more widgets on this one: twelve annotation
@@ -417,6 +422,11 @@ fn build_ui(application: &Application) -> BuiltUi {
     // under it is unchanged.
     let root = Overlay::new();
     root.set_child(Some(&content));
+    // Outcomes — errors, refusals, finished work — float over the content
+    // instead of sharing the status line the viewport keeps rewriting. On
+    // the root overlay, not the page area: Home and Organize report too.
+    let feedback = feedback::Feedback::new();
+    root.add_overlay(feedback.toasts.widget());
     window.set_child(Some(&root));
 
     // A `SimpleAction` starts enabled, and `update_annotation_controls` — the
@@ -439,6 +449,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         organize: organize_panel,
         app_mark,
         status,
+        feedback,
         page_indicator,
         zoom_label,
         search_entry,
@@ -501,6 +512,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         tab_strip,
         blocking_prompts: Default::default(),
         jobs_in_flight: Default::default(),
+        hand_shown: Default::default(),
     };
 
     // Built last, and by its own module: every control on Home acts through
@@ -554,7 +566,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     wheel_zoom::connect(&page_area, &viewer);
     pan::connect(&window, &page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
-    content_edit::multi::connect_clear_shortcut(application, &window, &viewer);
+    escape::connect(application, &window, &viewer);
     content_edit::block::connect_retype_shortcut(application, &window, &viewer);
     content_edit::style_toggles::connect(application, &window, &viewer);
     content_edit::clipboard::connect_cut_shortcut(application, &window, &viewer);
@@ -834,7 +846,10 @@ pub(crate) fn update_content_edit_controls(viewer: &Viewer) {
     // selections too; Esc and F2 off the selections they act on.
     annotations::update_annotation_controls(viewer);
     content_edit::clipboard::update_cut_action(viewer);
-    content_edit::multi::update_clear_action(viewer);
+    // Esc's action, and the armed tool's cursor on pages built or brought
+    // back since it was armed: every session install and tab switch ends
+    // here.
+    arming::sync(viewer);
     content_edit::block::update_retype_action(viewer);
     content_edit::style_toggles::update(viewer);
     // The floating bar offers the same doors, so it follows the same

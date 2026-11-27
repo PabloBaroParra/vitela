@@ -672,7 +672,7 @@ fn gtk_ui_rotate_all_turns_every_page_as_one_undo_step_and_stays_put() {
         .expect("assembly is allowed");
 
     assert_eq!(rotations(&ui.viewer), [Rotation::Clockwise90; 3]);
-    assert_eq!(ui.viewer.status.text().as_str(), "Rotated 3 pages right.");
+    assert_eq!(ui.viewer.last_said().as_str(), "Rotated 3 pages right.");
     assert_eq!(screen(&ui.viewer), before, "no screen switch");
 
     ui.viewer.undo_action.activate(None);
@@ -687,7 +687,7 @@ fn gtk_ui_rotate_all_turns_every_page_as_one_undo_step_and_stays_put() {
         .run(&ui.window, &ui.viewer)
         .expect("assembly is allowed");
     assert_eq!(rotations(&ui.viewer), [Rotation::Clockwise270; 3]);
-    assert_eq!(ui.viewer.status.text().as_str(), "Rotated 3 pages left.");
+    assert_eq!(ui.viewer.last_said().as_str(), "Rotated 3 pages left.");
 }
 
 /// A document that forbids assembly refuses both entries with the rotate
@@ -760,7 +760,7 @@ fn gtk_ui_rotate_all_is_refused_where_organize_cannot_open() {
         !crate::app::organize::rotate_all_pages(&ui.viewer, 90),
         "the function refuses on its own too"
     );
-    assert_eq!(ui.viewer.status.text().as_str(), refusal);
+    assert_eq!(ui.viewer.last_said().as_str(), refusal);
     assert_eq!(rotations(&ui.viewer), [Rotation::None; 2]);
     assert!(!ui.viewer.undo_action.is_enabled());
     let state = ui.viewer.state.borrow();

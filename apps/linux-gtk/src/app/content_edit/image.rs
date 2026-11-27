@@ -123,7 +123,7 @@ fn claim(
     pick: impl FnOnce(&PageContent) -> Option<ImageItem>,
 ) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
 
@@ -186,7 +186,7 @@ fn claim(
         Ok(content) => pick(content),
         Err(error) => {
             drop(state);
-            viewer.status.set_text(&error.to_string());
+            viewer.refuse(&error.to_string());
             return false;
         }
     };
@@ -268,7 +268,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
     }
 
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         selection::redraw(viewer);
         return true;
     }
@@ -310,7 +310,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
 
     match result {
         Ok(message) => refresh_preview(viewer, message),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -323,7 +323,7 @@ pub(crate) fn finish_image_drag(viewer: &Viewer) -> bool {
 /// on the UI side.
 pub(crate) fn delete_selected(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -354,7 +354,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
 
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-image-deleted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -371,7 +371,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) {
 /// picked file's bytes are in hand.
 pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let has_selection = viewer
@@ -401,9 +401,7 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
     // condition happens to drop.
     let controls = super::image_controls(viewer.state.borrow().session.as_ref());
     if controls == super::ImageControls::PendingEdit {
-        viewer
-            .status
-            .set_text(&crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT));
+        viewer.refuse(&crate::app::i18n::tr(super::panel::IMAGE_PENDING_EDIT));
         return;
     }
 
@@ -427,12 +425,12 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("edit-not-local-file"));
+                viewer.refuse(&tr("edit-not-local-file"));
                 return;
             };
             match std::fs::read(&path) {
                 Ok(bytes) => apply_replacement(&viewer, bytes),
-                Err(error) => viewer.status.set_text(&tr_args(
+                Err(error) => viewer.fail(&tr_args(
                     "edit-read-failed",
                     &[
                         ("path", path.display().to_string().into()),
@@ -455,7 +453,7 @@ pub(crate) fn replace_selected(window: &ApplicationWindow, viewer: &Viewer) {
 /// and the file's own image, whatever it is encoded as, is what is left.
 pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -472,7 +470,7 @@ pub(super) fn apply_replacement(viewer: &Viewer, after: Vec<u8>) {
 
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-image-replaced")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -627,7 +625,7 @@ pub(crate) fn insert_at(
     point: (f64, f64),
 ) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -651,12 +649,12 @@ pub(crate) fn insert_at(
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("edit-not-local-file"));
+                viewer.refuse(&tr("edit-not-local-file"));
                 return;
             };
             match std::fs::read(&path) {
                 Ok(bytes) => apply_insertion(&viewer, page_index, point, bytes),
-                Err(error) => viewer.status.set_text(&tr_args(
+                Err(error) => viewer.fail(&tr_args(
                     "edit-read-failed",
                     &[
                         ("path", path.display().to_string().into()),
@@ -672,7 +670,7 @@ pub(crate) fn insert_at(
 /// [`insert_at`]'s file dialog has resolved.
 fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes: Vec<u8>) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -688,7 +686,7 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
         {
             Ok(bbox) => bbox,
             Err(error) => {
-                viewer.status.set_text(&tr_args(
+                viewer.fail(&tr_args(
                     "edit-image-unusable",
                     &[("error", error.to_string().into())],
                 ));
@@ -731,7 +729,7 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
             }
             Err(error) => {
                 drop(state);
-                viewer.status.set_text(&error.to_string());
+                viewer.refuse(&error.to_string());
                 return;
             }
         };
@@ -768,7 +766,7 @@ fn apply_insertion(viewer: &Viewer, page_index: usize, point: (f64, f64), bytes:
 
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-image-inserted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -1329,7 +1327,7 @@ mod tests {
         );
 
         assert_eq!(
-            built.viewer.status.text(),
+            built.viewer.last_said(),
             tr(super::super::panel::IMAGE_REPLACED_UNSAVED)
         );
         assert_eq!(queued(&built).len(), 1, "the move is not queued");
@@ -1344,11 +1342,11 @@ mod tests {
     fn gtk_ui_an_undecodable_second_replacement_of_an_inline_image_says_why() {
         let built = replacing_in(crate::app::test_fixtures::inline_image_session());
         apply_replacement(&built.viewer, a_png(2, 3));
-        built.viewer.status.set_text("");
+        built.viewer.info("");
 
         apply_replacement(&built.viewer, b"not a picture".to_vec());
 
-        let status = built.viewer.status.text();
+        let status = built.viewer.last_said();
         assert!(!status.is_empty());
         assert_ne!(status, tr(super::super::panel::IMAGE_PENDING_EDIT));
         assert_eq!(queued(&built).len(), 1, "the queue is left as it was");
@@ -1480,7 +1478,7 @@ mod tests {
         apply_replacement(&built.viewer, a_png(5, 7));
 
         assert_eq!(
-            built.viewer.status.text(),
+            built.viewer.last_said(),
             tr(super::super::panel::IMAGE_PENDING_EDIT)
         );
         {

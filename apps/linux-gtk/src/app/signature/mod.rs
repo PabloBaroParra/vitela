@@ -46,7 +46,7 @@ use crate::app::i18n::tr;
 use crate::app::state::Viewer;
 use crate::app::tools_panel::FILL_SIGN_PAGE;
 
-pub(crate) use armed::place_armed;
+pub(crate) use armed::{disarm, place_armed};
 pub(crate) use flow::open as draw_signature;
 pub(crate) use store::{default_store, SignatureStore};
 

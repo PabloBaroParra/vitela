@@ -134,7 +134,7 @@ pub(crate) fn open_and_wait(
     assert!(
         count() > before,
         "the open must land: {}",
-        viewer.status.text()
+        viewer.last_said()
     );
 }
 
@@ -249,7 +249,7 @@ fn session_of<'a>(
 /// cannot.
 fn request_activation(viewer: &Viewer, id: TabId) {
     if let Err(reason) = activate_then(viewer, id, Arrival::Strip, Box::new(|_| {})) {
-        viewer.status.set_text(&reason);
+        viewer.refuse(&reason);
     }
 }
 

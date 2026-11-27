@@ -13,6 +13,7 @@
 use std::any::Any;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -49,7 +50,7 @@ pub(super) fn spawn_write<W>(
 ) where
     W: FnOnce() -> Result<OpenedDocument, String> + Send + 'static,
 {
-    viewer.status.set_text(&operation.busy());
+    viewer.info(&operation.busy());
     // Holds the tabs still (`tabs::busy_refusal`) until the result is in:
     // the reopen below must land on the document it was written from.
     let job = crate::app::tabs::JobGuard::hold(viewer);
@@ -82,7 +83,7 @@ pub(super) fn spawn_write<W>(
                     perf::finish("save.total", started, &[("pages", page_count.into())]);
                     // The work the recovery entry protected is on disk now.
                     crate::app::recovery::forget(&viewer);
-                    viewer.status.set_text(&operation.done());
+                    viewer.success(&operation.done());
                     // Last: the continuation may replace this document, and
                     // its own status text should be what remains on screen.
                     if let Some(after) = after {
@@ -94,9 +95,9 @@ pub(super) fn spawn_write<W>(
                 // under it.
                 Ok(reopened) => {
                     close_document_in_background(reopened.document);
-                    viewer.status.set_text(&operation.done());
+                    viewer.success(&operation.done());
                 }
-                Err(error) => viewer.status.set_text(&operation.failed(&error)),
+                Err(error) => viewer.fail(&operation.failed(&error)),
             }
         }
     });
@@ -192,44 +193,37 @@ pub(super) fn reopened_matches_model(
 }
 
 /// Puts `bytes` where `destination` names, all of them or none: they are
-/// written to a temporary file beside the real file, which then takes its
-/// place in one rename. A write that fails leaves whatever was there.
+/// written to a temporary file beside it, which then takes its place in one
+/// rename. A write that fails leaves whatever was there.
 ///
-/// Two things a rename would otherwise change are kept. A destination that
-/// is a symbolic link is written *through* ([`through_links`]), so the link
-/// stays a link and the file it points at gets the bytes. And a file that is
-/// replaced hands its permission mode to the one replacing it, so a document
-/// its owner kept private does not come back readable by whatever the umask
-/// allows. A destination that does not exist yet has neither, and is created
-/// as it always was.
+/// It replaces exactly the path it is given. A destination that is a
+/// symbolic link is replaced as a link would be by any rename — the link
+/// goes, a file takes its name — because the path was chosen by the caller
+/// and checked on the main thread, and following a link here would write
+/// somewhere neither of those saw. The one caller that means "the file this
+/// link points at" resolves it first (`in_place::through_links`) and passes
+/// that.
+///
+/// A file that is replaced hands its permission mode to the one replacing
+/// it, so a document its owner kept private does not come back readable by
+/// whatever the umask allows. See [`create_temporary`] for how the temporary
+/// file avoids being wider than either on the way.
 pub(super) fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), String> {
-    let destination = &through_links(destination)?;
-    let parent = destination
-        .parent()
-        .ok_or_else(|| "destination has no parent directory".to_string())?;
-    let temporary = parent.join(format!(
-        ".{}.{}.tmp",
-        destination
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("document.pdf"),
-        std::process::id()
-    ));
+    let temporary = temporary_beside(destination)?;
     // Read before anything is created; `None` for a file that is new.
     let replaced = fs::metadata(destination)
         .ok()
         .map(|metadata| metadata.permissions());
     let mut created_temporary = false;
     let result = (|| {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|error| error.to_string())?;
+        let mut file =
+            create_temporary(&temporary, replaced.is_some()).map_err(|error| error.to_string())?;
         created_temporary = true;
         file.write_all(bytes).map_err(|error| error.to_string())?;
-        // After the bytes, through the open handle: the mode may be one that
-        // would not let this process open the file for writing again.
+        // Through the open handle: the mode may be one that would not let
+        // this process open the file for writing again. A mode that cannot
+        // be applied fails the write — the file is not put in place with
+        // another.
         if let Some(permissions) = replaced {
             file.set_permissions(permissions)
                 .map_err(|error| error.to_string())?;
@@ -243,34 +237,37 @@ pub(super) fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), Strin
     result
 }
 
-/// How many links [`through_links`] follows before calling it a loop — the
-/// kernel's own limit.
-const MAX_LINKS: usize = 40;
+/// The temporary file [`atomic_write`] writes before renaming it over
+/// `destination`: a sibling, so the rename never crosses a file system.
+pub(crate) fn temporary_beside(destination: &Path) -> Result<PathBuf, String> {
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "destination has no parent directory".to_string())?;
+    Ok(parent.join(format!(
+        ".{}.{}.tmp",
+        destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("document.pdf"),
+        std::process::id()
+    )))
+}
 
-/// The file `path` names once every symbolic link *in its last component*
-/// has been followed: where a write to `path` actually lands.
+/// Creates [`atomic_write`]'s temporary file, which must not exist yet.
 ///
-/// A path that is no link — a file, or nothing yet — is returned as it is.
-/// A link to a file that is gone is followed too: it still says where the
-/// file belongs. Links among the folders above are left alone; a rename
-/// beside the file goes through them wherever they lead.
-pub(super) fn through_links(path: &Path) -> Result<PathBuf, String> {
-    let mut path = path.to_path_buf();
-    for _ in 0..MAX_LINKS {
-        let is_link =
-            fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink());
-        if !is_link {
-            return Ok(path);
-        }
-        let target = fs::read_link(&path).map_err(|error| error.to_string())?;
-        // A relative target is relative to the folder the link is in;
-        // `join` keeps an absolute one as it is.
-        path = match path.parent() {
-            Some(folder) => folder.join(target),
-            None => target,
-        };
+/// When it is `replacing` a file it starts out readable by its owner alone:
+/// it holds the document from the first byte, and the file it will replace
+/// may be private. `atomic_write` gives it that file's mode once the bytes
+/// are in. With nothing to replace it is created as any new file is — under
+/// the umask, which is the mode the finished file keeps, so it is never
+/// wider than what it becomes.
+fn create_temporary(temporary: &Path, replacing: bool) -> std::io::Result<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    if replacing {
+        options.mode(0o600);
     }
-    Err("too many levels of symbolic links".to_owned())
+    options.open(temporary)
 }
 
 #[cfg(test)]
@@ -280,7 +277,8 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use super::{
-        atomic_write, next_generation_if_current, reopened_matches_model, save_worker_result,
+        atomic_write, create_temporary, next_generation_if_current, reopened_matches_model,
+        save_worker_result, temporary_beside,
     };
     use crate::app::state::SessionToken;
     use pdf_document::{Document, Orientation, Page, PageId, PageSize};
@@ -365,7 +363,7 @@ mod tests {
         ));
         fs::create_dir(&directory).expect("create isolated temporary directory");
         let destination = directory.join("document.pdf");
-        let temporary = directory.join(format!(".document.pdf.{}.tmp", std::process::id()));
+        let temporary = temporary_beside(&destination).expect("a sibling");
         fs::write(&temporary, b"another save owns this file").expect("seed colliding temporary");
 
         let result = atomic_write(&destination, b"new PDF bytes");
@@ -458,89 +456,95 @@ mod tests {
         }
     }
 
+    /// The path it is given is the path it replaces. A link is replaced as
+    /// a rename replaces one — it does not send the bytes to whatever the
+    /// link points at, which nothing upstream chose or checked.
     #[test]
-    fn an_atomic_write_through_a_symlink_keeps_the_link() {
+    fn an_atomic_write_replaces_a_link_rather_than_following_it() {
         let folder = Folder::new("link");
         let real = folder.0.join("real.pdf");
         let link = folder.0.join("link.pdf");
         fs::write(&real, b"before").expect("seed the real file");
-        set_mode(&real, 0o640);
         std::os::unix::fs::symlink(&real, &link).expect("link to it");
 
-        atomic_write(&link, b"after").expect("write through the link");
+        atomic_write(&link, b"after").expect("replace the link");
 
-        let linked = fs::symlink_metadata(&link).expect("the link");
-        assert!(linked.file_type().is_symlink(), "the link is still a link");
-        assert_eq!(fs::read(&real).expect("the real file"), b"after");
-        assert_eq!(mode_of(&real), 0o640, "the real file keeps its mode");
+        let replaced = fs::symlink_metadata(&link).expect("the destination");
+        assert!(
+            replaced.file_type().is_file(),
+            "a file took the link's name"
+        );
+        assert_eq!(fs::read(&link).expect("the destination"), b"after");
+        assert_eq!(
+            fs::read(&real).expect("the real file"),
+            b"before",
+            "what the link pointed at is untouched"
+        );
         assert_eq!(folder.names(), ["link.pdf", "real.pdf"]);
     }
 
-    /// A relative link is relative to the folder the link is in, and the
-    /// temporary file goes beside the real file, not beside the link: a
-    /// rename across folders may cross file systems.
+    /// A link to nothing is no different: the write lands on its name.
     #[test]
-    fn a_relative_link_into_another_folder_is_followed_from_the_link_s_own() {
-        let folder = Folder::new("relative");
-        fs::create_dir(folder.0.join("store")).expect("the other folder");
-        let real = folder.0.join("store").join("real.pdf");
-        let link = folder.0.join("link.pdf");
-        fs::write(&real, b"before").expect("seed the real file");
-        std::os::unix::fs::symlink("store/real.pdf", &link).expect("link to it");
-
-        atomic_write(&link, b"after").expect("write through the link");
-
-        let linked = fs::symlink_metadata(&link).expect("the link");
-        assert!(linked.file_type().is_symlink());
-        assert_eq!(fs::read(&real).expect("the real file"), b"after");
-        assert_eq!(folder.names(), ["link.pdf", "store"]);
-    }
-
-    #[test]
-    fn a_chain_of_links_is_followed_to_the_real_file() {
-        let folder = Folder::new("chain");
-        let real = folder.0.join("real.pdf");
-        let middle = folder.0.join("middle.pdf");
-        let link = folder.0.join("link.pdf");
-        fs::write(&real, b"before").expect("seed the real file");
-        std::os::unix::fs::symlink("real.pdf", &middle).expect("the middle link");
-        std::os::unix::fs::symlink("middle.pdf", &link).expect("the outer link");
-
-        atomic_write(&link, b"after").expect("write through both links");
-
-        for path in [&link, &middle] {
-            let linked = fs::symlink_metadata(path).expect("the link");
-            assert!(linked.file_type().is_symlink(), "{path:?}");
-        }
-        assert_eq!(fs::read(&real).expect("the real file"), b"after");
-    }
-
-    /// A link whose file is gone still says where the file belongs.
-    #[test]
-    fn a_dangling_link_gets_its_file_back() {
+    fn an_atomic_write_does_not_create_what_a_dangling_link_names() {
         let folder = Folder::new("dangling");
         let link = folder.0.join("link.pdf");
         std::os::unix::fs::symlink("real.pdf", &link).expect("a link to nothing");
 
-        atomic_write(&link, b"after").expect("write through the link");
+        atomic_write(&link, b"after").expect("replace the link");
 
-        let linked = fs::symlink_metadata(&link).expect("the link");
-        assert!(linked.file_type().is_symlink());
-        assert_eq!(
-            fs::read(folder.0.join("real.pdf")).expect("the real file"),
-            b"after"
-        );
+        assert_eq!(folder.names(), ["link.pdf"]);
+        assert_eq!(fs::read(&link).expect("the destination"), b"after");
+    }
+
+    /// The temporary file holds the document from its first byte, so while
+    /// it stands in for a file that may be private it is its owner's alone —
+    /// whatever the umask would have allowed.
+    #[test]
+    fn the_temporary_file_for_a_replacement_starts_out_private() {
+        let folder = Folder::new("temporary-private");
+        let temporary = folder.0.join(".document.pdf.tmp");
+
+        let file = create_temporary(&temporary, true).expect("create it");
+
+        assert_eq!(mode_of(&temporary), 0o600);
+        drop(file);
+    }
+
+    /// With nothing to replace there is nothing to be more private than:
+    /// the file is created as any new one, under the umask.
+    #[test]
+    fn the_temporary_file_for_a_new_destination_is_an_ordinary_new_file() {
+        let folder = Folder::new("temporary-new");
+        let ordinary = folder.0.join("ordinary");
+        fs::write(&ordinary, b"").expect("an ordinary new file");
+        let temporary = folder.0.join(".document.pdf.tmp");
+
+        let file = create_temporary(&temporary, false).expect("create it");
+
+        assert_eq!(mode_of(&temporary), mode_of(&ordinary));
+        drop(file);
     }
 
     #[test]
-    fn links_that_never_reach_a_file_are_refused() {
-        let folder = Folder::new("loop");
-        let one = folder.0.join("one.pdf");
-        let other = folder.0.join("other.pdf");
-        std::os::unix::fs::symlink("other.pdf", &one).expect("one way");
-        std::os::unix::fs::symlink("one.pdf", &other).expect("and back");
+    fn a_new_destination_is_created_as_any_new_file_is() {
+        let folder = Folder::new("new-mode");
+        let ordinary = folder.0.join("ordinary");
+        fs::write(&ordinary, b"").expect("an ordinary new file");
+        let destination = folder.0.join("document.pdf");
 
-        assert!(atomic_write(&one, b"after").is_err());
-        assert_eq!(folder.names(), ["one.pdf", "other.pdf"], "nothing changed");
+        atomic_write(&destination, b"after").expect("create the destination");
+
+        assert_eq!(mode_of(&destination), mode_of(&ordinary));
+    }
+
+    #[test]
+    fn the_temporary_file_is_a_hidden_sibling_named_for_this_process() {
+        assert_eq!(
+            temporary_beside(std::path::Path::new("/home/user/report.pdf")),
+            Ok(std::path::PathBuf::from(format!(
+                "/home/user/.report.pdf.{}.tmp",
+                std::process::id()
+            )))
+        );
     }
 }

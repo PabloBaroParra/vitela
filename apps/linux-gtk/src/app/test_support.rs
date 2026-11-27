@@ -1,5 +1,6 @@
 //! Main-loop helpers shared by the GTK tests: waiting for work that lands
-//! through the main context, and reading back what the status line said.
+//! through the main context, and reading back what the shell said — on the
+//! status line or on a toast.
 //! Also [`FileDocument`], the window over a document that came from a file,
 //! for the cases that save one.
 //!
@@ -54,16 +55,16 @@ pub(crate) fn pump_for(span: Duration) {
     }
 }
 
-/// Every message the status line shows from now on. A later message — the
-/// page range of an editor just shown, a render error — may replace one
-/// before a test looks, so tests assert on the log rather than the line.
+/// Every message the shell says from now on, on the status line or on a
+/// toast (`feedback`). A later message — the page range of an editor just
+/// shown, a render error — may replace one before a test looks, so tests
+/// assert on the log rather than on what is showing.
+///
+/// Named for the status line because it began as a listener on it; outcomes
+/// have since moved to the toast, and a log that only heard the label would
+/// miss exactly the messages most tests wait for.
 pub(crate) fn status_log(viewer: &Viewer) -> Rc<RefCell<Vec<String>>> {
-    let said = Rc::new(RefCell::new(Vec::new()));
-    viewer.status.connect_label_notify({
-        let said = Rc::clone(&said);
-        move |label| said.borrow_mut().push(label.text().to_string())
-    });
-    said
+    viewer.said_log()
 }
 
 /// What `write::save_then` takes to run once the bytes are on disk.
@@ -147,16 +148,33 @@ impl FileDocument {
     }
 
     pub(crate) fn status(&self) -> String {
-        self.built.viewer.status.text().to_string()
+        self.built.viewer.last_said().to_string()
     }
 
-    /// Whether the status line has said something starting with `start`
-    /// since the window was built — the line itself may have moved on.
+    /// Whether the shell has said something starting with `start` since the
+    /// window was built, on either channel — what shows may have moved on.
     pub(crate) fn said(&self, start: &str) -> bool {
         self.said
             .borrow()
             .iter()
             .any(|line| line.starts_with(start))
+    }
+
+    /// How many times the shell has said exactly `line`, on either channel.
+    pub(crate) fn said_times(&self, line: &str) -> usize {
+        self.said
+            .borrow()
+            .iter()
+            .filter(|said| *said == line)
+            .count()
+    }
+
+    /// Puts something in the way of the next write to `path`: the temporary
+    /// file it goes through, already there. The write then fails before it
+    /// can touch `path`.
+    pub(crate) fn block_writes_to(&self, path: &std::path::Path) {
+        let temporary = crate::app::write::temporary_beside(path).expect("a sibling");
+        std::fs::write(temporary, b"in the way").expect("block the temporary file");
     }
 
     pub(crate) fn jobs(&self) -> u32 {

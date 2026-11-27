@@ -255,6 +255,6 @@ fn rotate_all(viewer: &Viewer, delta_degrees: i32) -> Result<(), String> {
     if crate::app::organize::rotate_all_pages(viewer, delta_degrees) {
         Ok(())
     } else {
-        Err(viewer.status.text().into())
+        Err(viewer.last_said().into())
     }
 }

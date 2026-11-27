@@ -74,7 +74,7 @@ pub(crate) fn begin_export(viewer: &Viewer) {
         return;
     }
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let Some((page_sizes, current_page)) = ({
@@ -89,11 +89,11 @@ pub(crate) fn begin_export(viewer: &Viewer) {
             (sizes, current)
         })
     }) else {
-        viewer.status.set_text(&tr("export-no-document"));
+        viewer.refuse(&tr("export-no-document"));
         return;
     };
     if page_sizes.is_empty() {
-        viewer.status.set_text(&tr("export-no-pages"));
+        viewer.refuse(&tr("export-no-pages"));
         return;
     }
 
@@ -103,13 +103,13 @@ pub(crate) fn begin_export(viewer: &Viewer) {
         current_page,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(&tr("export-cancelled"))
+            move || viewer.info(&tr("export-cancelled"))
         },
         {
             let viewer = viewer.clone();
             move |window, options| match build_request(&viewer, options) {
                 Some(request) => choose_folder(window, &viewer, request),
-                None => viewer.status.set_text(&tr("export-no-document")),
+                None => viewer.refuse(&tr("export-no-document")),
             }
         },
     );
@@ -150,11 +150,11 @@ fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request: ExportReq
                 return;
             }
             let Ok(folder) = result else {
-                viewer.status.set_text(&tr("export-cancelled"));
+                viewer.info(&tr("export-cancelled"));
                 return;
             };
             let Some(folder) = folder.path() else {
-                viewer.status.set_text(&tr("export-not-local-folder"));
+                viewer.refuse(&tr("export-not-local-folder"));
                 return;
             };
             spawn_export(&viewer, request, folder);
@@ -196,7 +196,7 @@ mod tests {
         begin_export(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Open a PDF before exporting it."
         );
 
@@ -211,7 +211,7 @@ mod tests {
         begin_export(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Abre un PDF antes de exportarlo."
         );
 
@@ -230,7 +230,7 @@ mod tests {
         begin_export(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             TextAccess::Forbidden
                 .refusal()
                 .expect("a forbidden document refuses")
@@ -249,7 +249,7 @@ mod tests {
         begin_export(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "The PDF has no pages to export."
         );
 

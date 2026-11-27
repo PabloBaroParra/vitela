@@ -107,9 +107,7 @@ pub(super) fn select_previous(viewer: &Viewer) {
         session.selected_annotation = Some(selected);
         selected
     };
-    viewer
-        .status
-        .set_text(&tr_args("annotate-selected", &[("id", selected.0.into())]));
+    viewer.info(&tr_args("annotate-selected", &[("id", selected.0.into())]));
     update_annotation_controls(viewer);
     selection::redraw(viewer);
 }

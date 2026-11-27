@@ -83,7 +83,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         .chain(&block)
         .find(|run| run.font_kind == FontKind::EmbeddedComposite)
     {
-        viewer.status.set_text(
+        viewer.refuse(
             &EditError::CompositeFontNotEditable {
                 resource_font_name: run.resource_font_name.clone(),
             }
@@ -138,7 +138,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // `pdf-edit` has a combined command for, unlike two retypes of the
         // same run.
         PendingText::Nothing if moved && no_checkpoint => {
-            viewer.status.set_text(&tr("edit-text-moved-unsaved"));
+            viewer.refuse(&tr("edit-text-moved-unsaved"));
             return;
         }
         PendingText::Nothing => None,
@@ -147,7 +147,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // base, checkpoints the paste into a new one and retries there.
         PendingText::NeedsCheckpoint if !no_checkpoint => None,
         PendingText::NeedsCheckpoint => {
-            viewer.status.set_text(&tr("edit-text-edit-unavailable"));
+            viewer.refuse(&tr("edit-text-edit-unavailable"));
             return;
         }
         // A run the overlay showed against a log that no longer holds the
@@ -156,7 +156,7 @@ pub(crate) fn open_editor(viewer: &Viewer, page_index: usize, run: TextRun, bloc
         // produce a command `pdf-edit` fails to resolve at save time —
         // refused here, same posture as the composite-font case above.
         PendingText::Unresolvable => {
-            viewer.status.set_text(&tr("edit-text-edit-unavailable"));
+            viewer.refuse(&tr("edit-text-edit-unavailable"));
             return;
         }
     };
@@ -311,7 +311,7 @@ pub(crate) fn open_insert_editor(viewer: &Viewer, page_index: usize, point: (f64
                 Ok(content) => model::unused_font_resource_name(content, &reserved),
                 Err(error) => {
                     drop(state);
-                    viewer.status.set_text(&error.to_string());
+                    viewer.refuse(&error.to_string());
                     return;
                 }
             };
@@ -851,7 +851,7 @@ fn wire_entry(viewer: &Viewer, entry: &Entry, draggable: bool) {
 /// Safe to call with no editor open (focus-out and Enter both route here).
 pub(crate) fn commit(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -910,7 +910,7 @@ pub(crate) fn commit(viewer: &Viewer) {
         // The editor stays open holding what was typed, and says why.
         Err(error) => {
             drop(state);
-            viewer.status.set_text(&error);
+            viewer.refuse(&error);
         }
     }
 }
@@ -971,7 +971,7 @@ pub(crate) const INSERTION_NOT_DELETABLE: &str = "edit-insertion-not-deletable";
 /// — or refused where none may be taken, see [`INSERTION_NOT_DELETABLE`].
 pub(crate) fn delete_open_run(viewer: &Viewer) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -997,7 +997,7 @@ pub(crate) fn delete_open_run(viewer: &Viewer) {
         }
         Err(error) => {
             drop(state);
-            viewer.status.set_text(&error);
+            viewer.refuse(&error);
         }
     }
 }
@@ -1046,7 +1046,7 @@ pub(crate) fn cancel(viewer: &Viewer) {
     };
     if let Some(editor) = editor {
         detach(viewer, &editor);
-        viewer.status.set_text(&tr("edit-cancelled"));
+        viewer.info(&tr("edit-cancelled"));
     }
 }
 
@@ -1541,7 +1541,7 @@ mod tests {
                 .as_ref()
                 .is_some_and(|session| session.content_editor.is_none()),
             "the commit has to land and close the box: {:?}",
-            built.viewer.status.text()
+            built.viewer.last_said()
         );
         (PARKED, (horizontal.value(), vertical.value()))
     }
@@ -1866,9 +1866,9 @@ mod tests {
         // Read before the loop runs: a queued render that fails, or a change
         // in the visible page range, writes to the same status line.
         assert!(
-            built.viewer.status.text().contains("cannot represent"),
+            built.viewer.last_said().contains("cannot represent"),
             "the fixture's font has to refuse the ő, or this test proves nothing: {:?}",
-            built.viewer.status.text()
+            built.viewer.last_said()
         );
 
         open_editor(&built.viewer, 0, runs[1].clone(), Vec::new());
@@ -1973,7 +1973,7 @@ mod tests {
         let entry = window.open_entry().unwrap_or_else(|| {
             panic!(
                 "the pasted run opens no box: {:?}",
-                window.viewer().status.text()
+                window.viewer().last_said()
             )
         });
         entry.set_text("Hello there");
@@ -2000,7 +2000,7 @@ mod tests {
 
         assert!(window.open_entry().is_none());
         assert_eq!(
-            window.viewer().status.text(),
+            window.viewer().last_said(),
             tr("edit-text-edit-unavailable")
         );
     }

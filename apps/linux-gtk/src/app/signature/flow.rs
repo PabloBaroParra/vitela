@@ -31,11 +31,11 @@ const FORGOTTEN: &str = "signature-forgotten";
 /// none — and only where a stamp could be placed.
 pub(crate) fn open(viewer: &Viewer) {
     let Some(session_id) = current_session_id(viewer) else {
-        viewer.status.set_text(&tr(NO_DOCUMENT));
+        viewer.refuse(&tr(NO_DOCUMENT));
         return;
     };
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     if has_dialog(viewer) {
@@ -99,7 +99,7 @@ pub(super) fn use_drawn(
             }
             dismiss(&viewer, &dialog);
             let Some(png) = png else {
-                viewer.status.set_text(&tr(UNRENDERABLE));
+                viewer.fail(&tr(UNRENDERABLE));
                 return;
             };
             // `arm` refuses a picture drawn over a document that has since
@@ -127,7 +127,7 @@ fn keep(viewer: &Viewer, png: Vec<u8>) {
                 .await
                 .unwrap_or(false);
             if !saved {
-                viewer.status.set_text(&tr(NOT_REMEMBERED));
+                viewer.fail(&tr(NOT_REMEMBERED));
             }
         }
     });
@@ -160,7 +160,7 @@ pub(super) fn delete_saved(viewer: &Viewer, dialog: &Window) {
         return;
     }
     dismiss(viewer, dialog);
-    viewer.status.set_text(&tr(FORGOTTEN));
+    viewer.info(&tr(FORGOTTEN));
     let store = viewer.state.borrow().signature.store.clone();
     glib::spawn_future_local(async move {
         let _ = gio::spawn_blocking(move || store.delete()).await;
@@ -265,7 +265,7 @@ mod tests {
 
         open(viewer);
 
-        assert_eq!(viewer.status.text(), tr(NO_DOCUMENT));
+        assert_eq!(viewer.last_said(), tr(NO_DOCUMENT));
         assert!(!has_dialog(viewer));
     }
 
@@ -280,7 +280,7 @@ mod tests {
         open(viewer);
 
         assert_eq!(
-            viewer.status.text(),
+            viewer.last_said(),
             "Abre un PDF antes de dibujar una firma."
         );
     }
@@ -300,7 +300,7 @@ mod tests {
 
         assert!(!has_dialog(viewer));
         assert_eq!(
-            viewer.status.text(),
+            viewer.last_said(),
             "This document does not permit annotation changes."
         );
     }
@@ -421,10 +421,10 @@ mod tests {
         let view = a_signed_pad(viewer);
 
         view.use_button.emit_clicked();
-        settle_until(|| viewer.status.text() == tr(NOT_REMEMBERED));
+        settle_until(|| viewer.last_said() == tr(NOT_REMEMBERED));
 
         assert!(is_armed(viewer));
-        assert_eq!(viewer.status.text(), tr(NOT_REMEMBERED));
+        assert_eq!(viewer.last_said(), tr(NOT_REMEMBERED));
     }
 
     #[gtk::test]
@@ -520,7 +520,7 @@ mod tests {
         assert_eq!(store.current(), None);
         assert!(!is_armed(viewer));
         assert!(!has_dialog(viewer), "no confirmation, no leftover dialog");
-        assert_eq!(viewer.status.text(), tr(FORGOTTEN));
+        assert_eq!(viewer.last_said(), tr(FORGOTTEN));
     }
 
     #[gtk::test]

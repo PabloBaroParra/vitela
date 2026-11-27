@@ -98,11 +98,11 @@ pub(crate) fn begin_protect(viewer: &Viewer) {
         return;
     }
     if let Some(refusal) = protection_refusal(viewer) {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     if viewer.state.borrow().session.is_none() {
-        viewer.status.set_text(&tr("protect-no-document"));
+        viewer.refuse(&tr("protect-no-document"));
         return;
     }
     prompt_for_passwords(&window, viewer);
@@ -241,7 +241,7 @@ fn prompt_for_passwords(window: &ApplicationWindow, viewer: &Viewer) {
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("protect-cancelled"));
+            viewer.info(&tr("protect-cancelled"));
             dialog.destroy();
         }
     });
@@ -294,7 +294,7 @@ mod tests {
         begin_protect(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Open a PDF before protecting it."
         );
 

@@ -122,7 +122,7 @@ impl BoundTab {
     pub(crate) fn ensure_active_or_report(self, viewer: &Viewer) -> bool {
         let still = active_tab(viewer) == self.0;
         if !still {
-            viewer.status.set_text(&tr("tabs-document-changed"));
+            viewer.refuse(&tr("tabs-document-changed"));
         }
         still
     }

@@ -236,7 +236,7 @@ fn history(viewer: &Viewer, undo: bool) {
             }),
         );
     } else {
-        viewer.status.set_text(&tr(if undo {
+        viewer.info(&tr(if undo {
             "annotate-undone-pending"
         } else {
             "annotate-redone-pending"
@@ -317,7 +317,7 @@ pub(super) fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     // The borrow ends before the reporting below: both
@@ -337,9 +337,9 @@ pub(super) fn command(
                 // reopen, so this is the only place that marks them unsaved.
                 session.unsaved_to_disk = true;
             }
-            viewer.status.set_text(&message);
+            viewer.info(&message);
         }
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     // Both outcomes, not just success: a rejected placement has already been
     // taken off the session, and its preview has to stop being painted.

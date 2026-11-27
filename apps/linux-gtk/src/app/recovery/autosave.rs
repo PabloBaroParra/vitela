@@ -246,7 +246,7 @@ fn failed(viewer: &Viewer, error: &str, now: Instant) {
     eprintln!("recovery: autosave failed: {error}");
     let first = viewer.recovery.borrow_mut().backoff.failed(now);
     if first {
-        viewer.status.set_text(&tr("recovery-autosave-unavailable"));
+        viewer.fail(&tr("recovery-autosave-unavailable"));
     }
 }
 

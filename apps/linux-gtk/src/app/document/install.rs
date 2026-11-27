@@ -217,6 +217,7 @@ fn new_session(document: OpenedDocument, built: BuiltPages) -> DocumentSession {
         document: document.document,
         base_name: document.name,
         origin_path: document.origin_path,
+        origin_stamp: document.origin_stamp,
         text_access: document.text_access,
         annotation_access: document.annotation_access,
         content_edit_access: document.content_edit_access,
@@ -328,7 +329,7 @@ pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
     // state for a pageless document.
     viewer.app_mark.set_visible(page_count == 0);
     if page_count == 0 {
-        viewer.status.set_text(&tr("open-no-pages"));
+        viewer.info(&tr("open-no-pages"));
     } else {
         update_viewport(viewer);
     }

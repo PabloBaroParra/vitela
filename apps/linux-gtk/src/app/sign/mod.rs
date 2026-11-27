@@ -168,7 +168,7 @@ pub(crate) fn show_pfx_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("sign-not-local-file"));
+                viewer.refuse(&tr("sign-not-local-file"));
                 return;
             };
             prompt_for_pfx_password(&window, &viewer, path);
@@ -231,7 +231,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
         let error_label = error_label.clone();
         let path = path.clone();
         move || {
-            viewer.status.set_text(&tr("sign-pfx-reading"));
+            viewer.info(&tr("sign-pfx-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -260,7 +260,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                     match loaded {
                         Ok(source) => {
                             let identities = source.list_identities();
-                            viewer.status.set_text(&identities_status_message(
+                            viewer.info(&identities_status_message(
                                 &identities,
                                 &tr("sign-pfx-no-identities"),
                             ));
@@ -276,7 +276,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                         }
                         Err(PfxAdapterError::Pkcs12(_)) => {
                             dialog.set_sensitive(true);
-                            viewer.status.set_text(&tr("sign-pfx-waiting"));
+                            viewer.info(&tr("sign-pfx-waiting"));
                             error_label.set_text(&tr("sign-pfx-wrong-password"));
                             password_entry.set_text("");
                             password_entry.grab_focus();
@@ -284,13 +284,11 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
                         // The password was right, or would not help: say what
                         // is wrong with the file instead of prompting again.
                         Err(PfxAdapterError::Unusable(reason)) => {
-                            viewer
-                                .status
-                                .set_text(&unusable_certificate_message(&reason));
+                            viewer.fail(&unusable_certificate_message(&reason));
                             dismiss_pfx_dialog(&viewer, &dialog);
                         }
                         Err(PfxAdapterError::File(message)) => {
-                            viewer.status.set_text(&tr_args(
+                            viewer.fail(&tr_args(
                                 "sign-pfx-read-failed",
                                 &[("error", message.into())],
                             ));
@@ -310,7 +308,7 @@ fn prompt_for_pfx_password(window: &ApplicationWindow, viewer: &Viewer, path: Pa
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("sign-certificate-cancelled"));
+            viewer.info(&tr("sign-certificate-cancelled"));
             dismiss_pfx_dialog(&viewer, &dialog);
         }
     });
@@ -332,7 +330,7 @@ fn cancel_on_close(
         let viewer = viewer.clone();
         move |dialog| {
             if is_current(&viewer, dialog) {
-                viewer.status.set_text(&tr(cancelled));
+                viewer.info(&tr(cancelled));
             }
             dismiss(&viewer, dialog);
             glib::Propagation::Stop
@@ -475,7 +473,7 @@ fn show_pkcs11_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("sign-not-local-file"));
+                viewer.refuse(&tr("sign-not-local-file"));
                 return;
             };
             prompt_for_pkcs11_pin(&window, &viewer, path);
@@ -549,7 +547,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
         let error_label = error_label.clone();
         let module_path = module_path.clone();
         move || {
-            viewer.status.set_text(&tr("sign-pkcs11-reading"));
+            viewer.info(&tr("sign-pkcs11-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -578,20 +576,18 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
                             let identities = source.list_identities();
                             if identities.is_empty() {
                                 dialog.set_sensitive(true);
-                                viewer.status.set_text(&tr("sign-pkcs11-waiting"));
+                                viewer.info(&tr("sign-pkcs11-waiting"));
                                 error_label.set_text(&tr("sign-pkcs11-no-identities"));
                                 pin_entry.set_text("");
                                 pin_entry.grab_focus();
                                 return;
                             }
-                            viewer
-                                .status
-                                .set_text(&format_found_identities(&identities));
+                            viewer.info(&format_found_identities(&identities));
                             open_identity_picker(&window, &viewer, Arc::new(source), identities);
                             dismiss_pkcs11_dialog(&viewer, &dialog);
                         }
                         Err(Pkcs11AdapterError::Module(message)) => {
-                            viewer.status.set_text(&tr_args(
+                            viewer.fail(&tr_args(
                                 "sign-pkcs11-load-failed",
                                 &[("error", message.into())],
                             ));
@@ -611,7 +607,7 @@ fn prompt_for_pkcs11_pin(window: &ApplicationWindow, viewer: &Viewer, module_pat
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("sign-pkcs11-cancelled"));
+            viewer.info(&tr("sign-pkcs11-cancelled"));
             dismiss_pkcs11_dialog(&viewer, &dialog);
         }
     });
@@ -730,7 +726,7 @@ fn show_nss_module_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("sign-not-local-file"));
+                viewer.refuse(&tr("sign-not-local-file"));
                 return;
             };
             continue_nss_flow_with_module(&window, &viewer, path);
@@ -760,7 +756,7 @@ fn show_nss_profile_chooser(window: &ApplicationWindow, viewer: &Viewer, module_
                 return;
             };
             let Some(path) = folder.path() else {
-                viewer.status.set_text(&tr("sign-not-local-folder"));
+                viewer.refuse(&tr("sign-not-local-folder"));
                 return;
             };
             prompt_for_nss_password(&window, &viewer, module_path.clone(), path);
@@ -830,7 +826,7 @@ fn prompt_for_nss_password(
         let module_path = module_path.clone();
         let profile_dir = profile_dir.clone();
         move || {
-            viewer.status.set_text(&tr("sign-nss-reading"));
+            viewer.info(&tr("sign-nss-reading"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -859,27 +855,25 @@ fn prompt_for_nss_password(
                             let identities = source.list_identities();
                             if identities.is_empty() {
                                 dialog.set_sensitive(true);
-                                viewer.status.set_text(&tr("sign-nss-waiting"));
+                                viewer.info(&tr("sign-nss-waiting"));
                                 error_label.set_text(&tr("sign-nss-no-identities"));
                                 password_entry.set_text("");
                                 password_entry.grab_focus();
                                 return;
                             }
-                            viewer
-                                .status
-                                .set_text(&format_found_identities(&identities));
+                            viewer.info(&format_found_identities(&identities));
                             open_identity_picker(&window, &viewer, Arc::new(source), identities);
                             dismiss_nss_dialog(&viewer, &dialog);
                         }
                         Err(NssAdapterError::Pkcs11(Pkcs11AdapterError::Module(message))) => {
-                            viewer.status.set_text(&tr_args(
+                            viewer.fail(&tr_args(
                                 "sign-nss-load-failed",
                                 &[("error", message.into())],
                             ));
                             dismiss_nss_dialog(&viewer, &dialog);
                         }
                         Err(NssAdapterError::InvalidProfilePath(path)) => {
-                            viewer.status.set_text(&tr_args(
+                            viewer.fail(&tr_args(
                                 "sign-nss-invalid-path",
                                 &[("path", path.display().to_string().into())],
                             ));
@@ -899,7 +893,7 @@ fn prompt_for_nss_password(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("sign-certificate-cancelled"));
+            viewer.info(&tr("sign-certificate-cancelled"));
             dismiss_nss_dialog(&viewer, &dialog);
         }
     });
@@ -1018,7 +1012,7 @@ fn open_identity_picker(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("sign-cancelled"));
+            viewer.info(&tr("sign-cancelled"));
             dismiss_sign_picker(&viewer, &dialog);
         }
     });
@@ -1085,7 +1079,7 @@ fn begin_sign_from_picker(
     // Committed so the unsaved check below sees what the box holds: signing
     // writes `original_bytes`, and would otherwise drop it without asking.
     if !crate::app::content_edit::editor::commit_open_retype(viewer) {
-        return Err(viewer.status.text().to_string());
+        return Err(viewer.last_said().to_string());
     }
     let request = {
         let state = viewer.state.borrow();
@@ -1519,7 +1513,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
-        assert_eq!(built.viewer.status.text(), tr("sign-certificate-cancelled"));
+        assert_eq!(built.viewer.last_said(), tr("sign-certificate-cancelled"));
         assert!(built.viewer.state.borrow().sign_picker_dialog.is_none());
         built.window.close();
     }

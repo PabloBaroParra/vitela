@@ -5,6 +5,7 @@ use gtk::prelude::*;
 use gtk::{gio, glib};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, TextMatch};
 
+use super::feedback::Notice;
 use super::i18n::{tr, tr_args};
 use super::layout::page_top;
 use super::state::{SearchState, Viewer};
@@ -13,7 +14,7 @@ pub(crate) fn run_search(viewer: &Viewer) {
     let query = viewer.search_entry.text().to_string();
     if query.is_empty() {
         clear_search(viewer);
-        viewer.status.set_text(&tr("search-enter-text"));
+        viewer.info(&tr("search-enter-text"));
         return;
     }
     // Search reads the document's text, so it answers to the same
@@ -23,15 +24,15 @@ pub(crate) fn run_search(viewer: &Viewer) {
     // the raw capability); this is the shell's half of the contract.
     if let Some(refusal) = viewer.text_extraction_refusal() {
         clear_search(viewer);
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let Some((document, search_id)) = begin_search(viewer) else {
-        viewer.status.set_text(&tr("search-open-first"));
+        viewer.refuse(&tr("search-open-first"));
         return;
     };
 
-    viewer.status.set_text(&tr_args(
+    viewer.info(&tr_args(
         "search-running",
         &[("query", query.as_str().into())],
     ));
@@ -75,6 +76,9 @@ fn apply_search_result(
     result: Result<Vec<TextMatch>, RenderError>,
 ) {
     let mut found = false;
+    // A failed search is an outcome and goes where outcomes go; how many
+    // matches there are is the state of the view, like the page range.
+    let mut notice = Notice::Info;
     let status = {
         let mut state = viewer.state.borrow_mut();
         let Some(session) = state.session.as_mut() else {
@@ -107,6 +111,7 @@ fn apply_search_result(
             }
             Err(error) => {
                 session.search = None;
+                notice = Notice::Error;
                 tr_args("search-failed", &[("error", error.to_string().into())])
             }
         }
@@ -122,7 +127,7 @@ fn apply_search_result(
     // The match set changed, so every page's highlight layer is stale —
     // including the pages that just lost their matches.
     super::selection::redraw(viewer);
-    viewer.status.set_text(&status);
+    viewer.notify(notice, &status);
 }
 
 pub(crate) fn step_match(viewer: &Viewer, delta: i32) {
@@ -145,7 +150,7 @@ pub(crate) fn step_match(viewer: &Viewer, delta: i32) {
     // Only the accent moved, but it moved on two pages at once when the step
     // crossed a page boundary.
     super::selection::redraw(viewer);
-    viewer.status.set_text(&status);
+    viewer.info(&status);
 }
 
 fn scroll_to_current_match(viewer: &Viewer) {

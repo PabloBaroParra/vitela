@@ -35,7 +35,7 @@ use pdf_document::prune::prune_to;
 
 /// Writes every part on a worker thread and reports the result.
 pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBuf) {
-    viewer.status.set_text(&SPLIT.busy());
+    viewer.info(&SPLIT.busy());
 
     let parts = request.parts.len();
     let signed = request.signed;
@@ -51,10 +51,8 @@ pub(super) fn spawn_split(viewer: &Viewer, request: SplitRequest, folder: PathBu
             // The files are the user's whatever happened to the document
             // meanwhile: say where they went, or why they did not.
             match save_worker_result(result) {
-                Ok(()) => viewer
-                    .status
-                    .set_text(&options::split_summary(parts, &shown, signed)),
-                Err(error) => viewer.status.set_text(&SPLIT.failed(&error)),
+                Ok(()) => viewer.success(&options::split_summary(parts, &shown, signed)),
+                Err(error) => viewer.fail(&SPLIT.failed(&error)),
             }
         }
     });

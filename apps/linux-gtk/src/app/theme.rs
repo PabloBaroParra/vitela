@@ -100,6 +100,9 @@ const PALETTE: &[Token] = &[
     token("vitela_accent_fill_deep", "#5a3ee6", "#5a3ee6"),
     token("vitela_on_accent", "#ffffff", "#ffffff"),
     token("vitela_success", "#1f8a4c", "#44cf6e"),
+    // The other two outcome tones (`feedback::toast`): declined, and failed.
+    token("vitela_warning", "#a15c00", "#e0a84a"),
+    token("vitela_danger", "#c5303f", "#ff7b86"),
     // A tool accent that is too dim on the dark surfaces to keep.
     token("vitela_tool_protect", "#6366f1", "#818cf8"),
 ];
@@ -422,6 +425,8 @@ mod tests {
         ("vitela_accent_fill_deep", "#5a3ee6"),
         ("vitela_on_accent", "#ffffff"),
         ("vitela_success", "#1f8a4c"),
+        ("vitela_warning", "#a15c00"),
+        ("vitela_danger", "#c5303f"),
         ("vitela_tool_protect", "#6366f1"),
     ];
 

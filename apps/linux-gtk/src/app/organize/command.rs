@@ -37,7 +37,7 @@ pub(super) fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) -> bool {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
     // Every operation that reaches this funnel changes the page list, which
@@ -46,7 +46,7 @@ pub(super) fn command(
     // withhold the other, so asking only the first would repaginate a file
     // that forbids exactly that — see `pdf_manip::document_assembly_is_allowed`.
     if let Some(refusal) = viewer.page_assembly_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
     // Permission granted is not the same as result writable. Moving or
@@ -57,7 +57,7 @@ pub(super) fn command(
     // way, so an edit that can never be written would not merely wait to fail
     // — it would take the preview down with it on the very next operation.
     if let Some(refusal) = viewer.full_rewrite_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
     commit(viewer, operation)
@@ -71,7 +71,7 @@ fn rotation_command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) -> bool {
     if let Some(refusal) = rotation_refusal(viewer) {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
     commit(viewer, operation)
@@ -104,7 +104,7 @@ fn commit(
                 session.edit_revision += 1;
                 session.unsaved_to_disk = true;
             }
-            viewer.status.set_text(&message);
+            viewer.info(&message);
             crate::app::annotations::update_annotation_controls(viewer);
             // A page op moves `Document.pages` out from under the open pdfium
             // handle, which still holds the pre-op order. Materializing it now
@@ -118,7 +118,7 @@ fn commit(
             true
         }
         Err(error) => {
-            viewer.status.set_text(&error);
+            viewer.refuse(&error);
             false
         }
     }
@@ -278,7 +278,7 @@ pub(super) fn rotate_block(
     delta_degrees: i32,
 ) -> bool {
     let Some(pages) = block_page_ids(viewer, start, count) else {
-        viewer.status.set_text(&tr("organize-pages-gone"));
+        viewer.refuse(&tr("organize-pages-gone"));
         return false;
     };
     let turned = rotation_command(viewer, {
@@ -330,7 +330,7 @@ pub(super) fn rotate_block(
 /// palette's availability asks the same two gates in the same order.
 pub(crate) fn rotate_all_pages(viewer: &Viewer, delta_degrees: i32) -> bool {
     if let Some(refusal) = super::open_refusal(viewer) {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return false;
     }
     // Measured and dropped before `rotate_block` borrows the state again.

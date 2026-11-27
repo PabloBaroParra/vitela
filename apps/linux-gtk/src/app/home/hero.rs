@@ -137,11 +137,11 @@ fn accept_drop(viewer: &Viewer, value: &gtk::glib::Value) -> bool {
         return false;
     };
     let Some(path) = file.path() else {
-        viewer.status.set_text(&tr("home-drop-not-local"));
+        viewer.refuse(&tr("home-drop-not-local"));
         return false;
     };
     if !is_pdf_path(&path) {
-        viewer.status.set_text(&tr("home-drop-not-pdf"));
+        viewer.refuse(&tr("home-drop-not-pdf"));
         return false;
     }
     open_file(viewer, path);

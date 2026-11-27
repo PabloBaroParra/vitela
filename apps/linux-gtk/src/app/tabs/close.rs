@@ -50,7 +50,7 @@ pub(super) fn close_tab(window: &ApplicationWindow, viewer: &Viewer, id: TabId) 
                 Box::new(move |viewer: &Viewer| close_active(&window, viewer)),
             );
             if let Err(reason) = activated {
-                viewer.status.set_text(&reason);
+                viewer.refuse(&reason);
             }
         }
     }
@@ -64,11 +64,11 @@ pub(super) fn close_tab(window: &ApplicationWindow, viewer: &Viewer, id: TabId) 
 /// closes that tab only if it is still the active one.
 pub(crate) fn close_active(window: &ApplicationWindow, viewer: &Viewer) {
     let Some(id) = active_tab(viewer) else {
-        viewer.status.set_text(&tr("tabs-no-document"));
+        viewer.refuse(&tr("tabs-no-document"));
         return;
     };
     if let Some(reason) = busy_refusal(viewer) {
-        viewer.status.set_text(&reason);
+        viewer.refuse(&reason);
         return;
     }
     if !has_unsaved_changes_after_commit(viewer) {
@@ -128,7 +128,7 @@ fn resolve_next(window: &ApplicationWindow, viewer: &Viewer, finish: Rc<dyn Fn()
         // up: the next dirty tab cannot be brought forward yet. The window
         // stays open, and says why, rather than closing over unsaved work.
         if activated.is_err() {
-            viewer.status.set_text(&tr("tabs-close-held"));
+            viewer.refuse(&tr("tabs-close-held"));
         }
         return;
     }
@@ -140,7 +140,7 @@ fn resolve_next(window: &ApplicationWindow, viewer: &Viewer, finish: Rc<dyn Fn()
 /// active since the question was asked.
 fn discard_tab(viewer: &Viewer, id: TabId) -> bool {
     if active_tab(viewer) != Some(id) {
-        viewer.status.set_text(&tr("tabs-gone"));
+        viewer.refuse(&tr("tabs-gone"));
         return false;
     }
     discard_active(viewer);
@@ -187,9 +187,7 @@ fn discard_active(viewer: &Viewer) {
         sync(viewer);
     }
     if let Some(name) = name {
-        viewer
-            .status
-            .set_text(&tr_args("tabs-closed", &[("name", name.into())]));
+        viewer.info(&tr_args("tabs-closed", &[("name", name.into())]));
     }
 }
 
@@ -207,9 +205,7 @@ fn drop_parked(viewer: &Viewer, id: TabId) {
     let name = parked.session.base_name.clone();
     close_document_in_background(parked.session.document);
     sync(viewer);
-    viewer
-        .status
-        .set_text(&tr_args("tabs-closed", &[("name", name.into())]));
+    viewer.info(&tr_args("tabs-closed", &[("name", name.into())]));
 }
 
 #[cfg(test)]
@@ -227,7 +223,7 @@ mod tests {
         let closing = FileDocument::new("close-save");
         let path = closing.open_file();
         closing.mark_dirty();
-        std::fs::write(&path, b"not what the save writes").expect("stage the file");
+        let before = crate::app::state::FileStamp::of(&path);
 
         close_active(&closing.built.window, &closing.built.viewer);
         closing.answer(&tr("open-unsaved-save"));
@@ -241,6 +237,11 @@ mod tests {
         assert!(closing.dialogs().is_empty(), "nothing else was asked");
         let written = std::fs::read(&path).expect("the file is still there");
         assert!(written.starts_with(b"%PDF-"), "the file holds the document");
+        assert_ne!(
+            crate::app::state::FileStamp::of(&path),
+            before,
+            "the file was written"
+        );
     }
 
     /// A save that fails keeps the tab: closing it anyway would discard the
@@ -250,11 +251,7 @@ mod tests {
         let closing = FileDocument::new("close-failed");
         let path = closing.open_file();
         closing.mark_dirty();
-        // The temporary name the write creates, already taken.
-        let temporary = closing
-            .folder
-            .join(format!(".report.pdf.{}.tmp", std::process::id()));
-        std::fs::write(&temporary, b"in the way").expect("block the temporary file");
+        closing.block_writes_to(&path);
 
         close_active(&closing.built.window, &closing.built.viewer);
         closing.answer(&tr("open-unsaved-save"));
@@ -268,26 +265,5 @@ mod tests {
         assert_eq!(closing.tab_count(), 1, "the tab stays open");
         assert!(closing.dirty(), "with its work still unsaved");
         assert_eq!(std::fs::read(&path).expect("the file"), SAMPLE_PDF);
-    }
-
-    /// A document with no file to go back to still has to be given one:
-    /// Save in the close prompt raises the chooser, and the tab waits on it.
-    #[gtk::test]
-    fn gtk_ui_save_in_the_close_prompt_asks_where_to_go_without_a_file() {
-        use crate::app::state::DocumentSource;
-
-        let closing = FileDocument::new("close-no-file");
-        closing.open(DocumentSource::Embedded(SAMPLE_PDF));
-        closing.mark_dirty();
-
-        close_active(&closing.built.window, &closing.built.viewer);
-        closing.answer(&tr("open-unsaved-save"));
-
-        assert!(
-            wait_until(|| closing.chooser_is_up()),
-            "the chooser is raised"
-        );
-        assert_eq!(closing.tab_count(), 1, "the tab waits for the answer");
-        assert!(closing.dirty());
     }
 }

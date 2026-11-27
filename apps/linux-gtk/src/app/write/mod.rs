@@ -76,7 +76,7 @@ use super::state::{ImportedSource, SaveBacking};
 /// wrote its files reports them, and one that failed reports the failure,
 /// whatever the document did meanwhile.
 pub(crate) fn report_result_unused(viewer: &super::state::Viewer) {
-    viewer.status.set_text(&tr("job-document-changed"));
+    viewer.refuse(&tr("job-document-changed"));
 }
 
 /// The overwrite guard on its own, for tests that drive its question.
@@ -98,6 +98,10 @@ pub(crate) use save::{save, save_as, save_then};
 pub(crate) use sign::{begin_sign, SignRequest};
 pub(crate) use snapshot::{snapshot_for_output, OutputSource};
 pub(crate) use split::begin_split;
+/// The temporary file a write to `destination` goes through — for tests
+/// that put something in its way.
+#[cfg(test)]
+pub(crate) use worker::temporary_beside;
 
 /// The imported documents a save has to graft from, in the shape
 /// `pdf_save::ImportedSources` borrows them in.

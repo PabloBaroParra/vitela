@@ -321,7 +321,7 @@ pub(crate) fn update(viewer: &Viewer) {
 /// one with only some restyled closes, leaving its block selected.
 pub(crate) fn toggle(viewer: &Viewer, style: Style) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         update(viewer);
         return;
     }
@@ -356,7 +356,7 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
             refresh_preview(viewer, tr("edit-text-restyled"));
         }
         Ok(None) => {}
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update(viewer);
 }

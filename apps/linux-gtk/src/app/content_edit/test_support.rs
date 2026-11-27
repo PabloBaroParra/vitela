@@ -170,7 +170,7 @@ impl OpenRetype {
             .as_ref()
             .and_then(|session| session.content_editor.as_ref())
             .map(|editor| editor.field.clone())
-            .unwrap_or_else(|| panic!("no box opened: {:?}", built.viewer.status.text()));
+            .unwrap_or_else(|| panic!("no box opened: {:?}", built.viewer.last_said()));
         match field {
             crate::app::state::EditorField::Line(entry) => entry.set_text(typed),
             crate::app::state::EditorField::Paragraph { .. } => {

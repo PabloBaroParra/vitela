@@ -215,15 +215,33 @@ fn arm_tool(viewer: &Viewer, tool: Tool, active: bool) {
                 button.set_active(false);
             }
         }
-        viewer.status.set_text(&tr_args(
+        viewer.info(&tr_args(
             "annotate-tool-armed",
             &[("tool", tool.label().into())],
         ));
     } else {
-        viewer.status.set_text(&tr_args(
+        viewer.info(&tr_args(
             "annotate-tool-disarmed",
             &[("tool", tool.label().into())],
         ));
+    }
+    crate::app::arming::sync(viewer);
+}
+
+/// Releases `tool` the way a click on its own lit button would — Escape's
+/// way out of an armed tool (`arming::disarm`). Through the button when it
+/// is the one lit, so the toggle, the state and the status line all follow
+/// from the same handler a click runs.
+pub(crate) fn release_tool(viewer: &Viewer, tool: Tool) {
+    let lit = viewer
+        .annotation_buttons
+        .create
+        .iter()
+        .find(|(candidate, button)| *candidate == tool && button.is_active())
+        .map(|(_, button)| button.clone());
+    match lit {
+        Some(button) => button.set_active(false),
+        None => arm_tool(viewer, tool, false),
     }
 }
 
@@ -295,6 +313,7 @@ pub(crate) fn disarm(viewer: &Viewer) {
     for (_, button) in &viewer.annotation_buttons.create {
         button.set_active(false);
     }
+    crate::app::arming::sync(viewer);
 }
 
 pub(crate) fn update_annotation_controls(viewer: &Viewer) {

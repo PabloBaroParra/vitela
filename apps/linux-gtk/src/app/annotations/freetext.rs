@@ -130,7 +130,7 @@ pub(super) fn is_stale(opened: u64, current: Option<u64>) -> bool {
 fn refused(viewer: &Viewer) -> bool {
     match viewer.annotation_editing_refusal() {
         Some(refusal) => {
-            viewer.status.set_text(&refusal);
+            viewer.refuse(&refusal);
             true
         }
         None => false,
@@ -190,7 +190,7 @@ fn open_edit_dialog(viewer: &Viewer) -> Option<Dialog> {
         return None;
     }
     let Some((session_id, id, contents)) = selected_text_box(viewer) else {
-        viewer.status.set_text(&tr(SELECT_A_TEXT_BOX));
+        viewer.refuse(&tr(SELECT_A_TEXT_BOX));
         return None;
     };
     let on_confirm: Confirm =
@@ -232,7 +232,7 @@ fn commit_new(
     text: String,
 ) -> Result<(), String> {
     if is_stale(session_id, current_session_id(viewer)) {
-        viewer.status.set_text(&tr(DOCUMENT_CHANGED));
+        viewer.refuse(&tr(DOCUMENT_CHANGED));
         return Ok(());
     }
     validate_text(&text)?;
@@ -261,7 +261,7 @@ fn commit_edit(
     text: String,
 ) -> Result<(), String> {
     if is_stale(session_id, current_session_id(viewer)) {
-        viewer.status.set_text(&tr(DOCUMENT_CHANGED));
+        viewer.refuse(&tr(DOCUMENT_CHANGED));
         return Ok(());
     }
     validate_text(&text)?;
@@ -274,13 +274,13 @@ fn commit_edit(
         .and_then(|document| document.annotations.get(id))
         .cloned();
     let Some(current) = current else {
-        viewer.status.set_text(&tr(SELECTION_GONE));
+        viewer.refuse(&tr(SELECTION_GONE));
         return Ok(());
     };
     // Checked before `command`, which would mark the document unsaved for an
     // edit that changed nothing.
     if retyped(&current, &text)?.is_none() {
-        viewer.status.set_text(&tr(UNCHANGED));
+        viewer.info(&tr(UNCHANGED));
         return Ok(());
     }
     command(viewer, move |session| {
@@ -327,7 +327,7 @@ fn buffer_text(buffer: &TextBuffer) -> String {
 
 fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) -> Option<Dialog> {
     let Some(parent) = viewer.window() else {
-        viewer.status.set_text(&tr(NO_DIALOG));
+        viewer.fail(&tr(NO_DIALOG));
         return None;
     };
 
@@ -420,7 +420,7 @@ fn present(viewer: &Viewer, session_id: u64, spec: Spec, on_confirm: Confirm) ->
         let canceled = spec.canceled;
         move |_| {
             if !committed.get() && current_session_id(&viewer) == Some(session_id) {
-                viewer.status.set_text(&tr(canceled));
+                viewer.info(&tr(canceled));
             }
             glib::Propagation::Proceed
         }
@@ -642,7 +642,7 @@ mod tests {
 
         assert_eq!(annotation_count(viewer), 0);
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), tr(ADD_CANCELED));
+        assert_eq!(viewer.last_said(), tr(ADD_CANCELED));
     }
 
     #[gtk::test]
@@ -710,7 +710,7 @@ mod tests {
         dialog.confirm.emit_clicked();
 
         assert_eq!(annotation_count(viewer), 0);
-        assert_eq!(viewer.status.text(), tr(DOCUMENT_CHANGED));
+        assert_eq!(viewer.last_said(), tr(DOCUMENT_CHANGED));
     }
 
     #[gtk::test]
@@ -726,7 +726,7 @@ mod tests {
 
         assert!(dialog.is_none());
         assert_eq!(
-            viewer.status.text(),
+            viewer.last_said(),
             "This document does not permit annotation changes."
         );
     }
@@ -774,7 +774,7 @@ mod tests {
         dialog.confirm.emit_clicked();
 
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), tr(UNCHANGED));
+        assert_eq!(viewer.last_said(), tr(UNCHANGED));
     }
 
     #[gtk::test]
@@ -791,7 +791,7 @@ mod tests {
 
         assert_eq!(contents_of(viewer, id).as_deref(), Some("uno"));
         assert!(!can_undo(viewer));
-        assert_eq!(viewer.status.text(), tr(EDIT_CANCELED));
+        assert_eq!(viewer.last_said(), tr(EDIT_CANCELED));
     }
 
     #[gtk::test]
@@ -835,6 +835,6 @@ mod tests {
         }
 
         assert!(open_edit_dialog(viewer).is_none());
-        assert_eq!(viewer.status.text(), tr(SELECT_A_TEXT_BOX));
+        assert_eq!(viewer.last_said(), tr(SELECT_A_TEXT_BOX));
     }
 }

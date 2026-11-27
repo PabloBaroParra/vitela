@@ -29,14 +29,14 @@ const CANCELED: &str = "annotate-note-canceled";
 /// `page_index`. Nothing is recorded until they press Add.
 pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let Some(session_id) = current_session_id(viewer) else {
         return;
     };
     let Some(window) = viewer.window() else {
-        viewer.status.set_text(&tr("annotate-note-no-dialog"));
+        viewer.fail(&tr("annotate-note-no-dialog"));
         return;
     };
 
@@ -115,7 +115,7 @@ pub(super) fn prompt_for_note(viewer: &Viewer, page_index: usize, rect: Rect) {
         let viewer = viewer.clone();
         move |_| {
             if !committed.get() && current_session_id(&viewer) == Some(session_id) {
-                viewer.status.set_text(&tr(CANCELED));
+                viewer.info(&tr(CANCELED));
             }
             glib::Propagation::Proceed
         }

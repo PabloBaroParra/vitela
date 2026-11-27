@@ -80,11 +80,11 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     if let Some(refusal) = viewer.full_rewrite_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -96,7 +96,7 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
             .and_then(|session| session.document_model.as_ref())
             .map(|document| document.pages.len() as u32)
     }) else {
-        viewer.status.set_text(&tr("split-no-document"));
+        viewer.refuse(&tr("split-no-document"));
         return;
     };
     // A split has to leave something on both sides of a cut, so the floor is
@@ -105,11 +105,11 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
     // said in two sentences, because "no pages" and "one page" are different
     // documents and a user looking at either should be told which they have.
     if total_pages == 0 {
-        viewer.status.set_text(&tr("split-no-pages"));
+        viewer.refuse(&tr("split-no-pages"));
         return;
     }
     if total_pages < 2 {
-        viewer.status.set_text(&tr("split-one-page"));
+        viewer.refuse(&tr("split-one-page"));
         return;
     }
 
@@ -121,7 +121,7 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
         total_pages,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(&SPLIT.cancelled())
+            move || viewer.info(&SPLIT.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -131,7 +131,7 @@ pub(crate) fn begin_split(window: &ApplicationWindow, viewer: &Viewer) {
                 }
                 match build_request(&viewer, &cuts, total_pages) {
                     Ok(request) => destination::choose_folder(window, &viewer, request),
-                    Err(message) => viewer.status.set_text(&message),
+                    Err(message) => viewer.refuse(&message),
                 }
             }
         },
@@ -202,7 +202,7 @@ mod tests {
         begin_split(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Open a PDF before splitting it."
         );
 
@@ -222,7 +222,7 @@ mod tests {
         begin_split(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             TextAccess::Forbidden
                 .refusal()
                 .expect("a forbidden document refuses")
@@ -248,7 +248,7 @@ mod tests {
             .expect("a one-password document cannot be rewritten");
         begin_split(&built.window, &built.viewer);
 
-        assert_eq!(built.viewer.status.text().as_str(), refusal);
+        assert_eq!(built.viewer.last_said().as_str(), refusal);
 
         built.window.close();
     }
@@ -264,7 +264,7 @@ mod tests {
         begin_split(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "A document of one page cannot be split."
         );
 
@@ -281,7 +281,7 @@ mod tests {
         begin_split(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "This document has no pages to split."
         );
 

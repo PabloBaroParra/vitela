@@ -415,7 +415,7 @@ fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let result = {
@@ -431,9 +431,9 @@ fn command(
                 session.edit_revision += 1;
                 session.unsaved_to_disk = true;
             }
-            viewer.status.set_text(&message);
+            viewer.info(&message);
         }
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
 }
 
@@ -527,7 +527,7 @@ fn commit_date(viewer: &Viewer, raw: String, which: DateField) {
                 DateField::Mod => info.mod_date = date,
             });
         }
-        Err(error) => viewer.status.set_text(&tr_args(
+        Err(error) => viewer.refuse(&tr_args(
             "metadata-invalid-date",
             &[("error", error.into())],
         )),
@@ -876,11 +876,11 @@ mod tests {
         refresh(&built.viewer);
         built.viewer.metadata.title.set_text("Title {PDF} á");
         assert_eq!(
-            built.viewer.status.text(),
+            built.viewer.last_said(),
             "Propiedades del documento actualizadas. Los cambios están pendientes de guardar."
         );
         commit_date(&built.viewer, "2026-13-01".to_string(), DateField::Creation);
-        assert_eq!(built.viewer.status.text(), "Fecha no válida; se ha restaurado el valor anterior: el campo «mes» tiene el valor 13, fuera del rango (1-12)");
+        assert_eq!(built.viewer.last_said(), "Fecha no válida; se ha restaurado el valor anterior: el campo «mes» tiene el valor 13, fuera del rango (1-12)");
         assert_eq!(
             built.viewer.metadata.creation_date.text(),
             "2026-01-01 00:00:00"
@@ -899,7 +899,7 @@ mod tests {
             "2026-09-01 08:30".to_string(),
             DateField::Creation,
         );
-        assert_eq!(built.viewer.status.text(), "No hay cambios que registrar.");
+        assert_eq!(built.viewer.last_said(), "No hay cambios que registrar.");
         let state = built.viewer.state.borrow();
         let session = state.session.as_ref().unwrap();
         let info = current_document_info(session.document_model.as_ref(), None);

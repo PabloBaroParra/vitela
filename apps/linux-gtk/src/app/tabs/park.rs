@@ -85,7 +85,7 @@ pub(super) fn park_new(viewer: &Viewer, document: OpenedDocument) -> TabId {
         id
     };
     super::sync::sync(viewer);
-    viewer.status.set_text(&tr_args(
+    viewer.success(&tr_args(
         "tabs-opened-in-background",
         &[("name", name.into())],
     ));
@@ -198,7 +198,7 @@ fn restore_screen(viewer: &Viewer, screen: &str) {
     }
     if screen == ORGANIZE_PAGE {
         if let Some(refusal) = crate::app::organize::open_refusal(viewer) {
-            viewer.status.set_text(&refusal);
+            viewer.refuse(&refusal);
             return;
         }
         viewer.view_stack.set_visible_child_name(screen);

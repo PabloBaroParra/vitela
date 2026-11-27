@@ -43,7 +43,7 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
     };
 
     match source {
-        None => viewer.status.set_text(&tr("print-open-first")),
+        None => viewer.refuse(&tr("print-open-first")),
         Some(OutputSource::Live {
             document,
             page_sizes,
@@ -59,7 +59,7 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
             // commit above also bumps, and which would then drop the very
             // print it was committed for, without a word.
             let base = Arc::clone(&backing.base);
-            viewer.status.set_text(&tr("print-preparing"));
+            viewer.info(&tr("print-preparing"));
             // Holds the active tab until the snapshot is in — see
             // `tabs::JobGuard`.
             let job = crate::app::tabs::JobGuard::hold(viewer);
@@ -78,19 +78,19 @@ pub(crate) fn print_document(window: &ApplicationWindow, viewer: &Viewer) {
                             // snapshot was being built is not the one the
                             // user asked to print.
                             if prints_the_open_document(&viewer, &base) {
-                                viewer.status.set_text("");
+                                viewer.info("");
                                 run_print(&window, &viewer, snapshot.document, snapshot.page_sizes);
                             }
                             close_document_in_background(snapshot.document);
                         }
                         Ok(Err(error)) if prints_the_open_document(&viewer, &base) => {
-                            viewer.status.set_text(&tr_args(
+                            viewer.fail(&tr_args(
                                 "print-prepare-failed",
                                 &[("error", error.to_string().into())],
                             ))
                         }
                         Err(_) if prints_the_open_document(&viewer, &base) => {
-                            viewer.status.set_text(&tr("print-prepare-stopped"))
+                            viewer.fail(&tr("print-prepare-stopped"))
                         }
                         _ => {}
                     }
@@ -130,7 +130,7 @@ fn run_print(
     page_sizes: Vec<(f32, f32)>,
 ) {
     if page_sizes.is_empty() {
-        viewer.status.set_text(&tr("print-no-pages"));
+        viewer.refuse(&tr("print-no-pages"));
         return;
     }
 
@@ -142,9 +142,9 @@ fn run_print(
     });
 
     match operation.run(PrintOperationAction::PrintDialog, Some(window)) {
-        Ok(PrintOperationResult::Error) => viewer.status.set_text(&tr("print-failed")),
+        Ok(PrintOperationResult::Error) => viewer.fail(&tr("print-failed")),
         Ok(_) => {}
-        Err(error) => viewer.status.set_text(&tr_args(
+        Err(error) => viewer.fail(&tr_args(
             "print-error",
             &[("error", error.to_string().into())],
         )),
@@ -224,7 +224,7 @@ mod tests {
         assert!(window.box_open(), "the fixture must leave the box open");
 
         print_document(window.window(), window.viewer());
-        let status = window.viewer().status.text();
+        let status = window.viewer().last_said();
 
         assert!(!window.box_open(), "the print commits the box");
         assert_eq!(window.saved_texts(), [OpenRetype::TYPED]);

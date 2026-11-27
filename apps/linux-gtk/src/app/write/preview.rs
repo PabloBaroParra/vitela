@@ -123,6 +123,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
         let carried = CarriedSession {
             name: session.base_name.clone(),
             origin_path: session.origin_path.clone(),
+            origin_stamp: session.origin_stamp,
             text_access: session.text_access,
             annotation_access: session.annotation_access,
             content_edit_access: session.content_edit_access,
@@ -132,7 +133,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
         (token, document, backing, sources, carried)
     };
 
-    viewer.status.set_text(&tr("preview-refreshing"));
+    viewer.info(&tr("preview-refreshing"));
     let started = perf::now();
     glib::spawn_future_local({
         let viewer = viewer.clone();
@@ -203,9 +204,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                     ];
                     perf::finish("preview.install", installing, &fields);
                     perf::finish("preview.refresh", started, &fields);
-                    viewer
-                        .status
-                        .set_text(&refresh_status(&viewer, token, &message, &warnings));
+                    viewer.info(&refresh_status(&viewer, token, &message, &warnings));
                 }
                 Ok((reopened, _)) => close_document_in_background(reopened.document),
                 // The command that triggered this refresh stays recorded in
@@ -220,7 +219,7 @@ pub(crate) fn refresh_preview(viewer: &Viewer, message: impl Into<String>) {
                 // caller sets it when it *records* the command, not when the
                 // preview catches up, precisely so a failed refresh still
                 // reports the document as dirty.
-                Err(error) if session_matches(&viewer, token) => viewer.status.set_text(&tr_args(
+                Err(error) if session_matches(&viewer, token) => viewer.fail(&tr_args(
                     "preview-failed",
                     &[("error", error.as_str().into())],
                 )),
@@ -315,6 +314,7 @@ fn refresh_snapshot_and_reopen(
         document: handle,
         name: carried.name,
         origin_path: carried.origin_path,
+        origin_stamp: carried.origin_stamp,
         page_geometry,
         text_access: carried.text_access,
         annotation_access: carried.annotation_access,
@@ -337,6 +337,7 @@ fn refresh_snapshot_and_reopen(
 struct CarriedSession {
     name: String,
     origin_path: Option<std::path::PathBuf>,
+    origin_stamp: Option<super::super::state::FileStamp>,
     text_access: TextAccess,
     annotation_access: AnnotationAccess,
     content_edit_access: ContentEditAccess,

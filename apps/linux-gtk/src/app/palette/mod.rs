@@ -106,13 +106,13 @@ pub(crate) fn install(window: &ApplicationWindow, viewer: &Viewer, root: &Overla
 }
 
 /// Records whether the palette is up and recomputes the one action that
-/// shares its key: Esc's `win.clear-content-selection` is off while it is,
+/// shares its key: Esc's `win.escape` is off while it is,
 /// so the first Esc closes the palette and leaves a content selection alone.
 /// Every way of closing (Esc, Ctrl+K, a click outside, running an entry)
 /// goes through [`Palette::close`], so the action always comes back.
 fn set_open(viewer: &Viewer, open: bool) {
     viewer.state.borrow_mut().palette_open = open;
-    crate::app::content_edit::multi::update_clear_action(viewer);
+    crate::app::escape::update(viewer);
 }
 
 fn row_index(row: &gtk::ListBoxRow) -> usize {
@@ -291,7 +291,7 @@ impl Palette {
             Ok(()) => self.inner.recent.borrow_mut().record(entry.id),
             // Refused between drawing the row and running it: say so where
             // the shell reports everything else.
-            Err(reason) => self.inner.viewer.status.set_text(&reason),
+            Err(reason) => self.inner.viewer.refuse(&reason),
         }
     }
 }

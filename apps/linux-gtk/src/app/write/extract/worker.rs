@@ -40,7 +40,7 @@ use crate::app::state::Viewer;
 
 /// Writes the extracted PDF on a worker thread and reports the result.
 pub(super) fn spawn_extract(viewer: &Viewer, request: ExtractRequest, destination: PathBuf) {
-    viewer.status.set_text(&EXTRACT.busy());
+    viewer.info(&EXTRACT.busy());
 
     let count = request.pages.len();
     let signed = request.signed;
@@ -56,10 +56,8 @@ pub(super) fn spawn_extract(viewer: &Viewer, request: ExtractRequest, destinatio
             // The file is the user's whatever happened to the document
             // meanwhile: say where it went, or why it did not.
             match save_worker_result(result) {
-                Ok(()) => viewer
-                    .status
-                    .set_text(&options::extract_summary(count, &shown, signed)),
-                Err(error) => viewer.status.set_text(&EXTRACT.failed(&error)),
+                Ok(()) => viewer.success(&options::extract_summary(count, &shown, signed)),
+                Err(error) => viewer.fail(&EXTRACT.failed(&error)),
             }
         }
     });
@@ -153,8 +151,8 @@ mod tests {
         // An edit reopened the document meanwhile.
         built.viewer.state.borrow_mut().generation += 1;
         let busy = super::super::super::EXTRACT.busy();
-        crate::app::test_support::wait_until(|| built.viewer.status.text() != busy);
-        let status = built.viewer.status.text().to_string();
+        crate::app::test_support::wait_until(|| built.viewer.last_said() != busy);
+        let status = built.viewer.last_said().to_string();
         gtk::prelude::GtkWindowExt::close(&built.window);
         let _ = fs::remove_dir_all(&directory);
 

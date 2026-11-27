@@ -74,11 +74,11 @@ pub(super) fn choose_destination_from(
                 return;
             }
             let Ok(file) = result else {
-                viewer.status.set_text(&operation.cancelled());
+                viewer.info(&operation.cancelled());
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("write-not-local-file"));
+                viewer.refuse(&tr("write-not-local-file"));
                 return;
             };
             confirm_destination(
@@ -118,14 +118,12 @@ pub(super) fn confirm_destination(
     proceed: Proceed,
 ) {
     if crate::app::tabs::path_held_by_other_tab(viewer, &destination) {
-        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+        viewer.refuse(&tr("tabs-path-open-elsewhere"));
         return;
     }
     match destination.try_exists() {
         Ok(false) => proceed(window, viewer, destination),
-        Err(error) => viewer
-            .status
-            .set_text(&check_failed(&destination, &error.to_string())),
+        Err(error) => viewer.fail(&check_failed(&destination, &error.to_string())),
         Ok(true) => {
             let dialog = AlertDialog::builder()
                 .message(tr("write-replace-title"))
@@ -143,11 +141,11 @@ pub(super) fn confirm_destination(
                     if response == Ok(1)
                         && crate::app::tabs::path_held_by_other_tab(&viewer, &destination)
                     {
-                        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+                        viewer.refuse(&tr("tabs-path-open-elsewhere"));
                     } else if response == Ok(1) {
                         proceed(&window, &viewer, destination.clone());
                     } else {
-                        viewer.status.set_text(&operation.cancelled());
+                        viewer.info(&operation.cancelled());
                     }
                 }
             });
@@ -196,7 +194,7 @@ pub(super) fn confirm_signature_loss(
         let viewer = viewer.clone();
         move |response| {
             if response != Ok(1) {
-                viewer.status.set_text(&operation.cancelled());
+                viewer.info(&operation.cancelled());
             } else if bound.ensure_active_or_report(&viewer) {
                 proceed();
             }
@@ -256,7 +254,7 @@ mod tests {
             }),
         );
 
-        let status = built.viewer.status.text().to_string();
+        let status = built.viewer.last_said().to_string();
         built.viewer.state.borrow_mut().session = None;
         built.viewer.tabs.borrow_mut().clear_for_test();
         built.window.close();

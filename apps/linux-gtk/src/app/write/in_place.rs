@@ -2,25 +2,30 @@
 //! or has to ask where to go.
 //!
 //! Save As always asks ([`super::chooser`]). An ordinary Save asks only when
-//! there is no file to write back to. Everything past that decision is the
-//! one chain in [`super::save`]: the route settles the destination and
-//! nothing else, so the signature warning, the core's refusals and the
-//! validating reopen are the same for both.
+//! writing back is not plainly what will happen. Everything past that
+//! decision is the one chain in [`super::save`]: the route settles the
+//! destination and nothing else, so the signature warning, the core's
+//! refusals and the validating reopen are the same for both.
+//!
+//! The destination it settles is a *resolved* one. A document opened through
+//! a symbolic link is saved into the file the link points at, so the link is
+//! followed here, once, on the main thread, and every question below is
+//! asked of the file it led to — the same path the chain is then handed.
 
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
+use gtk::gio;
 use gtk::prelude::*;
-use gtk::{gio, glib};
 
-use super::super::state::Viewer;
-use super::worker::through_links;
+use super::super::state::{FileStamp, Viewer};
 
 /// Where an ordinary Save writes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum SaveRoute {
     /// Straight back to the file the document came from: no chooser, and no
-    /// overwrite question — replacing that file is what Save means.
+    /// overwrite question — replacing that file is what Save means. The path
+    /// is the file itself, with any link to it already followed.
     InPlace(PathBuf),
     /// Through the Save As chooser.
     Ask,
@@ -40,37 +45,70 @@ pub(super) struct OriginFacts {
     /// that copy with what the file holds now, so its first save is still a
     /// question; the session the save reopens is the file's own again.
     pub(super) restored_copy: bool,
+    /// The file is not the one this session read: its [`FileStamp`] differs
+    /// from the one taken at the open or the last save, or none was taken.
+    /// Something else has written it since, and replacing it without a word
+    /// would discard that. The chooser's "Replace?" is the question.
+    pub(super) changed_on_disk: bool,
 }
 
-/// Chooses the route for a document that came from `origin`.
+/// Chooses the route for a document whose file, links followed, is `file`.
 ///
 /// Asking is the fallback for every case in which writing back is not
 /// plainly what will happen: a document that never had a file (the sample, a
 /// blank one, pasted bytes), a file that is gone or read-only, a file another
-/// tab holds, and a copy restored after a crash. The chooser then opens on
-/// the origin, so the user sees what was tried.
-pub(super) fn save_route(origin: Option<&Path>, facts: OriginFacts) -> SaveRoute {
-    match origin {
-        Some(path) if facts.replaceable && !facts.held_by_another_tab && !facts.restored_copy => {
+/// tab holds, a copy restored after a crash, and a file written by something
+/// else since it was read. The chooser then opens on the origin, so the user
+/// sees what was tried.
+pub(super) fn save_route(file: Option<&Path>, facts: OriginFacts) -> SaveRoute {
+    match file {
+        Some(path)
+            if facts.replaceable
+                && !facts.held_by_another_tab
+                && !facts.restored_copy
+                && !facts.changed_on_disk =>
+        {
             SaveRoute::InPlace(path.to_path_buf())
         }
         _ => SaveRoute::Ask,
     }
 }
 
-/// Reads [`OriginFacts`] for `origin` off the file system and the tabs.
-pub(super) fn origin_facts(viewer: &Viewer, origin: &Path) -> OriginFacts {
-    let restored_copy = viewer
-        .state
-        .borrow()
-        .session
-        .as_ref()
-        .is_some_and(|session| session.unsaved_base);
-    OriginFacts {
-        replaceable: replaceable_in_place(origin),
-        held_by_another_tab: crate::app::tabs::path_held_by_other_tab(viewer, origin),
-        restored_copy,
+/// The route for the active document, which came from `origin`.
+///
+/// `origin` is resolved first and only once: the facts are read for the
+/// resolved file, and the resolved file is what [`SaveRoute::InPlace`]
+/// carries, so what was checked here is what gets replaced.
+pub(super) fn route_for(viewer: &Viewer, origin: &Path) -> SaveRoute {
+    match through_links(origin) {
+        Ok(file) => save_route(Some(&file), origin_facts(viewer, &file)),
+        Err(_) => SaveRoute::Ask,
     }
+}
+
+/// Reads [`OriginFacts`] for `file` off the file system, the tabs and the
+/// active session.
+fn origin_facts(viewer: &Viewer, file: &Path) -> OriginFacts {
+    let (restored_copy, read_stamp) = {
+        let state = viewer.state.borrow();
+        state.session.as_ref().map_or((false, None), |session| {
+            (session.unsaved_base, session.origin_stamp)
+        })
+    };
+    OriginFacts {
+        replaceable: replaceable_in_place(file),
+        held_by_another_tab: crate::app::tabs::path_held_by_other_tab(viewer, file),
+        restored_copy,
+        changed_on_disk: changed_since(read_stamp, FileStamp::of(file)),
+    }
+}
+
+/// Whether a file stamped `now` is no longer the one stamped `read`.
+///
+/// A stamp that was never taken counts as changed: with nothing to compare
+/// against, the file cannot be said to be the one that was read.
+pub(super) fn changed_since(read: Option<FileStamp>, now: Option<FileStamp>) -> bool {
+    read.is_none() || read != now
 }
 
 /// Whether `path` is a file this process can replace where it is.
@@ -80,19 +118,15 @@ pub(super) fn origin_facts(viewer: &Viewer, origin: &Path) -> OriginFacts {
 /// the destination, which needs only the folder, so without this a read-only
 /// file in a writable folder would be overwritten without a word.
 ///
-/// Asked of the file the write will land on: a symbolic link is followed
-/// first, exactly as `atomic_write` follows it, so the folder that has to
-/// take the temporary file is the real file's and not the link's.
+/// Asked of the path as given. A link is a file to nobody here — callers
+/// resolve first ([`through_links`]), so the folder that has to take the
+/// temporary file is the real file's and not the link's.
 pub(super) fn replaceable_in_place(path: &Path) -> bool {
-    let Ok(path) = through_links(path) else {
-        return false;
-    };
-    let path = path.as_path();
     let folder = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
-    std::fs::metadata(path).is_ok_and(|metadata| metadata.is_file())
+    fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
         && can_write(path)
         && can_write(folder)
 }
@@ -111,50 +145,35 @@ fn can_write(path: &Path) -> bool {
         .is_ok_and(|info| info.boolean(CAN_WRITE))
 }
 
-/// How often a save held back by a preview refresh looks again.
-const SETTLE_TICK: Duration = Duration::from_millis(20);
+/// How many links [`through_links`] follows before calling it a loop — the
+/// kernel's own limit.
+const MAX_LINKS: usize = 40;
 
-/// Runs `run` once no preview refresh is in flight — at once when none is.
+/// The file `path` names once every symbolic link *in its last component*
+/// has been followed: where a save of a document opened as `path` belongs.
 ///
-/// A content edit refreshes the canvas through a save-and-reopen of its own
-/// (`preview::refresh_preview`), which moves the session on a generation when
-/// it lands. A disk save started under it would finish against a session
-/// that is no longer the one it was written from: the bytes would be on disk
-/// and the document still marked unsaved. The chooser used to hide this by
-/// taking longer than any refresh; a save with no question to ask has to
-/// wait on purpose — Ctrl+S with a retype box open commits the box, which
-/// starts exactly such a refresh.
-///
-/// The tabs hold still while a refresh runs (`tabs::busy_refusal`), and the
-/// tab is checked once more before `run`, for the instant between the
-/// refresh landing and this noticing.
-pub(super) fn once_preview_settles(viewer: &Viewer, run: impl FnOnce(&Viewer) + 'static) {
-    if !preview_in_flight(viewer) {
-        run(viewer);
-        return;
+/// A path that is no link — a file, or nothing yet — is returned as it is.
+/// A link to a file that is gone is followed too; whether that is a file to
+/// write is [`replaceable_in_place`]'s to say. Links among the folders above
+/// are left alone; a rename beside the file goes through them wherever they
+/// lead.
+pub(super) fn through_links(path: &Path) -> Result<PathBuf, String> {
+    let mut path = path.to_path_buf();
+    for _ in 0..MAX_LINKS {
+        let is_link =
+            fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.file_type().is_symlink());
+        if !is_link {
+            return Ok(path);
+        }
+        let target = fs::read_link(&path).map_err(|error| error.to_string())?;
+        // A relative target is relative to the folder the link is in;
+        // `join` keeps an absolute one as it is.
+        path = match path.parent() {
+            Some(folder) => folder.join(target),
+            None => target,
+        };
     }
-    let bound = crate::app::tabs::bind_active(viewer);
-    let viewer = viewer.clone();
-    let mut run = Some(run);
-    glib::timeout_add_local(SETTLE_TICK, move || {
-        // A document closed under the wait has nothing left to save.
-        if viewer.state.borrow().session.is_none() {
-            return glib::ControlFlow::Break;
-        }
-        if preview_in_flight(&viewer) {
-            return glib::ControlFlow::Continue;
-        }
-        if bound.ensure_active_or_report(&viewer) {
-            if let Some(run) = run.take() {
-                run(&viewer);
-            }
-        }
-        glib::ControlFlow::Break
-    });
-}
-
-fn preview_in_flight(viewer: &Viewer) -> bool {
-    viewer.state.borrow().preview_refresh_in_flight
+    Err("too many levels of symbolic links".to_owned())
 }
 
 #[cfg(test)]
@@ -163,12 +182,16 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
 
-    use super::{replaceable_in_place, save_route, OriginFacts, SaveRoute};
+    use super::{
+        changed_since, replaceable_in_place, save_route, through_links, OriginFacts, SaveRoute,
+    };
+    use crate::app::state::FileStamp;
 
     const WRITABLE: OriginFacts = OriginFacts {
         replaceable: true,
         held_by_another_tab: false,
         restored_copy: false,
+        changed_on_disk: false,
     };
 
     #[test]
@@ -257,13 +280,22 @@ mod tests {
         }
     }
 
-    /// Whether this process ignores permission bits, as root does: the two
-    /// read-only cases below cannot be staged for it.
-    fn permissions_are_ignored(folder: &Folder) -> bool {
+    /// Whether this process ignores permission bits, as root does: the
+    /// read-only cases below cannot be staged for it. Says so when it does —
+    /// a case that returns early has checked nothing, and a run as root
+    /// should not read as if it had.
+    fn permissions_are_ignored(folder: &Folder, case: &str) -> bool {
         let probe = folder.0.join("probe");
         fs::write(&probe, b"").expect("write the probe");
         fs::set_permissions(&probe, fs::Permissions::from_mode(0o400)).expect("lock the probe");
-        fs::OpenOptions::new().write(true).open(&probe).is_ok()
+        let ignored = fs::OpenOptions::new().write(true).open(&probe).is_ok();
+        if ignored {
+            eprintln!(
+                "SKIPPED {case}: this process ignores permission bits (running as root?), \
+                 so a read-only file or folder cannot be staged. Nothing was asserted."
+            );
+        }
+        ignored
     }
 
     #[test]
@@ -292,7 +324,7 @@ mod tests {
     #[test]
     fn a_read_only_file_is_not_replaced_even_in_a_writable_folder() {
         let folder = Folder::new("read-only-file");
-        if permissions_are_ignored(&folder) {
+        if permissions_are_ignored(&folder, "a_read_only_file_is_not_replaced") {
             return;
         }
 
@@ -302,7 +334,7 @@ mod tests {
     #[test]
     fn a_file_in_a_read_only_folder_cannot_be_replaced() {
         let folder = Folder::new("read-only-folder");
-        if permissions_are_ignored(&folder) {
+        if permissions_are_ignored(&folder, "a_file_in_a_read_only_folder") {
             return;
         }
         let file = folder.file(0o600);
@@ -312,13 +344,130 @@ mod tests {
         assert!(!replaceable_in_place(&file));
     }
 
+    /// Something else wrote the file after this session read it: replacing
+    /// it without a word would throw that away.
     #[test]
-    fn a_link_to_a_writable_file_can_be_written_through() {
-        let folder = Folder::new("link");
-        let link = folder.0.join("link.pdf");
-        std::os::unix::fs::symlink(folder.file(0o600), &link).expect("link to the file");
+    fn a_file_written_by_something_else_since_it_was_read_asks() {
+        let facts = OriginFacts {
+            changed_on_disk: true,
+            ..WRITABLE
+        };
 
-        assert!(replaceable_in_place(&link));
+        assert_eq!(
+            save_route(Some(Path::new("/home/user/report.pdf")), facts),
+            SaveRoute::Ask
+        );
+    }
+
+    #[test]
+    fn a_file_left_alone_still_has_the_stamp_it_was_read_with() {
+        let folder = Folder::new("stamp-same");
+        let file = folder.file(0o600);
+        let read = FileStamp::of(&file);
+
+        assert!(read.is_some());
+        assert!(!changed_since(read, FileStamp::of(&file)));
+    }
+
+    #[test]
+    fn a_file_rewritten_where_it_is_has_changed() {
+        let folder = Folder::new("stamp-rewritten");
+        let file = folder.file(0o600);
+        let read = FileStamp::of(&file);
+        fs::write(&file, b"%PDF-1.7 and then some").expect("rewrite it");
+
+        assert!(changed_since(read, FileStamp::of(&file)));
+    }
+
+    /// The way most programs save — this one included: a new file renamed
+    /// over the old. Same name, same length here, another file.
+    #[test]
+    fn a_file_replaced_by_another_of_the_same_size_has_changed() {
+        let folder = Folder::new("stamp-replaced");
+        let file = folder.file(0o600);
+        let read = FileStamp::of(&file);
+        let other = folder.0.join("other.pdf");
+        fs::write(&other, b"%PDF-1.7").expect("write the other file");
+        fs::rename(&other, &file).expect("put it in the first one's place");
+
+        assert!(changed_since(read, FileStamp::of(&file)));
+    }
+
+    #[test]
+    fn a_file_that_is_gone_has_changed() {
+        let folder = Folder::new("stamp-gone");
+        let file = folder.file(0o600);
+        let read = FileStamp::of(&file);
+        fs::remove_file(&file).expect("remove it");
+
+        assert!(changed_since(read, FileStamp::of(&file)));
+    }
+
+    /// No stamp was taken — a copy restored after a crash, a session a test
+    /// built by hand: nothing says the file is the one that was read.
+    #[test]
+    fn a_file_that_was_never_stamped_counts_as_changed() {
+        let folder = Folder::new("stamp-none");
+        let file = folder.file(0o600);
+
+        assert!(changed_since(None, FileStamp::of(&file)));
+    }
+
+    #[test]
+    fn a_path_that_is_no_link_resolves_to_itself() {
+        let folder = Folder::new("no-link");
+        let file = folder.file(0o600);
+        let missing = folder.0.join("missing.pdf");
+
+        assert_eq!(through_links(&file), Ok(file));
+        assert_eq!(through_links(&missing), Ok(missing));
+    }
+
+    #[test]
+    fn a_link_resolves_to_the_file_it_points_at() {
+        let folder = Folder::new("link");
+        let file = folder.file(0o600);
+        let link = folder.0.join("link.pdf");
+        std::os::unix::fs::symlink(&file, &link).expect("link to the file");
+
+        assert_eq!(through_links(&link), Ok(file));
+    }
+
+    /// A relative link is relative to the folder the link is in.
+    #[test]
+    fn a_relative_link_into_another_folder_is_followed_from_the_link_s_own() {
+        let folder = Folder::new("link-relative");
+        fs::create_dir(folder.0.join("store")).expect("the other folder");
+        let link = folder.0.join("link.pdf");
+        std::os::unix::fs::symlink("store/real.pdf", &link).expect("link into it");
+
+        assert_eq!(
+            through_links(&link),
+            Ok(folder.0.join("store").join("real.pdf"))
+        );
+    }
+
+    #[test]
+    fn a_chain_of_links_is_followed_to_its_end() {
+        let folder = Folder::new("link-chain");
+        let file = folder.file(0o600);
+        let middle = folder.0.join("middle.pdf");
+        let link = folder.0.join("link.pdf");
+        std::os::unix::fs::symlink("document.pdf", &middle).expect("the middle link");
+        std::os::unix::fs::symlink("middle.pdf", &link).expect("the outer link");
+
+        assert_eq!(through_links(&link), Ok(file));
+    }
+
+    #[test]
+    fn links_that_never_reach_a_file_are_refused() {
+        let folder = Folder::new("link-loop");
+        let one = folder.0.join("one.pdf");
+        let other = folder.0.join("other.pdf");
+        std::os::unix::fs::symlink("other.pdf", &one).expect("one way");
+        std::os::unix::fs::symlink("one.pdf", &other).expect("and back");
+
+        assert!(through_links(&one).is_err());
     }
 
     /// The write goes beside the real file, so it is the real file's folder
@@ -327,22 +476,36 @@ mod tests {
     fn a_link_to_a_file_in_a_read_only_folder_cannot_be_replaced() {
         let links = Folder::new("link-outside");
         let folder = Folder::new("link-target");
-        if permissions_are_ignored(&folder) {
+        if permissions_are_ignored(&folder, "a_link_to_a_file_in_a_read_only_folder") {
             return;
         }
         let link = links.0.join("link.pdf");
         std::os::unix::fs::symlink(folder.file(0o600), &link).expect("link to the file");
         fs::set_permissions(&folder.0, fs::Permissions::from_mode(0o500))
             .expect("lock the real file's folder");
+        let file = through_links(&link).expect("the link resolves");
 
-        assert!(!replaceable_in_place(&link));
+        assert!(!replaceable_in_place(&file));
     }
 
+    /// Resolved, a link to nothing is a path with no file at it.
     #[test]
     fn a_link_to_nothing_cannot_be_replaced() {
         let folder = Folder::new("link-dangling");
         let link = folder.0.join("link.pdf");
         std::os::unix::fs::symlink("missing.pdf", &link).expect("a link to nothing");
+        let file = through_links(&link).expect("the link resolves");
+
+        assert!(!replaceable_in_place(&file));
+    }
+
+    /// The check is of the path it is given: a link is not itself a file to
+    /// replace, which is why callers resolve first.
+    #[test]
+    fn a_link_is_not_itself_a_file_to_replace() {
+        let folder = Folder::new("link-unresolved");
+        let link = folder.0.join("link.pdf");
+        std::os::unix::fs::symlink(folder.file(0o600), &link).expect("link to the file");
 
         assert!(!replaceable_in_place(&link));
     }

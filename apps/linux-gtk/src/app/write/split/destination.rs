@@ -38,11 +38,11 @@ pub(super) fn choose_folder(window: &ApplicationWindow, viewer: &Viewer, request
                 return;
             }
             let Ok(folder) = result else {
-                viewer.status.set_text(&SPLIT.cancelled());
+                viewer.info(&SPLIT.cancelled());
                 return;
             };
             let Some(folder) = folder.path() else {
-                viewer.status.set_text(&tr("split-not-local-folder"));
+                viewer.refuse(&tr("split-not-local-folder"));
                 return;
             };
             confirm_overwrites(&window, &viewer, request, folder);
@@ -71,7 +71,7 @@ fn confirm_overwrites(
 ) {
     let total = request.parts.len();
     if part_held_by_other_tab(viewer, &folder, &request.stem, total) {
-        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+        viewer.refuse(&tr("tabs-path-open-elsewhere"));
         return;
     }
     let mut existing = 0;
@@ -81,7 +81,7 @@ fn confirm_overwrites(
             Ok(true) => existing += 1,
             Ok(false) => {}
             Err(error) => {
-                viewer.status.set_text(&tr_args(
+                viewer.fail(&tr_args(
                     "split-check-failed",
                     &[
                         ("name", name.as_str().into()),
@@ -124,11 +124,11 @@ fn confirm_overwrites(
             (true, Some((request, folder)))
                 if part_held_by_other_tab(&viewer, &folder, &request.stem, request.parts.len()) =>
             {
-                viewer.status.set_text(&tr("tabs-path-open-elsewhere"))
+                viewer.refuse(&tr("tabs-path-open-elsewhere"))
             }
             (true, Some((request, folder))) => worker::spawn_split(&viewer, request, folder),
             (true, None) => {}
-            (false, _) => viewer.status.set_text(&SPLIT.cancelled()),
+            (false, _) => viewer.info(&SPLIT.cancelled()),
         }
     });
 }
@@ -228,7 +228,7 @@ mod tests {
 
         replace.emit_clicked();
         crate::app::test_support::pump();
-        let status = built.viewer.status.text().to_string();
+        let status = built.viewer.last_said().to_string();
 
         for dialog in dialogs() {
             dialog.destroy();

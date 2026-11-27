@@ -140,6 +140,10 @@ editor-find-hint = Case-sensitive. Press Enter to search.
 editor-idle-status = Choose a PDF file to view, or open the built-in sample.
 editor-tools-panel = Tools and properties
 
+## Toasts: the notification that reports an outcome over the window
+
+toast-dismiss = Dismiss
+
 ## Search: status messages
 
 search-enter-text = Enter text to find.
@@ -1030,7 +1034,7 @@ palette-mode-sign-keywords = signature certificate fill forms
 palette-mode-protect-keywords = password encrypt lock security permissions
 palette-file-open-keywords = load browse document
 palette-file-new-keywords = create empty document
-palette-file-save-keywords = copy keep write download
+palette-file-save-keywords = keep write download
 palette-file-save-as-keywords = copy rename duplicate another
 palette-file-print-keywords = printer paper
 palette-file-close-tab-keywords = tab file window

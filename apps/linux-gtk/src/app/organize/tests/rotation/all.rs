@@ -18,7 +18,7 @@ fn gtk_ui_turning_every_page_is_a_single_undo_step() {
     with_organize(|viewer| {
         assert!(rotate_all_pages(viewer, 90));
         assert_eq!(rotations(viewer), [Rotation::Clockwise90; 3]);
-        assert_eq!(viewer.status.text().as_str(), "Rotated 3 pages right.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated 3 pages right.");
 
         viewer.undo_action.activate(None);
 
@@ -70,7 +70,7 @@ fn gtk_ui_a_refused_whole_document_turn_records_nothing() {
 
         assert_eq!(rotations(viewer), [Rotation::None; 3]);
         assert_eq!(
-            viewer.status.text().as_str(),
+            viewer.last_said().as_str(),
             "This document does not permit adding, removing or reordering its pages."
         );
         assert_eq!(session(viewer).edit_revision, 0);

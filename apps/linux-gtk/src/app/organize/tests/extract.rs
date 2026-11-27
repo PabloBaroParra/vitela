@@ -59,7 +59,7 @@ fn gtk_ui_a_refused_extraction_leaves_the_document_untouched() {
         assert!(!session(viewer).unsaved_to_disk);
         assert!(!viewer.undo_action.is_enabled());
         assert_eq!(
-            viewer.status.text().as_str(),
+            viewer.last_said().as_str(),
             crate::app::state::TextAccess::Forbidden
                 .refusal()
                 .expect("a forbidden document refuses")

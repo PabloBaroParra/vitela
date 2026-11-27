@@ -63,7 +63,7 @@ pub(super) fn command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = structural_edit_refusal(viewer) {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let result = {
@@ -79,11 +79,11 @@ pub(super) fn command(
                 session.edit_revision += 1;
                 session.unsaved_to_disk = true;
             }
-            viewer.status.set_text(&message);
+            viewer.info(&message);
             Some(message)
         }
         Err(error) => {
-            viewer.status.set_text(&error);
+            viewer.refuse(&error);
             None
         }
     };
@@ -143,7 +143,7 @@ pub(super) fn fill_command(
     operation: impl FnOnce(&mut DocumentSession) -> Result<String, String>,
 ) {
     if let Some(refusal) = viewer.annotation_editing_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let result = {
@@ -159,9 +159,9 @@ pub(super) fn fill_command(
                 session.edit_revision += 1;
                 session.unsaved_to_disk = true;
             }
-            viewer.status.set_text(&message);
+            viewer.info(&message);
         }
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     selection::redraw(viewer);
 }

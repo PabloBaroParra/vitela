@@ -133,6 +133,10 @@ editor-find-hint = Distingue mayúsculas y minúsculas. Pulsa Intro para buscar.
 editor-idle-status = Elige un archivo PDF para verlo o abre el ejemplo integrado.
 editor-tools-panel = Herramientas y propiedades
 
+## Toasts: the notification that reports an outcome over the window
+
+toast-dismiss = Descartar
+
 ## Search: status messages
 
 search-enter-text = Introduce el texto que quieras buscar.
@@ -975,7 +979,7 @@ palette-mode-sign-keywords = firma certificado rellenar formulario
 palette-mode-protect-keywords = contraseña cifrar encriptar bloquear seguridad permisos
 palette-file-open-keywords = cargar documento examinar
 palette-file-new-keywords = crear vacío documento
-palette-file-save-keywords = guardar copia conservar descargar
+palette-file-save-keywords = guardar conservar descargar
 palette-file-save-as-keywords = copia renombrar duplicar otro
 palette-file-print-keywords = impresora papel
 palette-file-close-tab-keywords = pestaña archivo ventana
