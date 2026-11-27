@@ -1,11 +1,13 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { pwa } from './scripts/pwaPlugin.ts';
 
 // The engine runs in a module worker (`new Worker(url, { type: 'module' })`),
 // so workers are bundled as ES modules in production too.
 export default defineConfig({
-  plugins: [react()],
+  // pwa(): manifest, icons and dist/sw.js, in production builds only.
+  plugins: [react(), pwa()],
   worker: { format: 'es' },
   build: {
     target: 'es2022',

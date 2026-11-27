@@ -82,6 +82,12 @@ interface DocumentWorkspaceProps {
   readonly filePicker?: boolean;
   /** Where a save goes. Default: over the opened file when the browser allows it, else a download. */
   readonly delivery?: Delivery;
+  /**
+   * Told whether the open document has edits the opened file does not have
+   * (the "Unsaved changes." flag), and again on every change. A host uses it
+   * to hold back whatever would lose them, such as reloading the page.
+   */
+  readonly onDirtyChange?: (dirty: boolean) => void;
   readonly ref?: Ref<WorkspaceHandle>;
 }
 
@@ -93,6 +99,7 @@ export function DocumentWorkspace({
   eventScope,
   filePicker = true,
   delivery,
+  onDirtyChange,
   ref,
 }: DocumentWorkspaceProps) {
   const { state, open, submitPassword, cancelPassword, revise, nameSources, keepStampImage, pageCountNow } =
@@ -110,6 +117,10 @@ export function DocumentWorkspace({
   const dragging = useFileDrop(open, !busy && standIn === undefined, scope);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document, delivery);
+  const dirty = save.dirty;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
   // The content clipboard's clip is the session's: it outlives each document's viewer.
   const clips = useClipStore();
   // A compressed copy goes where saves go (a download, or the host's onSave)

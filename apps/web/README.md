@@ -963,3 +963,47 @@ After the app reports the engine ready, any request fails the test, including
 requests from the worker (it opens, renders and saves — a Blob download is not a request). The test also checks that it can see the worker's own
 `pdfium.wasm` fetch during load, so in every browser it is shown to be able to
 see what it guards.
+
+## Installable and offline (PWA)
+
+A production build (`npm run build`) is an installable app that works offline
+after its first load. `npm run dev` and Vitest never register the service
+worker, so they always run the code on disk.
+
+- **Manifest:** `scripts/pwaPlugin.ts` writes `dist/manifest.webmanifest`
+  (`src/features/pwa/manifest.ts`: name Vitela, `start_url` and `scope` `/`,
+  `display: standalone`, theme `#1b2a57` = `--accent`, background `#ffffff`)
+  and copies its icons into `dist/icons/` from the repo: the brand mark
+  (`assets/brand/vitela-app-mark.svg`), the macOS 512 px app icon and the
+  Play Store icon as the maskable one. `index.html` gets the manifest link,
+  `theme-color`, the icon and `apple-touch-icon` at build time.
+- **Service worker:** after the build has written every file, the plugin
+  lists `dist/` (`src/features/pwa/precache.ts`: `index.html` as `/`, the
+  hashed JS/CSS, the engine worker, both WASM modules, icons and manifest;
+  never `sw.js`, `_headers`, `_redirects`, `404.html`, source maps or a
+  `.pdf`), names the cache after a SHA-256 of those files' names and bytes,
+  and bundles `src/features/pwa/sw.ts` into `dist/sw.js` with both baked in.
+  Install precaches everything (~9 MB); activate deletes older builds'
+  caches. A page navigation (every tool route included) gets the cached app
+  shell, a precached asset its cached copy, and on a miss the network refills
+  the cache (`src/features/pwa/swRules.ts`). Other origins, non-GETs and
+  anything the build did not write are never touched. Hand-written, no
+  Workbox: one precache list, no runtime routes, no new dependency.
+- **Updates:** a new deploy is a new `sw.js` (served `Cache-Control:
+  no-cache`, `public/_headers`) with a new cache. It installs in the
+  background and waits; the page shows "A new version of Vitela is ready."
+  with **Reload** (`src/features/pwa/updates.ts`, `UpdateBanner.tsx`).
+  Nothing reloads on its own, and while the open document has unsaved changes
+  (`DocumentWorkspace`'s `onDirtyChange`) Reload is disabled and the switch
+  is refused. Closing every tab also lets the new build take over.
+- **Privacy:** the cache holds only the app's own files. A PDF is opened from
+  the disk and never fetched over HTTP, so it never passes through the
+  service worker and is never cached; nothing about a document is stored.
+  The precache download right after the first load fetches the app's own
+  files from its own origin — no user data.
+- **Tests:** Vitest for the precache list, the version, the request rules,
+  the manifest, the update gating and the banner. `e2e/pwa.spec.ts` (the
+  only spec that allows service workers, see `playwright.config.ts`) loads
+  the app, waits for the precache, goes offline, reloads, opens a fixture
+  and paints it, opens `/organize`, and checks no PDF was cached; it also
+  checks the manifest, its icons and `sw.js` are served.

@@ -29,6 +29,10 @@ on:
     paths:
       - "apps/web/**"
       - "packages/**"
+      # Brand icons the web build copies in (apps/web/scripts/pwaPlugin.ts).
+      - "assets/brand/**"
+      - apps/macos/Vitela/Assets.xcassets/AppIcon.appiconset/icon_512x512.png
+      - docs/store/play/icon-512.png
       - package.json
       - package-lock.json
       # Candidates only; the changes job narrows these to the engine's crates.

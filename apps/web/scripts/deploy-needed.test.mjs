@@ -64,6 +64,16 @@ test('a change to the web or its packages deploys', () => {
   assert.equal(deployNeeded(['.github/workflows/web-deploy.yml'], dirs), true);
 });
 
+test('a change to a brand icon the web serves deploys', () => {
+  // The site header's mark and the PWA icons (scripts/pwaPlugin.ts).
+  assert.equal(deployNeeded(['assets/brand/vitela-app-mark.svg'], dirs), true);
+  assert.equal(deployNeeded(['apps/macos/Vitela/Assets.xcassets/AppIcon.appiconset/icon_512x512.png'], dirs), true);
+  assert.equal(deployNeeded(['docs/store/play/icon-512.png'], dirs), true);
+  // Not the rest of those folders.
+  assert.equal(deployNeeded(['apps/macos/Vitela/Assets.xcassets/AppIcon.appiconset/icon_16x16.png'], dirs), false);
+  assert.equal(deployNeeded(['docs/store/play/feature-graphic-1024x500.png'], dirs), false);
+});
+
 test('a change to a crate the engine is built from deploys', () => {
   assert.equal(deployNeeded(['core/pdf-save/src/checkpoint.rs'], dirs), true);
   assert.equal(deployNeeded(['vendor/lopdf-0.45.0/src/lib.rs'], dirs), true);

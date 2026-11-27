@@ -3658,6 +3658,101 @@ y en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API)
   trazados que añadió un pegado aún sin guardar no tiene test propio en la web (lo decide el
   core).
 
+### Fase 5 — tareas
+
+| Tarea | Entrega | Hecho cuando |
+|---|---|---|
+| **T-264** ✓ | App instalable y offline tras la primera carga: manifiesto (`manifest.webmanifest`, iconos de la marca), service worker escrito a mano (`dist/sw.js`) que precachea el build entero (shell, worker del motor, los dos WASM) en una caché con versión por contenido, registro solo en producción y aviso "nueva versión, recargar" que nunca recarga con cambios sin guardar. | Vitest de la lista de precache, la versión, las reglas de petición, el manifiesto y el bloqueo de la actualización; Playwright sobre el build de producción: cargar, desconectar, recargar, abrir un fixture y pintarlo; manifiesto válido y servido. |
+| **T-265** | Cabeceras de seguridad en `_headers`: `Content-Security-Policy` estricta (`default-src 'self'`, `script-src 'self' 'wasm-unsafe-eval'`, `worker-src 'self'`, `manifest-src 'self'`, `connect-src 'self'`, `object-src 'none'`, `frame-ancestors 'none'`) y la misma política en `vite preview` para que los E2E la sufran. | Playwright: la suite completa en los 3 navegadores sin violaciones de CSP (`securitypolicyviolation` = fallo); un test comprueba que la cabecera llega. |
+| **T-266** | Abrir PDFs desde el sistema con la app instalada: `file_handlers` en el manifiesto + `launchQueue` (Chromium), con el mismo flujo que el selector. | Vitest del consumidor de `launchQueue`; Playwright (Chromium) simulando un lanzamiento con un `FileSystemFileHandle`; omitido con motivo en Firefox/WebKit. |
+| **T-267** | Aviso del navegador al cerrar o recargar con cambios sin guardar (`beforeunload`), con el mismo `onDirtyChange` que usa la actualización. | Vitest del gancho; Playwright: con una edición pendiente, cerrar la página dispara el diálogo; guardado, no. |
+| **T-268** | Smoke test tras el deploy: el job de `web-deploy.yml` pide a la URL publicada `/`, `/sw.js`, `/manifest.webmanifest`, una ruta de herramienta y un asset, y comprueba códigos, tipos y cabeceras (`no-cache` del worker, `immutable` de `/assets/*`). | El job falla con una cabecera o un tipo mal servido (probado contra `vite preview` en local). |
+
+T-264 bloquea T-266 y T-267 (manifiesto y `onDirtyChange`). T-265 y T-268 son independientes.
+
+### T-264 — resultado
+
+La app es instalable y funciona offline tras la primera visita. Detalle en
+[`apps/web/README.md`](../apps/web/README.md) ("Installable and offline (PWA)").
+
+- **Manifiesto** (`apps/web/src/features/pwa/manifest.ts`, puro): `name`/`short_name`
+  Vitela, `id`, `start_url` y `scope` `/` (la raíz de Cloudflare Pages; toda ruta de
+  herramienta queda dentro), `display: standalone`, `theme_color` `#1b2a57` (`--accent`)
+  y `background_color` `#ffffff` (`--surface`). Iconos reutilizados del repo, sin copias
+  en el árbol: `assets/brand/vitela-app-mark.svg` (`any`), el icono macOS de 512 px
+  (`any`) y el de Play Store de 512 px (`maskable`, la marca cabe en la zona segura).
+- **Service worker escrito a mano, sin dependencias nuevas** (`apps/web/scripts/pwaPlugin.ts`,
+  plugin de Vite solo en `build`): en `generateBundle` copia los iconos a `dist/icons/` y
+  escribe `dist/manifest.webmanifest`; `transformIndexHtml` añade el `<link rel=manifest>`,
+  `theme-color`, el icono y `apple-touch-icon`; en `writeBundle` (`order: 'post'`, ya con
+  el worker del motor y los WASM en disco) lista `dist/`, calcula la lista de precache
+  (`precache.ts`: `index.html` como `/`, todo lo demás salvo `sw.js`, `_headers`,
+  `_redirects`, `404.html`, mapas y cualquier `.pdf`) y una versión de 16 hex del SHA-256
+  de nombres + bytes, y empaqueta `src/features/pwa/sw.ts` (IIFE, `build` de Vite con
+  `define`) en `dist/sw.js`. Se descartó vite-plugin-pwa/Workbox: el worker es una lista
+  de precache sin rutas en tiempo de ejecución; una dependencia (y Workbox entero) no
+  compensa.
+- **Estrategia** (`swRules.ts`, puro): instalar precachea todo (~9 MB; el shell
+  revalidado con `no-cache`, los assets con hash desde la caché HTTP si ya están);
+  activar borra las cachés `vitela-*` de otros builds y reclama las páginas abiertas.
+  Una navegación de mismo origen recibe el shell cacheado; un asset precacheado, su
+  copia (cache-first); un fallo de caché va a la red y la respuesta vuelve a la caché.
+  Otros orígenes, métodos que no son GET, URLs con query y todo lo que el build no
+  escribió pasan a la red sin tocarse. La actualización llega como un `sw.js` nuevo con
+  otra caché.
+- **Actualización** (`updates.ts`, `UpdateBanner.tsx`): registro solo en producción
+  (`import.meta.env.PROD`; ni el servidor de desarrollo ni Vitest lo registran) y un
+  rechazo del navegador se ignora. Un build nuevo instalado mientras otro controla la
+  página muestra "A new version of Vitela is ready." con **Reload**; nada recarga solo.
+  Con cambios sin guardar el botón está desactivado ("Save your changes to reload into
+  it.") y `apply` no hace nada; si entran ediciones entre el clic y el `controllerchange`,
+  tampoco recarga; y un `controllerchange` que pidió otra pestaña no recarga esta. El
+  estado sucio sale del visor: `DocumentWorkspace` gana `onDirtyChange` (el flag de
+  "Unsaved changes." de `useSave`).
+- **Privacidad:** la caché solo guarda ficheros del build. Un PDF se lee del disco y
+  nunca se pide por HTTP, así que nunca pasa por el worker ni se cachea; la lista
+  rechaza `.pdf` igualmente y el E2E comprueba que tras abrir uno no hay ninguno. La
+  descarga del precache justo después de la primera carga trae ficheros de la propia
+  app desde su propio origen, ningún dato del usuario. El test zero-network sigue
+  corriendo con service workers bloqueados (`playwright.config.ts`).
+- **Cabeceras y deploy:** `public/_headers` sirve `/sw.js` y `/manifest.webmanifest` con
+  `Cache-Control: no-cache` (y el manifiesto con `application/manifest+json`). No hay
+  CSP (ni en `_headers` ni en `index.html`), así que nada bloquea el worker ni el
+  manifiesto; T-265 la añade con `worker-src` y `manifest-src 'self'`. El deploy sube
+  `dist/` entero, así que `sw.js`, el manifiesto y los iconos se publican sin cambiar el
+  job; sí se añadieron `assets/brand/**` y los dos PNG del icono a los `paths` de
+  `web-deploy.yml` y `web.yml` y a `scripts/deploy-needed.mjs` (el logo de la cabecera
+  ya venía de `assets/brand` y un cambio ahí no desplegaba). `tsconfig.node.json` gana
+  `allowImportingTsExtensions` para importar el plugin con extensión (el cargador nativo
+  de configuración de Vite avisaba sin ella).
+- **Tests:** `apps/web` Vitest 38 nuevos (9 `precache`, 8 `swRules`, 3 `manifest`, 13
+  `updates` con contenedor/registro/worker falsos, 2 `UpdateBanner`, 3 `App`), escritos
+  antes que el código; `@vitela/viewer` 1 nuevo (`DocumentWorkspace`: `onDirtyChange`
+  pasa a `true` con una edición y vuelve a `false` al abrir otro documento; cayó primero
+  sin la prop); `deploy-needed.test.mjs` 1 nuevo (los iconos de la marca despliegan, el
+  resto de esas carpetas no; cayó primero). E2E `e2e/pwa.spec.ts` (2 × 3): offline —
+  cargar, esperar el precache (shell, worker y los dos WASM, todo del mismo origen),
+  `setOffline(true)`, comprobar con un `fetch` no cacheado que de verdad no hay red,
+  recargar, abrir `forms/reportlab_acroform.pdf` y pintarlo, abrir `/organize` y
+  comprobar que la caché no ganó nada (ningún `.pdf`); y manifiesto — enlazado desde la
+  página, JSON válido, iconos servidos con su tipo, `sw.js` servido como JavaScript.
+  Pasa en los tres navegadores de Playwright en Windows, así que no hay omisiones. Se
+  comprobó que la prueba offline no es vacía: con service workers bloqueados falla.
+- **Verificado en local (Windows):** `@vitela/core` `build:wasm` y `build` (sin cambios).
+  `@vitela/viewer`: `typecheck`, Vitest 112 / 1127, `build`. `apps/web`: `typecheck`,
+  Vitest 11 / 57, `build` (`sw.js` precachea 13 ficheros); `node --test
+  scripts/deploy-needed.test.mjs` 6 / 6. Playwright `pwa` en los 3 navegadores (`CI=1`):
+  6 / 6. Suite completa (`CI=1 --reporter=line`, 3 navegadores, 444 tests): la última
+  pasada **422 pasan, 22 omitidos, 0 fallos**. Tres pasadas anteriores tuvieron 1 o 2
+  fallos, siempre en WebKit y cada vez en otro test (`phone-bar` export, `edit-images`
+  Insert image, `edit-text-runs` scroll, `watermark` texto), todos timeouts de clic o de
+  `requestAnimationFrame` con la suite en paralelo; cada uno pasa 3 de 3 solo, y en esos
+  tests los service workers están bloqueados, como el flake de WebKit anotado en T-263.
+- **No cubierto / pendiente:** el aviso de actualización solo tiene Vitest (un E2E
+  necesitaría servir dos builds seguidos); la instalación en sí (el diálogo del
+  navegador) no se puede automatizar; Lighthouse no se pasó. CSP, `file_handlers`,
+  `beforeunload` y el smoke tras el deploy son T-265…T-268.
+
 ## Verificación
 
 - **Fachada:** `wasm-bindgen-test` en navegador headless.
