@@ -42,6 +42,20 @@
   color: var(--text);
 }
 
+/* A new version is installed (src/features/pwa/UpdateBanner.tsx). */
+.update-banner {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+}
+
 /* Landing: the scrolling frame of every intro page. */
 .landing {
   flex: 1;

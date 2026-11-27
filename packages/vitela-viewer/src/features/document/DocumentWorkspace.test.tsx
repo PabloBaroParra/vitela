@@ -520,4 +520,44 @@ describe('DocumentWorkspace', () => {
     fireEvent.click(item);
     expect(queryByRole('group', { name: 'Edit content' })).toBeNull();
   });
+
+  it('tells the host whether the open document has unsaved edits, and a new document starts clean', async () => {
+    HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
+      this.setAttribute('open', '');
+    };
+    HTMLDialogElement.prototype.close ??= function (this: HTMLDialogElement) {
+      this.removeAttribute('open');
+    };
+    const edited = { info, annotations: [], addedAnnotationId: null, formFields: [] };
+    const editing = fakeEngine({
+      open: async () => ({ handle: 1, info }),
+      renderPage: async () => page,
+      documentProperties: async () => ({
+        title: null,
+        author: null,
+        subject: null,
+        keywords: null,
+        creator: null,
+        producer: null,
+      }),
+      metadataRefusal: async () => null,
+      applyEdit: async () => ({ ...edited, canUndo: true, canRedo: false }),
+    });
+    const dirty: boolean[] = [];
+    const { getByLabelText, getByRole, findByRole, findByText } = render(
+      <DocumentWorkspace engine={editing} intro={(action) => action} onDirtyChange={(value) => dirty.push(value)} />,
+    );
+    expect(dirty).toEqual([false]);
+    openPdf(getByLabelText);
+    await chooseTool(getByRole, 'Document properties');
+    const dialog = await findByRole('dialog', { name: 'Document properties' });
+    fireEvent.change(getByLabelText('Title'), { target: { value: 'Annual report' } });
+    fireEvent.click(dialog.querySelector('button[type="submit"]')!);
+    expect(await findByText('Unsaved changes.')).toBeTruthy();
+    expect(dirty.at(-1)).toBe(true);
+
+    // Opening another document drops the old one's edits: clean again.
+    openPdf(getByLabelText);
+    await waitFor(() => expect(dirty.at(-1)).toBe(false));
+  });
 });

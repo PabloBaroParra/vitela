@@ -1,5 +1,5 @@
-import { act, cleanup, render, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EngineClient } from '@vitela/core';
 import { fakeEngine } from '../test/fakeEngine';
 import { App } from './App';
@@ -54,5 +54,39 @@ describe('App', () => {
       });
     }
     await waitFor(() => expect(opened).toHaveLength(1));
+  });
+
+  describe('updates', () => {
+    function fakeUpdates(ready: boolean) {
+      const state = { ready, held: false };
+      return {
+        subscribe: () => () => {},
+        state: () => state,
+        hold: vi.fn(),
+        apply: vi.fn(),
+      };
+    }
+    const readyEngine = () => ({ ...fakeEngine(), ready: Promise.resolve() }) as unknown as EngineClient;
+
+    it('shows no update banner while there is no new version', async () => {
+      const { queryByRole } = render(<App engine={readyEngine()} pathname="/" updates={fakeUpdates(false)} />);
+      await act(async () => {});
+      expect(queryByRole('button', { name: 'Reload' })).toBeNull();
+    });
+
+    it('offers a new version and reloads into it on request', async () => {
+      const updates = fakeUpdates(true);
+      const { getByRole } = render(<App engine={readyEngine()} pathname="/" updates={updates} />);
+      await act(async () => {});
+      fireEvent.click(getByRole('button', { name: 'Reload' }));
+      expect(updates.apply).toHaveBeenCalledTimes(1);
+    });
+
+    it('tells the updates whether the open document has unsaved edits', async () => {
+      const updates = fakeUpdates(false);
+      render(<App engine={readyEngine()} pathname="/" updates={updates} />);
+      await act(async () => {});
+      expect(updates.hold).toHaveBeenLastCalledWith(false);
+    });
   });
 });

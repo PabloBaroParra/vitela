@@ -5,6 +5,18 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# The service worker (written by scripts/pwaPlugin.ts) must always be
+# revalidated: a stale copy would keep serving the old build's cache. It
+# precaches only the files the build wrote, never a user's PDF.
+/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
+
+# No Content-Security-Policy yet (Fase 5, T-265). When one is added it must
+# allow worker-src 'self' (the engine worker and sw.js) and manifest-src 'self'.
 /*
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer

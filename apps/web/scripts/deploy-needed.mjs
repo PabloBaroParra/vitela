@@ -14,8 +14,19 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // Files of the web itself, and repository-wide build inputs of the engine.
-const WEB_PREFIXES = ['apps/web/', 'packages/', '.cargo/', '.github/workflows/web-deploy.yml'];
-const BUILD_FILES = ['package.json', 'package-lock.json', 'Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml'];
+const WEB_PREFIXES = ['apps/web/', 'packages/', 'assets/brand/', '.cargo/', '.github/workflows/web-deploy.yml'];
+const BUILD_FILES = [
+  'package.json',
+  'package-lock.json',
+  'Cargo.toml',
+  'Cargo.lock',
+  'rust-toolchain',
+  'rust-toolchain.toml',
+  // Brand icons the build copies in: the site header's mark and the PWA icons
+  // (apps/web/scripts/pwaPlugin.ts).
+  'apps/macos/Vitela/Assets.xcassets/AppIcon.appiconset/icon_512x512.png',
+  'docs/store/play/icon-512.png',
+];
 
 const slash = (path) => path.replaceAll('\\', '/');
 
