@@ -297,6 +297,50 @@ describe('useContentMode', () => {
     expect(result.current.selected).toBeNull();
   });
 
+  it('lets a selection made after an edit was asked for win over selecting the edited run again', async () => {
+    // Page 3 holds two runs: "Page 3" and "Second" below it.
+    const engine: Engine = fakeEngine({
+      readPageContent: async (_document, pageIndex) => {
+        const content = contentOf(pageIndex);
+        const second = { ...content.runs[0]!, id: 1, rect: { left: 72, top: 120, width: 100, height: 14 }, text: 'Second' };
+        return { ...content, runs: [...content.runs, second] };
+      },
+    });
+    const { result, rerender } = mode(engine, { visible: { first: 2, last: 3 } });
+    await waitFor(() => expect(result.current.stateAt(3)?.status).toBe('ready'));
+    act(() => result.current.select(2, { x: 80, y: 80 }));
+    const edited = result.current.selected!.item;
+
+    // A press on another run of the same page commits the edit, then selects it.
+    act(() => {
+      result.current.follow(2, edited.rect, 'Edited');
+      result.current.select(2, { x: 80, y: 125 });
+    });
+    rerender({ visible: { first: 2, last: 3 }, paused: true });
+    rerender({ visible: { first: 2, last: 3 }, paused: false, paintRevision: 1 });
+    await waitFor(() => expect(result.current.selected?.item).toMatchObject({ kind: 'run', text: 'Second' }));
+    expect(result.current.following).toBe(false);
+
+    // A press on another page: that run is selected again once the pages are read after the edit.
+    act(() => {
+      result.current.follow(2, result.current.selected!.item.rect, 'Second!');
+      result.current.select(3, { x: 80, y: 80 });
+    });
+    rerender({ visible: { first: 2, last: 3 }, paused: true, paintRevision: 1 });
+    rerender({ visible: { first: 2, last: 3 }, paused: false, paintRevision: 2 });
+    await waitFor(() => expect(result.current.selected).toMatchObject({ pageIndex: 3, item: { text: 'Page 4' } }));
+    expect(result.current.selected!.key).toMatch(/\/2\/0$/);
+    expect(result.current.following).toBe(false);
+
+    // A press on nothing: nothing is selected again.
+    act(() => {
+      result.current.follow(3, result.current.selected!.item.rect, 'Page 4!');
+      result.current.select(3, { x: 500, y: 700 });
+    });
+    expect(result.current.following).toBe(false);
+    expect(result.current.selected).toBeNull();
+  });
+
   it('follows nothing for a removed run', async () => {
     const { engine } = engineWith();
     const { result, rerender } = mode(engine, { visible: { first: 2, last: 2 } });

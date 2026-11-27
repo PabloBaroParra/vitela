@@ -3187,6 +3187,44 @@ Edición de runs de texto en el modo **Edit content**, más los arreglos de revi
 - **No cubierto / pendiente:** tachado (`strike`) sin botón (la ficha pedía B/I/U); editor de una
   sola línea (sin bloques ni párrafos: T-260+); mover varios runs a la vez; sin lector de
   pantalla real.
+- **Arreglos de la revisión de T-259** (cada uno con su test en rojo primero, Vitest y E2E):
+  (1) **borrador perdido:** el editor vive en una ranura de página virtualizada; un scroll que la
+  desmontaba no garantizaba blur y al volver se mostraba el texto original. El borrador vive ahora
+  en `useTextRunEditing` (`OpenEditor.draft`, campo controlado) y al desmontarse el campo con el
+  editor abierto se confirma lo escrito, como al perder el foco, un turno después (`detach` →
+  `setTimeout`; un montaje inmediato — el doble montaje de React en desarrollo — lo cancela con
+  `attach`), nunca dentro del desmontaje del elemento con foco. (2) **fuentes que se filtraban:**
+  `runFont.ts` ya no tiene mapa de módulo: `createRunFontRegistry(engine, handle)` es un registro
+  por documento que crea y libera `useTextRunEditing` (`dispose` hace `document.fonts.delete` de
+  cada cara — también en el embed, donde caen en la página anfitriona — y no añade lo que llega
+  después). La cara se guarda por el **programa** (los bytes que decodifica el core, comparados
+  enteros tras un hash FNV-1a), no por el recurso `F1` (otro en cada Form XObject) ni por
+  `baseGeneration` (un checkpoint reescribe la base, no el programa); un retipeo que inserta fuente
+  trae otro programa y otra cara. Se descartó una clave de objeto desde `pdf-wasm`: el número de
+  objeto no es estable entre checkpoints ni entre las fuentes importadas, y no tocó Rust. Un fallo
+  de lectura no se guarda; un programa que el navegador rechaza sí. (3) **la pulsación del usuario
+  gana:** con el editor abierto, una pulsación en otro run confirma el editor y selecciona lo
+  pulsado; la re-selección pendiente del run retipeado la pisaba. `select` ahora re-apunta el
+  seguimiento al run pulsado (por sitio y texto, en su página: cualquier edición deja viejas las
+  lecturas de todas las páginas) o lo suelta si no es un run. (4) el editor se dibuja con el
+  aspecto pendiente (`OpenEditor.look`, el `textRunLook` del core con el restyle encolado), no con
+  el del fichero. (5) **división:** el overlay de runs sale de `DocumentViewer.tsx` a
+  `features/content/TextRunOverlay.tsx` (sin cambio de conducta); los tipos de contenido y runs
+  (`ContentRun`…`FontProgram`, `TextRunEdit`) salen de `core/types.ts` a `core/content.ts`,
+  reexportados por `types.ts` y por `index.ts` (misma API pública). El "confirmar una vez" tiene un
+  solo dueño (`ended` del hook; el campo ya no lleva el suyo) y `typing` es estable.
+  E2E nuevos en `edit-text-runs.spec.ts`: escribir y hacer scroll lejos (la ranura de la página 1
+  se desmonta) confirma y se guarda; una pulsación en otro run con el editor abierto deja ese run
+  seleccionado; el editor sobre un run en negrita pendiente se dibuja en 700. Los tres en rojo
+  contra el código anterior (Chromium). Sin cambios en Rust (ni fmt/clippy/test de `pdf-wasm`).
+  Verificado en local (Windows): `@vitela/core` `typecheck`, Vitest 15 / 226, `build`;
+  `@vitela/viewer` `typecheck`, Vitest 98 / 978, `build`; `apps/web` `typecheck`, Vitest 6 / 19,
+  `build`. Playwright (`CI=1`) `edit-text-runs` + `edit-content` + `embed` + `zero-network` en
+  los 3 navegadores: 66 pasan. Suite completa (`--reporter=line`): 352 pasan, 22 omitidos, 1
+  fallo intermitente de `draw.spec` (WebKit, un clic que agotó el tiempo; 20 / 20 en verde al
+  repetirlo solo). Otro intermitente de `draw.spec` en Chromium (1 / 40): el aviso "no se puede
+  mostrar en Helvetica" del cuadro de texto que sigue visible tras reescribir, una carrera del
+  diálogo de dibujo, que este cambio no toca (0 / 40 sobre el código anterior; sin arreglar aquí).
 
 ## Verificación
 

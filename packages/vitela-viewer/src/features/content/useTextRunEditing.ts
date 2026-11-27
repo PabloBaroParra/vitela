@@ -18,13 +18,14 @@
 // - The editor commits on Enter and when it loses focus, and cancels on
 //   Escape; it is closed a turn later, never inside its own blur handler (the
 //   GTK shell hung removing the focused editor from its focus-out). A save,
-//   leaving the mode or another selection commits it first.
+//   leaving the mode, another selection, or its page scrolling out of the
+//   mounted range commits it first: the draft is held here, not in the field.
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { ContentRun, DocumentHandle, DocumentInfo, Edit, Engine, TextRunLookState, TextRunStyle } from '@vitela/core';
+import type { ContentRun, DocumentHandle, DocumentInfo, Edit, Engine, TextRunLook, TextRunLookState, TextRunStyle } from '@vitela/core';
 import { pageKey, type Session } from '../annotations/useAnnotationEdits';
 import type { ContentMode } from './useContentMode';
-import { loadRunFont } from './runFont';
+import { createRunFontRegistry, type RunFontRegistry } from './runFont';
 import { nudgeOf, retypeOf, toggled, type FaceToggle } from './textRuns';
 
 /** What the text-run edits need of the viewer's edit queue. */
@@ -39,8 +40,12 @@ export interface OpenEditor {
   readonly run: ContentRun;
   readonly pageKey: string;
   readonly style: TextRunStyle | null;
+  /** The look the core reads for the run, a queued restyle included; `null` when not read yet. */
+  readonly look: TextRunLook | null;
   /** The family the run's embedded program loaded as; `null` until it does, or when it cannot. */
   readonly family: string | null;
+  /** What is typed in it now. */
+  readonly draft: string;
 }
 
 const PAGE_CHANGED = 'The page changed before the text could be edited. Nothing was changed.';
@@ -49,14 +54,13 @@ interface TextRunEditingInput {
   readonly engine: Engine;
   readonly handle: DocumentHandle;
   readonly info: Pick<DocumentInfo, 'pages' | 'pageIds'>;
-  readonly baseGeneration: number;
   readonly content: ContentMode;
   readonly queue: TextRunQueue;
   /** Gives the keyboard back to the pages (after Enter in the editor). */
   readonly focusPages: () => void;
 }
 
-export function useTextRunEditing({ engine, handle, info, baseGeneration, content, queue, focusPages }: TextRunEditingInput) {
+export function useTextRunEditing({ engine, handle, info, content, queue, focusPages }: TextRunEditingInput) {
   const picked = content.selected;
   const run = picked?.item.kind === 'run' ? picked.item : null;
   const runKey = picked && run ? `${picked.key}#${run.id}` : null;
@@ -130,13 +134,29 @@ export function useTextRunEditing({ engine, handle, info, baseGeneration, conten
     [run, currentPageKey, busy, shownLook, submit],
   );
 
-  // The editor over the selected run.
+  // The faces the editors load, for this document only: taken off the page
+  // when it closes or another opens.
+  const fonts = useRef<RunFontRegistry | null>(null);
+  useEffect(() => {
+    const registry = createRunFontRegistry(engine, handle);
+    fonts.current = registry;
+    return () => {
+      registry.dispose();
+      if (fonts.current === registry) fonts.current = null;
+    };
+  }, [engine, handle]);
+
+  // The editor over the selected run. What is typed in it is held here, not
+  // in the field: the field lives in a virtualized page slot, and a scroll
+  // that unmounts the slot must not lose it (`detach` commits it).
   const [editor, setEditor] = useState<OpenEditor | null>(null);
   const openSeq = useRef(0);
   /**
-   * Whether the open editor was already ended: a press beside it commits it
-   * and, in a browser that moves the focus on that press, its blur then
-   * asks again before it is closed. Only the first counts.
+   * Whether the open editor was already ended — the one owner of "commit
+   * once": a press beside it commits it and, in a browser that moves the
+   * focus on that press, its blur then asks again before it is closed;
+   * Enter commits and the blur its closing causes asks again. Only the
+   * first counts.
    */
   const ended = useRef(false);
   const open = useCallback(() => {
@@ -148,25 +168,16 @@ export function useTextRunEditing({ engine, handle, info, baseGeneration, conten
     const seq = ++openSeq.current;
     ended.current = false;
     const target = run;
-    setEditor({ run: target, pageKey: currentPageKey, style: null, family: null });
+    // A queued restyle shows in the look the toggles read, not in the file's style.
+    setEditor({ run: target, pageKey: currentPageKey, style: null, look: shownLook, family: null, draft: target.text });
     const update = (patch: Partial<OpenEditor>) =>
       setEditor((shown) => (shown && openSeq.current === seq ? { ...shown, ...patch } : shown));
     engine.textRunStyle(handle, target.pageIndex, target.id).then(
       (style) => update({ style }),
       () => {},
     );
-    const pageId = info.pageIds[target.pageIndex];
-    if (pageId !== undefined) {
-      void loadRunFont(engine, {
-        handle,
-        pageIndex: target.pageIndex,
-        runId: target.id,
-        pageId,
-        baseGeneration,
-        fontName: target.fontName,
-      }).then((family) => family && update({ family }));
-    }
-  }, [run, currentPageKey, busy, editor, queue, engine, handle, info.pageIds, baseGeneration]);
+    void fonts.current?.load(target.pageIndex, target.id).then((family) => family && update({ family }));
+  }, [run, currentPageKey, busy, editor, queue, engine, handle, shownLook]);
 
   /** Closes the editor a turn later: never inside the blur that may have committed it. */
   const close = useCallback(() => {
@@ -175,46 +186,74 @@ export function useTextRunEditing({ engine, handle, info, baseGeneration, conten
       if (openSeq.current === seq) setEditor(null);
     });
   }, []);
-  /** Commits `text` typed over the open editor's run, and closes it. */
+
+  // The editor as last rendered, for the callbacks that run outside a render
+  // (a save, a blur, an unmount): what is on screen goes in.
+  const shownEditor = useRef(editor);
+  useLayoutEffect(() => {
+    shownEditor.current = editor;
+  });
+  /** Commits the draft of the open editor, once, and closes it (`refocus`: give the keyboard back to the pages). */
   const commit = useCallback(
-    (text: string, refocus: boolean) => {
-      if (!editor || ended.current) return;
+    (refocus: boolean) => {
+      const open = shownEditor.current;
+      if (!open || ended.current) return;
       ended.current = true;
-      const edit = retypeOf(editor.run, text);
-      if (edit) submit(editor.run, editor.pageKey, edit, edit.kind === 'removeTextRun' ? null : text);
+      const edit = retypeOf(open.run, open.draft);
+      if (edit) submit(open.run, open.pageKey, edit, edit.kind === 'removeTextRun' ? null : open.draft);
       openSeq.current += 1;
       close();
       if (refocus) focusPages();
     },
-    [editor, submit, close, focusPages],
+    [submit, close, focusPages],
   );
+  const commitRef = useRef(commit);
+  useLayoutEffect(() => {
+    commitRef.current = commit;
+  });
   const cancel = useCallback(() => {
+    if (ended.current) return;
     ended.current = true;
     openSeq.current += 1;
     close();
     focusPages();
   }, [close, focusPages]);
-
-  // The text typed in the open editor, for a commit from outside it (a save,
-  // leaving the mode): what is on screen goes in.
-  const typed = useRef<string | null>(null);
-  const shownEditor = useRef(editor);
-  useLayoutEffect(() => {
-    shownEditor.current = editor;
-    if (!editor) typed.current = null;
-  });
-  const commitRef = useRef(commit);
-  useLayoutEffect(() => {
-    commitRef.current = commit;
-  });
-  /** Commits the open editor, if any (before a save). */
-  const commitOpen = useCallback(() => {
-    if (shownEditor.current && typed.current !== null) commitRef.current(typed.current, false);
+  /** Each change of the text in the open editor (stable: the field never re-subscribes). */
+  const typing = useCallback((text: string) => {
+    if (shownEditor.current) shownEditor.current = { ...shownEditor.current, draft: text };
+    setEditor((shown) => (shown ? { ...shown, draft: text } : shown));
   }, []);
+  /** Commits the open editor, if any (before a save, or a press beside it). */
+  const commitOpen = useCallback(() => commitRef.current(false), []);
   // Leaving the mode commits what was typed.
   useEffect(() => {
     if (!content.active) commitOpen();
   }, [content.active, commitOpen]);
+
+  // The field went (its page slot scrolled out of the overscan): commit its
+  // draft, as leaving it would — a turn later, so a field mounted again at
+  // once (React's development double mount) keeps it, and never inside the
+  // unmount of the focused element.
+  const detached = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Whether this hook is still mounted: the viewer going takes the draft with it. */
+  const alive = useRef(true);
+  const attach = useCallback(() => {
+    if (detached.current !== null) clearTimeout(detached.current);
+    detached.current = null;
+  }, []);
+  const detach = useCallback(() => {
+    if (detached.current !== null) clearTimeout(detached.current);
+    detached.current = setTimeout(() => {
+      detached.current = null;
+      if (alive.current) commitRef.current(false);
+    });
+  }, []);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
 
   /** The keys the pages take for the selected run; `true` when one was used. */
   const onKey = useCallback(
@@ -250,9 +289,10 @@ export function useTextRunEditing({ engine, handle, info, baseGeneration, conten
     open,
     commit,
     cancel,
-    /** The editor reports what is typed in it, so an outside commit takes it. */
-    typing: (text: string) => void (typed.current = text),
+    typing,
     commitOpen,
+    attach,
+    detach,
     move,
     remove,
     toggle,

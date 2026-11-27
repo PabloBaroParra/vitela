@@ -25,8 +25,7 @@ import { commentEntries } from '../comments/stops';
 import { ContentStatus } from '../content/ContentStatus';
 import type { ContentInput } from '../content/ContentLayer';
 import { useContentMode } from '../content/useContentMode';
-import { TextRunEditor } from '../content/TextRunEditor';
-import { TextRunToolbar } from '../content/TextRunToolbar';
+import { TextRunOverlay, textRunOverlayPage } from '../content/TextRunOverlay';
 import { useTextRunEditing } from '../content/useTextRunEditing';
 import { useAnnotationNavigation } from '../comments/useAnnotationNavigation';
 import { useComments } from '../comments/useComments';
@@ -229,7 +228,6 @@ export function DocumentViewer({
     engine,
     handle,
     info: document.info,
-    baseGeneration,
     content,
     queue: editing,
     focusPages,
@@ -264,41 +262,7 @@ export function DocumentViewer({
         : null,
     [content.active, contentHover, contentSelect, commitOpen, focusPages, openRun, moveRun],
   );
-  const selectedRun = textRuns.run;
-  const runOverlay = (textRuns.editor || selectedRun) && (
-    <>
-      {textRuns.editor ? (
-        <TextRunEditor
-          key={`${textRuns.editor.pageKey}#${textRuns.editor.run.id}`}
-          editor={textRuns.editor}
-          scale={scale}
-          rotationDegrees={pages[textRuns.editor.run.pageIndex]?.rotationDegrees ?? 0}
-          onCommit={textRuns.commit}
-          onCancel={textRuns.cancel}
-          onType={textRuns.typing}
-        />
-      ) : (
-        selectedRun && (
-        <TextRunToolbar
-          run={selectedRun}
-          scale={scale}
-          look={textRuns.look}
-          busy={textRuns.busy}
-          onEdit={textRuns.open}
-          onToggle={(face) => {
-            textRuns.toggle(face);
-            focusPages();
-          }}
-          onRemove={() => {
-            textRuns.remove();
-            focusPages();
-          }}
-        />
-        )
-      )}
-    </>
-  );
-  const overlayPage = textRuns.editor?.run.pageIndex ?? selectedRun?.pageIndex ?? null;
+  const overlayPage = textRunOverlayPage(textRuns);
   // The mode takes the pointer: text, annotations and drawing let it go.
   const chooseTool = drawing.choose;
   const deselectAnnotation = annotating.deselect;
@@ -396,7 +360,7 @@ export function DocumentViewer({
           contentState={contentInput ? content.stateAt(index) : undefined}
           contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
           contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
-          contentOverlay={overlayPage === index ? runOverlay : null}
+          contentOverlay={overlayPage === index ? <TextRunOverlay textRuns={textRuns} scale={scale} pages={pages} focusPages={focusPages} /> : null}
         />,
       );
     }

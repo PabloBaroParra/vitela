@@ -1,5 +1,32 @@
 // Domain types shared by the UI and the engine worker.
 
+import type {
+  PageContent,
+  TextBlock,
+  TextRunStyle,
+  TextRunLookState,
+  FontProgram,
+  TextRunEdit,
+} from './content.js';
+
+// Declared in `content.ts`; re-exported here for the worker and the client.
+export type {
+  ContentFontKind,
+  ContentRun,
+  ContentImage,
+  ContentPath,
+  ContentItem,
+  PageContent,
+  TextLine,
+  TextBlock,
+  TextRunStyle,
+  TextRunLook,
+  TextRunLookState,
+  FontProgramFormat,
+  FontProgram,
+  TextRunEdit,
+} from './content.js';
+
 /**
  * One page's size in PDF points as the viewer lays it out — already turned
  * by its rotation, so a `/Rotate 90` portrait page reports landscape — plus
@@ -160,125 +187,6 @@ export interface EditedDocument {
   readonly contentBaseGeneration?: number;
 }
 
-/** How a text run's font is held: the 14 standard fonts, an embedded simple font, or a composite (CID) font. */
-export type ContentFontKind = 'standard14' | 'embeddedSimple' | 'embeddedComposite';
-
-/**
- * One run of text a page paints, as the reader sees it (every pending
- * content edit laid on). `id` is valid against the read it came from: read
- * again after an edit, or when `contentBaseGeneration` changes.
- */
-export interface ContentRun {
-  readonly kind: 'run';
-  readonly id: number;
-  readonly pageIndex: number;
-  /** On the page as drawn (top-left origin, `/Rotate` applied). */
-  readonly rect: PageRect;
-  /** The font's key in the page's resources (`F1`); its `/BaseFont` is in `pageFontFamilies`. */
-  readonly fontName: string;
-  readonly fontKind: ContentFontKind;
-  readonly text: string;
-  /** Whether its text decoded fully, so it could be retyped (the core's rule). */
-  readonly editable: boolean;
-}
-
-/** One image a page paints. */
-export interface ContentImage {
-  readonly kind: 'image';
-  readonly id: number;
-  readonly pageIndex: number;
-  readonly rect: PageRect;
-  /** Its samples sit in the content stream rather than in an XObject. */
-  readonly inline: boolean;
-}
-
-/** One vector path a page paints: a rule, a border, a shaded box. */
-export interface ContentPath {
-  readonly kind: 'path';
-  readonly id: number;
-  readonly pageIndex: number;
-  /** The geometry's box without the stroke's width: a hairline rule's is zero high. */
-  readonly rect: PageRect;
-  readonly paint: 'stroke' | 'fill' | 'fillAndStroke';
-}
-
-export type ContentItem = ContentRun | ContentImage | ContentPath;
-
-/** Everything one page paints, each kind in paint order. */
-export interface PageContent {
-  readonly runs: readonly ContentRun[];
-  readonly images: readonly ContentImage[];
-  readonly paths: readonly ContentPath[];
-}
-
-/** One line of a `TextBlock`. */
-export interface TextLine {
-  /** The member runs' ids, left to right. */
-  readonly runIds: readonly number[];
-  readonly rect: PageRect;
-  readonly text: string;
-}
-
-/** Runs a reader sees as one piece of text: one line, or a paragraph of stacked lines. */
-export interface TextBlock {
-  /** The member runs' ids, line by line from the top. */
-  readonly runIds: readonly number[];
-  readonly rect: PageRect;
-  /** The lines' text joined with a line break. */
-  readonly text: string;
-  readonly lines: readonly TextLine[];
-  /** The mean baseline-to-baseline distance in points; `null` for one line. */
-  readonly leadingPt: number | null;
-  readonly alignment: 'left' | 'center' | 'right';
-}
-
-/** How a run looks on its page (the core's reading of the file). */
-export interface TextRunStyle {
-  /** The font's `/BaseFont`, raw (`ABCDEF+Vera-Bold`); empty when it names none. */
-  readonly baseFont: string;
-  /** The size a reader sees, in points. */
-  readonly fontSizePt: number;
-  /** The fill colour. */
-  readonly color: Rgb;
-  /** Extra space after each glyph, in points. */
-  readonly charSpacingPt: number;
-  /** 1 is unscaled. */
-  readonly horizontalScale: number;
-  readonly bold: boolean;
-  readonly italic: boolean;
-  /** The text rendering mode: 0 fills, 2 fills and strokes (a faked bold). */
-  readonly renderMode: number;
-}
-
-/**
- * The four face toggles a content editor offers for a run: what the reader
- * should see, not how it is painted (the core picks a sibling face or
- * synthesizes one when it writes the change).
- */
-export interface TextRunLook {
-  readonly bold: boolean;
-  readonly italic: boolean;
-  readonly underline: boolean;
-  readonly strike: boolean;
-}
-
-/** How a run looks now (a queued restyle included), and which styles can come off it. */
-export interface TextRunLookState extends TextRunLook {
-  /** `false` only for a run painted in a bold font whose page has no regular sibling: un-bolding is never faked. */
-  readonly canRemoveBold: boolean;
-  /** The same, for italic. */
-  readonly canRemoveItalic: boolean;
-}
-
-/** What kind of program a font embeds: a browser's `FontFace` takes `trueType` and `openType`. */
-export type FontProgramFormat = 'trueType' | 'openType' | 'cff' | 'type1';
-
-/** A font program the file embeds, decoded. */
-export interface FontProgram {
-  readonly format: FontProgramFormat;
-  readonly bytes: Uint8Array;
-}
-
 /** A colour, each channel 0-255. */
 export interface Rgb {
   readonly r: number;
@@ -430,25 +338,6 @@ export interface WatermarkDefaults {
   readonly pictureRotationDegrees: number;
   readonly pictureBehind: boolean;
 }
-
-/**
- * An edit of a text run a page's content read handed out (`runId`, valid
- * against that read), on page position `page`. Page content: one undo step
- * that the pixels show at once and `paintRevision` moves for. A second
- * retype or move of the same run folds into its step; an edit that changes
- * nothing (the same text, a zero move, the look the runs have) records
- * nothing. `dx, dy` are on the page as drawn (points, y down). A restyle
- * gives every run of `runIds` the look `look`, as one step. Rejects as
- * `contentEditingRefusal` says (`EditNotPermitted`, or
- * `TextExtractionDenied`), then `PageIndexOutOfBounds`,
- * `UnsupportedOperation` for a run the page does not hold now, or
- * `EncodingGap` for a character the run's font cannot show.
- */
-export type TextRunEdit =
-  | { readonly kind: 'retypeTextRun'; readonly page: number; readonly runId: number; readonly text: string }
-  | { readonly kind: 'moveTextRun'; readonly page: number; readonly runId: number; readonly dx: number; readonly dy: number }
-  | { readonly kind: 'removeTextRun'; readonly page: number; readonly runId: number }
-  | { readonly kind: 'restyleTextRuns'; readonly page: number; readonly runIds: readonly number[]; readonly look: TextRunLook };
 
 /** Anything `applyEdit` records. */
 export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit;
