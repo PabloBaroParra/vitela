@@ -14,6 +14,7 @@
 // Shift gives the native behaviour.
 
 import type { ContentImage, PageContent, PageRect } from '@vitela/core';
+import { nearestTo } from './contentModel';
 
 /** A resize handle: a compass point of the image's box. */
 export type ImageHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -82,24 +83,5 @@ export function handleBox(rect: PageRect, handle: ImageHandle, scale: number): {
  * place, not by id.
  */
 export function followImage(content: PageContent, expected: PageRect | null): ContentImage | null {
-  if (!expected) return null;
-  let best: ContentImage | null = null;
-  let bestDistance = Infinity;
-  for (const image of content.images) {
-    if (!overlaps(image.rect, expected)) continue;
-    const distance =
-      Math.abs(image.rect.left - expected.left) +
-      Math.abs(image.rect.top - expected.top) +
-      Math.abs(image.rect.width - expected.width) +
-      Math.abs(image.rect.height - expected.height);
-    if (distance < bestDistance) {
-      best = image;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
-
-function overlaps(a: PageRect, b: PageRect): boolean {
-  return a.left <= b.left + b.width && b.left <= a.left + a.width && a.top <= b.top + b.height && b.top <= a.top + a.height;
+  return nearestTo(content.images, expected);
 }

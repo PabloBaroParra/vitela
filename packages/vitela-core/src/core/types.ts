@@ -9,6 +9,7 @@ import type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  PathEdit,
   ContentClip,
   ContentMembers,
   SelectionEdit,
@@ -32,6 +33,7 @@ export type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  PathEdit,
   ContentClip,
   ContentMembers,
   SelectionEdit,
@@ -359,6 +361,7 @@ export type Edit =
   | TextRunEdit
   | TextBlockEdit
   | ImageEdit
+  | PathEdit
   | SelectionEdit;
 
 /** One laid-out line of a free-text box. */

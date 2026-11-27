@@ -223,6 +223,17 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   changes nothing records nothing. They reject as `contentEditingRefusal`
   says, then `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the
   page does not hold now or a box with no area, or `InvalidImage`.
+  Vector paths (T-263) — rules, borders, shaded boxes — are edited through
+  `applyEdit` with a `PathEdit` naming a path by the id its page's last read
+  handed out: `movePath` (`dx, dy` points on the page as drawn), `resizePath`
+  (`rect`, the box on the page as drawn: the core rewrites the coordinates,
+  so the line width is kept, and a side the path is flat along — a rule's
+  height — stays flat whatever `rect` gives it) and `removePath`. Each is one
+  undo step and moves `paintRevision`; a second move or resize of the same
+  path, or its removal, folds into its step, and one that changes nothing
+  records nothing. They reject as `contentEditingRefusal` says, then
+  `PageIndexOutOfBounds`, or `UnsupportedOperation` for a path the page does
+  not hold now or a box that takes a side it has to nothing.
   Text as blocks (T-261) is edited through `applyEdit` with a
   `TextBlockEdit`: `retypeTextBlock` (`page`, `runIds` — a block's runs
   exactly as `readParagraphBlocks` lists them — and `text`, each line break

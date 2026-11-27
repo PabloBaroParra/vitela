@@ -4,7 +4,7 @@
 // several, each in its kind's style, the group inside a dashed box — and
 // reports a press (with SHIFT or CTRL/⌘: a toggle), a double-click, a
 // marquee dragged from where nothing is, and a drag of the selected run,
-// image or group (its outlines follow the pointer until it is let go). What
+// image, path or group (its outlines follow the pointer until it is let go). What
 // else the selected item has — its toolbar, its editor — comes in as
 // `children`. Presentational: what is under a point, and what a drag
 // records, is the container's to decide.
@@ -12,7 +12,7 @@
 import type { ContentItem, PagePoint, PageRect } from '@vitela/core';
 import { useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { toPagePoint } from '../text/pageRects';
-import { itemAt, type PageContentState } from './contentModel';
+import { hits, itemAt, type PageContentState } from './contentModel';
 import { boundsOf, marqueeRect } from './selection';
 import { isDrag } from './textRuns';
 
@@ -26,7 +26,7 @@ export interface ContentInput {
   readonly onGather: (pageIndex: number, area: PageRect, additive: boolean) => void;
   /** A double-click: select what is there and open it. */
   readonly onOpen: (pageIndex: number, point: PagePoint) => void;
-  /** The selected run, image or group was dragged by `dx, dy` points on the page as drawn and let go. */
+  /** The selected run, image, path or group was dragged by `dx, dy` points on the page as drawn and let go. */
   readonly onDrag: (pageIndex: number, dx: number, dy: number) => void;
 }
 
@@ -66,7 +66,9 @@ export function ContentLayer({ pageIndex, scale, state, hovered, selected, group
   /** The marquee being dragged, in drawn points; `null` while there is none. */
   const [marquee, setMarquee] = useState<PageRect | null>(null);
   const groupBox = group && group.length > 0 ? boundsOf(group) : null;
-  const draggable = groupBox ?? (selected?.kind === 'run' || selected?.kind === 'image' ? selected.rect : null);
+  /** Whether a press at `point` is on what a drag would move: the group's box, or the selected item (a path as it is hit). */
+  const onDraggable = (point: PagePoint) =>
+    groupBox ? holds(groupBox, point) : selected ? (selected.kind === 'path' ? hits(selected, point) : holds(selected.rect, point)) : false;
   const moved = (event: PointerEvent<HTMLDivElement>, pressed: Press) => ({ x: event.clientX - pressed.x, y: event.clientY - pressed.y });
   return (
     <div
@@ -98,7 +100,7 @@ export function ContentLayer({ pageIndex, scale, state, hovered, selected, group
           press.current = { kind, pointerId: event.pointerId, x: event.clientX, y: event.clientY, point, additive };
           event.currentTarget.setPointerCapture?.(event.pointerId);
         };
-        if (!additive && draggable && holds(draggable, point)) return start('drag');
+        if (!additive && onDraggable(point)) return start('drag');
         const onItem = state?.status === 'ready' && itemAt(state.content, point) !== null;
         if (additive && onItem) return input.onToggle(pageIndex, point);
         // From where nothing is, a drag is a marquee; a press there still lets go of the selection.

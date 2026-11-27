@@ -8,8 +8,8 @@
 // revision and base generation, and keeps the item under the pointer and the
 // one clicked.
 //
-// The edits themselves are `useTextRunEditing`'s (T-259) and
-// `useImageEditing`'s (T-260): this hands the pages what to outline, the
+// The edits themselves are `useTextRunEditing`'s (T-259), `useImageEditing`'s
+// (T-260) and `usePathEditing`'s (T-263): this hands the pages what to outline, the
 // status line what was selected, and finds the edited item again — by place,
 // ids hold only for the read they came from — once its page is read anew.
 
@@ -17,6 +17,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { errorMessage, type ContentItem, type DocumentHandle, type Engine, type PagePoint, type PageRect } from '@vitela/core';
 import { sentence } from '../../ui/text';
 import { followImage } from './images';
+import { followPath } from './paths';
 import { followRun } from './textRuns';
 import {
   CONTENT_HINT,
@@ -39,16 +40,17 @@ export interface Picked {
   readonly item: ContentItem;
 }
 
-/** What an edit leaves to select again: a run where it is now and what it shows, an image, or nothing. */
+/** What an edit leaves to select again: a run where it is now and what it shows, an image, a path, or nothing. */
 type Sought =
   | { readonly kind: 'run'; readonly expected: PageRect; readonly text: string }
   | { readonly kind: 'image'; readonly expected: PageRect }
+  | { readonly kind: 'path'; readonly expected: PageRect }
   /** The edit removed it: select nothing once the page is read anew. */
   | { readonly kind: 'removed' };
 
-/** The run or image an edit is waiting to select again. */
+/** The run, image or path an edit is waiting to select again. */
 interface Following {
-  readonly kind: 'run' | 'image';
+  readonly kind: 'run' | 'image' | 'path';
   readonly pageIndex: number;
   /** The key its page had when the edit was asked for. */
   readonly fromKey: string;
@@ -214,9 +216,9 @@ export function useContentMode({
   /**
    * A press selects what is under it, and wins over an edit still waiting
    * to select its run again (a press beside an open editor commits it, then
-   * selects). Every page's read goes stale when the edit lands, so a run
-   * pressed is followed instead, by its place and text; anything else drops
-   * the follow.
+   * selects). Every page's read goes stale when the edit lands, so an item
+   * pressed is followed instead, by its place (and a run's text); a press on
+   * nothing drops the follow.
    */
   const select = useCallback(
     (index: number, point: PagePoint) => {
@@ -224,7 +226,7 @@ export function useContentMode({
       setSelected(next);
       setFollowing((waiting) => {
         if (!waiting) return waiting;
-        if (!next || next.item.kind === 'path') return null;
+        if (!next) return null;
         const { item } = next;
         // The edited item itself: keep following it where the edit puts it.
         const { sought } = waiting;
@@ -235,7 +237,7 @@ export function useContentMode({
           kind: item.kind,
           pageIndex: next.pageIndex,
           fromKey: next.key,
-          sought: item.kind === 'run' ? { kind: 'run', expected: item.rect, text: item.text } : { kind: 'image', expected: item.rect },
+          sought: soughtFor(item),
         };
       });
     },
@@ -267,17 +269,19 @@ export function useContentMode({
   );
   /**
    * Selects again, once page `index` has been edited and read anew, the
-   * image now at `expected` (`null`: it was removed, select nothing). Call
-   * it with the edit, before the step lands.
+   * image or path (`kind`) now at `expected` (`null`: it was removed, select
+   * nothing). Call it with the edit, before the step lands.
    */
-  const followImageAt = useCallback(
-    (index: number, expected: PageRect | null) => {
+  const followBox = useCallback(
+    (kind: 'image' | 'path', index: number, expected: PageRect | null) => {
       const fromKey = keyAt(index);
-      const sought: Sought = expected === null ? { kind: 'removed' } : { kind: 'image', expected };
-      setFollowing(fromKey === undefined ? null : { kind: 'image', pageIndex: index, fromKey, sought, seenPending: false });
+      const sought: Sought = expected === null ? { kind: 'removed' } : { kind, expected };
+      setFollowing(fromKey === undefined ? null : { kind, pageIndex: index, fromKey, sought, seenPending: false });
     },
     [keyAt],
   );
+  const followImageAt = useCallback((index: number, expected: PageRect | null) => followBox('image', index, expected), [followBox]);
+  const followPathAt = useCallback((index: number, expected: PageRect | null) => followBox('path', index, expected), [followBox]);
   useEffect(() => {
     if (!following) return;
     if (!active) return void setFollowing(null);
@@ -308,7 +312,9 @@ export function useContentMode({
         ? null
         : sought.kind === 'image'
           ? followImage(state.content, sought.expected)
-          : followRun(state.content, sought.expected, sought.text);
+          : sought.kind === 'path'
+            ? followPath(state.content, sought.expected)
+            : followRun(state.content, sought.expected, sought.text);
     setSelected(found && { pageIndex: following.pageIndex, key, item: found });
   }, [following, active, paused, keyAt, held, wanted, visible]);
 
@@ -341,7 +347,8 @@ export function useContentMode({
     wants,
     follow,
     followImage: followImageAt,
-    /** Whether an edited run or image is still to be found again (its page not read yet). */
+    followPath: followPathAt,
+    /** Whether an edited run, image or path is still to be found again (its page not read yet). */
     following: following !== null,
     /** What is being found again, or `null`. */
     followingKind: following?.kind ?? null,
@@ -354,6 +361,18 @@ export function useContentMode({
 }
 
 export type ContentMode = ReturnType<typeof useContentMode>;
+
+/** What to find again of `item`, pressed while an edit lands: where it is (and a run's text). */
+function soughtFor(item: ContentItem): Sought {
+  switch (item.kind) {
+    case 'run':
+      return { kind: 'run', expected: item.rect, text: item.text };
+    case 'image':
+      return { kind: 'image', expected: item.rect };
+    case 'path':
+      return { kind: 'path', expected: item.rect };
+  }
+}
 
 function samePick(a: Picked | null, b: Picked | null): boolean {
   if (!a || !b) return a === b;

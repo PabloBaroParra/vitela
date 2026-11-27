@@ -59,6 +59,7 @@ import type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  PathEdit,
   ContentMembers,
   SelectionEdit,
 } from '../core/types.js';
@@ -100,6 +101,7 @@ import {
   imageCommand,
   memberIds,
   pageContent,
+  pathCommand,
   selectionCommand,
   textBlockCommand,
   textBlocks,
@@ -109,6 +111,7 @@ import {
   type CoreContentClip,
   type CoreFontProgram,
   type CoreImageEdits,
+  type CorePathEdits,
   type CoreSelectionEdits,
   type CorePageContent,
   type CoreTextBlock,
@@ -130,6 +133,7 @@ export interface CoreEdits
     CoreTextRunEdits,
     CoreTextBlockEdits,
     CoreImageEdits,
+    CorePathEdits,
     CoreSelectionEdits {
   movePages(from: number, count: number, to: number): Owned;
   rotatePages(from: number, count: number, deltaDegrees: number): Owned;
@@ -546,9 +550,11 @@ export function documentEngine(core: CoreEngine, functions: CoreFunctions, edits
                       ? textBlockCommand(edits, edit, frameOf(document))
                       : isImageEdit(edit)
                         ? imageCommand(edits, edit, frameOf(document))
-                        : isSelectionEdit(edit)
-                          ? selectionCommand(edits, edit, frameOf(document))
-                          : annotationCommand(
+                        : isPathEdit(edit)
+                          ? pathCommand(edits, edit, frameOf(document))
+                          : isSelectionEdit(edit)
+                            ? selectionCommand(edits, edit, frameOf(document))
+                            : annotationCommand(
                   edits,
                   edit,
                   frameOf(document),
@@ -682,6 +688,10 @@ function isSelectionEdit(edit: Edit): edit is SelectionEdit {
 
 function isTextBlockEdit(edit: Edit): edit is TextBlockEdit {
   return edit.kind === 'retypeTextBlock' || edit.kind === 'insertText';
+}
+
+function isPathEdit(edit: Edit): edit is PathEdit {
+  return edit.kind === 'movePath' || edit.kind === 'resizePath' || edit.kind === 'removePath';
 }
 
 function isImageEdit(edit: Edit): edit is ImageEdit {

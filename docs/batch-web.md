@@ -2166,7 +2166,7 @@ Gates (Windows 11, local):
 
 | Tarea | Entrega | Hecho cuando |
 |---|---|---|
-| **T-249** | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
+| **T-249** ✓ (#656) | Core: mover `protect_to_bytes` (`pdf-ffi/src/document.rs`) y la orquestación de extraer páginas (`pdf-ffi/src/extract.rs`) a `pdf-save`; `pdf-ffi` delega. | Nativo: cero cambio de comportamiento (tests de fachada sin tocar); `cargo check --target wasm32-unknown-unknown -p pdf-wasm`. |
 | **T-250** ✓ | Comprimir: presets del core, rechazo del cifrado, aviso de firmas, copia más pequeña como descarga. | Playwright: un escaneo sale más pequeño, se descarga y abre; cifrado → rechazado en el diálogo sin descarga; firmado → "Compress anyway". |
 | **T-251** ✓ | Proteger (dos contraseñas, aviso de firmas). | Playwright: proteger, reabrir con cada contraseña y ver sus permisos. |
 | **T-252** ✓ | Exportar imágenes de página (`renderPage` + `encode_rgba_image`, selección de páginas, nombres, límite de tamaño). | Playwright: PNG y JPEG de un rango, con los nombres y el tamaño esperados. |
@@ -2181,9 +2181,12 @@ Gates (Windows 11, local):
 | **T-260** ✓ | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
 | **T-261** ✓ | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
 | **T-262** ✓ | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
-| **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
+| **T-263** ✓ | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
 
 T-258 bloquea T-259…T-263. T-249 bloquea T-251 y T-254. Las demás son independientes.
+
+**Fase 4: todas las filas hechas** (T-249…T-263). Queda cerrada cuando T-262 (#675) y T-263
+estén fusionadas y sus flujos Playwright en verde en CI.
 
 ### T-250 — resultado
 
@@ -3572,6 +3575,88 @@ en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
   sin E2E propio (la caja gira sobre su esquina, como una línea insertada); redimensionar un
   grupo; seleccionar entre páginas (la selección es de una página, como en los nativos); el
   hueco del core de arriba.
+
+### T-263 — resultado
+
+Mover, redimensionar y borrar un trazado (una regla, un borde de tabla, una caja rellena) en
+el modo **Edit content**. Detalle en [`apps/web/README.md`](../apps/web/README.md) ("Shapes")
+y en [`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Hecho sobre
+`feat/web-content-clipboard-v` (#675, sin fusionar al empezar).
+
+- **`pdf-wasm`** (`model/path.rs`, `engine/path.rs`): `DocumentModel::apply_path_edit(PathEdit)`
+  con `Move { page, path, dx, dy }`, `Resize { page, path, to }` y `Remove { page, path }`, el
+  trazado resuelto contra la lectura pendiente (`pdf_save::read_pending_page_content_of`) y
+  grabado como `Command::{MovePath, ResizePath, RemovePath}` por
+  `DocumentModel::record_content`, los mismos comandos que `pdf-ffi` `FfiEditCommand` de
+  Android/Windows/Linux. Un paso cada uno; un segundo movimiento o redimensionado, o el
+  borrado, del mismo trazado pliega en su paso (regla de `pdf_save::record`
+  `with_queued_path`). Mover 0 o redimensionar a la caja que tiene no registra nada. Puertas
+  en el orden de las imágenes: `ensure_content_editing`, extracción de texto, página, valores
+  finitos y lados no negativos, id caducado, y un lado que el trazado tiene no puede quedar en
+  nada (`UnsupportedOperation`); un lado plano (la altura de una regla) admite cualquier valor
+  y el core lo deja plano (`pdf_edit::path::page_mapping`). El grosor de línea se conserva
+  (el core reescribe coordenadas, no añade `cm`). `EditCommand.movePath` / `resizePath` /
+  `removePath`.
+- **`@vitela/core`:** `PathEdit` (`movePath`, `resizePath`, `removePath`, geometría en la
+  página dibujada, cruzada por `PageFrame` como la de las imágenes), `CorePathEdits` y
+  `pathCommand` en `worker/content.ts`.
+- **`@vitela/viewer` (`features/content/`):** puro `paths.ts` (`pathHandles`: ocho en una
+  forma, los dos de los extremos en una regla, ninguno en un punto; `resizedPathRect`: esquina
+  libre — como los nativos —, Mayús mantiene la proporción, un lado plano queda plano y en su
+  sitio, como `dragged_rect` de GTK; `followPath`). `contentModel.ts` gana `hits` — un
+  contorno (trazado `stroke`) solo se toca a 3 pt de sus bordes, como `path_hit` de GTK, así
+  que dentro de un marco está su celda — y `nearestTo` (lo que `followImage` hacía, ahora
+  común). Contenedor `usePathEditing` (gemelo de `useImageEditing` sin la imagen: flechas 1/10
+  pt sumadas mientras corre un paso, arrastre, asas, Delete/Retroceso; `pageKey` en su turno)
+  y vista `PathOverlay` (asas + barra **Shape** con **Delete**). Las asas salen de
+  `ImageOverlay` a `ResizeHandles.tsx` (`useHandleDrag` + `ResizeHandles`), compartidas, sin
+  cambio de comportamiento. `useContentMode` sigue también un trazado (`followPath`; un clic
+  en un trazado mientras aterriza otra edición lo sigue en vez de soltar el seguimiento).
+  `ContentLayer` arrastra el trazado seleccionado (una regla de altura 0 dentro de 3 pt, un
+  contorno por su borde). Las vistas sobre la página (`ContentOverlay`, `SelectedItemOverlay`)
+  salen de `ContentEditing.tsx` a `ContentOverlay.tsx` (re-exportado), para que el
+  contenedor no pase de 300 líneas.
+- **Seguimiento de la revisión de T-262:** mientras se lee la copia de un corte (`clipping`),
+  los contenedores de un elemento (`useTextRunEditing`, `useParagraphEditing`,
+  `useImageEditing`, `usePathEditing`) lo cuentan como ocupado — sus barras y asas también, y
+  el doble clic (`onOpen`) no abre el editor —, así que ninguna edición de un elemento se
+  encola con ids que el corte va a borrar (el `clipboard` se crea ahora antes que ellos).
+  `onKey` solo se traga Delete, Retroceso y las flechas mientras tanto (`heldWhileClipping`
+  en `contentEdits.ts`); el resto de teclas sigue su camino.
+- **Tests:** Rust 12 nativos nuevos (`model/path/tests.rs`: mover como un paso leído,
+  guardado, deshecho y rehecho; segundo movimiento pliega; redimensionar y guardar; una regla
+  se alarga y queda plana; mover y redimensionar pliegan en un paso; lo que no cambia no
+  registra; caja que colapsa / negativa / no finita rechazada; borrar hasta deshacer; mover y
+  borrar en un paso; id o página desconocidos; documento que prohíbe modificar; un trazado
+  dentro de `q … Q` como los del E2E) escritos antes que `model/path.rs`, y 2
+  `wasm-bindgen-test` (`tests/paths.rs`, compilan con clippy wasm32). `@vitela/core` 1 Vitest
+  nuevo (`documentEngine`: los tres comandos con la geometría cruzada a PDF).
+  `@vitela/viewer` 30 nuevos (9 `paths`, 11 `usePathEditing` con `PathOverlay`, 5
+  `ContentEditing` — mover y borrar un trazado por teclado y arrastre, y el corte en curso:
+  Delete/Retroceso/flechas tragadas sin editar, Enter y letras no, barras ocupadas, nada
+  encolado hasta que entra la eliminación del corte —, 2 `ContentLayer`, 1 `useContentMode`, 1
+  `useImageEditing` y 1 `useTextRunEditing` con `clipping`); `paths.test.ts` y el test de
+  `ContentEditing` se escribieron antes que el código (el de `ContentEditing` cae con el
+  `clipping ||` anterior).
+- **E2E (`e2e/edit-paths.spec.ts`, 4 × 3):** una caja se mueve con dos Mayús+Abajo y un
+  arrastre como un paso (deshacer/rehacer), guardada y releída donde quedó; una esquina la
+  redimensiona libre y una regla (solo dos asas) se alarga por su extremo y queda plana, las
+  dos guardadas y releídas; Delete borra la caja y la barra la regla, dos pasos deshechos y
+  rehechos, y el fichero guardado no pinta ninguna; en una página girada 90° la caja se mueve
+  y redimensiona como se ve y se guarda ahí. `e2e/pdf.ts` gana `PageSpec.paths` (caja `re f`
+  o regla `m l S`, cada una en su `q … Q`).
+- **Verificado en local (Windows):** `cargo fmt -p pdf-wasm -- --check` limpio; `cargo clippy
+  -p pdf-wasm --all-targets -- -D warnings` nativo y wasm32 (con `PDFIUM_WASM_DIR`) sin
+  avisos; `cargo test -p pdf-wasm` (con `PDFIUM_DYNAMIC_LIB_PATH`) lib 237, 0 fallos.
+  `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 239, `build`. `@vitela/viewer`:
+  `typecheck`, Vitest 112 / 1122, `build`. `apps/web`: `typecheck`, Vitest 6 / 19, `build`.
+  Playwright `edit-paths` en los 3 navegadores (`CI=1`): 12 / 12. Suite completa (`CI=1
+  --reporter=line`, 3 navegadores): **416 pasan, 22 omitidos, 0 fallos** (una primera pasada tuvo 1 fallo en WebKit, `keys.spec.ts` "undoes from the keyboard after a click on the site header": el PDF soltado no abrió en 30 s con la suite en paralelo; pasa 3 de 3 solo y la segunda pasada completa fue limpia).
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver); `linux-gtk`, Android.
+- **No cubierto / pendiente:** un trazado bajo un `cm` con giro (el core lo reescribe como
+  cuatro lados, cubierto por los tests de `pdf-edit`, sin E2E propio); editar uno solo de los
+  trazados que añadió un pegado aún sin guardar no tiene test propio en la web (lo decide el
+  core).
 
 ## Verificación
 

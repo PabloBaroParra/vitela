@@ -22,6 +22,7 @@ function setup({
   pending = false,
   following = null as 'run' | 'image' | null,
   refusal = null as string | null,
+  clipping = false,
   engine: overrides = {} as Partial<Engine>,
 } = {}) {
   const applied: (Edit | null)[] = [];
@@ -53,13 +54,23 @@ function setup({
   const focusPages = vi.fn();
   const hook = renderHook(
     ({ running, selected, key = '9/0/0/0' }: { running: boolean; selected: ContentImage | null; key?: string }) =>
-      useImageEditing({ engine, handle: 1, info, content: content(selected, key), queue: { ...queue, pending: running }, focusPages }),
+      useImageEditing({ engine, handle: 1, info, content: content(selected, key), queue: { ...queue, pending: running }, focusPages, clipping }),
     { initialProps: { running: pending, selected: image } as { running: boolean; selected: ContentImage | null; key?: string } },
   );
   return { hook, applied, follows, notices, checks, focusPages };
 }
 
 describe('useImageEditing', () => {
+  it('asks for nothing while a cut is being read: the cut removes the image itself', () => {
+    const { hook, applied } = setup({ clipping: true });
+    expect(hook.result.current.busy).toBe(true);
+    act(() => {
+      hook.result.current.remove();
+      hook.result.current.resize({ left: 0, top: 0, width: 10, height: 10 });
+    });
+    expect(applied).toEqual([]);
+  });
+
   it('moves the selected image by an arrow and follows it to its new place', () => {
     const { hook, applied, follows } = setup();
     let used = false;

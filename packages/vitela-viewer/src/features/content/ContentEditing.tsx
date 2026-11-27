@@ -1,28 +1,30 @@
-// The "Edit content" mode as the viewer mounts it (B26 T-258b..T-262): one
+// The "Edit content" mode as the viewer mounts it (B26 T-258b..T-263): one
 // container that puts the mode (`useContentMode`), its several-item
 // selection (`useContentGroup`) and its edits (`useTextRunEditing`,
 // `useParagraphEditing`, `useTextInsertion`, `useImageEditing`,
-// `useGroupEditing`, the clipboard's `useContentClipboard`) together and
-// hands the pages their pointer input, plus the two views the viewer places
-// — the overlay over a page (the selected item's, an open paragraph editor,
-// a new line being typed) and the status row with Insert text, Insert image,
-// Copy, Cut, Paste and the one image file picker (a replacement or an
-// insert).
+// `usePathEditing`, `useGroupEditing`, the clipboard's
+// `useContentClipboard`) together and hands the pages their pointer input,
+// plus the two views the viewer places — the overlay over a page
+// (`ContentOverlay`: the selected item's, an open paragraph editor, a new
+// line being typed) and the status row with Insert text, Insert image, Copy,
+// Cut, Paste and the one image file picker (a replacement or an insert).
+//
+// While a copy for a cut is being read (`clipping`), the cut removes the
+// selection itself once read: no edit of the selected item or group is
+// asked for meanwhile — every edit container counts it as busy — and the
+// keys that would edit it (Delete, Backspace, the arrows) are taken and do
+// nothing.
 
 import { useCallback, useContext, useMemo, useRef, type RefObject } from 'react';
-import type { DocumentHandle, Engine, PageSize } from '@vitela/core';
+import type { DocumentHandle, Engine } from '@vitela/core';
 import { STAMP_ACCEPT } from '../annotations/stamps';
 import type { OpenDocument } from '../document/useDocument';
 import { EditorScopeContext } from '../document/editorScope';
 import { useSaveWaitsFor } from '../save/MarkDirtyContext';
 import { useSessionClip } from './clipStore';
-import type { ContentQueue } from './contentEdits';
+import { heldWhileClipping, type ContentQueue } from './contentEdits';
 import type { ContentInput } from './ContentLayer';
 import { ContentStatus } from './ContentStatus';
-import { ImageOverlay } from './ImageOverlay';
-import { TextBlockEditor } from './TextBlockEditor';
-import { TextInsertEditor } from './TextInsertEditor';
-import { TextRunOverlay, textRunOverlayPage } from './TextRunOverlay';
 import type { PagePointer } from './selection';
 import { useContentClipboard } from './useContentClipboard';
 import { useContentGroup } from './useContentGroup';
@@ -30,6 +32,7 @@ import { useContentMode } from './useContentMode';
 import { useGroupEditing } from './useGroupEditing';
 import { useImageEditing } from './useImageEditing';
 import { useParagraphEditing } from './useParagraphEditing';
+import { usePathEditing } from './usePathEditing';
 import { useTextInsertion } from './useTextInsertion';
 import { useTextRunEditing } from './useTextRunEditing';
 
@@ -62,10 +65,6 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
     baseGeneration: document.contentBaseGeneration ?? 0,
     visible,
   });
-  const textRuns = useTextRunEditing({ engine, handle, info: document.info, content, queue, focusPages });
-  const paragraphs = useParagraphEditing({ engine, handle, info: document.info, content, queue, focusPages });
-  const insertion = useTextInsertion({ info: document.info, content, queue, focusPages });
-  const images = useImageEditing({ engine, handle, info: document.info, content, queue, focusPages });
   const group = useContentGroup({ content, paused: queue.pending });
   // Where the pointer is over a page: where a pasted key press puts the clip.
   const pointer = useRef<PagePointer | null>(null);
@@ -84,6 +83,11 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   });
   // A copy for a cut removes the selection itself once read: nothing else edits it meanwhile.
   const { clipping } = clipboard;
+  const textRuns = useTextRunEditing({ engine, handle, info: document.info, content, queue, focusPages, clipping });
+  const paragraphs = useParagraphEditing({ engine, handle, info: document.info, content, queue, focusPages, clipping });
+  const insertion = useTextInsertion({ info: document.info, content, queue, focusPages });
+  const images = useImageEditing({ engine, handle, info: document.info, content, queue, focusPages, clipping });
+  const paths = usePathEditing({ info: document.info, content, queue, clipping });
   const groupEdits = useGroupEditing({ info: document.info, group, queue, clipping });
 
   // The one file picker of the image edits: a replacement or an insert.
@@ -115,6 +119,7 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   const { select: contentSelect, hover: contentHover } = content;
   const { open: openRun, move: moveRun, onKey: runKey } = textRuns;
   const { place: placeImage, move: moveImage, onKey: imageKey } = images;
+  const { move: movePath, onKey: pathKey } = paths;
   const { place: placeText, onKey: insertKey } = insertion;
   const { onKey: paragraphKey } = paragraphs;
   const { toggle, gather, clear: clearGroup } = group;
@@ -153,12 +158,15 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
               gather(pageIndex, area, additive);
               focusPages();
             },
-            // The press before it selected what is there.
-            onOpen: () => openRun(),
+            // The press before it selected what is there; nothing opens while a cut is read.
+            onOpen: () => {
+              if (!clipping) openRun();
+            },
             onDrag: (_pageIndex, dx, dy) => {
               if (clipping) return;
               if (grouped) moveGroup(dx, dy);
               else if (selectedKind === 'image') moveImage(dx, dy);
+              else if (selectedKind === 'path') movePath(dx, dy);
               else moveRun(dx, dy);
               focusPages();
             },
@@ -179,6 +187,7 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
       placeText,
       placeImage,
       moveImage,
+      movePath,
       moveGroup,
       grouped,
       selectedKind,
@@ -190,8 +199,14 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   const onKey = useCallback(
     (key: string, shift: boolean) =>
       // While a cut is read, a Delete or an arrow would edit what it removes: taken, and nothing done.
-      clipping || insertKey(key) || paragraphKey(key, shift) || groupKey(key, shift) || runKey(key, shift) || imageKey(key, shift),
-    [clipping, insertKey, paragraphKey, groupKey, runKey, imageKey],
+      (clipping && heldWhileClipping(key)) ||
+      insertKey(key) ||
+      paragraphKey(key, shift) ||
+      groupKey(key, shift) ||
+      runKey(key, shift) ||
+      imageKey(key, shift) ||
+      pathKey(key, shift),
+    [clipping, insertKey, paragraphKey, groupKey, runKey, imageKey, pathKey],
   );
 
   /** Lets go of everything selected (Escape on the pages). */
@@ -202,99 +217,13 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
     forget();
   }, [clearSingle, clearGroup, forget]);
 
-  return { content, group, textRuns, paragraphs, insertion, images, clipboard, input, onKey, clear, imageFile, openImagePicker };
+  return { content, group, textRuns, paragraphs, insertion, images, paths, clipboard, input, onKey, clear, imageFile, openImagePicker };
 }
 
 export type ContentEditing = ReturnType<typeof useContentEditing>;
 
-interface ContentOverlayProps {
-  readonly editing: ContentEditing;
-  readonly pageIndex: number;
-  readonly scale: number;
-  readonly pages: readonly Pick<PageSize, 'rotationDegrees'>[];
-  readonly focusPages: () => void;
-}
-
-/**
- * What is drawn over page `pageIndex`: a new line being typed there, and an
- * open paragraph editor, else the selected item's run editor and toolbar or
- * image handles.
- */
-export function ContentOverlay({ editing, pageIndex, scale, pages, focusPages }: ContentOverlayProps) {
-  const { insertion, paragraphs } = editing;
-  const rotationDegrees = pages[pageIndex]?.rotationDegrees ?? 0;
-  const inserting = insertion.editor?.pageIndex === pageIndex ? insertion.editor : null;
-  const paragraph = paragraphs.editor;
-  return (
-    <>
-      {inserting && (
-        <TextInsertEditor
-          key={`${inserting.pageKey}@${inserting.at.x},${inserting.at.y}`}
-          editor={inserting}
-          scale={scale}
-          rotationDegrees={rotationDegrees}
-          onCommit={insertion.commit}
-          onCancel={insertion.cancel}
-          onType={insertion.typing}
-          onAttach={insertion.attach}
-          onDetach={insertion.detach}
-        />
-      )}
-      {paragraph ? (
-        paragraph.pageIndex === pageIndex && (
-          <TextBlockEditor
-            key={`${paragraph.pageKey}#${paragraph.block.runIds.join(',')}`}
-            editor={paragraph}
-            scale={scale}
-            rotationDegrees={rotationDegrees}
-            onCommit={paragraphs.commit}
-            onCancel={paragraphs.cancel}
-            onType={paragraphs.typing}
-            onAttach={paragraphs.attach}
-            onDetach={paragraphs.detach}
-          />
-        )
-      ) : (
-        <SelectedItemOverlay editing={editing} pageIndex={pageIndex} scale={scale} pages={pages} focusPages={focusPages} />
-      )}
-    </>
-  );
-}
-
-/** The selected item's views over page `pageIndex`: the run's editor or toolbar, or the image's handles. */
-function SelectedItemOverlay({ editing, pageIndex, scale, pages, focusPages }: ContentOverlayProps) {
-  const { textRuns, paragraphs, images, openImagePicker } = editing;
-  if (textRunOverlayPage(textRuns) === pageIndex) {
-    return (
-      <TextRunOverlay
-        textRuns={textRuns}
-        scale={scale}
-        pages={pages}
-        focusPages={focusPages}
-        onEditParagraph={paragraphs.paragraph ? paragraphs.open : undefined}
-      />
-    );
-  }
-  if (images.image?.pageIndex !== pageIndex) return null;
-  return (
-    <ImageOverlay
-      image={images.image}
-      scale={scale}
-      busy={images.busy}
-      replaceable={images.replaceable}
-      replaceRefusal={images.replaceRefusal}
-      onResize={(rect) => {
-        images.resize(rect);
-        focusPages();
-      }}
-      onReplace={() => images.replace(openImagePicker)}
-      onRemove={() => {
-        images.remove();
-        focusPages();
-      }}
-    />
-  );
-}
+// The overlay over a page lives in its own module; the viewer takes both views from here.
+export { ContentOverlay } from './ContentOverlay';
 
 interface ContentToolbarProps {
   readonly editing: ContentEditing;

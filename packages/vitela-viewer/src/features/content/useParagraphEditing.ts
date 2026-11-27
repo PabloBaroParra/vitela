@@ -56,6 +56,8 @@ interface ParagraphEditingInput {
   readonly queue: ContentQueue;
   /** Gives the keyboard back to the pages (after Ctrl+Enter in the editor). */
   readonly focusPages: () => void;
+  /** Whether a copy for a cut is still being read: it removes the selection itself once read, so nothing is asked of it meanwhile. */
+  readonly clipping?: boolean;
 }
 
 /** The paragraphs of one page, as the read `key` found them. */
@@ -64,12 +66,12 @@ interface Read {
   readonly blocks: readonly TextBlock[];
 }
 
-export function useParagraphEditing({ engine, handle, info, content, queue, focusPages }: ParagraphEditingInput) {
+export function useParagraphEditing({ engine, handle, info, content, queue, focusPages, clipping = false }: ParagraphEditingInput) {
   const picked = content.selected;
   const run: ContentRun | null = picked?.item.kind === 'run' ? picked.item : null;
   const readKey = picked && run ? picked.key : null;
   const pageIndex = picked?.pageIndex ?? null;
-  const busy = queue.pending || content.following;
+  const busy = queue.pending || content.following || clipping;
 
   const [read, setRead] = useState<Read | null>(null);
   useEffect(() => {

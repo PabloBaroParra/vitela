@@ -21,6 +21,25 @@ export interface PageSpec {
    * space.
    */
   readonly images?: readonly (readonly [number, number, number, number])[];
+  /** Vector paths the page paints after its images, in PDF space (`PathSpec`). */
+  readonly paths?: readonly PathSpec[];
+}
+
+/**
+ * A vector path: a solid blue box (`re f`, left, bottom, width, height), or
+ * a 2 pt blue rule (`m l S`, from x, y to x, y).
+ */
+export type PathSpec =
+  | { readonly box: readonly [number, number, number, number] }
+  | { readonly rule: readonly [number, number, number, number] };
+
+function pathOperators(path: PathSpec): string {
+  if ('box' in path) {
+    const [x, y, w, h] = path.box;
+    return `q 0 0 1 rg ${x} ${y} ${w} ${h} re f Q`;
+  }
+  const [x1, y1, x2, y2] = path.rule;
+  return `q 0 0 1 RG 2 w ${x1} ${y1} m ${x2} ${y2} l S Q`;
 }
 
 /** A one-line AcroForm text field, drawn in Helvetica. */
@@ -95,6 +114,7 @@ export function buildPdf(pages: readonly PageSpec[], options: PdfOptions = {}): 
         (line, row) => `BT /F1 ${LINE_FONT_PT} Tf 72 ${lineBaseline(page, row)} Td (${escape(line)}) Tj ET`,
       ),
       ...(page.images ?? []).map(([x, y, w, h], at) => `q ${w} 0 0 ${h} ${x} ${y} cm /Im${at + 1} Do Q`),
+      ...(page.paths ?? []).map(pathOperators),
     ].join('\n');
     const images = (page.images ?? []).map(() =>
       add('/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceRGB /BitsPerComponent 8', '\xff\x00\x00\x00\x00\xff'),
