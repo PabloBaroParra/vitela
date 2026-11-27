@@ -71,7 +71,8 @@ async fn move_resize_replace_insert_and_remove_are_steps_a_save_writes() {
         .apply_edit(doc, &EditCommand::remove_image(0, id).unwrap())
         .unwrap();
     assert_eq!(images(&engine, doc).len(), 1);
-    for _ in 0..5 {
+    // The resize folds into the move of the same image: four steps, not five.
+    for _ in 0..4 {
         assert!(engine.undo(doc).unwrap());
     }
     assert!(!engine.can_undo(doc).unwrap());
