@@ -745,6 +745,33 @@ Helvetica cannot show is refused by the core (`EncodingGap`). The draft of
 both editors lives in their containers (`useDraftEditor`, shared), not in
 the field, so a scroll that unmounts the page keeps it.
 
+**Several at once, and the clipboard (T-262).** A drag from where nothing is
+draws a marquee and selects every item it touches (runs, images and shapes,
+as the Windows shell gathers them; with Shift or Ctrl/⌘ held it adds to
+what is selected), and Shift or Ctrl/⌘ with a press on an item adds it or
+takes it out. One item gathered is the ordinary selection, with its toolbar
+or handles; several are a group: each outlined as selected inside one dashed
+box, and the status line counts them ("3 items selected on page 2."). A drag
+anywhere in the box or the arrow keys (1 pt, Shift 10 pt) move them all
+together and Delete removes them all, each one step (`moveContentSelection`,
+`removeContentSelection`); the group is found again by place once its page
+is read anew. **Copy**, **Cut** and **Paste** sit in the status row (Ctrl/⌘
++ C, X and V too while the mode is on and the focus is in the editor, never
+in a text field or one of its dialogs; a copy or cut with nothing selected,
+and a paste with no clip, are left to the browser). They work on the group
+or the one item selected. A copy (`copyContentSelection`) records nothing;
+a cut is the copy for a cut (its own permission first) and then the removal
+as one step, and keeps the clip only once the removal is in. The clip is the
+session's (`clipStore`, held by the workspace above its viewers, as the
+native shells keep it on the session), so it pastes onto any page — and into
+any document opened after it. A paste is one step (`pasteContent`): with the
+keys at the pointer while it is over a page, with the button (or no pointer
+on a page) at the place it was copied from on the first page in view, kept
+on that page (the Windows shell's rule). What it added is selected once the
+page is read again (the items that read `pending` where it landed: a group,
+or one image alone as a click selects it), so a drag moves the whole paste
+and it stays one step. Every refusal is the core's sentence.
+
 **Only the pages in view and one on each side are parsed** (the Linux shell
 froze parsing every page of a 1619-page file), each parse kept by page id,
 `paintRevision` and `contentBaseGeneration` and dropped once its page is out
@@ -793,6 +820,19 @@ leading under the second, undone and redone, and the reopened file reads the
 three lines back as one paragraph; Shift+Enter opens the editor, Escape
 cancels it and a press beside it commits; a run on one line offers no
 paragraph editor and a PDF that forbids modification offers no insert.
+
+E2E (`e2e/edit-clipboard.spec.ts`, all three browsers): a marquee from the
+margin gathers a line and an image as a group, Ctrl/⌘+C copies it (nothing
+to undo), Ctrl/⌘+V with the pointer over page 2 pastes it there and selects
+what it added, a drag moves the paste and it is still one step (undone,
+redone), and the reopened file has the line and the image on both pages, the
+paste where it was dragged; Cut takes an image off page 1 as one step and
+Paste puts it at the same place on page 2, in view (two steps, undone and
+redone), saved and read back; Shift/Ctrl+click adds and takes out an item,
+two Shift+Down move the group 20 pt as one step, Delete removes a marqueed
+group as one step, saved and read back; a clip copied in one PDF pastes into
+the next one opened, and Ctrl/⌘+V in the search box pastes nothing on the
+page.
 
 ## Organize
 

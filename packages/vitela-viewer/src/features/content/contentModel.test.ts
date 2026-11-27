@@ -20,6 +20,7 @@ const run = (id: number, left: number, top: number, text = 'Hello', editable = t
   fontKind: 'standard14',
   text,
   editable,
+  pending: false,
 });
 const image: ContentImage = {
   kind: 'image',
@@ -27,6 +28,7 @@ const image: ContentImage = {
   pageIndex: 0,
   rect: { left: 50, top: 50, width: 300, height: 300 },
   inline: false,
+  pending: false,
 };
 const rule: ContentPath = {
   kind: 'path',
@@ -34,6 +36,7 @@ const rule: ContentPath = {
   pageIndex: 0,
   rect: { left: 50, top: 500, width: 200, height: 0 },
   paint: 'stroke',
+  pending: false,
 };
 const page: PageContent = { runs: [run(0, 100, 100), run(1, 400, 400)], images: [image], paths: [rule] };
 

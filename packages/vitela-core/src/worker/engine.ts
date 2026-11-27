@@ -83,6 +83,10 @@ export const coreEdits: CoreEdits = {
   insertImage: (page, x, y, bytes) => core.EditCommand.insertImage(page, x, y, bytes),
   retypeTextBlock: (page, runIds, text) => core.EditCommand.retypeTextBlock(page, runIds, text),
   insertText: (page, x, y, text, size) => core.EditCommand.insertText(page, x, y, text, size),
+  moveContentSelection: (page, runIds, imageIds, pathIds, dx, dy) =>
+    core.EditCommand.moveContentSelection(page, runIds, imageIds, pathIds, dx, dy),
+  removeContentSelection: (page, runIds, imageIds, pathIds) => core.EditCommand.removeContentSelection(page, runIds, imageIds, pathIds),
+  pasteContent: (page, pdf, bbox, fromEncrypted, left, top) => core.EditCommand.pasteContent(page, pdf, bbox, fromEncrypted, left, top),
 };
 
 async function loadAsset(plan: AssetPlan, name: AssetName): Promise<ArrayBuffer> {

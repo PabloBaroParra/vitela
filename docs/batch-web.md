@@ -2180,7 +2180,7 @@ Gates (Windows 11, local):
 | **T-259** ✓ | Texto: reescribir, mover, borrar, estilo. | Playwright: cada edición se guarda y se relee. |
 | **T-260** ✓ | Imágenes: mover, redimensionar, borrar, reemplazar, insertar. | Playwright: cada edición se guarda y se relee. |
 | **T-261** ✓ | Insertar texto, y bloques/párrafos. | Playwright: insertar y reescribir un párrafo. |
-| **T-262** | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
+| **T-262** ✓ | Selección y portapapeles de contenido. | Playwright: copiar, cortar y pegar entre páginas. |
 | **T-263** | Trazados: mover, redimensionar, borrar. | Playwright: cada edición se guarda y se relee. |
 
 T-258 bloquea T-259…T-263. T-249 bloquea T-251 y T-254. Las demás son independientes.
@@ -3462,6 +3462,116 @@ Insertar texto y reescribir bloques/párrafos en el modo **Edit content**. Detal
   un párrafo que crece puede tragarse el siguiente al releer (hueco conocido del core,
   #568); `useTextRunEditing` aún no usa `useDraftEditor` (candidato a
   unificar); editar párrafos en una página girada sin E2E propio.
+
+### T-262 — resultado
+
+Selección de varios elementos y portapapeles de contenido en el modo **Edit content**. Detalle
+en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
+[`packages/vitela-core/README.md`](../packages/vitela-core/README.md) (API). Hecho sobre
+`feat/web-insert-text-v` (#674, sin fusionar al empezar).
+
+- **`pdf-wasm`** (`model/selection.rs`, `model/clipboard.rs`, `engine/selection.rs`):
+  `DocumentModel::apply_selection_edit(SelectionEdit)` con `Move { page, members, dx, dy }` y
+  `Remove { page, members }` (`ContentMembers`: ids de runs, imágenes y trazados de la última
+  lectura), resueltos contra la lectura pendiente y construidos por `pdf_edit::move_selection` /
+  `remove_selection`, registrados por `DocumentModel::record_content` (un paso; un segundo
+  movimiento de la misma selección pliega en el suyo; un rechazo toma checkpoint), como
+  `pdf-ffi` `move_content_selection` / `remove_content_selection`. Una selección que es
+  exactamente lo que añadió un pegado pendiente mueve el pegado mismo
+  (`pdf_save::move_pending_paste`, el mismo paso); parte de uno se rechaza
+  (`pdf_save::part_of_paste`); borrar uno entero va por checkpoint, o
+  `paste_not_deletable` donde no se puede tomar. Mover 0 no registra nada.
+  `copy_content_selection(page, members, for_cut)` = `pdf_save::checkpoint::copy_selection`
+  (lo editado sin guardar se copia como se lee ahora, de la cola escrita en memoria, sin
+  tocar la sesión); la puerta de la copia es la extracción de texto (`TextExtractionDenied`)
+  y la de un corte `pdf_save::content_cut_allowed` antes de leer nada
+  (`ContentEditRefusal::Cut` → `EditNotPermitted`, "cutting content is not permitted"),
+  como `cut_content_selection`. `paste_content(page, clip, at)` = `pdf_save::record_paste`
+  (esquina superior izquierda de la caja del clip en el punto, un paso), con las puertas de
+  `pdf-ffi` `paste_content` (punto finito, `ensure_content_editing`, página). El clip cruza
+  como `ContentClipEntry` (`takePdf`, `bbox`, `fromEncrypted`) y vuelve igual a
+  `EditCommand.pasteContent`: el core no guarda estado de portapapeles. `record_content` se
+  partió en `track_content_step`, que mantiene las marcas de la vista previa también para el
+  pegado y el movimiento del pegado (que no pasan por la cola de `record_content`). Cada
+  elemento leído dice ahora `pending` (`pdf_edit::pending_log_index`: solo lo sostiene una
+  edición sin guardar), el equivalente de `ContentSelection.OnlyPending` de Windows.
+  `EditCommand.moveContentSelection` / `removeContentSelection` / `pasteContent` y
+  `Engine.copyContentSelection`. Fixture `pdfs::content_document_pages(n)`.
+- **`@vitela/core`:** `ContentMembers`, `ContentClip` (`pdf` transferido, `bbox` del core,
+  `rect` en la página dibujada, `fromEncrypted`), `SelectionEdit` (`moveContentSelection`,
+  `removeContentSelection`, `pasteContent` con `at` en la página dibujada, cruzados por
+  `PageFrame`), `Engine.copyContentSelection(handle, page, members, forCut?)` y `pending` en
+  `ContentRun` / `ContentImage` / `ContentPath`.
+- **`@vitela/viewer` (`features/content/`):** puro `selection.ts` (`membersOf`, `toggled`,
+  `marqueeRect`, `gathered` — lo que la caja toca, como `ContentSelection.Gather` de Windows —,
+  `boundsOf`, `soughtOf`/`followGroup` — cada elemento movido se encuentra otra vez por clase y
+  sitio, nunca dos veces el mismo —, `pastedRect` girado con la página sobre su esquina,
+  `pastedItems` — lo `pending` donde aterrizó —, `pastePoint` — regla de Windows: el puntero
+  sobre una página, si no el sitio de origen en la primera página a la vista, dentro de la
+  página —, `describeGroup`, `clipboardAction` — Ctrl/⌘ + C, X, V, nunca en un campo; copiar o
+  cortar se dejan al navegador si hay texto suyo seleccionado). Contenedores `useContentGroup`
+  (el grupo, válido mientras su página muestre la lectura en que se hizo; uno solo es la
+  selección normal con su barra; tras un movimiento o un pegado se encuentra otra vez al
+  releer — un pegado deja un grupo, o una imagen sola seleccionada como un clic, como GTK y
+  Windows), `useGroupEditing` (arrastre, flechas 1/10 pt sumadas mientras corre un paso,
+  Delete/Retroceso, Escape; un paso cada uno con la comprobación de `pageKey`) y
+  `useContentClipboard` (Copy/Cut/Paste de la fila de estado y las teclas mientras el modo está
+  activo y el foco en el editor, fuera de campos y diálogos; un corte es la copia para cortar y
+  después la eliminación como un paso, y guarda el clip solo si la eliminación entró, como
+  `cut_content_selection`; nada mientras corre un paso o se sigue un elemento editado).
+  `clipStore.ts`: el clip vive en la sesión (`ContentClipContext`, que da el
+  `DocumentWorkspace` por encima de sus visores — como `ViewerSession` en Android y
+  `ViewerState` en GTK), así que se pega en otro documento abierto después. `ContentLayer`
+  gana el marco (arrastre desde donde no hay nada; con Mayús/Ctrl/⌘ suma), Mayús/Ctrl/⌘+clic
+  que añade o quita, el contorno de cada miembro dentro de una caja discontinua y el arrastre
+  del grupo por cualquier punto de esa caja. `ContentStatus` gana el grupo **Clipboard**
+  (Copy, Cut, Paste) y la fila se parte en líneas si no cabe. `useContentMode` expone
+  `choose`, `itemAt` y `wants`; `ContentEditing` monta todo y su `clear` (Escape) suelta
+  también el grupo.
+- **Desviaciones conscientes:** el portapapeles no escribe en el del sistema (Windows pone el
+  texto del clip ahí); Paste por botón usa la regla de Windows (sitio de origen) y no arma un
+  toque como Android; los trazados solos siguen sin moverse (T-263), en un grupo sí.
+- **Hueco del core encontrado (NO arreglado aquí):** `pdf_save::read_pending_page_content_of`
+  devuelve vacío para una página insertada en la sesión y aún sin guardar
+  (`PageBacking::Empty`): lo pegado (o insertado) en ella no se lee como pendiente, así que no
+  se puede seleccionar hasta guardar; el guardado sí lo escribe (probado en `pdf-wasm`). Afecta
+  a todos los shells por igual; cambiarlo es de `pdf-save` y merece su ficha.
+- **Tests:** Rust 16 nativos nuevos (`model/selection/tests.rs` 6: mover texto, imagen y
+  trazado como un paso leído y guardado, plegar el segundo movimiento, mover 0, borrar como un
+  paso, vacío/id caducado/página fuera/distancia no finita, documento que prohíbe modificar;
+  `model/clipboard/tests.rs` 10: copiar sin paso y con la caja de la unión, pegar en otra página
+  como un paso leído `pending` y guardado, pegar en otro documento, mover todo lo pegado mueve
+  el pegado — un paso —, parte de un pegado rechazada, borrar un pegado entero por checkpoint,
+  copiar lo editado como se lee ahora, cortar necesita el permiso de modificar y copiar no — y
+  el clip dice `from_encrypted` —, documento que niega el texto, pegado rechazado donde no se
+  puede o fuera) — 12 de 19 en rojo con los cuerpos de mover/borrar/pegar vaciados — y 2
+  `wasm-bindgen-test` (`tests/clipboard.rs`, compilan con clippy wasm32). `@vitela/core` 5
+  Vitest nuevos (1 `client`, 1 `handler`, 2 `documentEngine`, 1 pdfium real: copiar la imagen
+  del escaneo, pegarla en la página 2 de `vector_only.pdf`, empujarla — un paso —, guardar y
+  releer, y cortar en el escaneo como un paso). `@vitela/viewer` 39 nuevos (14 `selection`, 6
+  `useContentGroup`, 5 `useGroupEditing`, 10 `useContentClipboard` con `ContentStatus`, 4
+  `ContentLayer`); `selection.test.ts` se escribió antes que el módulo; los de los hooks y la
+  capa, después: su rojo se comprobó rompiendo cada uno (19 de 25 caen).
+- **E2E (`e2e/edit-clipboard.spec.ts`, 4 × 3):** un marco desde el margen reúne una línea y una
+  imagen, Ctrl/⌘+C copia (nada que deshacer), Ctrl/⌘+V con el puntero sobre la página 2 pega
+  ahí y selecciona lo pegado, arrastrarlo sigue siendo un paso (deshacer/rehacer), y el fichero
+  reabierto tiene la línea y la imagen en las dos páginas, lo pegado donde se arrastró; Cut
+  quita una imagen de la página 1 como un paso y Paste la pone en el mismo sitio de la página 2
+  a la vista (dos pasos, deshechos y rehechos), guardado y releído; Mayús/Ctrl+clic añade y
+  quita, dos Mayús+Abajo mueven el grupo 20 pt como un paso, Delete borra un grupo marcado
+  como un paso, guardado y releído; un clip copiado en un PDF se pega en el siguiente abierto,
+  y Ctrl/⌘+V en la búsqueda no pega nada en la página.
+- **Verificado en local (Windows):** `cargo fmt --all -- --check` limpio; `cargo clippy --locked
+  -p pdf-wasm --all-targets -- -D warnings` nativo y wasm32 (con `PDFIUM_WASM_DIR`) sin avisos;
+  `cargo test --locked -p pdf-wasm` (con `PDFIUM_DYNAMIC_LIB_PATH`) lib 225, 0 fallos.
+  `@vitela/core`: `build:wasm`, `typecheck`, Vitest 15 / 238, `build`. `@vitela/viewer`:
+  `typecheck`, Vitest 109 / 1090, `build`. `apps/web`: `typecheck`, Vitest 6 / 19, `build`.
+  Playwright `edit-clipboard` en los 3 navegadores (`CI=1`): 12 / 12. Suite completa (`CI=1 --reporter=line`, 3 navegadores): **404 pasan, 22 omitidos, 0 fallos**.
+- **No corrido en local:** los `wasm-bindgen-test` (sin chromedriver); `linux-gtk`, Android.
+- **No cubierto / pendiente:** el portapapeles del sistema; pegar un clip en una página girada
+  sin E2E propio (la caja gira sobre su esquina, como una línea insertada); redimensionar un
+  grupo; seleccionar entre páginas (la selección es de una página, como en los nativos); el
+  hueco del core de arriba.
 
 ## Verificación
 

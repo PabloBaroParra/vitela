@@ -82,5 +82,8 @@ export type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  ContentClip,
+  ContentMembers,
+  SelectionEdit,
 } from './core/content.js';
 export type { MessagePortLike, RequestEnvelope, WorkerMessage } from './core/protocol.js';

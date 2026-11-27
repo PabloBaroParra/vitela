@@ -56,7 +56,7 @@ describe('handleBox', () => {
 });
 
 describe('followImage', () => {
-  const image = (id: number, rect: ContentImage['rect']): ContentImage => ({ kind: 'image', id, pageIndex: 0, rect, inline: false });
+  const image = (id: number, rect: ContentImage['rect']): ContentImage => ({ kind: 'image', id, pageIndex: 0, rect, inline: false, pending: false });
   const content = (images: ContentImage[]): PageContent => ({ runs: [], images, paths: [] });
 
   it('finds the edited image by where it should be now, the closest box winning', () => {

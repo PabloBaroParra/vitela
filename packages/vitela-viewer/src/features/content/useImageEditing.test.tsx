@@ -10,7 +10,7 @@ import { INSERT_IMAGE_PROMPT, useImageEditing } from './useImageEditing';
 
 afterEach(cleanup);
 
-const photo: ContentImage = { kind: 'image', id: 3, pageIndex: 0, rect: { left: 100, top: 200, width: 200, height: 100 }, inline: false };
+const photo: ContentImage = { kind: 'image', id: 3, pageIndex: 0, rect: { left: 100, top: 200, width: 200, height: 100 }, inline: false, pending: false };
 const info = { pages: [{ widthPt: 612, heightPt: 792, rotationDegrees: 0 }], pageIds: [9] };
 const session: Session = { info, annotations: [] };
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);

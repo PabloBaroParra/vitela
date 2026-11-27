@@ -23,6 +23,7 @@ const run = (id: number, left: number, top: number, text: string, width = 60): C
   fontKind: 'standard14',
   text,
   editable: true,
+  pending: false,
 });
 const page = (...runs: ContentRun[]): PageContent => ({ runs, images: [], paths: [] });
 

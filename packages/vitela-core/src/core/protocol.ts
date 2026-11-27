@@ -33,6 +33,8 @@ import type {
   SearchHit,
   SplitPart,
   TextSelection,
+  ContentClip,
+  ContentMembers,
 } from './types.js';
 
 export type EngineRequest =
@@ -122,6 +124,13 @@ export type EngineRequest =
       readonly pageIndex: number;
       readonly imageId: number;
     }
+  | {
+      readonly kind: 'copyContentSelection';
+      readonly document: DocumentHandle;
+      readonly pageIndex: number;
+      readonly members: ContentMembers;
+      readonly forCut: boolean;
+    }
   | { readonly kind: 'watermarkDefaults' }
   | { readonly kind: 'watermarkRefusal'; readonly document: DocumentHandle }
   | { readonly kind: 'protectionRefusal'; readonly document: DocumentHandle }
@@ -198,6 +207,7 @@ export interface EngineResults {
   textRunLook: TextRunLookState | null;
   textRunFontProgram: FontProgram | null;
   checkImageReplacement: void;
+  copyContentSelection: ContentClip;
   watermarkDefaults: WatermarkDefaults;
   watermarkRefusal: string | null;
   protectionRefusal: string | null;

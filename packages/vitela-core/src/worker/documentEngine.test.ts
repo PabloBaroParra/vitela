@@ -113,7 +113,8 @@ type FakeEdit =
   | { kind: 'watermark'; op: string; args: unknown[]; free(): void }
   | { kind: 'textRun'; op: string; args: unknown[]; free(): void }
   | { kind: 'textBlock'; op: string; args: unknown[]; free(): void }
-  | { kind: 'image'; op: string; args: unknown[]; free(): void };
+  | { kind: 'image'; op: string; args: unknown[]; free(): void }
+  | { kind: 'selection'; op: string; args: unknown[]; free(): void };
 
 /** One fake form field, on the page with id `pageId`: a text field (its value) or a checkbox. */
 interface FakeField {
@@ -273,6 +274,9 @@ function fakeCore(
     insertImage: (...args) => command({ kind: 'image', op: 'insertImage', args }),
     retypeTextBlock: (...args) => command({ kind: 'textBlock', op: 'retypeTextBlock', args }),
     insertText: (...args) => command({ kind: 'textBlock', op: 'insertText', args }),
+    moveContentSelection: (...args) => command({ kind: 'selection', op: 'moveContentSelection', args }),
+    removeContentSelection: (...args) => command({ kind: 'selection', op: 'removeContentSelection', args }),
+    pasteContent: (...args) => command({ kind: 'selection', op: 'pasteContent', args }),
   };
   /** The fields after a fake fill, or the error the core would give, in the core's order. */
   const fillField = (entry: Doc, edit: Extract<FakeEdit, { kind: 'fill' }>): FakeField[] => {
@@ -417,16 +421,16 @@ function fakeCore(
       readable(doc);
       if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
       const runs = [
-        { id: 0, page, bbox: new Float64Array([72, 700, 30, 12]), fontName: 'F1', fontKind: 'standard14', text: 'Hello', editable: true },
-        { id: 1, page, bbox: new Float64Array([72, 600, 30, 12]), fontName: 'F2', fontKind: 'oddKind', text: 'A\uFFFD', editable: false },
+        { id: 0, page, bbox: new Float64Array([72, 700, 30, 12]), fontName: 'F1', fontKind: 'standard14', text: 'Hello', editable: true, pending: false },
+        { id: 1, page, bbox: new Float64Array([72, 600, 30, 12]), fontName: 'F2', fontKind: 'oddKind', text: 'A\uFFFD', editable: false, pending: false },
       ];
       return {
         takeRuns: () => runs.map((run) => ({ ...run, free: () => freed.push(`run:${run.id}`) })),
         takeImages: () => [
-          { id: 0, page, bbox: new Float64Array([72, 500, 100, 50]), inline: false, free: () => freed.push('image:0') },
+          { id: 0, page, bbox: new Float64Array([72, 500, 100, 50]), inline: false, pending: true, free: () => freed.push('image:0') },
         ],
         takePaths: () => [
-          { id: 0, page, bbox: new Float64Array([72, 400, 200, 0]), paint: 'stroke', free: () => freed.push('path:0') },
+          { id: 0, page, bbox: new Float64Array([72, 400, 200, 0]), paint: 'stroke', pending: false, free: () => freed.push('path:0') },
         ],
         free: () => freed.push('content'),
       };
@@ -506,6 +510,18 @@ function fakeCore(
       if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
       if (imageId !== 0) throw named('UnsupportedOperation', 'the page has no image with that id now: read its content again');
     },
+    copyContentSelection: (doc, page, runIds, imageIds, pathIds, forCut) => {
+      if (forCut && options.restricted) throw named('EditNotPermitted', 'cutting content is not permitted');
+      readable(doc);
+      if (!known(doc).pages[page]) throw named('PageIndexOutOfBounds', `page index ${page} is out of bounds`);
+      if (runIds.length + imageIds.length + pathIds.length === 0) throw named('UnsupportedOperation', 'The selection is empty.');
+      return {
+        bbox: new Float64Array([72, 500, 100, 212]),
+        fromEncrypted: options.encrypted ?? false,
+        takePdf: () => new Uint8Array([37, 80, 68, 70]),
+        free: () => freed.push('clip'),
+      };
+    },
     protectionRefusal: (doc) => (known(doc), options.restricted ? 'this document does not permit protection changes' : undefined),
     protectionInvalidatesSignatures: (doc) => (known(doc), options.signed ?? false),
     protectToBytes: (doc, openPassword, permissionsPassword, invalidate) => {
@@ -584,7 +600,7 @@ function fakeCore(
         record(entry, { pages: entry.pages, annotations: next, fields: entry.fields }, false);
         return added;
       }
-      if (edit.kind === 'textRun' || edit.kind === 'textBlock' || edit.kind === 'image') {
+      if (edit.kind === 'textRun' || edit.kind === 'textBlock' || edit.kind === 'image' || edit.kind === 'selection') {
         if (options.restricted) throw named('EditNotPermitted', 'content editing is not permitted');
         // Page content: the step shows in the pixels, repainting pages in place.
         record(entry, { pages: entry.pages, annotations: entry.annotations, fields: entry.fields }, true, true);
@@ -1851,14 +1867,15 @@ describe('documentEngine forms', () => {
         fontKind: 'standard14',
         text: 'Hello',
         editable: true,
+        pending: false,
       },
       expect.objectContaining({ id: 1, fontKind: 'embeddedComposite', editable: false }),
     ]);
     expect(content.images).toEqual([
-      { kind: 'image', id: 0, pageIndex: 0, rect: { left: 72, top: 242, width: 100, height: 50 }, inline: false },
+      { kind: 'image', id: 0, pageIndex: 0, rect: { left: 72, top: 242, width: 100, height: 50 }, inline: false, pending: true },
     ]);
     expect(content.paths).toEqual([
-      { kind: 'path', id: 0, pageIndex: 0, rect: { left: 72, top: 392, width: 200, height: 0 }, paint: 'stroke' },
+      { kind: 'path', id: 0, pageIndex: 0, rect: { left: 72, top: 392, width: 200, height: 0 }, paint: 'stroke', pending: false },
     ]);
     expect(freed).toEqual(expect.arrayContaining(['run:0', 'run:1', 'image:0', 'path:0', 'content']));
   });
@@ -1980,6 +1997,58 @@ describe('documentEngine forms', () => {
     // Drawn y grows down, PDF y up: the top-left corner at drawn y 92 is PDF y 700.
     await engine.applyEdit(handle, { kind: 'insertText', page: 0, at: { x: 300, y: 92 }, text: 'Added', sizePt: 14 });
     expect(applied.at(-1)).toMatchObject({ op: 'insertText', args: [0, 300, 700, 'Added', 14] });
+  });
+
+  it('records a selection move, a removal and a paste as repainting steps, geometry crossing in PDF space', async () => {
+    const { core, edits, applied, freed, refreshed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const members = { runIds: [4], imageIds: [2, 3], pathIds: [] };
+    const edited = await engine.applyEdit(handle, { kind: 'moveContentSelection', page: 0, members, dx: 5, dy: 10 });
+    // Drawn y grows down, PDF y up.
+    expect(applied.at(-1)).toMatchObject({
+      kind: 'selection',
+      op: 'moveContentSelection',
+      args: [0, new Float64Array([4]), new Float64Array([2, 3]), new Float64Array([]), 5, -10],
+    });
+    expect(edited).toMatchObject({ canUndo: true, addedAnnotationId: null });
+    expect(edited.paintRevision).toBeGreaterThan(0);
+    expect(refreshed).toEqual([handle]);
+    expect(freed).toContain('edit:selection');
+
+    await engine.applyEdit(handle, { kind: 'removeContentSelection', page: 0, members });
+    expect(applied.at(-1)).toMatchObject({ op: 'removeContentSelection', args: [0, new Float64Array([4]), new Float64Array([2, 3]), new Float64Array([])] });
+
+    // The clip goes back exactly as the core handed it out; the drawn point crosses into PDF space.
+    const clip = { pdf: new Uint8Array([1, 2]), bbox: [72, 500, 100, 50] as const, rect: { left: 72, top: 242, width: 100, height: 50 }, fromEncrypted: true };
+    await engine.applyEdit(handle, { kind: 'pasteContent', page: 0, clip, at: { x: 300, y: 92 } });
+    expect(applied.at(-1)).toMatchObject({ op: 'pasteContent', args: [0, clip.pdf, new Float64Array([72, 500, 100, 50]), true, 300, 700] });
+  });
+
+  it('copies a selection into a clip with its box drawn, a cut asking its own permission first', async () => {
+    const { core, edits, freed } = fakeCore();
+    const engine = documentEngine(core, upright, edits);
+    const { handle } = await engine.open(new Uint8Array([10]));
+    const members = { runIds: [0], imageIds: [0], pathIds: [] };
+    const clip = await engine.copyContentSelection(handle, 0, members);
+    expect(clip).toEqual({
+      pdf: new Uint8Array([37, 80, 68, 70]),
+      bbox: [72, 500, 100, 212],
+      // 792 - (500 + 212) = 80.
+      rect: { left: 72, top: 80, width: 100, height: 212 },
+      fromEncrypted: false,
+    });
+    expect(freed).toContain('clip');
+    await expect(engine.copyContentSelection(handle, 0, { runIds: [], imageIds: [], pathIds: [] })).rejects.toMatchObject({
+      name: 'UnsupportedOperation',
+    });
+    await expect(engine.copyContentSelection(handle, 7, members)).rejects.toMatchObject({ name: 'PageIndexOutOfBounds' });
+    await expect(engine.copyContentSelection(99, 0, members)).rejects.toMatchObject({ name: 'DocumentNotFound' });
+
+    const restricted = fakeCore({ restricted: true });
+    const refusing = documentEngine(restricted.core, upright, restricted.edits);
+    const opened = await refusing.open(new Uint8Array([10]));
+    await expect(refusing.copyContentSelection(opened.handle, 9, members, true)).rejects.toMatchObject({ name: 'EditNotPermitted' });
   });
 
   it('asks whether an image can be replaced, its permission before its page', async () => {

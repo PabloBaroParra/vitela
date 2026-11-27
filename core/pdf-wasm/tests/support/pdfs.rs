@@ -200,6 +200,16 @@ q 100 0 0 50 72 500 cm /Im1 Do Q \
 /// A US Letter page painting `content` with `/F1` Helvetica (WinAnsi) and
 /// `/Im1` a red 1x1 RGB image, whatever `content` uses of them.
 pub fn content_document_with(content: &[u8]) -> Vec<u8> {
+    content_pages_with(content, 1)
+}
+
+/// `pages` copies of the [`content_document`] page, each with its own
+/// content stream.
+pub fn content_document_pages(pages: usize) -> Vec<u8> {
+    content_pages_with(CONTENT_STREAM, pages)
+}
+
+fn content_pages_with(content: &[u8], pages: usize) -> Vec<u8> {
     let mut doc = Document::with_version("1.7");
     let pages_id = doc.new_object_id();
     let font_id = doc.add_object(dictionary! {
@@ -219,23 +229,28 @@ pub fn content_document_with(content: &[u8]) -> Vec<u8> {
         },
         vec![255, 0, 0],
     ));
-    let content_id = doc.add_object(Stream::new(dictionary! {}, content.to_vec()));
-    let page = doc.add_object(dictionary! {
-        "Type" => "Page",
-        "Parent" => pages_id,
-        "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
-        "Contents" => content_id,
-        "Resources" => dictionary! {
-            "Font" => dictionary! { "F1" => font_id },
-            "XObject" => dictionary! { "Im1" => image_id },
-        },
-    });
+    let kids: Vec<Object> = (0..pages)
+        .map(|_| {
+            let content_id = doc.add_object(Stream::new(dictionary! {}, content.to_vec()));
+            doc.add_object(dictionary! {
+                "Type" => "Page",
+                "Parent" => pages_id,
+                "MediaBox" => vec![0.into(), 0.into(), 612.into(), 792.into()],
+                "Contents" => content_id,
+                "Resources" => dictionary! {
+                    "Font" => dictionary! { "F1" => font_id },
+                    "XObject" => dictionary! { "Im1" => image_id },
+                },
+            })
+            .into()
+        })
+        .collect();
     doc.objects.insert(
         pages_id,
         Object::Dictionary(dictionary! {
             "Type" => "Pages",
-            "Kids" => vec![page.into()],
-            "Count" => 1,
+            "Count" => kids.len() as i64,
+            "Kids" => kids,
         }),
     );
     let catalog_id = doc.add_object(dictionary! {

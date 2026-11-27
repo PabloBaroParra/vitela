@@ -1,7 +1,8 @@
-// Domain types of a page's content and its edits (B26 T-258b, T-259..T-261):
+// Domain types of a page's content and its edits (B26 T-258b, T-259..T-262):
 // what a page paints as the core reads it, how a run looks, the font program
-// it embeds, and the edits of a run, a text block or an image. Re-exported by `types.ts` (the engine's
-// interface uses them) and by the package entry.
+// it embeds, the edits of a run, a text block, an image or a selection of
+// them, and the content clipboard's clip. Re-exported by `types.ts` (the
+// engine's interface uses them) and by the package entry.
 
 import type { PagePoint, PageRect, Rgb } from './types.js';
 
@@ -25,6 +26,8 @@ export interface ContentRun {
   readonly text: string;
   /** Whether its text decoded fully, so it could be retyped (the core's rule). */
   readonly editable: boolean;
+  /** Whether it exists only because of an unsaved edit: an insertion or a paste not saved yet. */
+  readonly pending: boolean;
 }
 
 /** One image a page paints. */
@@ -35,6 +38,8 @@ export interface ContentImage {
   readonly rect: PageRect;
   /** Its samples sit in the content stream rather than in an XObject. */
   readonly inline: boolean;
+  /** Whether it exists only because of an unsaved edit. */
+  readonly pending: boolean;
 }
 
 /** One vector path a page paints: a rule, a border, a shaded box. */
@@ -45,6 +50,8 @@ export interface ContentPath {
   /** The geometry's box without the stroke's width: a hairline rule's is zero high. */
   readonly rect: PageRect;
   readonly paint: 'stroke' | 'fill' | 'fillAndStroke';
+  /** Whether it exists only because of an unsaved edit. */
+  readonly pending: boolean;
 }
 
 export type ContentItem = ContentRun | ContentImage | ContentPath;
@@ -189,3 +196,49 @@ export type ImageEdit =
   | { readonly kind: 'removeImage'; readonly page: number; readonly imageId: number }
   | { readonly kind: 'replaceImage'; readonly page: number; readonly imageId: number; readonly bytes: Uint8Array }
   | { readonly kind: 'insertImage'; readonly page: number; readonly at: PagePoint; readonly bytes: Uint8Array };
+
+/** The members of a selection on one page, by the ids that page's content read handed out. */
+export interface ContentMembers {
+  readonly runIds: readonly number[];
+  readonly imageIds: readonly number[];
+  readonly pathIds: readonly number[];
+}
+
+/**
+ * Content copied out of a page (`copyContentSelection`): a self-contained
+ * one-page PDF the session holds on to, so it outlives the page — and the
+ * document — it came from. Hand it back unchanged to paste it.
+ */
+export interface ContentClip {
+  readonly pdf: Uint8Array;
+  /** The copied items' box as the core keeps it: `[x, y, width, height]` in the source page's PDF points (y up). */
+  readonly bbox: readonly [number, number, number, number];
+  /** The same box on the source page as drawn (points, y down). */
+  readonly rect: PageRect;
+  /** Whether the session it came from held anything from an encrypted PDF (the core's provenance, handed back with the rest). */
+  readonly fromEncrypted: boolean;
+}
+
+/**
+ * An edit of several content items at once, or a paste (T-262), on page
+ * position `page`. Page content: one undo step that the pixels show at once
+ * and `paintRevision` moves for.
+ *
+ * - `moveContentSelection` shifts every member by `dx, dy` (on the page as
+ *   drawn, points, y down). A second move of the same selection folds into
+ *   its step; a zero move records nothing. Everything one pending paste
+ *   added moves the paste itself; part of one is refused until a save.
+ * - `removeContentSelection` takes every member off the page.
+ * - `pasteContent` writes `clip` onto the page, its box's top-left corner at
+ *   `at` (on the page as drawn, turned with the page about that corner).
+ *   What it adds reads back `pending` until the document is saved.
+ *
+ * Rejects as `contentEditingRefusal` says (`EditNotPermitted`, or
+ * `TextExtractionDenied` for a selection edit), then `PageIndexOutOfBounds`,
+ * or `UnsupportedOperation` for an empty selection, an item the page does
+ * not hold now, or part of a pending paste.
+ */
+export type SelectionEdit =
+  | { readonly kind: 'moveContentSelection'; readonly page: number; readonly members: ContentMembers; readonly dx: number; readonly dy: number }
+  | { readonly kind: 'removeContentSelection'; readonly page: number; readonly members: ContentMembers }
+  | { readonly kind: 'pasteContent'; readonly page: number; readonly clip: ContentClip; readonly at: PagePoint };

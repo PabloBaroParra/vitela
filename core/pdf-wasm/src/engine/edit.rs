@@ -15,18 +15,19 @@
 //! `pdf_save::shows_in_session_preview`); a form fill does, because pdfium
 //! paints the field.
 
-use pdf_document::Orientation;
+use pdf_document::{ContentClip, Orientation};
 use wasm_bindgen::prelude::*;
 
 use super::{js_error, Engine};
 use crate::model::{
-    AnnotationEdit, DocumentProperties, FieldFill, ImageEdit, PageEdit, TextBlockEdit, TextRunEdit,
-    WatermarkRequest,
+    AnnotationEdit, DocumentProperties, FieldFill, ImageEdit, PageEdit, SelectionEdit,
+    TextBlockEdit, TextRunEdit, WatermarkRequest,
 };
 
 /// What an `EditCommand` carries: a page edit, an annotation edit, a form
-/// fill, a change of the document's properties, a watermark, or an edit of a
-/// page's text runs, text blocks or images.
+/// fill, a change of the document's properties, a watermark, an edit of a
+/// page's text runs, text blocks or images, or of a selection of its
+/// content, or a paste of a content clip.
 #[derive(Debug, Clone)]
 pub(super) enum Edit {
     Page(PageEdit),
@@ -37,14 +38,22 @@ pub(super) enum Edit {
     TextRun(TextRunEdit),
     TextBlock(TextBlockEdit),
     Image(ImageEdit),
+    Selection(SelectionEdit),
+    /// A clip's box top-left corner at `at` on page `page` (PDF points).
+    Paste {
+        page: u32,
+        clip: ContentClip,
+        at: (f64, f64),
+    },
 }
 
 /// One edit for `Engine.applyEdit`: a page edit (here), an annotation edit
 /// (`engine/annotation.rs`), a form fill (`engine/form.rs`) or a change of
 /// the document's properties (`engine/metadata.rs`) or a watermark
 /// (`engine/watermark.rs`) or an edit of a page's text runs
-/// (`engine/text_run.rs`), text blocks (`engine/text_block.rs`) or images
-/// (`engine/image.rs`). Positions are
+/// (`engine/text_run.rs`), text blocks (`engine/text_block.rs`), images
+/// (`engine/image.rs`) or a selection of them, or a paste
+/// (`engine/selection.rs`). Positions are
 /// 0-based.
 #[wasm_bindgen]
 #[derive(Debug, Clone)]
@@ -126,7 +135,12 @@ impl Engine {
     /// `PageIndexOutOfBounds`, `UnsupportedOperation` for an image the page
     /// does not hold now or a box with no area, `InvalidImage` for bytes
     /// that do not decode; it makes `previewStale` true and moves
-    /// `paintRevision`.
+    /// `paintRevision`. A selection edit is refused the same way, then
+    /// `PageIndexOutOfBounds`, `UnsupportedOperation` for an empty
+    /// selection, an item the page does not hold now or part of a pending
+    /// paste; a paste is refused as `contentEditingRefusal`'s first gate
+    /// says, then `PageIndexOutOfBounds`. Both make `previewStale` true and
+    /// move `paintRevision`.
     #[wasm_bindgen(js_name = applyEdit)]
     pub fn apply_edit(&mut self, doc: u32, edit: &EditCommand) -> Result<Option<u32>, JsValue> {
         self.document_mut(doc)
@@ -151,6 +165,13 @@ impl Engine {
                     .apply_text_block_edit(edit.clone())
                     .map(|()| None),
                 Edit::Image(edit) => open.model.apply_image_edit(edit.clone()).map(|()| None),
+                Edit::Selection(edit) => {
+                    open.model.apply_selection_edit(edit.clone()).map(|()| None)
+                }
+                Edit::Paste { page, clip, at } => open
+                    .model
+                    .paste_content(*page, clip.clone(), *at)
+                    .map(|()| None),
             })
             .map_err(js_error)
     }

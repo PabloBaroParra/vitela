@@ -237,6 +237,28 @@ failure kind (`PasswordRequired`, `WrongPassword`, `TextExtractionDenied`,
   `UnsupportedOperation` for runs that are not one block now or an insertion
   with nothing to show, a line break or a size out of range, or
   `EncodingGap`.
+  Several items at once, and the content clipboard (T-262): every content
+  item reads with `pending` — `true` while only an unsaved insertion or paste
+  holds it. `applyEdit` takes a `SelectionEdit`: `moveContentSelection`
+  (`page`, `members` — `{ runIds, imageIds, pathIds }` from the page's last
+  read — and `dx, dy` on the page as drawn) and `removeContentSelection`
+  (`page`, `members`), one step each; a second move of the same selection
+  folds into its step, a zero move records nothing, a selection that is
+  exactly what a pending paste added moves the paste itself, and part of one
+  is refused (`UnsupportedOperation`) until a save. `copyContentSelection(handle,
+  pageIndex, members, forCut?)` answers a `ContentClip` — `pdf` (a one-page
+  PDF, transferred), `bbox` (the core's box, PDF points), `rect` (that box
+  on the source page as drawn) and `fromEncrypted` (whether the session held
+  anything from an encrypted PDF) — and records nothing; members with an
+  unsaved edit are copied as they read now. It rejects with
+  `TextExtractionDenied`, or, with `forCut`, `EditNotPermitted` ("cutting
+  content is not permitted": a cut needs extraction and content editing)
+  before anything is read; then `PageIndexOutOfBounds` or
+  `UnsupportedOperation`. A cut is that copy and a `removeContentSelection`
+  after it. `pasteContent` (`page`, `clip` handed back unchanged, `at` the
+  box's top-left corner on the page as drawn) writes the clip as one step,
+  onto any page of any document of the session; it rejects as
+  `contentEditingRefusal`'s first gate says, then `PageIndexOutOfBounds`.
   `checkImageReplacement(handle, pageIndex, imageId)` resolves when the image
   can be replaced and rejects with the core's refusal otherwise
   (`EditNotPermitted`, or `UnsupportedOperation`: an unsaved edit in a

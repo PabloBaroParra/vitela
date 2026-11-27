@@ -9,6 +9,9 @@ import type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  ContentClip,
+  ContentMembers,
+  SelectionEdit,
 } from './content.js';
 
 // Declared in `content.ts`; re-exported here for the worker and the client.
@@ -29,6 +32,9 @@ export type {
   TextRunEdit,
   TextBlockEdit,
   ImageEdit,
+  ContentClip,
+  ContentMembers,
+  SelectionEdit,
 } from './content.js';
 
 /**
@@ -344,7 +350,16 @@ export interface WatermarkDefaults {
 }
 
 /** Anything `applyEdit` records. */
-export type Edit = PageEdit | AnnotationEdit | FormEdit | MetadataEdit | WatermarkEdit | TextRunEdit | TextBlockEdit | ImageEdit;
+export type Edit =
+  | PageEdit
+  | AnnotationEdit
+  | FormEdit
+  | MetadataEdit
+  | WatermarkEdit
+  | TextRunEdit
+  | TextBlockEdit
+  | ImageEdit
+  | SelectionEdit;
 
 /** One laid-out line of a free-text box. */
 export interface FreeTextLine {
@@ -758,6 +773,17 @@ export interface Engine {
    * else as `readPageContent`.
    */
   checkImageReplacement(document: DocumentHandle, pageIndex: number, imageId: number): Promise<void>;
+  /**
+   * Copies `members` of page `pageIndex` into a clip, leaving the page as it
+   * is (nothing to undo); members with an unsaved edit are copied as they
+   * read now. With `forCut`, asks a cut's permission — text extraction and
+   * content editing, `EditNotPermitted` otherwise — instead of the copy's
+   * (`TextExtractionDenied`); the cut's removal is a `removeContentSelection`
+   * edit that follows. Then `PageIndexOutOfBounds`, or
+   * `UnsupportedOperation` for an empty selection or an item the page does
+   * not hold now.
+   */
+  copyContentSelection(document: DocumentHandle, pageIndex: number, members: ContentMembers, forCut?: boolean): Promise<ContentClip>;
   /** The core's starting looks for a text and a picture watermark. */
   watermarkDefaults(): Promise<WatermarkDefaults>;
   /**

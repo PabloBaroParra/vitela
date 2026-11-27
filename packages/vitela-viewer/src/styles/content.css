@@ -194,6 +194,44 @@
   border-color: var(--tone-amber-fg);
 }
 
+/* Several items selected at once and the content clipboard (B26 T-262): the
+   group's members are outlined as one selected item each, inside a dashed
+   box that is what a drag takes; a marquee is drawn while it is dragged; the
+   status row gains Copy, Cut and Paste and wraps when it runs out of room. */
+
+.content-status {
+  flex-wrap: wrap;
+}
+
+.content-status__clipboard {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.content-group,
+.content-marquee {
+  position: absolute;
+  pointer-events: none;
+  border-radius: 3px;
+}
+
+.content-group {
+  box-sizing: border-box;
+  outline: 1.5px dashed var(--tone-blue-fg);
+  outline-offset: 3px;
+}
+
+.content-marquee {
+  box-sizing: border-box;
+  border: 1px solid var(--tone-blue-fg);
+  background: rgb(40 110 230 / 10%);
+}
+
+.content-layer[data-marquee='true'] {
+  cursor: crosshair;
+}
+
 .image-edit__handle {
   position: absolute;
   z-index: 3;

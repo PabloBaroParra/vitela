@@ -25,6 +25,7 @@ import { ProtectControls } from '../protect/ProtectControls';
 import { protectBusy, useProtect } from '../protect/useProtect';
 import { PropertiesControls } from '../properties/PropertiesControls';
 import { propertiesBusy, useDocumentProperties } from '../properties/useDocumentProperties';
+import { ContentClipContext, useClipStore } from '../content/clipStore';
 import { useContentGate } from '../content/useContentMode';
 import { WatermarkControls } from '../watermark/WatermarkControls';
 import { useWatermark, watermarkBusy } from '../watermark/useWatermark';
@@ -109,6 +110,8 @@ export function DocumentWorkspace({
   const dragging = useFileDrop(open, !busy && standIn === undefined, scope);
   // Owned here, above the viewer, so editing screens inside it can flag edits.
   const save = useSave(engine, document, delivery);
+  // The content clipboard's clip is the session's: it outlives each document's viewer.
+  const clips = useClipStore();
   // A compressed copy goes where saves go (a download, or the host's onSave)
   // and waits for the same queued edits.
   const compress = useCompress(engine, document, delivery ?? browserDelivery, save.settleEdits);
@@ -263,29 +266,31 @@ export function DocumentWorkspace({
         {document && (
           <MarkDirtyContext.Provider value={save.markDirty}>
             <SaveWaitsForEditsContext.Provider value={save.waitForEdits}>
-              {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
-              {screen === 'view' ? (
-                <ReportCurrentPageContext.Provider value={reportCurrentPage}>
-                  <DocumentViewer
+              <ContentClipContext.Provider value={clips}>
+                {/* Each screen mounts afresh on a switch: the viewer then lays out the pages as they are now. */}
+                {screen === 'view' ? (
+                  <ReportCurrentPageContext.Provider value={reportCurrentPage}>
+                    <DocumentViewer
+                      key={document.generation}
+                      engine={engine}
+                      document={document}
+                      onEdited={revise}
+                      onStampImage={keepStampImage}
+                      contentEditing={contentEditing}
+                      onContentEditingEnd={endContentEditing}
+                    />
+                  </ReportCurrentPageContext.Provider>
+                ) : (
+                  <OrganizeScreen
                     key={document.generation}
                     engine={engine}
                     document={document}
                     onEdited={revise}
-                    onStampImage={keepStampImage}
-                    contentEditing={contentEditing}
-                    onContentEditingEnd={endContentEditing}
+                    onSourcesNamed={nameSources}
+                    pageTools={pageTools}
                   />
-                </ReportCurrentPageContext.Provider>
-              ) : (
-                <OrganizeScreen
-                  key={document.generation}
-                  engine={engine}
-                  document={document}
-                  onEdited={revise}
-                  onSourcesNamed={nameSources}
-                  pageTools={pageTools}
-                />
-              )}
+                )}
+              </ContentClipContext.Provider>
             </SaveWaitsForEditsContext.Provider>
           </MarkDirtyContext.Provider>
         )}

@@ -4,8 +4,10 @@
 // (picked or dropped on a page), selecting and editing an annotation, going
 // from one annotation to the next, the comments, filling in form fields,
 // undo/redo, and the "Edit content" mode (outline and select a text run, an
-// image or a shape; retype, move, restyle and delete a run; move, resize,
-// replace and delete an image, or insert one). Only pages within a viewport of the visible area are mounted (and
+// image or a shape, or several at once; retype, move, restyle and delete a
+// run; move, resize, replace and delete an image, or insert one; move and
+// delete several together; copy, cut and paste them across pages and
+// documents). Only pages within a viewport of the visible area are mounted (and
 // so rendered); the rest are empty space.
 
 import { useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -314,6 +316,7 @@ export function DocumentViewer({
           contentState={contentInput ? content.stateAt(index) : undefined}
           contentHovered={content.hovered?.pageIndex === index ? content.hovered.item : null}
           contentSelected={content.selected?.pageIndex === index ? content.selected.item : null}
+          contentGroup={contentEdits.group.group?.pageIndex === index ? contentEdits.group.group.items : null}
           contentOverlay={<ContentOverlay editing={contentEdits} pageIndex={index} scale={scale} pages={pages} focusPages={focusPages} />}
         />,
       );
@@ -398,7 +401,7 @@ export function DocumentViewer({
               if (event.key !== 'Escape') return;
               clearSelection();
               navigation.unmark();
-              content.clear();
+              contentEdits.clear();
             }}
             // A press beside the selected annotation lets it go (and goes on to select text).
             onPointerDown={(event) => {

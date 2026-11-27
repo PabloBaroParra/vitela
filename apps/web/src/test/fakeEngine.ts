@@ -58,6 +58,7 @@ export function fakeEngine(overrides: Partial<Engine> = {}): Engine {
     textRunLook: unused('textRunLook'),
     textRunFontProgram: unused('textRunFontProgram'),
     checkImageReplacement: unused('checkImageReplacement'),
+    copyContentSelection: unused('copyContentSelection'),
     watermarkDefaults: unused('watermarkDefaults'),
     watermarkRefusal: unused('watermarkRefusal'),
     ...overrides,

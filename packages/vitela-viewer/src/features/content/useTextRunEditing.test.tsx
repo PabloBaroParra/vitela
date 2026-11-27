@@ -19,6 +19,7 @@ const hello: ContentRun = {
   fontKind: 'standard14',
   text: 'Hello',
   editable: true,
+  pending: false,
 };
 const PLAIN: TextRunLookState = {
   bold: false,

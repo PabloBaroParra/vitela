@@ -764,6 +764,57 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect(back!.rect.width).toBeCloseTo(original!.rect.width, 1);
     await engine.close(handle);
   });
+
+  it('copies, pastes, nudges and cuts content across documents through the real core: saved, read back and undone', async () => {
+    expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
+    const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
+    const scan = (await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf')))).handle;
+    const target = (await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf')))).handle;
+    const imagesOf = async (doc: number, page: number) => (await engine.readPageContent(doc, page)).images;
+    const [original] = await imagesOf(scan, 0);
+    const members = { runIds: [], imageIds: [original!.id], pathIds: [] };
+
+    // A copy changes nothing to undo.
+    const clip = await engine.copyContentSelection(scan, 0, members);
+    expect(clip.pdf.length).toBeGreaterThan(0);
+    expect(clip.fromEncrypted).toBe(false);
+    expect(clip.rect.width).toBeCloseTo(original!.rect.width, 1);
+    expect((await engine.applyEdit(scan, { kind: 'moveContentSelection', page: 0, members, dx: 0, dy: 0 })).canUndo).toBe(false);
+
+    const pasted = await engine.applyEdit(target, { kind: 'pasteContent', page: 1, clip, at: { x: 40, y: 50 } });
+    expect(pasted.paintRevision).toBeGreaterThan(0);
+    const [onTwo] = await imagesOf(target, 1);
+    expect(onTwo).toMatchObject({ pending: true });
+    expect(onTwo!.rect.left).toBeCloseTo(40, 1);
+    expect(onTwo!.rect.top).toBeCloseTo(50, 1);
+    // All of a pending paste moves the paste itself: still its one step.
+    await engine.applyEdit(target, {
+      kind: 'moveContentSelection',
+      page: 1,
+      members: { runIds: [], imageIds: [onTwo!.id], pathIds: [] },
+      dx: 10,
+      dy: 0,
+    });
+    expect((await imagesOf(target, 1))[0]!.rect.left).toBeCloseTo(50, 1);
+
+    const reopened = await engine.open(await engine.saveToBytes(target, false));
+    const [saved] = await imagesOf(reopened.handle, 1);
+    expect(saved).toMatchObject({ pending: false });
+    expect(saved!.rect.left).toBeCloseTo(50, 1);
+    expect(saved!.rect.width).toBeCloseTo(original!.rect.width, 1);
+    await engine.close(reopened.handle);
+    expect((await engine.undo(target)).canUndo).toBe(false);
+    expect(await imagesOf(target, 1)).toHaveLength(0);
+
+    // A cut: a copy for a cut, then the removal as its own step.
+    await engine.copyContentSelection(scan, 0, members, true);
+    await engine.applyEdit(scan, { kind: 'removeContentSelection', page: 0, members });
+    expect(await imagesOf(scan, 0)).toHaveLength(0);
+    expect((await engine.undo(scan)).canUndo).toBe(false);
+    expect(await imagesOf(scan, 0)).toHaveLength(1);
+    await engine.close(scan);
+    await engine.close(target);
+  });
 });
 
 /** Opens an export of `handle`, encodes its first page and closes the export. */

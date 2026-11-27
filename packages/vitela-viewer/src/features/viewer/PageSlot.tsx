@@ -67,6 +67,8 @@ interface PageSlotProps {
   /** The item under the pointer on this page, and the selected one when it is on this page. */
   readonly contentHovered?: ContentItem | null;
   readonly contentSelected?: ContentItem | null;
+  /** The several items selected on this page, or `null`. */
+  readonly contentGroup?: readonly ContentItem[] | null;
   /** The selected run's toolbar and editor, on its page only. */
   readonly contentOverlay?: ReactNode;
 }
@@ -82,7 +84,7 @@ export interface DrawingInput {
 export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
   const { engine, document, index, page, pageKey, paintKey, annotations, stampImages, slot, dpi, label, scale } = props;
   const { hits, currentHit, selection, textInput, drawing, editing, selectedId, marked, onImageDrop } = props;
-  const { content, contentState, contentHovered = null, contentSelected = null, contentOverlay = null } = props;
+  const { content, contentState, contentHovered = null, contentSelected = null, contentGroup = null, contentOverlay = null } = props;
   const render = usePageRender(engine, document, index, dpi, pageKey, paintKey);
   const { shown: shownAnnotations, drag } = useAnnotationDrag(annotations, page, pageKey, scale, editing);
   const shown = render.status === 'rendered' ? render.page : render.status === 'rendering' ? render.previous : undefined;
@@ -148,6 +150,7 @@ export const PageSlot = memo(function PageSlot(props: PageSlotProps) {
           state={contentState}
           hovered={contentHovered}
           selected={contentSelected}
+          group={contentGroup}
           input={content}
         >
           {contentOverlay}
