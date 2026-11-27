@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { PASSWORD_REQUIRED, WRONG_PASSWORD, errorKind, errorMessage } from '@vitela/core';
 import type { Annotation, DocumentHandle, DocumentInfo, EditedDocument, Engine, FormField } from '@vitela/core';
 import type { WritableFileHandle } from '../../platform/fileHandle';
-import { recordFileStamp } from '../../platform/fileStamp';
+import { recordFileStamp, type FileStamp } from '../../platform/fileStamp';
 
 /**
  * What a document opens from: a picked or dropped `File`, or bytes the host
@@ -172,11 +172,11 @@ export function useDocument(engine: Engine) {
   );
 
   const open = useCallback(
-    (file: PdfSource, fileHandle?: WritableFileHandle) => {
+    (file: PdfSource, fileHandle?: WritableFileHandle, opened?: FileStamp) => {
       const attemptId = ++latest.current;
       locked.current = null;
       // The file as the user opened it, to notice a change made behind our back before a save.
-      if (fileHandle) recordFileStamp(fileHandle);
+      if (fileHandle) recordFileStamp(fileHandle, opened);
       setState((s) => ({ ...s, activity: { kind: 'opening', name: file.name } }));
       attempt(file, fileHandle, attemptId, undefined);
     },

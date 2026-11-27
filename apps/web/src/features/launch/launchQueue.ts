@@ -11,7 +11,14 @@
 // launched file opens as a picked one does: the same open, with the handle so
 // Save writes back over it. Several files launched together open as several
 // dropped ones do: the first PDF, else the first file (the engine then says
-// why it is not a PDF).
+// why it is not a PDF). A launch with no file it can read is not dropped:
+// it is offered as an open that fails with the read's error, so the page
+// says "Could not open …" as for any other file.
+//
+// Each file is read once, when the launch arrives, and stamped (modified
+// time and size) from that same snapshot: the changed-on-disk check on Save
+// compares against the bytes that were opened, so a change made while the
+// engine loaded is caught rather than written over.
 //
 // The manifest's `launch_handler` gives every launch a new window, so a
 // launched file never replaces a document with unsaved edits in another
@@ -35,10 +42,24 @@ export interface LaunchQueue {
   setConsumer(consumer: LaunchConsumer): void;
 }
 
+/** What a launched file opens from: a `File`, or a stand-in whose read fails with why it could not be read. */
+export interface LaunchedSource {
+  readonly name: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/** A file's modified time and size, as Save's changed-on-disk check compares them. */
+export interface LaunchStamp {
+  readonly lastModified: number;
+  readonly size: number;
+}
+
 /** A launched file, ready to open; `handle` when the browser lets Save write back to it. */
 export interface LaunchedFile {
-  readonly file: File;
+  readonly file: LaunchedSource;
   readonly handle?: LaunchFileHandle & { readonly createWritable: NonNullable<LaunchFileHandle['createWritable']> };
+  /** With `handle`: the stamp of the very snapshot `file` is, the baseline Save compares the disk with. */
+  readonly stamp?: LaunchStamp;
 }
 
 /** What the page reads of the launches (`useSyncExternalStore`-shaped). */
@@ -68,19 +89,35 @@ const isPdf = (file: File): boolean => file.type === 'application/pdf' || file.n
 const writable = (handle: LaunchFileHandle): handle is NonNullable<LaunchedFile['handle']> =>
   typeof handle.createWritable === 'function';
 
-/** Each file handle's file, or `null` where it cannot be read. */
-function readAll(handles: readonly LaunchFileHandle[]): Promise<(LaunchedFile | null)[]> {
+/** A handle's file, or why it cannot be read. */
+type Read = { readonly file: File; readonly handle: LaunchFileHandle } | { readonly name: string; readonly error: unknown };
+
+/** Each file handle's file, or the reason it cannot be read. */
+function readAll(handles: readonly LaunchFileHandle[]): Promise<Read[]> {
   return Promise.all(
-    handles.map(async (handle) => {
-      if (handle.kind !== 'file') return null;
+    handles.map(async (handle): Promise<Read> => {
+      if (handle.kind !== 'file') return { name: handle.name, error: new Error('it is a folder, not a file') };
       try {
-        const file = await handle.getFile();
-        return writable(handle) ? { file, handle } : { file };
-      } catch {
-        return null;
+        return { file: await handle.getFile(), handle };
+      } catch (error) {
+        return { name: handle.name, error };
       }
     }),
   );
+}
+
+/** The launched file `read` opens as: with its handle and that snapshot's stamp where Save can write back. */
+function launchedFrom(read: Read): LaunchedFile {
+  if (!('file' in read)) return { file: { name: read.name, arrayBuffer: () => Promise.reject(read.error) } };
+  const { file, handle } = read;
+  return writable(handle) ? { file, handle, stamp: { lastModified: file.lastModified, size: file.size } } : { file };
+}
+
+/** What a launch opens: its first PDF, else its first readable file, else its first file's read error. */
+function choose(reads: readonly Read[]): LaunchedFile | undefined {
+  const files = reads.filter((read): read is Extract<Read, { file: File }> => 'file' in read);
+  const chosen = files.find((read) => isPdf(read.file)) ?? files[0] ?? reads[0];
+  return chosen && launchedFrom(chosen);
 }
 
 /** Takes the app's launches from `queue`, from the start. */
@@ -93,10 +130,9 @@ export function watchLaunches(queue: LaunchQueue): AppLaunches {
   queue.setConsumer(({ files }) => {
     if (files.length === 0) return;
     const launch = ++latest;
-    void readAll(files).then((read) => {
+    void readAll(files).then((reads) => {
       if (launch !== latest) return;
-      const launched = read.filter((entry): entry is LaunchedFile => entry !== null);
-      const chosen = launched.find((entry) => isPdf(entry.file)) ?? launched[0];
+      const chosen = choose(reads);
       if (!chosen) return;
       pending = chosen;
       for (const listener of listeners) listener();

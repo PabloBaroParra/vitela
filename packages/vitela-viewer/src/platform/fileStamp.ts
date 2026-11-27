@@ -37,9 +37,15 @@ export function sameStamp(a: FileStamp, b: FileStamp): boolean {
   return a.lastModified === b.lastModified && a.size === b.size;
 }
 
-/** Takes the file's current state as the one the user opened. Call it when the document is opened. */
-export function recordFileStamp(handle: WritableFileHandle): void {
-  if (handle.getFile) baselines.set(handle, readFileStamp(handle));
+/**
+ * Takes the file's state as the one the user opened. Call it when the
+ * document is opened. With `opened` (the stamp of the snapshot whose bytes
+ * are opened, read earlier: a launched file), that is the baseline, so a
+ * change made since the read still counts; otherwise the file is read now.
+ */
+export function recordFileStamp(handle: WritableFileHandle, opened?: FileStamp): void {
+  if (!handle.getFile) return;
+  baselines.set(handle, opened ? Promise.resolve({ lastModified: opened.lastModified, size: opened.size }) : readFileStamp(handle));
 }
 
 /** Takes the file as it is now as the baseline: only after our own write succeeded. */

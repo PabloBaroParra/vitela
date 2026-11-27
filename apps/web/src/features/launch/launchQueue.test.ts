@@ -15,14 +15,17 @@ function fakeQueue() {
 }
 
 /** A FileSystemFileHandle as Chromium launches one: a file it can write back to. */
-function fileHandle(name: string, options: { writable?: boolean; type?: string; fails?: boolean } = {}): LaunchFileHandle {
-  const { writable = true, type = name.endsWith('.pdf') ? 'application/pdf' : 'text/plain', fails = false } = options;
+function fileHandle(
+  name: string,
+  options: { writable?: boolean; type?: string; fails?: boolean; lastModified?: number } = {},
+): LaunchFileHandle {
+  const { writable = true, type = name.endsWith('.pdf') ? 'application/pdf' : 'text/plain', fails = false, lastModified } = options;
   const handle: LaunchFileHandle = {
     kind: 'file',
     name,
     getFile: async () => {
       if (fails) throw new DOMException('gone', 'NotFoundError');
-      return new File([new Uint8Array([37, 80, 68, 70])], name, { type });
+      return new File([new Uint8Array([37, 80, 68, 70])], name, { type, lastModified });
     },
   };
   return writable ? { ...handle, createWritable: async () => ({ write: async () => {}, close: async () => {} }) } : handle;
@@ -70,6 +73,16 @@ describe('watchLaunches', () => {
     expect(listener).toHaveBeenCalledTimes(1);
   });
 
+  // The changed-on-disk check on Save compares against the file as it was
+  // read here, not as it is when the engine is ready to open it.
+  it('stamps a launched file with the snapshot it read, for the changed-on-disk check', async () => {
+    const { queue, launch } = fakeQueue();
+    const launches = watchLaunches(queue);
+    launch([fileHandle('report.pdf', { lastModified: 1234 })]);
+    await settle();
+    expect(launches.pending()?.stamp).toEqual({ lastModified: 1234, size: 4 });
+  });
+
   it('offers a handle it cannot write back to without one: Save then downloads', async () => {
     const { queue, launch } = fakeQueue();
     const launches = watchLaunches(queue);
@@ -103,19 +116,30 @@ describe('watchLaunches', () => {
     launch([fileHandle('gone.pdf', { fails: true }), fileHandle('here.pdf')]);
     await settle();
     expect(launches.pending()?.file.name).toBe('here.pdf');
-
-    launch([fileHandle('gone.pdf', { fails: true })]);
-    await settle();
-    // Nothing readable: the file already offered stays.
-    expect(launches.pending()?.file.name).toBe('here.pdf');
   });
 
-  it('ignores a launched directory', async () => {
+  // Not dropped silently: the page opens it, and the read's error is the
+  // open's, so the user sees the usual "Could not open …" message.
+  it('offers a launch with nothing readable as an open that fails with the read error', async () => {
+    const { queue, launch } = fakeQueue();
+    const launches = watchLaunches(queue);
+    launch([fileHandle('gone.pdf', { fails: true }), fileHandle('lost.pdf', { fails: true })]);
+    await settle();
+    const launched = launches.pending();
+    expect(launched?.file.name).toBe('gone.pdf');
+    expect(launched?.handle).toBeUndefined();
+    await expect(launched?.file.arrayBuffer()).rejects.toThrow('gone');
+  });
+
+  it('offers a launched directory as an open that fails, saying it is a folder', async () => {
     const { queue, launch } = fakeQueue();
     const launches = watchLaunches(queue);
     launch([{ ...fileHandle('folder.pdf'), kind: 'directory' }]);
     await settle();
-    expect(launches.pending()).toBeNull();
+    const launched = launches.pending();
+    expect(launched?.file.name).toBe('folder.pdf');
+    expect(launched?.handle).toBeUndefined();
+    await expect(launched?.file.arrayBuffer()).rejects.toThrow('it is a folder, not a file');
   });
 
   it('hands each launched file over once', async () => {

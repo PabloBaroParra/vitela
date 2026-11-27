@@ -57,11 +57,13 @@ export function App({
 }: AppProps) {
   const status = useEngineStatus(engine);
   const update = useSyncExternalStore(updates.subscribe, updates.state);
-  // Edits not yet saved hold a new build's reload and make closing the page warn.
+  // Edits not yet saved hold a new build's reload and make closing the page
+  // warn. The warning goes first: releasing the hold can reload at once, and
+  // that reload must not find the warning still set.
   const onDirtyChange = useCallback(
     (dirty: boolean) => {
-      updates.hold(dirty);
       warnOnUnload(dirty);
+      updates.hold(dirty);
     },
     [updates, warnOnUnload],
   );
@@ -70,7 +72,7 @@ export function App({
   const launched = useSyncExternalStore(launches.subscribe, launches.pending);
   useEffect(() => {
     if (!launched || status.kind !== 'ready' || !workspace.current) return;
-    if (launches.take(launched)) workspace.current.open(launched.file, launched.handle);
+    if (launches.take(launched)) workspace.current.open(launched.file, launched.handle, launched.stamp);
   }, [launched, launches, status.kind]);
   const route = useMemo(() => resolveRoute(pathname), [pathname]);
   const intro = useMemo(() => introFor(route), [route]);

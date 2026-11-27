@@ -5,7 +5,7 @@
 // and their file handles cannot be written back to.
 
 import { expect, test } from '@playwright/test';
-import { fakeLaunchQueue, launchFiles, launchedFileHead } from './launch';
+import { fakeLaunchQueue, launchFiles, launchFolder, launchedFileHead } from './launch';
 import { buildPdf } from './pdf';
 import { expectOpened, loadApp } from './support';
 
@@ -36,4 +36,12 @@ test('a launched PDF opens as a picked one, and Save writes back over the launch
   await expect(page.getByText('Saved over launched.pdf.')).toBeVisible({ timeout: 30_000 });
   expect(await launchedFileHead(page, 'launched.pdf', 5)).toBe('%PDF-');
   expect(downloads).toEqual([]);
+});
+
+test('a launch with nothing it can open says so, as a failed open does', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'launchQueue is Chromium-only');
+  await fakeLaunchQueue(page);
+  await loadApp(page);
+  await launchFolder(page, 'launched-folder');
+  await expect(page.getByText('Could not open launched-folder: it is a folder, not a file')).toBeVisible({ timeout: 30_000 });
 });
