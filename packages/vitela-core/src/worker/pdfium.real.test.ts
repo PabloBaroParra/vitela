@@ -765,11 +765,10 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     await engine.close(handle);
   });
 
-  it('copies, pastes, nudges and cuts content across documents through the real core: saved, read back and undone', async () => {
+  it('copies, pastes onto a page inserted this session, nudges and cuts content through the real core: saved, read back and undone', async () => {
     expect(core.initialize_pdfium_render(pdfium, coreExports, false)).toBe(true);
     const engine = documentEngine(new core.Engine(), coreFunctions, coreEdits);
     const scan = (await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/scan_200dpi.pdf')))).handle;
-    const target = (await engine.open(readFileSync(resolve(here, '../../../../tests/fixtures/compress/vector_only.pdf')))).handle;
     const imagesOf = async (doc: number, page: number) => (await engine.readPageContent(doc, page)).images;
     const [original] = await imagesOf(scan, 0);
     const members = { runIds: [], imageIds: [original!.id], pathIds: [] };
@@ -781,30 +780,39 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect(clip.rect.width).toBeCloseTo(original!.rect.width, 1);
     expect((await engine.applyEdit(scan, { kind: 'moveContentSelection', page: 0, members, dx: 0, dy: 0 })).canUndo).toBe(false);
 
-    const pasted = await engine.applyEdit(target, { kind: 'pasteContent', page: 1, clip, at: { x: 40, y: 50 } });
+    // Pasted onto a blank page inserted in this session and never saved: it
+    // reads as pending content all the same.
+    const inserted = await engine.applyEdit(scan, { kind: 'insertBlank', at: 1, orientation: 'portrait' });
+    expect(inserted.info.pageCount).toBe(2);
+    expect(await imagesOf(scan, 1)).toHaveLength(0);
+    const pasted = await engine.applyEdit(scan, { kind: 'pasteContent', page: 1, clip, at: { x: 40, y: 50 } });
     expect(pasted.paintRevision).toBeGreaterThan(0);
-    const [onTwo] = await imagesOf(target, 1);
+    const [onTwo] = await imagesOf(scan, 1);
     expect(onTwo).toMatchObject({ pending: true });
     expect(onTwo!.rect.left).toBeCloseTo(40, 1);
     expect(onTwo!.rect.top).toBeCloseTo(50, 1);
     // All of a pending paste moves the paste itself: still its one step.
-    await engine.applyEdit(target, {
+    await engine.applyEdit(scan, {
       kind: 'moveContentSelection',
       page: 1,
       members: { runIds: [], imageIds: [onTwo!.id], pathIds: [] },
       dx: 10,
       dy: 0,
     });
-    expect((await imagesOf(target, 1))[0]!.rect.left).toBeCloseTo(50, 1);
+    expect((await imagesOf(scan, 1))[0]!.rect.left).toBeCloseTo(50, 1);
 
-    const reopened = await engine.open(await engine.saveToBytes(target, false));
+    const reopened = await engine.open(await engine.saveToBytes(scan, false));
     const [saved] = await imagesOf(reopened.handle, 1);
     expect(saved).toMatchObject({ pending: false });
     expect(saved!.rect.left).toBeCloseTo(50, 1);
     expect(saved!.rect.width).toBeCloseTo(original!.rect.width, 1);
     await engine.close(reopened.handle);
-    expect((await engine.undo(target)).canUndo).toBe(false);
-    expect(await imagesOf(target, 1)).toHaveLength(0);
+    // The paste and its nudge are one step, the inserted page another.
+    expect((await engine.undo(scan)).canUndo).toBe(true);
+    expect(await imagesOf(scan, 1)).toHaveLength(0);
+    const back = await engine.undo(scan);
+    expect(back.canUndo).toBe(false);
+    expect(back.info.pageCount).toBe(1);
 
     // A cut: a copy for a cut, then the removal as its own step.
     await engine.copyContentSelection(scan, 0, members, true);
@@ -813,7 +821,6 @@ describe('real pdfium chromium/7763 + core/pdf-wasm', () => {
     expect((await engine.undo(scan)).canUndo).toBe(false);
     expect(await imagesOf(scan, 0)).toHaveLength(1);
     await engine.close(scan);
-    await engine.close(target);
   });
 });
 

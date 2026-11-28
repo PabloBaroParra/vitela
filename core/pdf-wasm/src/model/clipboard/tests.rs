@@ -312,3 +312,51 @@ fn a_paste_is_refused_where_content_cannot_change_or_nowhere() {
     assert_eq!(infinite.kind, ErrorKind::UnsupportedOperation);
     assert!(!model.can_undo());
 }
+
+/// A page inserted in this session holds no bytes until a save, but what is
+/// pasted onto it is pending content all the same: read, moved and saved
+/// without saving first.
+#[test]
+fn a_paste_onto_a_page_inserted_in_the_same_session_reads_pending() {
+    let mut model = open(&pdfs::content_document());
+    let clip = model
+        .copy_content_selection(0, &hello_and_image(&model), false)
+        .expect("copies");
+    let height = clip.bbox.height;
+    model
+        .apply_edit(crate::model::PageEdit::InsertBlank {
+            index: 1,
+            orientation: pdf_document::Orientation::Portrait,
+        })
+        .expect("inserts a blank page");
+    model
+        .paste_content(1, clip, (300.0, 600.0))
+        .expect("pastes");
+
+    let read = content(&model, 1);
+    assert_eq!(read.images.len(), 1, "{read:?}");
+    assert!(read.images[0].pending);
+    assert!((read.images[0].bbox.x - 300.0).abs() < 1e-3);
+    assert!((read.images[0].bbox.y - (600.0 - height)).abs() < 1e-3);
+    assert!(read
+        .runs
+        .iter()
+        .any(|run| run.pending && run.text == "Hello"));
+
+    let members = pending_members(&model, 1);
+    model
+        .apply_selection_edit(SelectionEdit::Move {
+            page: 1,
+            members,
+            dx: 10.0,
+            dy: 0.0,
+        })
+        .expect("moves the paste");
+    assert!((content(&model, 1).images[0].bbox.x - 310.0).abs() < 1e-3);
+
+    let saved = open(&model.save_to_bytes(false).expect("saves"));
+    let read = content(&saved, 1);
+    assert_eq!(read.images.len(), 1);
+    assert!((read.images[0].bbox.x - 310.0).abs() < 1e-3);
+    assert!(read.runs.iter().any(|run| run.text == "Hello"));
+}

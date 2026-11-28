@@ -322,3 +322,49 @@ fn an_embedded_font_paragraph_retypes_in_its_own_font_and_saves() {
     let runs = texts(&saved);
     assert!(runs.iter().any(|run| run.contains("Retyped")), "{runs:?}");
 }
+
+/// Text inserted on a page inserted in this session reads as pending before
+/// any save, so it can be retyped there.
+#[test]
+fn text_inserted_on_a_page_inserted_in_the_same_session_reads_and_retypes() {
+    let mut model = open(&pdfs::content_document());
+    model
+        .apply_edit(crate::model::PageEdit::InsertBlank {
+            index: 1,
+            orientation: pdf_document::Orientation::Portrait,
+        })
+        .expect("inserts a blank page");
+    model
+        .apply_text_block_edit(TextBlockEdit::Insert {
+            page: 1,
+            at: (100.0, 700.0),
+            text: "On a new page".into(),
+            size: 14.0,
+        })
+        .expect("inserts");
+
+    let runs = model.read_page_content(1).expect("reads").runs;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert!(runs[0].pending);
+    assert_eq!(runs[0].text, "On a new page");
+
+    let blocks = model.read_paragraph_blocks(1).expect("reads");
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    model
+        .apply_text_block_edit(TextBlockEdit::Retype {
+            page: 1,
+            runs: blocks[0].run_ids.clone(),
+            text: "Retyped on a new page".into(),
+        })
+        .expect("retypes");
+    let runs = model.read_page_content(1).expect("reads").runs;
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0].text, "Retyped on a new page");
+
+    let saved = open(&model.save_to_bytes(false).expect("saves"));
+    let runs = saved.read_page_content(1).expect("reads").runs;
+    assert!(
+        runs.iter().any(|run| run.text == "Retyped on a new page"),
+        "{runs:?}"
+    );
+}
