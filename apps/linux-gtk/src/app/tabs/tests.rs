@@ -69,7 +69,7 @@ impl Tabbed {
                 || self.tab_count() > before && self.viewer().state.borrow().session.is_some()
             ),
             "the open must land in a new tab: {}",
-            self.viewer().status.text()
+            self.viewer().last_said()
         );
     }
 
@@ -251,7 +251,7 @@ fn gtk_ui_a_switch_is_refused_while_a_write_is_in_flight() {
     tabbed.strip()[0].select.emit_clicked();
 
     assert_eq!(tabbed.active(), active);
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-busy"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-busy"));
     assert_eq!(busy_refusal(tabbed.viewer()), Some(tr("tabs-busy")));
 }
 
@@ -266,7 +266,7 @@ fn gtk_ui_a_switch_is_refused_while_a_dialog_of_the_document_is_open() {
     tabbed.strip()[0].select.emit_clicked();
 
     assert_eq!(tabbed.active(), active);
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-dialog-open"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-dialog-open"));
     dialog.destroy();
 }
 
@@ -308,24 +308,69 @@ fn gtk_ui_the_strip_is_hidden_on_home_and_without_documents() {
 #[gtk::test]
 fn gtk_ui_an_edit_shows_the_unsaved_marker_and_the_title_follows_the_tab() {
     let tabbed = Tabbed::new();
+    assert_eq!(tabbed.window().title().as_deref(), Some("Vitela"));
     tabbed.open_sample();
     assert!(!tabbed.strip()[0].unsaved);
+    let titled = |key: &str| tr_args(key, &[("name", tr("open-name-sample").into())]);
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title").as_str())
+    );
 
     tabbed.mark_active_dirty();
     // Every edit ends on the status line, which is what redraws the strip.
-    tabbed.viewer().status.set_text("Edited.");
+    tabbed.viewer().info("Edited.");
 
     assert!(tabbed.strip()[0].unsaved);
     assert_eq!(
         tabbed.window().title().as_deref(),
-        Some(
-            tr_args(
-                "tabs-window-title",
-                &[("name", tr("open-name-sample").into())]
-            )
-            .as_str()
-        )
+        Some(titled("tabs-window-title-unsaved").as_str()),
+        "the title carries the strip's unsaved marker"
     );
+}
+
+/// The title is the active tab's alone: it follows a switch, loses its
+/// marker once the work is saved, and goes back to the application's name
+/// when the last tab closes.
+#[gtk::test]
+fn gtk_ui_the_title_follows_a_switch_a_save_and_the_last_close() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.mark_active_dirty();
+    tabbed.open_blank();
+    let titled = |key: &str, name: &str| tr_args(key, &[("name", name.to_owned().into())]);
+    let (sample, blank) = (tr("open-name-sample"), tr("open-name-untitled"));
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title", &blank).as_str()),
+        "the clean document in front is not marked for the one behind it"
+    );
+
+    tabbed.strip()[0].select.emit_clicked();
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title-unsaved", &sample).as_str())
+    );
+
+    // What a save leaves behind: a clean session and a status line.
+    if let Some(session) = tabbed.viewer().state.borrow_mut().session.as_mut() {
+        session.unsaved_to_disk = false;
+    }
+    tabbed.viewer().info("Saved.");
+    tabbed.strip();
+    assert_eq!(
+        tabbed.window().title().as_deref(),
+        Some(titled("tabs-window-title", &sample).as_str())
+    );
+
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    assert_eq!(tabbed.tab_count(), 0);
+    assert_eq!(tabbed.window().title().as_deref(), Some("Vitela"));
 }
 
 #[gtk::test]
@@ -466,7 +511,7 @@ fn gtk_ui_several_files_open_one_tab_each() {
     assert!(
         wait_until(|| tabbed.tab_count() == 2),
         "both files open: {}",
-        tabbed.viewer().status.text()
+        tabbed.viewer().last_said()
     );
     let strip = tabbed.strip();
     let names: Vec<_> = strip.iter().map(|tab| tab.tooltip.clone()).collect();
@@ -492,7 +537,7 @@ fn gtk_ui_ctrl_w_without_a_document_says_so() {
         None,
     );
 
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-no-document"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-no-document"));
 }
 
 /// A copy of the sample at a path of its own, removed when dropped.
@@ -527,7 +572,7 @@ fn gtk_ui_an_open_during_the_unsaved_prompt_lands_in_the_background() {
     );
     assert_eq!(tabbed.active(), asked_about, "the prompt keeps its tab");
     assert_eq!(
-        tabbed.viewer().status.text(),
+        tabbed.viewer().last_said(),
         tr_args(
             "tabs-opened-in-background",
             &[("name", tr("open-name-untitled").into())]
@@ -664,7 +709,7 @@ fn gtk_ui_a_bound_dialog_refuses_once_another_tab_is_active() {
     park::unpark(tabbed.viewer(), first, Arrival::Strip);
 
     assert!(!bound.ensure_active_or_report(tabbed.viewer()));
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-document-changed"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-document-changed"));
 }
 
 /// Protect, submitted after the active tab changed under it, refuses rather
@@ -690,7 +735,7 @@ fn gtk_ui_protect_refuses_once_its_tab_is_no_longer_active() {
         .emit_clicked();
     settle();
 
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-document-changed"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-document-changed"));
     // A protect that went ahead would have opened its save chooser next.
     assert_eq!(
         tabbed.viewer().blocking_prompts.get(),
@@ -728,7 +773,7 @@ fn gtk_ui_a_refused_activation_drops_the_pending_tool() {
     open_initial(tabbed.window(), tabbed.viewer(), DocumentSource::File(path));
     settle();
 
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-busy"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-busy"));
     assert_eq!(tabbed.viewer().state.borrow().pending_tool, None);
 }
 
@@ -780,7 +825,7 @@ fn gtk_ui_opens_started_back_to_back_both_land() {
     assert!(
         wait_until(|| tabbed.tab_count() == 2),
         "both opens land: {}",
-        tabbed.viewer().status.text()
+        tabbed.viewer().last_said()
     );
     let names: Vec<_> = tabbed.strip().into_iter().map(|tab| tab.name).collect();
     assert_eq!(names, [tr("open-name-sample"), tr("open-name-untitled")]);
@@ -831,7 +876,7 @@ fn gtk_ui_a_switch_whose_commit_starts_a_refresh_is_refused_at_once() {
 
     super::request_activation(window.viewer(), parked);
 
-    assert_eq!(window.viewer().status.text(), tr("tabs-busy"));
+    assert_eq!(window.viewer().last_said(), tr("tabs-busy"));
     assert!(
         wait_until(|| !window.viewer().state.borrow().preview_refresh_in_flight),
         "the commit's refresh lands"
@@ -878,7 +923,7 @@ fn gtk_ui_closing_the_window_asks_about_every_dirty_tab_in_turn() {
     assert!(
         wait_until(|| tabbed.active() == Some(ids[2]) && tabbed.dialogs().len() == 1),
         "C must be brought forward and asked about: {}",
-        tabbed.viewer().status.text()
+        tabbed.viewer().last_said()
     );
     assert!(!tabbed.ids().contains(&ids[0]), "A was discarded");
 }
@@ -977,7 +1022,7 @@ fn gtk_ui_compress_and_split_refuse_once_their_tab_is_no_longer_active() {
         let dialog = tabbed
             .dialogs()
             .pop()
-            .unwrap_or_else(|| panic!("{accept}: no dialog: {}", tabbed.viewer().status.text()));
+            .unwrap_or_else(|| panic!("{accept}: no dialog: {}", tabbed.viewer().last_said()));
         if let Some(entry) = descendants::<gtk::Entry>(dialog.upcast_ref()).first() {
             entry.set_text("1");
         }
@@ -989,7 +1034,7 @@ fn gtk_ui_compress_and_split_refuse_once_their_tab_is_no_longer_active() {
         settle();
 
         assert_eq!(
-            tabbed.viewer().status.text(),
+            tabbed.viewer().last_said(),
             tr("tabs-document-changed"),
             "{accept}"
         );
@@ -1011,7 +1056,7 @@ fn gtk_ui_a_chooser_scope_holds_the_tab_and_binds_its_answer() {
     park::unpark(tabbed.viewer(), first, Arrival::Strip);
 
     assert!(!scope.settle(tabbed.viewer()));
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-document-changed"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-document-changed"));
     assert_eq!(busy_refusal(tabbed.viewer()), None, "the tab is let go");
     assert!(super::ChooserScope::unbound(tabbed.viewer()).settle(tabbed.viewer()));
 }
@@ -1038,7 +1083,7 @@ fn gtk_ui_a_window_close_held_up_by_a_job_says_why() {
     dialog_button(&tabbed, &tr("open-unsaved-discard")).emit_clicked();
     settle();
 
-    assert_eq!(tabbed.viewer().status.text(), tr("tabs-close-held"));
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-close-held"));
 }
 
 /// Opening the file already on screen, with no unsaved changes, reloads it
@@ -1311,10 +1356,7 @@ fn gtk_ui_a_destination_opened_elsewhere_during_the_replace_question_is_refused(
     settle();
 
     assert!(!proceeded.get(), "nothing is written");
-    assert_eq!(
-        tabbed.viewer().status.text(),
-        tr("tabs-path-open-elsewhere")
-    );
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-path-open-elsewhere"));
 }
 
 struct RemoveOnDrop(PathBuf);
@@ -1323,4 +1365,135 @@ impl Drop for RemoveOnDrop {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
     }
+}
+
+// --- Ctrl+Tab ---------------------------------------------------------------
+
+/// The keyboard's step along the strip lands where a click on the
+/// neighbouring tab would, and wraps at either end.
+#[gtk::test]
+fn gtk_ui_the_keyboard_steps_through_the_tabs_and_wraps() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    tabbed.open_blank();
+    let ids = tabbed.ids();
+    assert_eq!(tabbed.active(), Some(ids[2]));
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_eq!(
+        tabbed.active(),
+        Some(ids[0]),
+        "past the last tab is the first"
+    );
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_eq!(tabbed.active(), Some(ids[1]));
+    super::cycle::cycle(tabbed.viewer(), -1);
+    assert_eq!(tabbed.active(), Some(ids[0]));
+    super::cycle::cycle(tabbed.viewer(), -1);
+    assert_eq!(
+        tabbed.active(),
+        Some(ids[2]),
+        "before the first is the last"
+    );
+}
+
+/// The actions the keys are bound to go through the same step.
+#[gtk::test]
+fn gtk_ui_the_tab_actions_step_forward_and_back() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    let ids = tabbed.ids();
+
+    gtk::prelude::ActionGroupExt::activate_action(tabbed.window(), "previous-tab", None);
+    assert_eq!(tabbed.active(), Some(ids[0]));
+    gtk::prelude::ActionGroupExt::activate_action(tabbed.window(), "next-tab", None);
+    assert_eq!(tabbed.active(), Some(ids[1]));
+}
+
+/// A step is a switch: while the active document has a job running it is
+/// refused, and says so, like a click on the strip.
+#[gtk::test]
+fn gtk_ui_a_keyboard_step_is_refused_while_the_active_tab_is_busy() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    let active = tabbed.active();
+    let job = super::JobGuard::hold(tabbed.viewer());
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+
+    assert_eq!(tabbed.active(), active, "the tab stays put");
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-busy"));
+    drop(job);
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_ne!(tabbed.active(), active, "and moves once the job is done");
+}
+
+/// A tab's close button names Ctrl+W as every other tooltip names its key.
+#[gtk::test]
+fn gtk_ui_a_tab_s_close_button_names_its_shortcut() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+
+    let close = tabbed.strip()[0].close.tooltip_text();
+
+    assert_eq!(close.as_deref(), Some("Close (Ctrl+W)"));
+    assert_eq!(
+        close.map(String::from),
+        Some(crate::app::shortcuts::tooltip_for(
+            "tabs-close-tooltip",
+            crate::app::shortcuts::CLOSE_TAB
+        ))
+    );
+}
+
+fn tab_action_enabled(tabbed: &Tabbed, name: &str) -> bool {
+    gtk::prelude::ActionMapExt::lookup_action(tabbed.window(), name)
+        .expect("the tab actions are installed")
+        .is_enabled()
+}
+
+/// A disabled action does not take its key: with one document Ctrl+Tab and
+/// Ctrl+Page Up/Down stay with the focused widget — Ctrl+Tab leaves a
+/// multi-line text field. Enabled as soon as there is a second tab, and
+/// disabled again when it closes.
+#[gtk::test]
+fn gtk_ui_the_tab_actions_are_enabled_only_with_two_tabs_or_more() {
+    let tabbed = Tabbed::new();
+    let both = |tabbed: &Tabbed| {
+        [
+            tab_action_enabled(tabbed, "next-tab"),
+            tab_action_enabled(tabbed, "previous-tab"),
+        ]
+    };
+    assert_eq!(both(&tabbed), [false, false], "no document");
+
+    tabbed.open_sample();
+    assert_eq!(both(&tabbed), [false, false], "one document");
+
+    tabbed.open_blank();
+    assert_eq!(both(&tabbed), [true, true], "two documents");
+
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    assert_eq!(tabbed.tab_count(), 1);
+    assert_eq!(both(&tabbed), [false, false], "one left");
+}
+
+/// One document has no neighbour: the keys do nothing, and say nothing.
+#[gtk::test]
+fn gtk_ui_a_keyboard_step_with_one_tab_does_nothing() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    let active = tabbed.active();
+    let said = said(&tabbed);
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+    super::cycle::cycle(tabbed.viewer(), -1);
+
+    assert_eq!(tabbed.active(), active);
+    assert!(!super::has_other_tab(tabbed.viewer()));
+    assert!(said.borrow().is_empty(), "{:?}", said.borrow());
 }

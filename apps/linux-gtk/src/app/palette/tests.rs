@@ -482,14 +482,15 @@ fn gtk_ui_palette_ctrl_k_is_resolved_before_a_focused_text_field() {
     }
 }
 
-/// Esc is also `win.clear-content-selection`'s accelerator, and application
+/// Esc is also `win.escape`'s accelerator, and application
 /// accelerators run in the capture phase ahead of the palette. While the
 /// palette is open that action must be off, so the first Esc reaches the
 /// palette and closes it with the selection untouched — and it must come
 /// back on however the palette closes.
 #[gtk::test]
 fn gtk_ui_palette_escape_closes_it_first_and_keeps_a_content_selection() {
-    use crate::app::content_edit::multi::{has_selection, CLEAR_ACTION};
+    use crate::app::content_edit::multi::has_selection;
+    use crate::app::escape::ACTION as CLEAR_ACTION;
     use crate::app::state::ContentSelection;
 
     let built = window();

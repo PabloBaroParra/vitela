@@ -125,12 +125,12 @@ pub(crate) fn activate_open_path(
 ) -> AlreadyOpen {
     if super::being_written(viewer, path) {
         abandon_pending_tool(viewer);
-        viewer.status.set_text(&tr("tabs-path-being-written"));
+        viewer.refuse(&tr("tabs-path-being-written"));
         return AlreadyOpen::Handled;
     }
     if super::being_written(viewer, path) {
         abandon_pending_tool(viewer);
-        viewer.status.set_text(&tr("tabs-path-being-written"));
+        viewer.refuse(&tr("tabs-path-being-written"));
         return AlreadyOpen::Handled;
     }
     let Some(id) = super::find_open_tab(viewer, path) else {
@@ -142,14 +142,14 @@ pub(crate) fn activate_open_path(
     if viewer.tabs.borrow().list.active() != Some(id) {
         if let Err(reason) = activate_then(viewer, id, Arrival::Open, Box::new(|_| {})) {
             abandon_pending_tool(viewer);
-            viewer.status.set_text(&reason);
+            viewer.refuse(&reason);
         }
         return AlreadyOpen::Handled;
     }
     crate::app::home::show_editor(viewer);
     if let Some(reason) = busy_refusal(viewer) {
         abandon_pending_tool(viewer);
-        viewer.status.set_text(&reason);
+        viewer.refuse(&reason);
         return AlreadyOpen::Handled;
     }
     // An open retype box is committed first, like at every other entry
@@ -199,7 +199,7 @@ pub(crate) fn land_in_new_tab(
             after(viewer, Some(holder));
         } else {
             close_document_in_background(document.document);
-            viewer.status.set_text(&tr("tabs-reload-skipped"));
+            viewer.refuse(&tr("tabs-reload-skipped"));
             after(viewer, None);
         }
         return;
@@ -208,6 +208,12 @@ pub(crate) fn land_in_new_tab(
         park::park_active(viewer);
         let (_, generation) = super::retire_counters(viewer);
         show_document(viewer, generation, document);
+        // `show_document` opens at fit-width, top of page 1; a document
+        // read before comes back where it was left.
+        crate::app::session_state::restore_view(viewer, generation);
+        // The keyboard reads on from here: Page Down and the arrows are the
+        // new document's, not the control the open was started from.
+        crate::app::canvas_keys::focus_on_arrival(viewer);
         active_tab(viewer)
     } else {
         abandon_pending_tool(viewer);

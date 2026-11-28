@@ -92,7 +92,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
             session.selection = None;
         }
-        viewer.status.set_text(&tr("forms-mode-armed"));
+        viewer.info(&tr("forms-mode-armed"));
     } else {
         {
             let mut state = viewer.state.borrow_mut();
@@ -106,9 +106,10 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         for (_, button) in &viewer.forms.place {
             button.set_active(false);
         }
-        viewer.status.set_text(&tr("forms-mode-disarmed"));
+        viewer.info(&tr("forms-mode-disarmed"));
     }
     update_forms_controls(viewer);
+    crate::app::arming::sync(viewer);
     redraw(viewer);
 }
 
@@ -135,11 +136,12 @@ pub(crate) fn set_field_kind(viewer: &Viewer, kind: Option<FieldKind>) {
     // already names every variant for the toolbar buttons, and repeating
     // that mapping here would leave a fifth kind's arming message to drift
     // from its own button the moment someone adds one and forgets this match.
-    viewer.status.set_text(&match kind {
+    viewer.info(&match kind {
         Some(kind) => tr_args("forms-kind-armed", &[("kind", kind.label().into())]),
         None => tr("forms-mode-armed-select"),
     });
     update_forms_controls(viewer);
+    crate::app::arming::sync(viewer);
     redraw(viewer);
 }
 

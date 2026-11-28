@@ -27,9 +27,7 @@ use crate::app::write::{snapshot_for_output, OutputSource};
 /// view must never supersede a page the export still owes a file for.
 pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: PathBuf) {
     let count = request.options.pages.len();
-    viewer
-        .status
-        .set_text(&tr_args("export-busy", &[("count", count.into())]));
+    viewer.info(&tr_args("export-busy", &[("count", count.into())]));
 
     let ExportRequest {
         source,
@@ -60,11 +58,9 @@ pub(super) fn spawn_export(viewer: &Viewer, request: ExportRequest, folder: Path
             // The images are the user's whatever happened to the document
             // meanwhile: say where they went, or why they did not.
             match result {
-                Ok(Ok(count)) => viewer
-                    .status
-                    .set_text(&options::export_summary(count, &destination)),
-                Ok(Err(message)) => viewer.status.set_text(&message),
-                Err(_) => viewer.status.set_text(&tr("export-unfinished")),
+                Ok(Ok(count)) => viewer.success(&options::export_summary(count, &destination)),
+                Ok(Err(message)) => viewer.fail(&message),
+                Err(_) => viewer.fail(&tr("export-unfinished")),
             }
         }
     });

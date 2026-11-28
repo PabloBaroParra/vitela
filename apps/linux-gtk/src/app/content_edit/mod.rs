@@ -435,7 +435,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         // this is what stops it being *shown*.
         clear_text_selection(viewer);
         load_visible_page_content(viewer);
-        viewer.status.set_text(&tr("edit-mode-armed"));
+        viewer.info(&tr("edit-mode-armed"));
     } else {
         editor::commit(viewer);
         clear_selected_image(viewer);
@@ -452,7 +452,7 @@ pub(crate) fn set_mode(viewer: &Viewer, active: bool) {
         }
         viewer.insert_text_button.set_active(false);
         viewer.insert_image_button.set_active(false);
-        viewer.status.set_text(&tr("edit-mode-disarmed"));
+        viewer.info(&tr("edit-mode-disarmed"));
     }
     crate::app::update_content_edit_controls(viewer);
     redraw(viewer);
@@ -499,7 +499,7 @@ pub(crate) fn set_insert_mode(viewer: &Viewer, kind: Option<ContentInsertKind>) 
         .insert_image_button
         .set_active(kind == Some(ContentInsertKind::Image));
 
-    viewer.status.set_text(&tr(match kind {
+    viewer.info(&tr(match kind {
         Some(ContentInsertKind::Text) => "edit-insert-text-armed",
         Some(ContentInsertKind::Image) => "edit-insert-image-armed",
         None => "edit-mode-armed",
@@ -878,7 +878,7 @@ fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
         }
         Some(ContentInsertKind::Image) => {
             let Some(window) = viewer.window() else {
-                viewer.status.set_text(&tr("edit-no-window"));
+                viewer.fail(&tr("edit-no-window"));
                 return;
             };
             image::insert_at(&window, viewer, page_index, point);
@@ -900,7 +900,7 @@ fn resolve_click(viewer: &Viewer, page_index: usize, point: (f64, f64)) {
                 block::clear(viewer);
             }
         },
-        block::TextHit::Unreadable(error) => viewer.status.set_text(&error),
+        block::TextHit::Unreadable(error) => viewer.refuse(&error),
         block::TextHit::Unavailable => {}
     }
 }
@@ -929,14 +929,14 @@ mod tests {
             (None, "Edición de contenido activada: haz clic en el texto para seleccionarlo o haz doble clic para reescribirlo."),
         ] {
             set_insert_mode(viewer, kind);
-            assert_eq!(viewer.status.text(), message);
+            assert_eq!(viewer.last_said(), message);
             assert!(mode_is_active(viewer));
             assert_eq!(viewer.state.borrow().content_insert_mode, kind);
             assert_eq!(viewer.insert_text_button.is_active(), kind == Some(ContentInsertKind::Text));
             assert_eq!(viewer.insert_image_button.is_active(), kind == Some(ContentInsertKind::Image));
         }
         set_mode(viewer, false);
-        assert_eq!(viewer.status.text(), "Edición de contenido desactivada.");
+        assert_eq!(viewer.last_said(), "Edición de contenido desactivada.");
         viewer.state.borrow_mut().session = None;
         update_controls(viewer);
         crate::app::update_content_edit_controls(viewer);
@@ -1481,7 +1481,7 @@ mod tests {
         image::replace_selected(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text(),
+            built.viewer.last_said(),
             tr(panel::IMAGE_PENDING_EDIT),
             "the queued edit was not answered before the picker"
         );

@@ -244,7 +244,7 @@ fn gtk_ui_a_selection_inside_a_run_is_refused_and_records_nothing() {
     toggle(viewer, Style::Bold);
 
     assert!(entries(viewer).is_empty());
-    assert_eq!(viewer.status.text(), tr("edit-style-select-whole-run"));
+    assert_eq!(viewer.last_said(), tr("edit-style-select-whole-run"));
     crate::app::content_edit::editor::cancel(viewer);
 }
 
@@ -374,7 +374,7 @@ fn gtk_ui_a_partial_selection_of_edited_text_asks_for_the_edit_to_be_committed()
     toggle(viewer, Style::Italic);
 
     assert!(entries(viewer).is_empty(), "nothing restyled");
-    assert_eq!(viewer.status.text(), tr("edit-style-commit-edit-first"));
+    assert_eq!(viewer.last_said(), tr("edit-style-commit-edit-first"));
     crate::app::content_edit::editor::cancel(viewer);
 }
 

@@ -114,7 +114,7 @@ fn open_chosen_files(
     };
     let paths: Vec<PathBuf> = files.iter().filter_map(gio::File::path).collect();
     if paths.len() < files.len() {
-        viewer.status.set_text(&tr("open-not-local-file"));
+        viewer.refuse(&tr("open-not-local-file"));
     }
     if paths.is_empty() {
         abandon_pending_tool(viewer);
@@ -174,7 +174,7 @@ pub(crate) fn open_sample(window: &ApplicationWindow, viewer: &Viewer, kind: Sam
 /// parameter, so recover the shell window from the status widget.
 pub(crate) fn open_file(viewer: &Viewer, path: PathBuf) {
     let Some(window) = viewer.window() else {
-        viewer.status.set_text(&tr("open-window-unavailable"));
+        viewer.fail(&tr("open-window-unavailable"));
         return;
     };
     open_initial(&window, viewer, DocumentSource::File(path));
@@ -186,12 +186,12 @@ pub(crate) fn new_blank_document(window: &ApplicationWindow, viewer: &Viewer) {
     let base = pdf_manip::create_blank_document(PageSize::A4, Orientation::Portrait);
     let Ok(base) = pdf_manip::insert_blank_page(&base, 0, PageSize::A4, Orientation::Portrait)
     else {
-        viewer.status.set_text(&tr("open-blank-failed"));
+        viewer.fail(&tr("open-blank-failed"));
         return;
     };
     let mut bytes = Vec::new();
     if base.as_lopdf().clone().save_to(&mut bytes).is_err() {
-        viewer.status.set_text(&tr("open-blank-failed"));
+        viewer.fail(&tr("open-blank-failed"));
         return;
     }
     open_initial(window, viewer, DocumentSource::Bytes(bytes));
@@ -271,7 +271,7 @@ fn ask_then_reload(
         let viewer = viewer.clone();
         move || {
             if super::tabs::active_tab(&viewer) != Some(holder) {
-                viewer.status.set_text(&tr("tabs-document-changed"));
+                viewer.refuse(&tr("tabs-document-changed"));
                 return;
             }
             open_source(
@@ -352,7 +352,7 @@ pub(crate) fn confirm_unsaved_edits(
                 UnsavedDecision::Save => {
                     save_then(&window, &viewer, proceed.clone());
                 }
-                UnsavedDecision::Keep => viewer.status.set_text(&tr("open-unsaved-kept")),
+                UnsavedDecision::Keep => viewer.info(&tr("open-unsaved-kept")),
             }
         }
     });
@@ -373,13 +373,16 @@ fn unsaved_decision(response: Option<i32>) -> UnsavedDecision {
     }
 }
 
-/// Runs the save chooser and, only if the bytes reach disk, continues.
+/// Runs Save and, only if the bytes reach disk, continues.
 ///
-/// A cancelled chooser or a failed write must not continue: the reader chose
-/// Save precisely to keep the work, and closing anyway would discard exactly
-/// what they asked to preserve.
+/// The same Save as Ctrl+S: a document that came from a file is written
+/// back to it with nothing more asked, and only one with no file to go back
+/// to raises the chooser. A cancelled chooser, a refused save or a failed
+/// write must not continue: the reader chose Save precisely to keep the
+/// work, and closing anyway would discard exactly what they asked to
+/// preserve.
 fn save_then(window: &ApplicationWindow, viewer: &Viewer, after_save: Rc<dyn Fn()>) {
-    super::write::show_save_chooser_then(window, viewer, Some(after_save));
+    super::write::save_then(window, viewer, Some(after_save));
 }
 
 fn start_open(
@@ -388,7 +391,7 @@ fn start_open(
     source: DocumentSource,
     placement: Placement,
 ) {
-    viewer.status.set_text(&tr("open-busy"));
+    viewer.info(&tr("open-busy"));
     let started = perf::now();
     glib::spawn_future_local({
         let window = window.clone();
@@ -408,7 +411,7 @@ fn start_open(
                     prompt_for_password(&window, &viewer, source, placement);
                 }
                 Err(error) => {
-                    viewer.status.set_text(&open_failed(&error));
+                    viewer.fail(&open_failed(&error));
                     abandon_pending_tool(&viewer);
                     super::tabs::finish_open(&window, &viewer);
                 }
@@ -439,7 +442,7 @@ fn land_opened(
     );
 }
 
-/// The status line for an open that failed. `error` is the renderer's own
+/// What the toast says for an open that failed. `error` is the renderer's own
 /// detail and stays as it is, untranslated.
 fn open_failed(error: &impl std::fmt::Display) -> String {
     tr_args("open-failed", &[("error", error.to_string().into())])
@@ -493,6 +496,12 @@ pub(crate) fn open_document(
     password: Option<&str>,
 ) -> Result<OpenedDocument, RenderError> {
     let renderer = PdfiumRenderer::new();
+    // Before the first read: a file written while it is being opened then
+    // reads as changed, which is the safe way round.
+    let origin_stamp = match source {
+        DocumentSource::File(path) => super::state::FileStamp::of(path),
+        DocumentSource::Embedded(_) | DocumentSource::Bytes(_) => None,
+    };
     let started = perf::now();
     let document = match source {
         DocumentSource::File(path) => renderer.open_document(path, password)?,
@@ -531,6 +540,7 @@ pub(crate) fn open_document(
                 DocumentSource::File(path) => Some(path.clone()),
                 DocumentSource::Embedded(_) | DocumentSource::Bytes(_) => None,
             },
+            origin_stamp,
             page_geometry,
             text_access,
             annotation_access,
@@ -845,7 +855,7 @@ fn prompt_for_password(
         let error_label = error_label.clone();
         let source = source.clone();
         move || {
-            viewer.status.set_text(&tr("open-password-busy"));
+            viewer.info(&tr("open-password-busy"));
             dialog.set_sensitive(false);
             glib::spawn_future_local({
                 let window = window.clone();
@@ -876,13 +886,13 @@ fn prompt_for_password(
                         }
                         Err(RenderError::InvalidPassword) => {
                             dialog.set_sensitive(true);
-                            viewer.status.set_text(&tr("open-password-waiting"));
+                            viewer.info(&tr("open-password-waiting"));
                             error_label.set_text(&tr("open-password-wrong"));
                             password_entry.set_text("");
                             password_entry.grab_focus();
                         }
                         Err(error) => {
-                            viewer.status.set_text(&open_failed(&error));
+                            viewer.fail(&open_failed(&error));
                             abandon_pending_tool(&viewer);
                             dismiss_password_dialog(&viewer, &dialog);
                             super::tabs::finish_open(&window, &viewer);
@@ -902,7 +912,7 @@ fn prompt_for_password(
         let viewer = viewer.clone();
         let dialog = dialog.clone();
         move |_| {
-            viewer.status.set_text(&tr("open-password-cancelled"));
+            viewer.info(&tr("open-password-cancelled"));
             abandon_pending_tool(&viewer);
             dismiss_password_dialog(&viewer, &dialog);
             super::tabs::finish_open(&window, &viewer);
@@ -919,7 +929,7 @@ fn prompt_for_password(
         move |_| {
             if viewer.state.borrow().password_dialog.as_ref() == Some(&dialog) {
                 viewer.state.borrow_mut().password_dialog = None;
-                viewer.status.set_text(&tr("open-password-cancelled"));
+                viewer.info(&tr("open-password-cancelled"));
                 abandon_pending_tool(&viewer);
                 super::tabs::finish_open(&window, &viewer);
             }
@@ -958,7 +968,7 @@ mod tests {
     use crate::app::ui_tests::built_ui;
     use crate::app::BuiltUi;
     use gtk::prelude::*;
-    use gtk::{gio, glib, Box as GtkBox, Button, ContentFit, Orientation, Picture, Window};
+    use gtk::{gio, glib, Box as GtkBox, ContentFit, Orientation, Picture, Window};
     use pdf_document::{Document, FieldValue};
     use std::path::PathBuf;
     use std::time::{Duration, Instant};
@@ -1236,24 +1246,7 @@ mod tests {
     }
 
     /// The shared wait — see `test_support`.
-    use crate::app::test_support::wait_until;
-
-    /// The first button under `root` labelled `label`, depth first.
-    fn find_button(root: &gtk::Widget, label: &str) -> Option<Button> {
-        if let Some(button) = root.downcast_ref::<Button>() {
-            if button.label().as_deref() == Some(label) {
-                return Some(button.clone());
-            }
-        }
-        let mut child = root.first_child();
-        while let Some(widget) = child {
-            if let Some(found) = find_button(&widget, label) {
-                return Some(found);
-            }
-            child = widget.next_sibling();
-        }
-        None
-    }
+    use crate::app::test_support::{find_button, wait_until};
 
     /// The password prompt for an encrypted sample, with Sign armed the way a
     /// Home tile or a mode arms it before there is a document.
@@ -1317,7 +1310,7 @@ mod tests {
         assert!(
             wait_until(|| window.viewer().tabs.borrow().parked_count() == 3),
             "every open lands: {}",
-            window.viewer().status.text()
+            window.viewer().last_said()
         );
         assert!(window.box_open(), "the refused box stays open");
         assert!(!window.viewer().tabs.borrow().is_opening());
@@ -1352,7 +1345,7 @@ mod tests {
         let reloaded = wait_until(|| handle() != before);
         let _ = std::fs::remove_file(&path);
 
-        assert!(reloaded, "{}", window.viewer().status.text());
+        assert!(reloaded, "{}", window.viewer().last_said());
         assert!(!window.box_open());
         assert!(!window.unsaved_to_disk());
     }
@@ -1419,7 +1412,7 @@ mod tests {
 
         open_chosen_files(&built.window, &built.viewer, Ok(vec![remote]));
 
-        assert_eq!(built.viewer.status.text(), tr("open-not-local-file"));
+        assert_eq!(built.viewer.last_said(), tr("open-not-local-file"));
         assert_eq!(built.viewer.state.borrow().pending_tool, None);
         built.window.close();
     }
@@ -1438,7 +1431,7 @@ mod tests {
         );
 
         assert!(
-            wait_until(|| built.viewer.status.text() != tr("open-busy")),
+            wait_until(|| built.viewer.last_said() != tr("open-busy")),
             "the open must finish"
         );
         assert!(built.viewer.state.borrow().session.is_none());
@@ -1516,7 +1509,7 @@ mod tests {
             "nothing opened"
         );
         assert!(!built.viewer.tabs.borrow().is_opening(), "the open ended");
-        assert_eq!(built.viewer.status.text(), tr("open-password-cancelled"));
+        assert_eq!(built.viewer.last_said(), tr("open-password-cancelled"));
         built.window.close();
     }
 
@@ -1533,7 +1526,7 @@ mod tests {
         open.emit_clicked();
 
         assert!(
-            wait_until(|| built.viewer.status.text() == tr("open-password-waiting")),
+            wait_until(|| built.viewer.last_said() == tr("open-password-waiting")),
             "the empty password must be refused"
         );
         assert_eq!(

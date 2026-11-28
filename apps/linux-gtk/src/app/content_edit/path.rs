@@ -249,7 +249,7 @@ fn claim(
         current: point,
     });
     drop(state);
-    viewer.status.set_text(&tr(PATH_SELECTED));
+    viewer.info(&tr(PATH_SELECTED));
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
     true
@@ -289,7 +289,7 @@ pub(crate) fn finish_path_drag(viewer: &Viewer) -> bool {
         return true;
     };
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         selection::redraw(viewer);
         return true;
     }
@@ -312,7 +312,7 @@ pub(crate) fn finish_path_drag(viewer: &Viewer) -> bool {
     };
     match result {
         Ok(()) => refresh_preview(viewer, message_for(drag.mode)),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -326,7 +326,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let result = {
@@ -345,7 +345,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
     };
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-shape-deleted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);

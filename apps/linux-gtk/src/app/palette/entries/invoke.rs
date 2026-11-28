@@ -102,12 +102,27 @@ fn mode_refusal(mode: Mode, viewer: &Viewer, has_document: bool) -> Option<Strin
 fn action_refusal(action: WindowAction, viewer: &Viewer, has_document: bool) -> Option<String> {
     match action {
         WindowAction::Open | WindowAction::New => None,
-        WindowAction::Save => document_then(has_document, "save-no-document", || None),
+        WindowAction::Save | WindowAction::SaveAs => {
+            document_then(has_document, "save-no-document", || None)
+        }
         WindowAction::Print => document_then(has_document, "print-open-first", || None),
         WindowAction::CloseTab => document_then(has_document, "tabs-no-document", || None),
-        WindowAction::Find => document_then(has_document, "search-open-first", || {
-            viewer.text_extraction_refusal()
-        }),
+        // A step needs a neighbour to go to; with one document, or none,
+        // the key does nothing and the entry says why.
+        WindowAction::NextTab | WindowAction::PreviousTab => {
+            (!crate::app::tabs::has_other_tab(viewer)).then(|| tr("tabs-no-other-document"))
+        }
+        WindowAction::Quit | WindowAction::FullScreen | WindowAction::Shortcuts => None,
+        WindowAction::Find | WindowAction::FindNext | WindowAction::FindPrevious => {
+            document_then(has_document, "search-open-first", || {
+                viewer.text_extraction_refusal()
+            })
+        }
+        WindowAction::ZoomIn
+        | WindowAction::ZoomOut
+        | WindowAction::ActualSize
+        | WindowAction::FitWidth
+        | WindowAction::FitPage => document_then(has_document, "tabs-no-document", || None),
         WindowAction::Undo => {
             (!viewer.undo_action.is_enabled()).then(|| tr("palette-nothing-to-undo"))
         }
@@ -247,12 +262,12 @@ fn run_click(tool: ClickTool, window: &ApplicationWindow, viewer: &Viewer) -> Re
 }
 
 /// Turns every page, and reports a refusal or failure as `Err` with the
-/// sentence `rotate_all_pages` left on the status line, so the palette does
-/// not count a turn that recorded nothing as a recent command.
+/// sentence `rotate_all_pages` said on its toast, so the palette does not
+/// count a turn that recorded nothing as a recent command.
 fn rotate_all(viewer: &Viewer, delta_degrees: i32) -> Result<(), String> {
     if crate::app::organize::rotate_all_pages(viewer, delta_degrees) {
         Ok(())
     } else {
-        Err(viewer.status.text().into())
+        Err(viewer.last_said().into())
     }
 }

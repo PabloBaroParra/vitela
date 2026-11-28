@@ -36,17 +36,19 @@ pub(super) fn arm(viewer: &Viewer, session_id: u64, png: Vec<u8>) -> bool {
     forms::set_mode(viewer, false);
     annotations::disarm(viewer);
     viewer.state.borrow_mut().signature.armed = Some(ArmedSignature { png, session_id });
-    viewer.status.set_text(&tr(PROMPT));
+    crate::app::arming::sync(viewer);
+    viewer.info(&tr(PROMPT));
     true
 }
 
 /// Releases a waiting signature, if there is one. Leaving the Sign tab calls
 /// this: nothing visible says a click is about to place a picture once the user
 /// is looking at another tool's panel.
-pub(super) fn disarm(viewer: &Viewer) {
+pub(crate) fn disarm(viewer: &Viewer) {
     let was_armed = viewer.state.borrow_mut().signature.armed.take().is_some();
     if was_armed {
-        viewer.status.set_text(&tr(DISARMED));
+        crate::app::arming::sync(viewer);
+        viewer.info(&tr(DISARMED));
     }
 }
 
@@ -72,14 +74,16 @@ enum Press {
 /// selection under them.
 pub(crate) fn place_armed(viewer: &Viewer, page_index: usize, point: (f64, f64)) -> bool {
     let press = take_press(viewer);
+    // Placed or found stale, the signature is no longer waiting.
+    crate::app::arming::sync(viewer);
     match press {
         Press::NotArmed => false,
         Press::Stale => {
-            viewer.status.set_text(&tr(STALE));
+            viewer.refuse(&tr(STALE));
             false
         }
         Press::Refused(refusal) => {
-            viewer.status.set_text(&refusal);
+            viewer.refuse(&refusal);
             true
         }
         Press::Place(png) => {
@@ -254,7 +258,7 @@ mod tests {
         assert_eq!(stamps(viewer), 0);
         assert!(is_armed(viewer), "a refusal is not a placement");
         assert_eq!(
-            viewer.status.text(),
+            viewer.last_said(),
             "This document does not permit annotation changes."
         );
     }
@@ -336,5 +340,27 @@ mod tests {
         assert!(arm(viewer, the_session(viewer), a_png()));
 
         assert!(is_armed(viewer));
+    }
+
+    /// A waiting signature claims the next page press like an armed tool
+    /// does, so Escape lets go of it the same way (`escape`).
+    #[gtk::test]
+    fn gtk_ui_escape_releases_a_waiting_signature() {
+        let built = Built::new();
+        let viewer = built.viewer();
+        open_document(viewer);
+        let escape = viewer
+            .window()
+            .and_then(|window| window.lookup_action(crate::app::escape::ACTION))
+            .expect("build_ui installs win.escape");
+        assert!(!escape.is_enabled());
+
+        assert!(arm(viewer, the_session(viewer), a_png()));
+        assert!(escape.is_enabled());
+        escape.activate(None);
+
+        assert!(!is_armed(viewer));
+        assert_eq!(viewer.last_said(), tr(DISARMED));
+        assert!(!escape.is_enabled());
     }
 }

@@ -343,9 +343,9 @@ Rutas relativas a `apps/linux-gtk/src/app/`, medidas sobre `origin/main` el 2026
       foco**. No se agregó manejo
       especial. No se verificó con una pulsación real (xdotool) en la app.
       **Esc con una selección de contenido:** Esc es también el acelerador de
-      `win.clear-content-selection` (`content_edit::multi`), que corre en la misma
+      `win.escape` (`escape`), que corre en la misma
       captura antes que la paleta. `ViewerState::palette_open` lo ponen y lo quitan solo
-      `Palette::open`/`close`, y `update_clear_action` deja la acción apagada mientras
+      `Palette::open`/`close`, y `escape::update` deja la acción apagada mientras
       está en `true` (una acción deshabilitada no consume su tecla); `open` y `close`
       la recalculan desde el estado, así que ningún cierre (Esc, Ctrl+K, clic afuera,
       ejecutar una entrada: todos pasan por `close`) la deja apagada. El primer Esc

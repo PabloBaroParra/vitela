@@ -119,7 +119,7 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
         &sources,
         pdf_save::SignatureAcknowledgement::Unacknowledged,
     )) {
-        viewer.status.set_text(&options::refusal_text(&refusal));
+        viewer.refuse(&options::refusal_text(&refusal));
         return;
     }
 
@@ -133,7 +133,7 @@ pub(crate) fn begin_compress(viewer: &Viewer) {
         current_size,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(&COMPRESS.cancelled())
+            move || viewer.info(&COMPRESS.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -204,15 +204,15 @@ fn compress_with(window: &ApplicationWindow, viewer: &Viewer, preset: CompressPr
 fn snapshot(viewer: &Viewer) -> Option<CompressRequest> {
     let state = viewer.state.borrow();
     let Some(session) = state.session.as_ref() else {
-        viewer.status.set_text(&tr("compress-no-document"));
+        viewer.refuse(&tr("compress-no-document"));
         return None;
     };
     let Some(document) = session.document_model.clone() else {
-        viewer.status.set_text(&tr("compress-not-editable"));
+        viewer.refuse(&tr("compress-not-editable"));
         return None;
     };
     let Some(backing) = session.save_backing.clone() else {
-        viewer.status.set_text(&tr("write-no-save-backing"));
+        viewer.refuse(&tr("write-no-save-backing"));
         return None;
     };
     Some(CompressRequest {
@@ -284,7 +284,7 @@ mod tests {
         begin_compress(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Open a PDF before compressing it."
         );
 
@@ -302,7 +302,7 @@ mod tests {
         begin_compress(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "This document has no save backing."
         );
 
@@ -336,7 +336,7 @@ mod tests {
         begin_compress(&built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             super::options::refusal_text(&pdf_compress::Refusal::EncryptedDocumentNotRewritable)
         );
 

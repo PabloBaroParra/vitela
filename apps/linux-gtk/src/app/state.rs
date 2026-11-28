@@ -3,7 +3,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -73,6 +73,10 @@ pub(crate) struct Viewer {
     /// nothing to show — see `brand::build_app_mark`.
     pub(crate) app_mark: Picture,
     pub(crate) status: Label,
+    /// Where outcomes are reported — the toast over the window's content.
+    /// Nothing sets `status` or shows a toast directly: messages go through
+    /// `Viewer::info`/`success`/`refuse`/`fail` (see `feedback`).
+    pub(crate) feedback: crate::app::feedback::Feedback,
     /// "3 / 12" readout of the current `last_visible` range, kept in step by
     /// `render::update_viewport` alongside `status`.
     pub(crate) page_indicator: Label,
@@ -167,6 +171,10 @@ pub(crate) struct Viewer {
     /// timer that writes them. Beside `state` rather than in it, because it
     /// outlives every document the window shows.
     pub(crate) recovery: crate::app::recovery::Recovery,
+    /// What this window remembers between runs — its size, its panels, where
+    /// each document was being read. Off until `session_state::install`,
+    /// which only `run` calls, like `recovery`.
+    pub(crate) remembered: crate::app::session_state::Remembered,
     /// The open documents other than the active one, and the order of every
     /// tab — see `tabs`. Beside `state` rather than in it so the dozens of
     /// readers of `state.session` never see a parked document.
@@ -179,6 +187,11 @@ pub(crate) struct Viewer {
     /// How many jobs started on the active document are still running — see
     /// `tabs::JobGuard`.
     pub(crate) jobs_in_flight: Rc<std::cell::Cell<u32>>,
+    /// Whether the hand tool (`pan`) is showing its cursor. While it is, the
+    /// pages show no armed-tool cursor of their own — see `arming`. A cell
+    /// beside the state rather than a field in it: the hand follows key
+    /// events, which can land while a handler holds the state.
+    pub(crate) hand_shown: Rc<std::cell::Cell<bool>>,
 }
 
 impl Viewer {
@@ -413,8 +426,8 @@ pub(crate) struct ViewerState {
     pub(crate) pending_tool: Option<HomeTool>,
     /// Whether the command palette (B27) is up. Set and cleared only by
     /// `palette::Palette::open`/`close`, the one path every way of closing
-    /// it goes through; `content_edit::multi::update_clear_action` reads it
-    /// to keep Esc's clear action off while it is true.
+    /// it goes through; `escape::update` reads it to keep Esc's own action
+    /// off while it is true.
     pub(crate) palette_open: bool,
     /// The drawn-signature flow's shell state (T-088) — see
     /// [`SignatureState`].
@@ -1470,6 +1483,15 @@ pub(crate) struct DocumentSession {
     /// knows where it belongs. Carried across a preview refresh like
     /// `base_name`, for the same reason.
     pub(crate) origin_path: Option<PathBuf>,
+    /// What the file at `origin_path` looked like when this session's bytes
+    /// were read from it — and so again after every save, which reopens the
+    /// file it wrote. `None` whenever those bytes did not come from that
+    /// file: no file at all, or a copy restored after a crash. Travels with
+    /// `origin_path` wherever that is carried.
+    ///
+    /// What lets a Save tell "the file I read" from "a file someone has
+    /// written since" before replacing it — see `write::in_place`.
+    pub(crate) origin_stamp: Option<FileStamp>,
     /// Whether search and text selection may read this document's text.
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,
@@ -1818,12 +1840,46 @@ pub(crate) struct RenderedPage {
     pub(crate) pixels: Vec<u8>,
 }
 
+/// What a file looked like at one moment: enough to notice, later, that it
+/// is no longer the file that was read.
+///
+/// Size and modification time catch a file edited where it is; device and
+/// inode catch one replaced by another — which is what most programs' saves
+/// do, this one's included. Two stamps that are equal do not prove the bytes
+/// are (a rewrite of the same length inside the clock's resolution would
+/// slip through), so this decides when to *ask*, never what to trust.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FileStamp {
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    device: u64,
+    inode: u64,
+}
+
+impl FileStamp {
+    /// The stamp of the file `path` names now, links followed; `None` when
+    /// there is no reading it.
+    pub(crate) fn of(path: &Path) -> Option<Self> {
+        use std::os::unix::fs::MetadataExt;
+
+        let metadata = std::fs::metadata(path).ok()?;
+        Some(Self {
+            len: metadata.len(),
+            modified: metadata.modified().ok(),
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+}
+
 pub(crate) struct OpenedDocument {
     pub(crate) document: DocumentHandle,
     /// See [`DocumentSession::base_name`], which this becomes.
     pub(crate) name: String,
     /// See [`DocumentSession::origin_path`], which this becomes.
     pub(crate) origin_path: Option<PathBuf>,
+    /// See [`DocumentSession::origin_stamp`], which this becomes.
+    pub(crate) origin_stamp: Option<FileStamp>,
     pub(crate) page_geometry: Vec<PageGeometry>,
     pub(crate) text_access: TextAccess,
     pub(crate) annotation_access: AnnotationAccess,

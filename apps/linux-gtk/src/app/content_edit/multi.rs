@@ -17,8 +17,6 @@
 //! As elsewhere in this module, the `&Viewer` functions stay thin; what a
 //! press, a marquee or a toggle means is pure and carries the tests.
 
-use gtk::gio;
-use gtk::prelude::*;
 use pdf_document::{ImageItem, PageContent, PathItem, Rect, TextRun};
 use pdf_edit::Selection;
 
@@ -29,10 +27,6 @@ use crate::app::update_content_edit_controls;
 use crate::app::write::refresh_preview;
 
 use super::{block, command, editor, geometry, model, path};
-
-/// The window action Esc is bound to while a selection exists — this one or
-/// a single selected text block (`super::block`).
-pub(crate) const CLEAR_ACTION: &str = "clear-content-selection";
 
 /// A marquee or a group drag shorter than this, in PDF points on both axes,
 /// is a click.
@@ -327,7 +321,7 @@ pub(crate) fn toggle_at(viewer: &Viewer, page_index: usize, point: (f64, f64), r
         }
     };
     if let Some(message) = message {
-        viewer.status.set_text(&message);
+        viewer.info(&message);
     }
     selection_changed(viewer);
     true
@@ -471,7 +465,7 @@ fn finish_marquee(
             });
         }
     }
-    viewer.status.set_text(&if members.is_empty() {
+    viewer.info(&if members.is_empty() {
         tr("edit-multi-nothing")
     } else {
         selected_message(&members)
@@ -486,7 +480,7 @@ fn finish_group_move(viewer: &Viewer, page_index: usize, origin: (f64, f64), cur
         return;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         selection::redraw(viewer);
         return;
     }
@@ -518,7 +512,7 @@ fn finish_group_move(viewer: &Viewer, page_index: usize, origin: (f64, f64), cur
     };
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-multi-moved")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     selection_changed(viewer);
 }
@@ -530,7 +524,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let result = {
@@ -549,7 +543,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
     };
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-multi-deleted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     selection_changed(viewer);
     true
@@ -569,6 +563,15 @@ pub(crate) fn clear(viewer: &Viewer) {
     }
 }
 
+/// Lets go of everything a click selected — the several-item selection and
+/// the text block alike — and says so. What Escape does once nothing is
+/// armed (`escape`).
+pub(crate) fn clear_all(viewer: &Viewer) {
+    clear(viewer);
+    block::clear(viewer);
+    viewer.info(&tr("edit-multi-cleared"));
+}
+
 /// Whether several-item selection holds anything right now.
 pub(crate) fn has_selection(viewer: &Viewer) -> bool {
     viewer
@@ -579,50 +582,6 @@ pub(crate) fn has_selection(viewer: &Viewer) -> bool {
         .is_some_and(|session| session.content_selection.is_some())
 }
 
-/// Esc clears the selection, or the text block a click selected. The action
-/// is enabled only while there is one, and a disabled action does not
-/// consume its accelerator, so Esc still reaches an open editor or dialog
-/// the rest of the time.
-pub(crate) fn connect_clear_shortcut(
-    application: &gtk::Application,
-    window: &gtk::ApplicationWindow,
-    viewer: &Viewer,
-) {
-    let action = gio::SimpleAction::new(CLEAR_ACTION, None);
-    action.set_enabled(false);
-    action.connect_activate({
-        let viewer = viewer.clone();
-        move |_, _| {
-            clear(&viewer);
-            block::clear(&viewer);
-            viewer.status.set_text(&tr("edit-multi-cleared"));
-        }
-    });
-    window.add_action(&action);
-    application.set_accels_for_action(&format!("win.{CLEAR_ACTION}"), &["Escape"]);
-}
-
-/// Enables Esc exactly while there is a selection for it to clear. Run from
-/// `update_content_edit_controls`, which every change to either selection
-/// already reaches.
-///
-/// Off while the command palette is open, whatever is selected: an enabled
-/// accelerator runs in the window's capture phase, ahead of the palette, so
-/// Esc would clear the selection instead of closing the palette. A disabled
-/// one does not consume the key. The palette calls this on open and close,
-/// so the answer is always recomputed from state and cannot be left stale.
-pub(crate) fn update_clear_action(viewer: &Viewer) {
-    let selected = (has_selection(viewer) || block::has_selection(viewer))
-        && !viewer.state.borrow().palette_open;
-    if let Some(action) = viewer
-        .window()
-        .and_then(|window| window.lookup_action(CLEAR_ACTION))
-        .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
-    {
-        action.set_enabled(selected);
-    }
-}
-
 fn selection_changed(viewer: &Viewer) {
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -631,6 +590,7 @@ fn selection_changed(viewer: &Viewer) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gtk::prelude::*;
     use pdf_document::{ContentItemId, FontKind, PageId, PathPaint};
 
     fn a_rect(x: f64, y: f64, width: f64, height: f64) -> Rect {
@@ -687,7 +647,7 @@ mod tests {
         viewer.status.disconnect(listener);
 
         assert_eq!(
-            viewer.status.text().as_str(),
+            viewer.last_said().as_str(),
             tr_args("edit-multi-selected", &[("count", 1usize.into())])
         );
         assert!(

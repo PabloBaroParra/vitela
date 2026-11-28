@@ -217,6 +217,7 @@ fn new_session(document: OpenedDocument, built: BuiltPages) -> DocumentSession {
         document: document.document,
         base_name: document.name,
         origin_path: document.origin_path,
+        origin_stamp: document.origin_stamp,
         text_access: document.text_access,
         annotation_access: document.annotation_access,
         content_edit_access: document.content_edit_access,
@@ -309,7 +310,7 @@ pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
     // see `content_edit::rearm_for_session`.
     crate::app::content_edit::rearm_for_session(viewer);
     viewer.print_button.set_sensitive(page_count > 0);
-    // `save_button` was wired to `show_save_chooser` from the start (see
+    // `save_button` was wired to the save chain from the start (see
     // `mod.rs`'s `connect_clicked`) but never got the other half of the pair
     // its own comment already describes: nothing ever flipped it back on
     // after `editor_toolbar::build_editor_toolbar`'s initial `set_sensitive
@@ -328,7 +329,7 @@ pub(crate) fn install_session(viewer: &Viewer, session: DocumentSession) {
     // state for a pageless document.
     viewer.app_mark.set_visible(page_count == 0);
     if page_count == 0 {
-        viewer.status.set_text(&tr("open-no-pages"));
+        viewer.info(&tr("open-no-pages"));
     } else {
         update_viewport(viewer);
     }

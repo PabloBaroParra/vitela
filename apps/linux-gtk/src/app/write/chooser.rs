@@ -30,9 +30,9 @@ pub(super) type Proceed = Rc<dyn Fn(&ApplicationWindow, &Viewer, PathBuf)>;
 /// Asks where to write, then hands the answer to `proceed` through the
 /// overwrite guard.
 ///
-/// This shell has no notion of "the current file" to overwrite implicitly —
-/// not for an ordinary Save, not for signing, not for protecting — so every
-/// write to disk starts here.
+/// Signing and protecting never overwrite "the current file" implicitly, so
+/// both start here. So does every Save As, and an ordinary Save whose
+/// document has no file it can write back to (`super::in_place`).
 pub(super) fn choose_destination(
     window: &ApplicationWindow,
     viewer: &Viewer,
@@ -51,6 +51,29 @@ pub(super) fn choose_destination_from(
     operation: WriteOperation,
     suggested: Option<&Path>,
     proceed: Proceed,
+) {
+    pick_destination_unguarded(
+        window,
+        viewer,
+        operation,
+        suggested,
+        Rc::new(move |window, viewer, picked| {
+            confirm_destination(window, viewer, operation, picked, proceed.clone());
+        }),
+    );
+}
+
+/// The chooser alone, opened on `suggested`: hands the path the user picked
+/// — a `.pdf` suffix added — to `picked`, with **no** overwrite guard in
+/// between, so `picked` must make its own. For a chain whose guard has to
+/// ask about more than the picked name (`super::save`); every other caller
+/// wants [`choose_destination_from`].
+pub(super) fn pick_destination_unguarded(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    operation: WriteOperation,
+    suggested: Option<&Path>,
+    picked: Proceed,
 ) {
     let filter = pdf_filter();
     let builder = FileDialog::builder()
@@ -74,20 +97,14 @@ pub(super) fn choose_destination_from(
                 return;
             }
             let Ok(file) = result else {
-                viewer.status.set_text(&operation.cancelled());
+                viewer.info(&operation.cancelled());
                 return;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("write-not-local-file"));
+                viewer.refuse(&tr("write-not-local-file"));
                 return;
             };
-            confirm_destination(
-                &window,
-                &viewer,
-                operation,
-                pdf_destination(path),
-                proceed.clone(),
-            );
+            picked(&window, &viewer, pdf_destination(path));
         }
     });
 }
@@ -118,22 +135,14 @@ pub(super) fn confirm_destination(
     proceed: Proceed,
 ) {
     if crate::app::tabs::path_held_by_other_tab(viewer, &destination) {
-        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+        viewer.refuse(&tr("tabs-path-open-elsewhere"));
         return;
     }
     match destination.try_exists() {
         Ok(false) => proceed(window, viewer, destination),
-        Err(error) => viewer
-            .status
-            .set_text(&check_failed(&destination, &error.to_string())),
+        Err(error) => viewer.fail(&check_failed(&destination, &error.to_string())),
         Ok(true) => {
-            let dialog = AlertDialog::builder()
-                .message(tr("write-replace-title"))
-                .buttons([tr("write-replace-cancel"), tr("write-replace")])
-                .cancel_button(0)
-                .default_button(1)
-                .modal(true)
-                .build();
+            let dialog = replace_dialog(&tr("write-replace-title"));
             dialog.choose(Some(window), None::<&gio::Cancellable>, {
                 let viewer = viewer.clone();
                 let window = window.clone();
@@ -143,16 +152,28 @@ pub(super) fn confirm_destination(
                     if response == Ok(1)
                         && crate::app::tabs::path_held_by_other_tab(&viewer, &destination)
                     {
-                        viewer.status.set_text(&tr("tabs-path-open-elsewhere"));
+                        viewer.refuse(&tr("tabs-path-open-elsewhere"));
                     } else if response == Ok(1) {
                         proceed(&window, &viewer, destination.clone());
                     } else {
-                        viewer.status.set_text(&operation.cancelled());
+                        viewer.info(&operation.cancelled());
                     }
                 }
             });
         }
     }
+}
+
+/// The "Replace?" question, asked as `message`: Cancel, or Replace (answer
+/// `1`, the default).
+pub(super) fn replace_dialog(message: &str) -> AlertDialog {
+    AlertDialog::builder()
+        .message(message)
+        .buttons([tr("write-replace-cancel"), tr("write-replace")])
+        .cancel_button(0)
+        .default_button(1)
+        .modal(true)
+        .build()
 }
 
 /// Saving a signed document breaks its signature, and there is no version of
@@ -196,7 +217,7 @@ pub(super) fn confirm_signature_loss(
         let viewer = viewer.clone();
         move |response| {
             if response != Ok(1) {
-                viewer.status.set_text(&operation.cancelled());
+                viewer.info(&operation.cancelled());
             } else if bound.ensure_active_or_report(&viewer) {
                 proceed();
             }
@@ -204,7 +225,7 @@ pub(super) fn confirm_signature_loss(
     });
 }
 
-/// The status line for a destination whose existence could not be checked;
+/// What the toast says for a destination whose existence could not be checked;
 /// the file-system `error` stays verbatim.
 fn check_failed(destination: &std::path::Path, error: &str) -> String {
     tr_args(
@@ -256,7 +277,7 @@ mod tests {
             }),
         );
 
-        let status = built.viewer.status.text().to_string();
+        let status = built.viewer.last_said().to_string();
         built.viewer.state.borrow_mut().session = None;
         built.viewer.tabs.borrow_mut().clear_for_test();
         built.window.close();

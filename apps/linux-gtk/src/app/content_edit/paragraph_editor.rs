@@ -582,7 +582,7 @@ GARANTÍA: Instalación incluida",
 
         assert!(fixture.field().is_none());
         assert!(fixture.entries().is_empty());
-        assert_eq!(fixture.viewer().status.text(), tr("edit-cancelled"));
+        assert_eq!(fixture.viewer().last_said(), tr("edit-cancelled"));
     }
 
     /// The view draws the theme's font, not the PDF's, so a paragraph whose

@@ -180,7 +180,7 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
     };
 
     if let Some((first, last, page_count)) = visible {
-        viewer.status.set_text(&tr_args(
+        viewer.info(&tr_args(
             "render-showing-pages",
             &[
                 ("first", (first + 1).into()),
@@ -193,7 +193,7 @@ pub(crate) fn update_viewport(viewer: &Viewer) {
             .set_text(&format!("{} / {page_count}", first + 1));
     }
     if let Some(page_index) = rejected_visible_page {
-        viewer.status.set_text(&tr_args(
+        viewer.info(&tr_args(
             "render-page-too-large",
             &[("page", (page_index + 1).into())],
         ));
@@ -390,7 +390,7 @@ fn apply_render_result(
             // Released first: a status change re-queries the tooltip under
             // the pointer, and the page layer's tooltip reads the state.
             drop(state);
-            viewer.status.set_text(&message);
+            viewer.info(&message);
         }
     }
 }
@@ -558,7 +558,7 @@ fn apply_tile_result(
             );
             // Released first, as in `apply_render_result`.
             drop(state);
-            viewer.status.set_text(&message);
+            viewer.info(&message);
             return;
         }
     };
@@ -575,7 +575,7 @@ fn apply_tile_result(
             ],
         );
         drop(state);
-        viewer.status.set_text(&message);
+        viewer.info(&message);
         return;
     }
     let logical_per_pixel = page.budget.factor * POINTS_PER_INCH / f64::from(dpi);

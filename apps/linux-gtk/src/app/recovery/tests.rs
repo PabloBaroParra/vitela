@@ -281,7 +281,7 @@ fn gtk_ui_a_crashed_entry_comes_back_as_the_unsaved_document() {
         Vec::new(),
     );
     settle_until(|| {
-        restored.viewer().status.text() == tr("recovery-restored") && !is_writing(restored.viewer())
+        restored.viewer().last_said() == tr("recovery-restored") && !is_writing(restored.viewer())
     });
 
     {
@@ -336,7 +336,7 @@ fn gtk_ui_an_entry_that_cannot_be_opened_is_discarded() {
         orphans.remove(0),
         Vec::new(),
     );
-    settle_until(|| window.viewer().status.text() == tr("recovery-unreadable"));
+    settle_until(|| window.viewer().last_said() == tr("recovery-unreadable"));
 
     assert!(files_in(dir.root()).is_empty(), "the entry is discarded");
     assert_eq!(
@@ -490,10 +490,10 @@ fn gtk_ui_a_failing_autosave_backs_off_and_says_so_once() {
     window.edit();
     tick_at(viewer, start);
     settle_until(|| !is_writing(viewer));
-    assert_eq!(viewer.status.text(), tr("recovery-autosave-unavailable"));
+    assert_eq!(viewer.last_said(), tr("recovery-autosave-unavailable"));
     let failed_attempts = attempts(viewer);
 
-    viewer.status.set_text("");
+    viewer.info("");
     window.edit();
     tick_at(viewer, start + Duration::from_secs(30));
     settle_until(|| !is_writing(viewer));
@@ -506,7 +506,7 @@ fn gtk_ui_a_failing_autosave_backs_off_and_says_so_once() {
     tick_at(viewer, start + Duration::from_secs(60 * 60));
     settle_until(|| !is_writing(viewer));
     assert_eq!(attempts(viewer), failed_attempts + 1, "tried again later");
-    assert_eq!(viewer.status.text(), "", "and said nothing twice");
+    assert_eq!(viewer.last_said(), "", "and said nothing twice");
 }
 
 /// The backoff runs on the clock the tick was given, not the wall clock: a
@@ -547,14 +547,14 @@ fn gtk_ui_a_forget_ends_the_failure_streak() {
     let failed_attempts = attempts(viewer);
 
     super::forget(viewer);
-    viewer.status.set_text("");
+    viewer.info("");
     window.edit();
     tick_at(viewer, start + Duration::from_secs(30));
     settle_until(|| !is_writing(viewer));
 
     assert_eq!(attempts(viewer), failed_attempts + 1, "tried right away");
     assert_eq!(
-        viewer.status.text(),
+        viewer.last_said(),
         tr("recovery-autosave-unavailable"),
         "and the new streak is reported"
     );
@@ -572,7 +572,7 @@ fn gtk_ui_an_unusable_recovery_directory_is_reported() {
     window.tick_and_settle();
 
     assert_eq!(
-        window.viewer().status.text(),
+        window.viewer().last_said(),
         tr("recovery-autosave-unavailable")
     );
 }
@@ -594,7 +594,7 @@ fn gtk_ui_a_restored_document_still_knows_it_broke_a_signature() {
         Vec::new(),
     );
     settle_until(|| {
-        window.viewer().status.text() == tr("recovery-restored") && !is_writing(window.viewer())
+        window.viewer().last_said() == tr("recovery-restored") && !is_writing(window.viewer())
     });
 
     assert!(
@@ -634,7 +634,7 @@ fn gtk_ui_an_entry_that_cannot_be_read_right_now_is_kept() {
         orphans.remove(0),
         Vec::new(),
     );
-    settle_until(|| window.viewer().status.text() == tr("recovery-restore-failed"));
+    settle_until(|| window.viewer().last_said() == tr("recovery-restore-failed"));
 
     assert!(
         files_in(dir.root())
@@ -740,7 +740,7 @@ fn gtk_ui_an_orphan_restored_in_the_background_says_where_it_went() {
     );
     assert!(window.tab_names().contains(&"behind.pdf".to_owned()));
     assert_eq!(
-        window.viewer().status.text(),
+        window.viewer().last_said(),
         crate::app::i18n::tr_args(
             "tabs-opened-in-background",
             &[("name", "behind.pdf".into())]

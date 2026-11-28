@@ -115,7 +115,7 @@ pub(crate) fn select(viewer: &Viewer, page_index: usize, run: TextRun, block: Ve
         });
     }
     claim_page_focus(viewer);
-    viewer.status.set_text(&tr(panel::TEXT_SELECTED));
+    viewer.info(&tr(panel::TEXT_SELECTED));
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
 }
@@ -170,7 +170,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let result = {
@@ -189,7 +189,7 @@ pub(crate) fn delete_selected(viewer: &Viewer) -> bool {
     };
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-text-deleted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -238,7 +238,7 @@ pub(crate) fn open_editor_at(viewer: &Viewer, page_index: usize, point: (f64, f6
     }
     match text_block_at(viewer, page_index, point) {
         TextHit::Block(run, block) => editor::open_editor(viewer, page_index, run, block),
-        TextHit::Unreadable(error) => viewer.status.set_text(&error),
+        TextHit::Unreadable(error) => viewer.refuse(&error),
         TextHit::Unavailable | TextHit::Miss => {}
     }
 }
@@ -292,7 +292,7 @@ pub(crate) fn connect_retype_shortcut(
         }
     });
     window.add_action(&action);
-    application.set_accels_for_action(&format!("win.{RETYPE_ACTION}"), &["F2"]);
+    crate::app::shortcuts::RETYPE.install(application);
 
     // The focus moving changes whether the key may fire — the same watch
     // `annotations::connect_delete_shortcut` keeps for Delete.
@@ -420,7 +420,7 @@ mod tests {
         }
     }
 
-    const ESCAPE: &str = super::super::multi::CLEAR_ACTION;
+    const ESCAPE: &str = crate::app::escape::ACTION;
 
     /// A click on text selects its block and opens nothing, as on Windows.
     #[gtk::test]
@@ -435,7 +435,7 @@ mod tests {
             None,
             "a click no longer opens the editor"
         );
-        assert_eq!(fixture.viewer().status.text(), tr(panel::TEXT_SELECTED));
+        assert_eq!(fixture.viewer().last_said(), tr(panel::TEXT_SELECTED));
         assert_eq!(
             fixture.viewer().edit_panel.text_hint.text(),
             tr(panel::TEXT_SELECTED)

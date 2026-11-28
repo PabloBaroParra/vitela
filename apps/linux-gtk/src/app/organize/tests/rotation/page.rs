@@ -19,7 +19,7 @@ fn gtk_ui_the_two_footer_buttons_turn_their_page_each_way() {
             [Rotation::None, Rotation::Clockwise90, Rotation::None],
             "the clicked card's page turns, and only it"
         );
-        assert_eq!(viewer.status.text().as_str(), "Rotated page 2 right.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated page 2 right.");
 
         rotate_left_button(viewer, 1).emit_clicked();
         assert_eq!(
@@ -27,7 +27,7 @@ fn gtk_ui_the_two_footer_buttons_turn_their_page_each_way() {
             [Rotation::None; 3],
             "the other button is the inverse gesture, not a second forward one"
         );
-        assert_eq!(viewer.status.text().as_str(), "Rotated page 2 left.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated page 2 left.");
 
         // A left turn from zero is three quarters, not minus one: the angle
         // the model keeps is absolute even though the command carries a delta.
@@ -146,7 +146,7 @@ fn gtk_ui_a_turn_survives_a_document_that_can_never_be_rewritten() {
         rotate_right_button(viewer, 1).emit_clicked();
 
         assert_eq!(rotations(viewer)[1], Rotation::Clockwise90);
-        assert_eq!(viewer.status.text().as_str(), "Rotated page 2 right.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated page 2 right.");
     });
 }
 
@@ -165,7 +165,7 @@ fn gtk_ui_a_refused_turn_records_nothing_at_all() {
 
         assert_eq!(rotations(viewer), [Rotation::None; 3]);
         assert_eq!(
-            viewer.status.text().as_str(),
+            viewer.last_said().as_str(),
             "This document does not permit adding, removing or reordering its pages."
         );
 
@@ -175,7 +175,7 @@ fn gtk_ui_a_refused_turn_records_nothing_at_all() {
         // id at all and quietly turns nothing, so the funnel has to be the
         // one that says no.
         assert!(!rotate_page(viewer, PageId(99), 90));
-        assert_eq!(viewer.status.text().as_str(), "Page no longer exists.");
+        assert_eq!(viewer.last_said().as_str(), "Page no longer exists.");
 
         session(viewer).document_model = None;
         assert!(!rotate_page(viewer, PageId(0), 90));

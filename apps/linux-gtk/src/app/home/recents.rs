@@ -282,7 +282,7 @@ impl RecentsSection {
                 .await
                 .unwrap_or(false);
             if !hidden {
-                viewer.status.set_text(&tr_args(
+                viewer.fail(&tr_args(
                     "home-recent-remove-failed",
                     &[("name", name.into())],
                 ));

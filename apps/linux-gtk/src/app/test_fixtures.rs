@@ -92,6 +92,7 @@ pub(crate) fn model_session(document: Document) -> DocumentSession {
         document: unsafe { std::mem::zeroed() },
         base_name: "Fixture document".to_owned(),
         origin_path: None,
+        origin_stamp: None,
         text_access: TextAccess::Allowed,
         annotation_access: AnnotationAccess::Allowed,
         content_edit_access: ContentEditAccess::Allowed,

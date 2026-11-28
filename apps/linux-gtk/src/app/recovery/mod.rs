@@ -33,6 +33,7 @@ use gtk::ApplicationWindow;
 
 use crate::app::state::Viewer;
 pub(crate) use autosave::Autosave;
+pub(crate) use store::app_state_dir;
 use store::RecoveryDir;
 
 /// A window's autosave state — `Viewer::recovery`. Disabled until

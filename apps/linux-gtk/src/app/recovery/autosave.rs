@@ -238,7 +238,7 @@ fn observe_tabs(viewer: &Viewer) -> Vec<(TabId, Observed)> {
 }
 
 /// A snapshot could not be written. The first failure of a streak tells the
-/// user — once, on the status line, not in a dialog: their work is still
+/// user — once, on a toast, not in a dialog: their work is still
 /// open in front of them, and only a crash would cost it.
 ///
 /// `now` is the clock of the tick that made the attempt.
@@ -246,7 +246,7 @@ fn failed(viewer: &Viewer, error: &str, now: Instant) {
     eprintln!("recovery: autosave failed: {error}");
     let first = viewer.recovery.borrow_mut().backoff.failed(now);
     if first {
-        viewer.status.set_text(&tr("recovery-autosave-unavailable"));
+        viewer.fail(&tr("recovery-autosave-unavailable"));
     }
 }
 

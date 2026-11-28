@@ -49,7 +49,10 @@ pub(crate) fn build_home_header(window: &ApplicationWindow, viewer: &Viewer) -> 
     let open = Button::with_label(&tr("home-open-file"));
     open.add_css_class("home-primary");
     open.set_valign(Align::Center);
-    open.set_tooltip_text(Some(&tr("home-open-file-tooltip")));
+    open.set_tooltip_text(Some(&crate::app::shortcuts::tooltip_for(
+        "home-open-file-tooltip",
+        crate::app::shortcuts::OPEN,
+    )));
     open.connect_clicked({
         let window = window.clone();
         let viewer = viewer.clone();

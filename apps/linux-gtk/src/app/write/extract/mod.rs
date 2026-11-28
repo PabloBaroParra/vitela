@@ -84,11 +84,11 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
         return;
     }
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     if let Some(refusal) = viewer.full_rewrite_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
 
@@ -100,11 +100,11 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
             .and_then(|session| session.document_model.as_ref())
             .map(|document| document.pages.len() as u32)
     }) else {
-        viewer.status.set_text(&tr("extract-no-document"));
+        viewer.refuse(&tr("extract-no-document"));
         return;
     };
     if total_pages == 0 {
-        viewer.status.set_text(&tr("extract-no-pages"));
+        viewer.refuse(&tr("extract-no-pages"));
         return;
     }
 
@@ -116,7 +116,7 @@ pub(crate) fn begin_extract(window: &ApplicationWindow, viewer: &Viewer) {
         total_pages,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(&EXTRACT.cancelled())
+            move || viewer.info(&EXTRACT.cancelled())
         },
         {
             let viewer = viewer.clone();
@@ -147,15 +147,15 @@ fn extract_to(viewer: &Viewer, pages: Vec<u32>, destination: PathBuf) {
     let request = {
         let state = viewer.state.borrow();
         let Some(session) = state.session.as_ref() else {
-            viewer.status.set_text(&tr("extract-no-document"));
+            viewer.refuse(&tr("extract-no-document"));
             return;
         };
         let Some(document) = session.document_model.clone() else {
-            viewer.status.set_text(&tr("extract-not-editable"));
+            viewer.refuse(&tr("extract-not-editable"));
             return;
         };
         let Some(backing) = session.save_backing.clone() else {
-            viewer.status.set_text(&tr("write-no-save-backing"));
+            viewer.refuse(&tr("write-no-save-backing"));
             return;
         };
         // The selection was parsed against the page count the dialog opened
@@ -166,7 +166,7 @@ fn extract_to(viewer: &Viewer, pages: Vec<u32>, destination: PathBuf) {
             .iter()
             .any(|&page| page as usize >= document.pages.len())
         {
-            viewer.status.set_text(&tr("extract-document-changed"));
+            viewer.refuse(&tr("extract-document-changed"));
             return;
         }
         ExtractRequest {
@@ -208,7 +208,7 @@ mod tests {
         begin_extract(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "Open a PDF before extracting pages from it."
         );
 
@@ -227,7 +227,7 @@ mod tests {
         begin_extract(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             TextAccess::Forbidden
                 .refusal()
                 .expect("a forbidden document refuses")
@@ -253,7 +253,7 @@ mod tests {
             .expect("a one-password document cannot be rewritten");
         begin_extract(&built.window, &built.viewer);
 
-        assert_eq!(built.viewer.status.text().as_str(), refusal);
+        assert_eq!(built.viewer.last_said().as_str(), refusal);
 
         built.window.close();
     }
@@ -268,7 +268,7 @@ mod tests {
         begin_extract(&built.window, &built.viewer);
 
         assert_eq!(
-            built.viewer.status.text().as_str(),
+            built.viewer.last_said().as_str(),
             "This document has no pages to extract."
         );
 

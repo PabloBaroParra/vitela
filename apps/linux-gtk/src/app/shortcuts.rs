@@ -10,70 +10,104 @@
 //! The text-editing keys ([`TEXT_EDITING`]) are handed to the palette's
 //! search and the Find entry while they have the cursor: see
 //! [`connect_search_field_handoff`].
+//!
+//! [`table`] lists every key the window answers to — these accelerators and
+//! the canvas keys that are not actions — grouped and labelled, and
+//! [`help`] prints that list as the keyboard shortcuts window.
 
+pub(crate) mod help;
+pub(crate) mod table;
+
+use gtk::gdk;
 use gtk::prelude::*;
+
+use crate::app::i18n::{tr, tr_args};
 
 /// One window action and the accelerator that triggers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Shortcut {
     /// The action's name inside the window's `win` group, e.g. `"open"`.
     pub(crate) action: &'static str,
-    /// The accelerator in GTK's syntax, e.g. `"<Control>o"`.
+    /// The accelerator in GTK's syntax, e.g. `"<Control>o"`. The one shown
+    /// wherever the shortcut is printed.
     pub(crate) accel: &'static str,
+    /// Other accelerators for the same action: the keypad's key, the key a
+    /// layout puts the symbol on, a second convention for the same command.
+    pub(crate) also: &'static [&'static str],
 }
 
 pub(crate) const OPEN: Shortcut = Shortcut {
     action: "open",
     accel: "<Control>o",
+    also: &[],
 };
 pub(crate) const SAVE: Shortcut = Shortcut {
     action: "save",
     accel: "<Control>s",
+    also: &[],
+};
+/// Saves under a name the user picks, where [`SAVE`] writes back to the file
+/// the document came from.
+pub(crate) const SAVE_AS: Shortcut = Shortcut {
+    action: "save-as",
+    accel: "<Control><Shift>s",
+    also: &[],
 };
 pub(crate) const PRINT: Shortcut = Shortcut {
     action: "print",
     accel: "<Control>p",
+    also: &[],
 };
 pub(crate) const FIND: Shortcut = Shortcut {
     action: "find",
     accel: "<Control>f",
+    also: &[],
 };
 pub(crate) const NEW: Shortcut = Shortcut {
     action: "new",
     accel: "<Control>n",
+    also: &[],
 };
 pub(crate) const UNDO: Shortcut = Shortcut {
     action: "undo",
     accel: "<Control>z",
+    also: &[],
 };
+/// Ctrl+Y and Ctrl+Shift+Z: both conventions are in use on Linux desktops.
 pub(crate) const REDO: Shortcut = Shortcut {
     action: "redo",
     accel: "<Control>y",
+    also: &["<Control><Shift>z"],
 };
 /// Cuts the content selected in content-edit mode (B25 T-209).
 pub(crate) const CUT: Shortcut = Shortcut {
     action: "cut-content",
     accel: "<Control>x",
+    also: &[],
 };
 /// Copies the content selection, or the selected page text.
 pub(crate) const COPY: Shortcut = Shortcut {
     action: "copy",
     accel: "<Control>c",
+    also: &[],
 };
 /// Pastes the held content clip, or a bitmap as a stamp.
 pub(crate) const PASTE: Shortcut = Shortcut {
     action: "paste",
     accel: "<Control>v",
+    also: &[],
 };
 /// Closes the active document's tab, asking about unsaved changes first.
 pub(crate) const CLOSE_TAB: Shortcut = Shortcut {
     action: "close-tab",
     accel: "<Control>w",
+    also: &[],
 };
 /// Opens the command palette (B27).
 pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
     action: "command-palette",
     accel: "<Control>k",
+    also: &[],
 };
 
 /// Bold, italic and underline for the text content-edit mode is on
@@ -81,17 +115,126 @@ pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
 pub(crate) const BOLD: Shortcut = Shortcut {
     action: "content-bold",
     accel: "<Control>b",
+    also: &[],
 };
 pub(crate) const ITALIC: Shortcut = Shortcut {
     action: "content-italic",
     accel: "<Control>i",
+    also: &[],
 };
 pub(crate) const UNDERLINE: Shortcut = Shortcut {
     action: "content-underline",
     accel: "<Control>u",
+    also: &[],
+};
+
+/// Zoom, one step of the toolbar's ladder. Ctrl+= is the same physical key
+/// as Ctrl++ on layouts that put `+` over `=`.
+pub(crate) const ZOOM_IN: Shortcut = Shortcut {
+    action: "zoom-in",
+    accel: "<Control>plus",
+    also: &["<Control>equal", "<Control>KP_Add"],
+};
+pub(crate) const ZOOM_OUT: Shortcut = Shortcut {
+    action: "zoom-out",
+    accel: "<Control>minus",
+    also: &["<Control>KP_Subtract"],
+};
+/// Actual size: 100%, what the key means in browsers and in other viewers.
+pub(crate) const ZOOM_RESET: Shortcut = Shortcut {
+    action: "zoom-reset",
+    accel: "<Control>0",
+    also: &["<Control>KP_0"],
+};
+pub(crate) const FIT_WIDTH: Shortcut = Shortcut {
+    action: "fit-width",
+    accel: "<Control>1",
+    also: &["<Control>KP_1"],
+};
+pub(crate) const FIT_PAGE: Shortcut = Shortcut {
+    action: "fit-page",
+    accel: "<Control>2",
+    also: &["<Control>KP_2"],
+};
+pub(crate) const FULLSCREEN: Shortcut = Shortcut {
+    action: "fullscreen",
+    accel: "F11",
+    also: &[],
+};
+/// Shows or hides the page thumbnails and the tools panel.
+pub(crate) const TOGGLE_PAGES: Shortcut = Shortcut {
+    action: "toggle-pages-panel",
+    accel: "F9",
+    also: &[],
+};
+pub(crate) const TOGGLE_TOOLS: Shortcut = Shortcut {
+    action: "toggle-tools-panel",
+    accel: "<Shift>F9",
+    also: &[],
+};
+pub(crate) const FIND_NEXT: Shortcut = Shortcut {
+    action: "find-next",
+    accel: "F3",
+    also: &["<Control>g"],
+};
+pub(crate) const FIND_PREVIOUS: Shortcut = Shortcut {
+    action: "find-previous",
+    accel: "<Shift>F3",
+    also: &["<Control><Shift>g"],
+};
+/// The next and previous document tab. Shift+Tab arrives as `ISO_Left_Tab`
+/// on X11 keymaps; GTK folds that into `<Shift>Tab` when it registers and
+/// matches an accelerator, so one spelling covers both.
+pub(crate) const NEXT_TAB: Shortcut = Shortcut {
+    action: "next-tab",
+    accel: "<Control>Tab",
+    also: &["<Control>Page_Down"],
+};
+pub(crate) const PREVIOUS_TAB: Shortcut = Shortcut {
+    action: "previous-tab",
+    accel: "<Control><Shift>Tab",
+    also: &["<Control>Page_Up"],
+};
+/// Closes the window, asking about unsaved changes as the close button does.
+pub(crate) const QUIT: Shortcut = Shortcut {
+    action: "quit",
+    accel: "<Control>q",
+    also: &[],
+};
+/// Opens the keyboard shortcuts window ([`help`]).
+pub(crate) const SHORTCUTS_HELP: Shortcut = Shortcut {
+    action: "shortcuts",
+    accel: "F1",
+    also: &["<Control>question"],
+};
+/// Deletes the selected annotation or content item
+/// (`annotations::connect_delete_shortcut`).
+pub(crate) const DELETE: Shortcut = Shortcut {
+    action: "delete-annotation",
+    accel: "Delete",
+    also: &[],
+};
+/// Retypes the selected text block (`content_edit::block`).
+pub(crate) const RETYPE: Shortcut = Shortcut {
+    action: "retype-text",
+    accel: "F2",
+    also: &[],
+};
+/// Lets go of an armed tool, a selection or a toast (`escape`).
+pub(crate) const ESCAPE: Shortcut = Shortcut {
+    action: "escape",
+    accel: "Escape",
+    also: &[],
 };
 
 impl Shortcut {
+    /// Every accelerator bound to the action, the shown one first.
+    pub(crate) fn accels(self) -> Vec<&'static str> {
+        std::iter::once(self.accel)
+            .chain(self.also.iter().copied())
+            .collect()
+    }
+
     /// The action's detailed name, `win.<action>`.
     pub(crate) fn detailed_action(self) -> String {
         format!("win.{}", self.action)
@@ -99,7 +242,7 @@ impl Shortcut {
 
     /// Binds the accelerator to the window action on `application`.
     pub(crate) fn install(self, application: &gtk::Application) {
-        application.set_accels_for_action(&self.detailed_action(), &[self.accel]);
+        application.set_accels_for_action(&self.detailed_action(), &self.accels());
     }
 
     /// Removes the accelerator, leaving the action itself as it is.
@@ -108,19 +251,77 @@ impl Shortcut {
     }
 }
 
-/// An accelerator in GTK syntax as the user reads it, e.g. `"Ctrl+O"`, or
-/// `None` when GTK cannot parse it.
+/// An accelerator in GTK syntax as the user reads it, e.g. `"Ctrl+O"` or
+/// `"Ctrl+Shift+S"`, or `None` when GTK cannot parse it.
 ///
-/// The one formatter for every place a shortcut is shown — the command
-/// palette's rows and Home's shortcut card — so the two cannot spell the
-/// same key differently. GTK's own label rather than a hand-written
-/// "Ctrl+" prefix: it is what GTK's shortcut windows and menus print, and
-/// GTK translates the modifier names through its own catalog, so the text
-/// follows the keyboard labels of the system locale. In the C and English
-/// locales it reads "Ctrl+O", the text Home's card always showed.
+/// The one formatter for every place a shortcut is shown — the tooltips,
+/// the command palette's rows, Home's shortcut card and the keyboard
+/// shortcuts window — so no two of them can spell the same key differently.
+/// See [`key_label`] for the shape.
 pub(crate) fn accel_label(accel: &str) -> Option<String> {
     let (key, modifiers) = gtk::accelerator_parse(accel)?;
-    Some(gtk::accelerator_get_label(key, modifiers).into())
+    Some(key_label(key, modifiers))
+}
+
+/// `key` held with `modifiers`, as the user reads it: the modifiers in a
+/// fixed order — Ctrl, Alt, Shift — then the key, joined by `+`.
+///
+/// The modifier names are the window's own words (Fluent), so they follow
+/// the language the rest of the window speaks; GTK's label put Shift first
+/// and spoke the system locale. The key itself is GTK's label for it alone
+/// — `+`, `Page Up`, `F9` — which names keys the way the rest of the desktop
+/// does. Other modifiers are not used by any binding here and are left out.
+pub(crate) fn key_label(key: gdk::Key, modifiers: gdk::ModifierType) -> String {
+    let names = modifier_keys(
+        modifiers.contains(gdk::ModifierType::CONTROL_MASK),
+        modifiers.contains(gdk::ModifierType::ALT_MASK),
+        modifiers.contains(gdk::ModifierType::SHIFT_MASK),
+    )
+    .into_iter()
+    .map(tr);
+    let key = gtk::accelerator_get_label(key, gdk::ModifierType::empty());
+    compose(names, &key)
+}
+
+/// The message keys of the modifiers held, in the order they are printed.
+fn modifier_keys(control: bool, alt: bool, shift: bool) -> Vec<&'static str> {
+    [
+        (control, "shortcut-modifier-ctrl"),
+        (alt, "shortcut-modifier-alt"),
+        (shift, "shortcut-modifier-shift"),
+    ]
+    .into_iter()
+    .filter_map(|(held, key)| held.then_some(key))
+    .collect()
+}
+
+/// `modifiers` and `key` joined by `+`.
+fn compose(modifiers: impl IntoIterator<Item = String>, key: &str) -> String {
+    modifiers
+        .into_iter()
+        .chain(std::iter::once(key.to_owned()))
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+/// The tooltip of a control that has a key: the catalog's `label_key`
+/// message and the shortcut's key, e.g. `"Undo (Ctrl+Z)"`.
+///
+/// Every tooltip that names a key is built here. The key is read from the
+/// table rather than typed into the translation, where it could go on
+/// naming a key that has since moved, or spell it unlike the palette; the
+/// two are put together by the catalog's `shortcut-tooltip` message, so the
+/// order and the punctuation are the translator's. The control's accessible
+/// name stays the bare label.
+pub(crate) fn tooltip_for(label_key: &str, shortcut: Shortcut) -> String {
+    let label = tr(label_key);
+    match accel_label(shortcut.accel) {
+        Some(keys) => tr_args(
+            "shortcut-tooltip",
+            &[("label", label.into()), ("keys", keys.into())],
+        ),
+        None => label,
+    }
 }
 
 /// The window shortcuts a text field has keys of its own for: cut, copy,
@@ -203,9 +404,10 @@ fn sync_search_field_handoff(
 mod tests {
     use super::*;
 
-    const ALL: [Shortcut; 14] = [
+    const ALL: [Shortcut; 15] = [
         OPEN,
         SAVE,
+        SAVE_AS,
         PRINT,
         FIND,
         NEW,
@@ -233,11 +435,227 @@ mod tests {
     #[gtk::test]
     fn gtk_ui_accel_label_is_what_the_user_reads() {
         assert_eq!(accel_label(OPEN.accel).as_deref(), Some("Ctrl+O"));
+        assert_eq!(accel_label(SAVE_AS.accel).as_deref(), Some("Ctrl+Shift+S"));
         assert_eq!(
             accel_label(COMMAND_PALETTE.accel).as_deref(),
             Some("Ctrl+K")
         );
+        assert_eq!(accel_label(TOGGLE_TOOLS.accel).as_deref(), Some("Shift+F9"));
+        assert_eq!(
+            accel_label("<Shift><Alt><Control>x").as_deref(),
+            Some("Ctrl+Alt+Shift+X")
+        );
         assert_eq!(accel_label("not an accelerator"), None);
+    }
+
+    /// Spanish names Shift as its keyboards print it.
+    #[gtk::test]
+    fn gtk_ui_the_modifier_names_speak_the_window_s_language() {
+        use crate::app::i18n::{speak, Language};
+        let _spanish = speak(Language::Spanish);
+
+        assert_eq!(accel_label(SAVE_AS.accel).as_deref(), Some("Ctrl+Mayús+S"));
+        assert_eq!(accel_label("<Alt>F4").as_deref(), Some("Alt+F4"));
+        assert_eq!(
+            tooltip_for("editor-save-as", SAVE_AS),
+            "Guardar como (Ctrl+Mayús+S)"
+        );
+    }
+
+    /// The label and the key are put together by the catalog, so a
+    /// translation decides their order and punctuation.
+    #[gtk::test]
+    fn gtk_ui_a_tooltip_is_composed_by_the_catalog_s_message() {
+        use crate::app::i18n::{speak, tr_args, Language};
+
+        for language in [Language::English, Language::Spanish] {
+            let _language = speak(language);
+            let composed = tr_args(
+                "shortcut-tooltip",
+                &[("label", "LABEL".into()), ("keys", "KEYS".into())],
+            );
+
+            assert!(
+                composed.contains("LABEL") && composed.contains("KEYS"),
+                "{language:?}: {composed:?}"
+            );
+            assert_eq!(
+                tooltip_for("editor-save", SAVE),
+                tr_args(
+                    "shortcut-tooltip",
+                    &[
+                        ("label", tr("editor-save").into()),
+                        ("keys", accel_label(SAVE.accel).expect("it parses").into()),
+                    ],
+                ),
+                "{language:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_modifiers_are_printed_ctrl_alt_shift_then_the_key() {
+        assert_eq!(
+            modifier_keys(true, true, true),
+            [
+                "shortcut-modifier-ctrl",
+                "shortcut-modifier-alt",
+                "shortcut-modifier-shift"
+            ]
+        );
+        assert_eq!(
+            modifier_keys(false, false, true),
+            ["shortcut-modifier-shift"]
+        );
+        assert!(modifier_keys(false, false, false).is_empty());
+        assert_eq!(
+            compose(["Ctrl".to_owned(), "Shift".to_owned()], "S"),
+            "Ctrl+Shift+S"
+        );
+        assert_eq!(compose(Vec::new(), "F9"), "F9");
+    }
+
+    /// Every tooltip that names a key: the words from the catalog, the key
+    /// from the table, in the one spelling ([`tooltip_for`]). None of the
+    /// catalog's tooltips types a key of its own.
+    #[gtk::test]
+    fn gtk_ui_every_tooltip_that_names_a_key_reads_it_from_the_table() {
+        use crate::app::test_support::find_button;
+
+        let built = crate::app::ui_tests::built_ui();
+        let viewer = &built.viewer;
+        let tooltip_of = |widget: &gtk::Widget| widget.tooltip_text().map(String::from);
+        let find_button_widget = viewer
+            .search_entry
+            .ancestor(gtk::MenuButton::static_type())
+            .expect("the Find entry sits behind a menu button");
+        let home_open = find_button(built.window.upcast_ref(), &tr("home-open-file"))
+            .expect("Home has an Open file button");
+        let quick = &viewer.content_quick_actions;
+        let window: &gtk::Widget = built.window.upcast_ref();
+        // The toolbar's Open shows a short label, and its Save as is the
+        // arrow beside Save: neither is reachable by its accessible name.
+        let toolbar_open = find_widget(window, &|widget| {
+            widget.is::<gtk::Button>()
+                && find_widget(widget, &|inner| {
+                    inner
+                        .downcast_ref::<gtk::Label>()
+                        .is_some_and(|label| label.text() == tr("editor-open-short"))
+                })
+                .is_some()
+        })
+        .expect("the toolbar has an Open button");
+        let toolbar_save_as = find_widget(window, &|widget| {
+            widget.is::<gtk::MenuButton>() && widget.has_css_class("toolbar-save-as")
+        })
+        .expect("the toolbar has a Save as arrow");
+        let cases: Vec<(gtk::Widget, &str, Shortcut, &str)> = vec![
+            (toolbar_open, "editor-open", OPEN, "Open PDF (Ctrl+O)"),
+            (
+                toolbar_save_as,
+                "editor-save-as",
+                SAVE_AS,
+                "Save as (Ctrl+Shift+S)",
+            ),
+            (
+                viewer.save_button.clone().upcast(),
+                "editor-save",
+                SAVE,
+                "Save (Ctrl+S)",
+            ),
+            (
+                viewer.print_button.clone().upcast(),
+                "editor-print",
+                PRINT,
+                "Print (Ctrl+P)",
+            ),
+            (
+                find_button_widget,
+                "editor-find",
+                FIND,
+                "Find in document (Ctrl+F)",
+            ),
+            (
+                home_open.upcast(),
+                "home-open-file-tooltip",
+                OPEN,
+                "Open a PDF (Ctrl+O)",
+            ),
+            (
+                viewer.style_toggles.bold.clone().upcast(),
+                "edit-style-bold-tooltip",
+                BOLD,
+                "Make the selected text, or the text being retyped, bold (Ctrl+B)",
+            ),
+            (
+                viewer.style_toggles.italic.clone().upcast(),
+                "edit-style-italic-tooltip",
+                ITALIC,
+                "Make the selected text, or the text being retyped, italic (Ctrl+I)",
+            ),
+            (
+                viewer.style_toggles.underline.clone().upcast(),
+                "edit-style-underline-tooltip",
+                UNDERLINE,
+                "Underline the selected text, or the text being retyped (Ctrl+U)",
+            ),
+            (
+                quick.retype.clone().upcast(),
+                "edit-quick-retype-tooltip",
+                RETYPE,
+                "Retype the selected text in place (F2)",
+            ),
+            (
+                quick.cut.clone().upcast(),
+                "edit-quick-cut-tooltip",
+                CUT,
+                "Cut the selection to the clipboard (Ctrl+X)",
+            ),
+            (
+                quick.copy.clone().upcast(),
+                "edit-quick-copy-tooltip",
+                COPY,
+                "Copy the selection to the clipboard (Ctrl+C)",
+            ),
+            (
+                quick.delete.clone().upcast(),
+                "edit-quick-delete-tooltip",
+                DELETE,
+                "Remove the selection from the page (Delete)",
+            ),
+        ];
+        for (widget, label_key, shortcut, english) in cases {
+            assert!(
+                !tr(label_key).contains('('),
+                "{label_key} types a key of its own: {:?}",
+                tr(label_key)
+            );
+            assert_eq!(
+                tooltip_of(&widget).as_deref(),
+                Some(tooltip_for(label_key, shortcut).as_str()),
+                "{label_key}"
+            );
+            assert_eq!(tooltip_of(&widget).as_deref(), Some(english), "{label_key}");
+        }
+        built.window.close();
+    }
+
+    /// The first widget under `root`, `root` included, that `matches`.
+    fn find_widget(
+        root: &gtk::Widget,
+        matches: &dyn Fn(&gtk::Widget) -> bool,
+    ) -> Option<gtk::Widget> {
+        if matches(root) {
+            return Some(root.clone());
+        }
+        let mut child = root.first_child();
+        while let Some(widget) = child {
+            if let Some(found) = find_widget(&widget, matches) {
+                return Some(found);
+            }
+            child = widget.next_sibling();
+        }
+        None
     }
 
     #[test]

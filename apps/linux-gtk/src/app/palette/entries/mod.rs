@@ -41,10 +41,14 @@ pub(crate) enum Availability {
 pub(crate) enum Category {
     /// The mode bar's sections.
     Mode,
-    /// Open, new, save, print, close.
+    /// Open, new, save, print, close, the tab steps, quit.
     File,
-    /// Undo, redo, find.
+    /// Undo, redo, find and its two steps.
     Edit,
+    /// Zoom, the fit modes, full screen.
+    View,
+    /// The keyboard shortcuts window.
+    Help,
     /// Annotation creation tools.
     Annotate,
     /// Form-field placement kinds.
@@ -104,11 +108,24 @@ pub(crate) enum WindowAction {
     Open,
     New,
     Save,
+    SaveAs,
     Print,
     CloseTab,
+    NextTab,
+    PreviousTab,
+    Quit,
     Undo,
     Redo,
     Find,
+    FindNext,
+    FindPrevious,
+    ZoomIn,
+    ZoomOut,
+    ActualSize,
+    FitWidth,
+    FitPage,
+    FullScreen,
+    Shortcuts,
 }
 
 impl WindowAction {
@@ -118,11 +135,24 @@ impl WindowAction {
             WindowAction::Open => shortcuts::OPEN,
             WindowAction::New => shortcuts::NEW,
             WindowAction::Save => shortcuts::SAVE,
+            WindowAction::SaveAs => shortcuts::SAVE_AS,
             WindowAction::Print => shortcuts::PRINT,
             WindowAction::CloseTab => shortcuts::CLOSE_TAB,
+            WindowAction::NextTab => shortcuts::NEXT_TAB,
+            WindowAction::PreviousTab => shortcuts::PREVIOUS_TAB,
+            WindowAction::Quit => shortcuts::QUIT,
             WindowAction::Undo => shortcuts::UNDO,
             WindowAction::Redo => shortcuts::REDO,
             WindowAction::Find => shortcuts::FIND,
+            WindowAction::FindNext => shortcuts::FIND_NEXT,
+            WindowAction::FindPrevious => shortcuts::FIND_PREVIOUS,
+            WindowAction::ZoomIn => shortcuts::ZOOM_IN,
+            WindowAction::ZoomOut => shortcuts::ZOOM_OUT,
+            WindowAction::ActualSize => shortcuts::ZOOM_RESET,
+            WindowAction::FitWidth => shortcuts::FIT_WIDTH,
+            WindowAction::FitPage => shortcuts::FIT_PAGE,
+            WindowAction::FullScreen => shortcuts::FULLSCREEN,
+            WindowAction::Shortcuts => shortcuts::SHORTCUTS_HELP,
         }
     }
 }
@@ -196,8 +226,8 @@ impl PaletteEntry {
     }
 }
 
-/// Every command, in catalog order: modes, file, edit, annotate, forms,
-/// document, pages, sign.
+/// Every command, in catalog order: modes, file, edit, view, help,
+/// annotate, forms, document, pages, sign.
 pub(crate) fn catalog() -> Vec<PaletteEntry> {
     let modes = Mode::ALL.into_iter().map(|mode| PaletteEntry {
         id: mode_id(mode),
@@ -226,6 +256,12 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
             Category::File,
         ),
         (
+            "file.save-as",
+            WindowAction::SaveAs,
+            "editor-save-as",
+            Category::File,
+        ),
+        (
             "file.print",
             WindowAction::Print,
             "editor-print",
@@ -235,6 +271,24 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
             "file.close-tab",
             WindowAction::CloseTab,
             "tabs-close",
+            Category::File,
+        ),
+        (
+            "file.next-tab",
+            WindowAction::NextTab,
+            "shortcuts-next-tab",
+            Category::File,
+        ),
+        (
+            "file.previous-tab",
+            WindowAction::PreviousTab,
+            "shortcuts-previous-tab",
+            Category::File,
+        ),
+        (
+            "file.quit",
+            WindowAction::Quit,
+            "shortcuts-quit",
             Category::File,
         ),
         (
@@ -254,6 +308,60 @@ pub(crate) fn catalog() -> Vec<PaletteEntry> {
             WindowAction::Find,
             "editor-find",
             Category::Edit,
+        ),
+        (
+            "edit.find-next",
+            WindowAction::FindNext,
+            "editor-find-next",
+            Category::Edit,
+        ),
+        (
+            "edit.find-previous",
+            WindowAction::FindPrevious,
+            "editor-find-previous",
+            Category::Edit,
+        ),
+        (
+            "view.zoom-in",
+            WindowAction::ZoomIn,
+            "editor-zoom-in",
+            Category::View,
+        ),
+        (
+            "view.zoom-out",
+            WindowAction::ZoomOut,
+            "editor-zoom-out",
+            Category::View,
+        ),
+        (
+            "view.actual-size",
+            WindowAction::ActualSize,
+            "shortcuts-zoom-reset",
+            Category::View,
+        ),
+        (
+            "view.fit-width",
+            WindowAction::FitWidth,
+            "editor-fit-width",
+            Category::View,
+        ),
+        (
+            "view.fit-page",
+            WindowAction::FitPage,
+            "editor-fit-page",
+            Category::View,
+        ),
+        (
+            "view.full-screen",
+            WindowAction::FullScreen,
+            "shortcuts-fullscreen",
+            Category::View,
+        ),
+        (
+            "help.shortcuts",
+            WindowAction::Shortcuts,
+            "home-shortcuts-title",
+            Category::Help,
         ),
     ]
     .into_iter()

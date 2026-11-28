@@ -49,7 +49,7 @@ pub(super) fn spawn_compress(
     preset: CompressPreset,
     signatures: pdf_save::SignatureAcknowledgement,
 ) {
-    viewer.status.set_text(&COMPRESS.busy());
+    viewer.info(&COMPRESS.busy());
     let generation = request.generation;
 
     // Holds the active tab until the result is in — see `tabs::JobGuard`.
@@ -70,11 +70,11 @@ pub(super) fn spawn_compress(
             }
             match result {
                 Ok((bytes, report)) if options::is_reduced(&report) => {
-                    viewer.status.set_text(&options::reduction_summary(&report));
+                    viewer.info(&options::reduction_summary(&report));
                     offer_destination(&window, &viewer, bytes, report);
                 }
-                Ok((_, report)) => viewer.status.set_text(&options::no_gain_summary(&report)),
-                Err(error) => viewer.status.set_text(&COMPRESS.failed(&error)),
+                Ok((_, report)) => viewer.refuse(&options::no_gain_summary(&report)),
+                Err(error) => viewer.fail(&COMPRESS.failed(&error)),
             }
         }
     });
@@ -144,7 +144,7 @@ fn spawn_write(
     report: Arc<CompressReport>,
     destination: PathBuf,
 ) {
-    viewer.status.set_text(&tr(options::WRITING));
+    viewer.info(&tr(options::WRITING));
     // Holds the active tab until the result is in — see `tabs::JobGuard`.
     let job = crate::app::tabs::JobGuard::hold(viewer);
     glib::spawn_future_local({
@@ -156,10 +156,8 @@ fn spawn_write(
             // The file is written whatever happened to the document
             // meanwhile: say where it went, or why it did not.
             match save_worker_result(result) {
-                Ok(()) => viewer
-                    .status
-                    .set_text(&options::written_summary(&report, &written)),
-                Err(error) => viewer.status.set_text(&COMPRESS.failed(&error)),
+                Ok(()) => viewer.success(&options::written_summary(&report, &written)),
+                Err(error) => viewer.fail(&COMPRESS.failed(&error)),
             }
         }
     });
@@ -213,8 +211,8 @@ mod tests {
         );
         let held = crate::app::tabs::busy_refusal(&built.viewer);
         let busy = super::super::super::COMPRESS.busy();
-        crate::app::test_support::wait_until(|| built.viewer.status.text() != busy);
-        let status = built.viewer.status.text().to_string();
+        crate::app::test_support::wait_until(|| built.viewer.last_said() != busy);
+        let status = built.viewer.last_said().to_string();
         // The job is over; a reduction then offers its destination chooser,
         // which holds the tab for a reason of its own.
         let jobs_after = built.viewer.jobs_in_flight.get();

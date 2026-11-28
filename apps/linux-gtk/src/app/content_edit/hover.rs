@@ -302,14 +302,20 @@ pub(crate) fn connect(area: &DrawingArea, viewer: &Viewer, page_index: usize) {
     });
     motion.connect_leave({
         let viewer = viewer.clone();
-        move |controller| {
-            leave(&viewer, page_index);
-            if let Some(area) = controller.widget() {
-                set_cursor(&area, None);
-            }
+        move |controller| match controller.widget() {
+            Some(area) => pointer_left(&viewer, &area, page_index),
+            None => leave(&viewer, page_index),
         }
     });
     area.add_controller(motion);
+}
+
+/// The pointer left `area`, `page_index`'s layer: nothing there is hovered
+/// any more, and the layer goes back to the cursor it has without a hover —
+/// an armed tool's, when one is armed.
+pub(crate) fn pointer_left(viewer: &Viewer, area: &impl IsA<gtk::Widget>, page_index: usize) {
+    leave(viewer, page_index);
+    set_cursor(viewer, area, None);
 }
 
 /// The pointer moved to `(x, y)` on `area`, `page_index`'s layer: follow it,
@@ -342,7 +348,7 @@ fn follow_pointer(
             .and_then(|session| session.content_hover.as_ref())
             .filter(|hover| hover.page_index == page_index)
             .map(|hover| hover.zone);
-        set_cursor(area, zone);
+        set_cursor(viewer, area, zone);
     }
 }
 
@@ -355,15 +361,23 @@ pub(crate) fn cursor_names(zone: Option<Zone>) -> &'static [&'static str] {
     }
 }
 
-fn set_cursor(area: &impl IsA<gtk::Widget>, zone: Option<Zone>) {
+/// The cursor for `zone`, or `None` when the zone has none of its own.
+fn zone_cursor(zone: Option<Zone>) -> Option<gdk::Cursor> {
     // `from_name` never fails, so the later names ride as fallbacks of the
     // first rather than being tried in turn.
-    let cursor = cursor_names(zone)
+    cursor_names(zone)
         .iter()
         .rev()
         .fold(None, |fallback, name| {
             gdk::Cursor::from_name(name, fallback.as_ref())
-        });
+        })
+}
+
+/// Shows `zone`'s cursor on `area`, or — when the zone has none — whatever
+/// the layer shows without a hover: an armed tool's cursor (`arming`), or
+/// the plain pointer.
+fn set_cursor(viewer: &Viewer, area: &impl IsA<gtk::Widget>, zone: Option<Zone>) {
+    let cursor = zone_cursor(zone).or_else(|| crate::app::arming::cursor(viewer));
     area.set_cursor(cursor.as_ref());
 }
 
@@ -475,7 +489,7 @@ pub(crate) fn clear(viewer: &Viewer) -> bool {
             .map(|page| page.highlights.clone())
     };
     if let Some(area) = area {
-        set_cursor(&area, None);
+        set_cursor(viewer, &area, None);
         area.queue_draw();
     }
     true
@@ -494,7 +508,10 @@ pub(crate) fn forget(session: &mut DocumentSession) {
         return;
     };
     if let Some(page) = session.pages.get(previous.page_index) {
-        set_cursor(&page.highlights, None);
+        // A hover exists only while nothing is armed (`track`), so there is
+        // no armed cursor to fall back to — and no state to read it from
+        // here, where the caller holds it.
+        page.highlights.set_cursor(None);
         page.highlights.queue_draw();
     }
 }
@@ -969,6 +986,36 @@ mod tests {
             .as_ref()
             .and_then(|session| session.text_drag.as_ref())
             .map(|drag| drag.run.id)
+    }
+
+    /// The hover clears the layer's cursor whenever it has none of its own
+    /// to show — and an armed insert kind's cursor is on that same layer.
+    #[gtk::test]
+    fn gtk_ui_the_hover_leaves_an_armed_insert_cursor_alone() {
+        use crate::app::state::ContentInsertKind;
+
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let area = highlights(&fixture);
+        let cursor = |area: &DrawingArea| area.cursor().and_then(|cursor| cursor.name());
+        let inside = fixture.on_screen(Fixture::middle(&fixture.runs[0]));
+        let border = fixture.on_screen(left_of_block(&fixture, 3.0));
+        // Something hovered first, so arming has a hover to drop.
+        pointer_moved(viewer, &area, 0, inside.0, inside.1);
+        pointer_moved(viewer, &area, 0, border.0, border.1);
+        assert!(hovered(viewer).is_some());
+
+        super::super::set_insert_mode(viewer, Some(ContentInsertKind::Text));
+        assert_eq!(cursor(&area).as_deref(), Some("text"));
+
+        pointer_moved(viewer, &area, 0, border.0, border.1);
+        assert_eq!(cursor(&area).as_deref(), Some("text"), "moving over it");
+        pointer_left(viewer, &area, 0);
+        assert_eq!(cursor(&area).as_deref(), Some("text"), "leaving the page");
+
+        super::super::set_insert_mode(viewer, None);
+        pointer_left(viewer, &area, 0);
+        assert_eq!(cursor(&area), None, "nothing armed, nothing hovered");
     }
 
     /// The move cursor shows on the border and nowhere else.

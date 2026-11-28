@@ -35,12 +35,16 @@ use gtk::{
 
 use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
+use super::shortcuts;
 
 /// How many groups [`build_editor_toolbar`] appends. `FlowBox` defaults to a
 /// cap of seven children per line, which would force a wrap even on a window
 /// wide enough for all of them; stating the real count lets the bar use one
 /// row whenever it fits and wrap only when it genuinely has to.
 const GROUP_COUNT: u32 = 8;
+
+/// The face of the arrow beside Save that opens the Save as menu.
+const SAVE_AS_MARKER: &str = "\u{25be}";
 
 /// A compact search field keeps the popover usable on narrow windows.
 const FIND_ENTRY_CHARS: i32 = 14;
@@ -63,6 +67,11 @@ pub(crate) struct EditorToolbar {
     /// `document::show_document` gates all three on the same page count.
     pub(crate) export: Button,
     pub(crate) save: Button,
+    /// The arrow beside Save, whose menu holds Save as. Bound to
+    /// `win.save-as` and to Save's sensitivity inside this module, so
+    /// `build_ui` has nothing to wire; here for the tests.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) save_as: MenuButton,
     pub(crate) page_indicator: Label,
     pub(crate) zoom_out: Button,
     pub(crate) zoom_label: Label,
@@ -99,7 +108,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-open-short"),
         true,
     )));
-    open.set_tooltip_text(Some(&tr("editor-open-tooltip")));
+    open.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-open",
+        shortcuts::OPEN,
+    )));
     documents.append(&open);
     // A `gio::Menu` bound through `menu-model` (rather than a hand-built
     // `Popover` of `Button`s) so GTK owns the popup/dismiss/keyboard-nav
@@ -125,15 +137,45 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     // --- documents out -----------------------------------------------------
     let output = group(&root, &tr("editor-group-output"));
     let save = icon_button(&tr("editor-save"), Icon::Save);
-    save.set_tooltip_text(Some(&tr("editor-save-tooltip")));
+    save.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-save",
+        shortcuts::SAVE,
+    )));
     save.set_sensitive(false);
+    // Save is the button; Save as sits behind the arrow beside it, the way
+    // a split button offers the less common of two commands. A menu rather
+    // than a second icon button: the bundled set has one Save icon, and two
+    // identical icons side by side would say nothing about which is which.
+    // It names the window action, so the click, Ctrl+Shift+S and the palette
+    // all reach one handler, and it follows Save's sensitivity — whatever
+    // decides there is nothing to save decides it for both.
+    let save_as = MenuButton::new();
+    save_as.add_css_class("toolbar-save-as");
+    // A symbol rather than the menu button's own arrow, which is an
+    // icon-theme lookup this crate never makes (see `shell`).
+    save_as.set_child(Some(&Label::new(Some(SAVE_AS_MARKER))));
+    save_as.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-save-as",
+        shortcuts::SAVE_AS,
+    )));
+    save_as.update_property(&[gtk::accessible::Property::Label(&tr("editor-save-as"))]);
+    let save_menu = gio::Menu::new();
+    save_menu.append(Some(&tr("editor-save-as")), Some("win.save-as"));
+    save_as.set_menu_model(Some(&save_menu));
+    save.bind_property("sensitive", &save_as, "sensitive")
+        .sync_create()
+        .build();
     let print = icon_button(&tr("editor-print"), Icon::Print);
-    print.set_tooltip_text(Some(&tr("editor-print-tooltip")));
+    print.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-print",
+        shortcuts::PRINT,
+    )));
     print.set_sensitive(false);
     let export = icon_button(&tr("editor-export"), Icon::ExportImages);
     export.set_tooltip_text(Some(&tr("editor-export-tooltip")));
     export.set_sensitive(false);
     output.append(&save);
+    output.append(&save_as);
     output.append(&print);
     output.append(&export);
 
@@ -148,8 +190,16 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let history = group(&root, &tr("editor-group-history"));
     let undo = icon_button(&tr("editor-undo"), Icon::Undo);
     undo.set_action_name(Some("win.undo"));
+    undo.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-undo",
+        shortcuts::UNDO,
+    )));
     let redo = icon_button(&tr("editor-redo"), Icon::Redo);
     redo.set_action_name(Some("win.redo"));
+    redo.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-redo",
+        shortcuts::REDO,
+    )));
     history.append(&undo);
     history.append(&redo);
 
@@ -175,6 +225,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let zoom_label = Label::new(Some("100%"));
     zoom_label.add_css_class("zoom-indicator");
     let zoom_in = icon_button(&tr("editor-zoom-in"), Icon::ZoomIn);
+    zoom_out.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-zoom-out",
+        shortcuts::ZOOM_OUT,
+    )));
+    zoom_in.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-zoom-in",
+        shortcuts::ZOOM_IN,
+    )));
     zoom.append(&zoom_out);
     zoom.append(&zoom_label);
     zoom.append(&zoom_in);
@@ -182,6 +240,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let fit = group(&root, &tr("editor-group-fit"));
     let fit_width = icon_button(&tr("editor-fit-width"), Icon::FitWidth);
     let fit_page = icon_button(&tr("editor-fit-page"), Icon::FitPage);
+    fit_width.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-fit-width",
+        shortcuts::FIT_WIDTH,
+    )));
+    fit_page.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-fit-page",
+        shortcuts::FIT_PAGE,
+    )));
     fit.append(&fit_width);
     fit.append(&fit_page);
 
@@ -197,6 +263,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let show_tools = ToggleButton::with_label(&tr("editor-tools"));
     decorate_button(&show_tools, &tr("editor-tools"), Icon::PanelRight);
     show_tools.set_active(true);
+    show_pages.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-pages",
+        shortcuts::TOGGLE_PAGES,
+    )));
+    show_tools.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-tools",
+        shortcuts::TOGGLE_TOOLS,
+    )));
     panels.append(&show_pages);
     panels.append(&show_tools);
 
@@ -209,7 +283,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-find"),
         false,
     )));
-    search_button.set_tooltip_text(Some(&tr("editor-find-tooltip")));
+    search_button.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-find",
+        shortcuts::FIND,
+    )));
     search_button.update_property(&[gtk::accessible::Property::Label(&tr("editor-find"))]);
     let search_popover = Popover::new();
     search_popover.add_css_class("toolbar-search");
@@ -257,6 +334,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         sample_actions,
         print,
         save,
+        save_as,
         export,
         page_indicator,
         zoom_out,
@@ -363,7 +441,7 @@ mod tests {
         let toolbar = build_editor_toolbar();
         for (button, english, translated) in [
             (&toolbar.open, "Open PDF", "Abrir PDF"),
-            (&toolbar.save, "Save as", "Guardar como"),
+            (&toolbar.save, "Save", "Guardar"),
             (&toolbar.print, "Print", "Imprimir"),
             (&toolbar.export, "Export images", "Exportar imágenes"),
             (&toolbar.zoom_out, "Zoom out", "Alejar"),
@@ -403,6 +481,128 @@ mod tests {
                 .tooltip_text()
                 .is_some_and(|text| text.starts_with(tooltip)));
         }
+    }
+
+    /// The controls that have a key say so, like Open, Save, Print and Find
+    /// always did — with the key read from the shortcut table.
+    #[gtk::test]
+    fn gtk_ui_history_zoom_fit_and_panel_tooltips_name_their_shortcut() {
+        let toolbar = build_editor_toolbar();
+        // Each group is wrapped in a `FlowBoxChild`; history sits two
+        // groups before zoom.
+        let history = toolbar
+            .zoom_out
+            .parent()
+            .and_then(|zoom| zoom.parent())
+            .and_then(|zoom| zoom.prev_sibling())
+            .and_then(|position| position.prev_sibling())
+            .and_then(|history| history.first_child())
+            .expect("the history group sits two groups before zoom");
+        let tooltip = |widget: Option<gtk::Widget>| {
+            widget
+                .and_then(|widget| widget.tooltip_text())
+                .map(String::from)
+        };
+        assert_eq!(
+            tooltip(history.first_child()).as_deref(),
+            Some("Undo (Ctrl+Z)")
+        );
+        assert_eq!(
+            tooltip(history.last_child()).as_deref(),
+            Some("Redo (Ctrl+Y)")
+        );
+        for (button, expected) in [
+            (&toolbar.zoom_out, "Zoom out (Ctrl+-)"),
+            (&toolbar.zoom_in, "Zoom in (Ctrl++)"),
+            (&toolbar.fit_width, "Fit width (Ctrl+1)"),
+            (&toolbar.fit_page, "Fit page (Ctrl+2)"),
+            (toolbar.show_pages.upcast_ref(), "Pages (F9)"),
+            (toolbar.show_tools.upcast_ref(), "Tools (Shift+F9)"),
+        ] {
+            assert_eq!(button.tooltip_text().as_deref(), Some(expected));
+        }
+    }
+
+    /// Every one of them is the table's own key: a key that moves there
+    /// moves here.
+    #[gtk::test]
+    fn gtk_ui_a_tooltip_s_key_is_the_one_in_the_shortcut_table() {
+        let toolbar = build_editor_toolbar();
+        for (button, label_key, shortcut) in [
+            (&toolbar.zoom_out, "editor-zoom-out", shortcuts::ZOOM_OUT),
+            (&toolbar.zoom_in, "editor-zoom-in", shortcuts::ZOOM_IN),
+            (&toolbar.fit_width, "editor-fit-width", shortcuts::FIT_WIDTH),
+            (&toolbar.fit_page, "editor-fit-page", shortcuts::FIT_PAGE),
+        ] {
+            // Without a key the tooltip would be the bare label, and the
+            // comparison below would hold without naming one.
+            assert!(
+                shortcuts::accel_label(shortcut.accel).is_some(),
+                "it parses"
+            );
+            assert_eq!(
+                button.tooltip_text().as_deref(),
+                Some(shortcuts::tooltip_for(label_key, shortcut).as_str())
+            );
+        }
+    }
+
+    /// The document commands' tooltips name their key the same way.
+    #[gtk::test]
+    fn gtk_ui_open_print_and_find_tooltips_name_their_shortcut() {
+        let toolbar = build_editor_toolbar();
+        let find = toolbar
+            .search_entry
+            .ancestor(gtk::MenuButton::static_type())
+            .expect("the Find entry sits behind a menu button");
+
+        assert_eq!(
+            toolbar.open.tooltip_text().as_deref(),
+            Some("Open PDF (Ctrl+O)")
+        );
+        assert_eq!(
+            toolbar.print.tooltip_text().as_deref(),
+            Some("Print (Ctrl+P)")
+        );
+        assert_eq!(
+            find.tooltip_text().as_deref(),
+            Some("Find in document (Ctrl+F)")
+        );
+    }
+
+    /// Save is the button and Save as is behind the arrow beside it: named
+    /// for assistive technology, pointing at the window action, and greyed
+    /// out exactly when Save is.
+    #[gtk::test]
+    fn gtk_ui_save_as_sits_beside_save_and_follows_it() {
+        let toolbar = build_editor_toolbar();
+
+        assert_eq!(
+            toolbar.save.next_sibling().as_ref(),
+            Some(toolbar.save_as.upcast_ref::<gtk::Widget>())
+        );
+        assert_eq!(
+            toolbar.save.tooltip_text().as_deref(),
+            Some("Save (Ctrl+S)")
+        );
+        assert_eq!(
+            toolbar.save_as.tooltip_text().as_deref(),
+            Some("Save as (Ctrl+Shift+S)")
+        );
+        let menu = toolbar.save_as.menu_model().expect("the arrow has a menu");
+        let attribute = |name: &str| {
+            menu.item_attribute_value(0, name, None)
+                .and_then(|value| value.get::<String>())
+        };
+        assert_eq!(menu.n_items(), 1);
+        assert_eq!(attribute("label").as_deref(), Some("Save as"));
+        assert_eq!(attribute("action").as_deref(), Some("win.save-as"));
+
+        assert!(!toolbar.save_as.is_sensitive(), "nothing to save yet");
+        toolbar.save.set_sensitive(true);
+        assert!(toolbar.save_as.is_sensitive());
+        toolbar.save.set_sensitive(false);
+        assert!(!toolbar.save_as.is_sensitive());
     }
 
     #[gtk::test]

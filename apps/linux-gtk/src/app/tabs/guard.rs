@@ -117,12 +117,12 @@ pub(crate) fn bind_active(viewer: &Viewer) -> BoundTab {
 impl BoundTab {
     /// Whether the tab this was bound to is still the active one — or, for a
     /// question asked with no document open, whether there is still none.
-    /// When not, reports the refusal on the status line: the caller then does
+    /// When not, reports the refusal on a toast: the caller then does
     /// nothing, rather than act on a document the user did not ask about.
     pub(crate) fn ensure_active_or_report(self, viewer: &Viewer) -> bool {
         let still = active_tab(viewer) == self.0;
         if !still {
-            viewer.status.set_text(&tr("tabs-document-changed"));
+            viewer.refuse(&tr("tabs-document-changed"));
         }
         still
     }

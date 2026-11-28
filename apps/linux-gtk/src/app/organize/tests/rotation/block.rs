@@ -33,7 +33,7 @@ fn gtk_ui_the_block_buttons_turn_every_page_of_their_document_each_way() {
             ],
             "the whole imported block turns, and the base block does not"
         );
-        assert_eq!(viewer.status.text().as_str(), "Rotated 3 pages right.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated 3 pages right.");
 
         card_buttons(&cards(viewer)[1])[ROTATE_LEFT].emit_clicked();
 
@@ -42,7 +42,7 @@ fn gtk_ui_the_block_buttons_turn_every_page_of_their_document_each_way() {
             [Rotation::None; 5],
             "the other button is the inverse gesture, not a second forward one"
         );
-        assert_eq!(viewer.status.text().as_str(), "Rotated 3 pages left.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated 3 pages left.");
     });
 }
 
@@ -124,7 +124,7 @@ fn gtk_ui_a_block_turn_survives_a_document_that_can_never_be_rewritten() {
         card_buttons(&cards(viewer)[1])[ROTATE_RIGHT].emit_clicked();
 
         assert_eq!(rotations(viewer)[2..], [Rotation::Clockwise90; 3]);
-        assert_eq!(viewer.status.text().as_str(), "Rotated 3 pages right.");
+        assert_eq!(viewer.last_said().as_str(), "Rotated 3 pages right.");
     });
 }
 
@@ -143,16 +143,13 @@ fn gtk_ui_a_refused_block_turn_records_nothing_at_all() {
 
         assert_eq!(rotations(viewer), [Rotation::None; 5]);
         assert_eq!(
-            viewer.status.text().as_str(),
+            viewer.last_said().as_str(),
             "This document does not permit adding, removing or reordering its pages."
         );
 
         session(viewer).page_assembly_access = PageAssemblyAccess::Allowed;
         assert!(!rotate_block(viewer, 3, 9, 90), "past the end of the model");
-        assert_eq!(
-            viewer.status.text().as_str(),
-            "Those pages no longer exist."
-        );
+        assert_eq!(viewer.last_said().as_str(), "Those pages no longer exist.");
         assert!(
             !rotate_block(viewer, 0, 0, 90),
             "an empty run turns nothing"

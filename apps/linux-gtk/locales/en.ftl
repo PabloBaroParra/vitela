@@ -5,7 +5,7 @@
 
 home-search-placeholder = Search recent files and tools
 home-open-file = Open file
-home-open-file-tooltip = Open a PDF (Ctrl+O)
+home-open-file-tooltip = Open a PDF
 
 ## Home: welcome and drop zone
 
@@ -108,16 +108,14 @@ editor-group-find = Find
 
 editor-open = Open PDF
 editor-open-short = Open
-editor-open-tooltip = Open PDF (Ctrl+O)
 editor-sample = Open sample
 editor-sample-plain = Vitela sample
 # Keep the sample passwords unchanged: users enter them to open the files.
 editor-sample-aes128 = AES-128 sample (user-aes-pass)
 editor-sample-rc4128 = RC4-128 sample (user-rc4-pass)
-editor-save = Save as
-editor-save-tooltip = Save as (Ctrl+S)
+editor-save = Save
+editor-save-as = Save as
 editor-print = Print
-editor-print-tooltip = Print (Ctrl+P)
 editor-export = Export images
 editor-export-tooltip = Export pages as images
 editor-undo = Undo
@@ -130,13 +128,16 @@ editor-fit-page = Fit page
 editor-pages = Pages
 editor-tools = Tools
 editor-find = Find in document
-editor-find-tooltip = Find in document (Ctrl+F)
 editor-search-document = Search document
 editor-find-previous = Previous match
 editor-find-next = Next match
 editor-find-hint = Case-sensitive. Press Enter to search.
 editor-idle-status = Choose a PDF file to view, or open the built-in sample.
 editor-tools-panel = Tools and properties
+
+## Toasts: the notification that reports an outcome over the window
+
+toast-dismiss = Dismiss
 
 ## Search: status messages
 
@@ -207,11 +208,11 @@ edit-insert-text-tooltip = Click the page to place a new text box
 edit-delete-text = Delete text
 edit-delete-text-tooltip = Remove the selected text, or the text being retyped, from the page
 edit-style-bold = Bold
-edit-style-bold-tooltip = Make the selected text, or the text being retyped, bold (Ctrl+B)
+edit-style-bold-tooltip = Make the selected text, or the text being retyped, bold
 edit-style-italic = Italic
-edit-style-italic-tooltip = Make the selected text, or the text being retyped, italic (Ctrl+I)
+edit-style-italic-tooltip = Make the selected text, or the text being retyped, italic
 edit-style-underline = Underline
-edit-style-underline-tooltip = Underline the selected text, or the text being retyped (Ctrl+U)
+edit-style-underline-tooltip = Underline the selected text, or the text being retyped
 edit-style-bold-fixed = This text's font is bold and the page has no regular version of it, so it cannot be made regular
 edit-style-italic-fixed = This text's font is italic and the page has no upright version of it, so it cannot be made upright
 edit-style-unavailable = The style of this text cannot be read — save the document before restyling it.
@@ -228,14 +229,14 @@ edit-delete-shape = Delete shape
 edit-delete-shape-tooltip = Remove the selected line, border or box from the page
 edit-quick-actions = Quick actions
 edit-quick-retype = Edit text
-edit-quick-retype-tooltip = Retype the selected text in place (F2)
+edit-quick-retype-tooltip = Retype the selected text in place
 edit-quick-replace = Replace
 edit-quick-cut = Cut
-edit-quick-cut-tooltip = Cut the selection to the clipboard (Ctrl+X)
+edit-quick-cut-tooltip = Cut the selection to the clipboard
 edit-quick-copy = Copy
-edit-quick-copy-tooltip = Copy the selection to the clipboard (Ctrl+C)
+edit-quick-copy-tooltip = Copy the selection to the clipboard
 edit-quick-delete = Delete
-edit-quick-delete-tooltip = Remove the selection from the page (Delete)
+edit-quick-delete-tooltip = Remove the selection from the page
 edit-watermark = Add watermark
 edit-watermark-tooltip = Stamp the same text across the pages you choose
 edit-watermark-hint = A watermark is painted into the pages themselves and is one undo step.
@@ -466,6 +467,21 @@ write-check-failed = Could not check whether { $path } already exists: { $error 
 write-replace-title = Replace existing PDF?
 write-replace-cancel = Cancel
 write-replace = Replace
+# A save onto the document's own symbolic link writes the file the link
+# points at. { $target } is that file's full path; { $link } is the link's
+# file name.
+write-replace-through-link-title = Replace “{ $target }”, which “{ $link }” points to?
+write-link-target-not-replaceable = “{ $link }” points to { $target }, which cannot be replaced. Choose another name.
+write-link-target-open-elsewhere = “{ $link }” points to { $target }, which is open in another tab. Close that tab first, or choose another name.
+write-link-target-folder-unavailable = “{ $link }” points to { $target }, in a folder that does not exist or cannot be written to. Choose another name.
+# The save went to recreate the missing file a link points to, and a file
+# appeared at { $target } before it was written. Nothing was replaced.
+write-link-target-appeared = “{ $link }” points to { $target }, which now exists: another program created it while saving. Nothing was overwritten and your changes are not saved yet. Save again to decide whether to replace it.
+# The save went to recreate the missing file { $target }, but its folder has
+# no hard links (as on some network or FAT drives). Without them the save
+# cannot make sure it creates a new file instead of replacing one that
+# appeared there meanwhile, so it wrote nothing.
+write-link-target-create-unsupported = “{ $link }” points to { $target }, which is missing, and its folder cannot create it without risking replacing a file that appears there meanwhile. Nothing was written. Choose another name.
 write-signature-title = Saving will break this document's signature
 write-signature-detail =
     This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
@@ -485,6 +501,7 @@ save-cancelled = Save cancelled.
 save-busy = Saving PDF...
 save-done = PDF saved and reopened.
 save-failed = Could not save PDF: { $error }
+save-wait-for-job = Wait for the current operation on this document to finish before saving.
 
 ## Preview refresh after an edit
 
@@ -1027,7 +1044,8 @@ palette-mode-sign-keywords = signature certificate fill forms
 palette-mode-protect-keywords = password encrypt lock security permissions
 palette-file-open-keywords = load browse document
 palette-file-new-keywords = create empty document
-palette-file-save-keywords = copy keep write download
+palette-file-save-keywords = keep write download
+palette-file-save-as-keywords = copy rename duplicate another
 palette-file-print-keywords = printer paper
 palette-file-close-tab-keywords = tab file window
 palette-edit-undo-keywords = revert back cancel
@@ -1062,13 +1080,15 @@ palette-sign-draw-keywords = signature handwritten initials
 
 tabs-strip = Open documents
 tabs-close = Close document
-tabs-close-tooltip = Close (Ctrl+W)
+tabs-close-tooltip = Close
 # $name (String) - the document's file name.
 tabs-close-named = Close { $name }
 # $name (String) - the document's file name.
 tabs-tab-unsaved = { $name }, unsaved changes
 # $name (String) - the active document's file name.
 tabs-window-title = { $name } — Vitela
+# $name (String) - the active document's file name, which has unsaved changes.
+tabs-window-title-unsaved = • { $name } — Vitela
 # $name (String) - the document's file name.
 tabs-closed = Closed { $name }.
 tabs-busy = Wait for the current operation on this document to finish before switching or closing tabs.
@@ -1086,3 +1106,61 @@ tabs-close-held = Vitela stayed open: a document is still being worked on. Close
 tabs-reload-skipped = The document was not reloaded because it changed while it was being read.
 tabs-unsaved-detail-reloading = This document has changes that are not saved. Reading it again from disk will discard them.
 tabs-path-being-written = That file is still being written. Open it again once the save has finished.
+
+## Keyboard shortcuts window (F1), and the commands that gained a key with it
+
+# Modifier key names, as printed on keyboards. Every shortcut shown — in a
+# tooltip, the command palette and this window — is these in the order
+# Ctrl, Alt, Shift, then the key, joined by "+" (e.g. "Ctrl+Shift+S").
+# The shell adds the key to a tooltip through shortcut-tooltip below:
+# never type a key into a tooltip message.
+shortcut-modifier-ctrl = Ctrl
+shortcut-modifier-alt = Alt
+shortcut-modifier-shift = Shift
+# The tooltip of a control that has a key. { $label } is the control's own
+# tooltip message; { $keys } is its key as printed above, e.g. "Ctrl+Shift+S".
+shortcut-tooltip = { $label } ({ $keys })
+
+shortcuts-group-file = File
+shortcuts-group-edit = Edit
+shortcuts-group-find = Find
+shortcuts-group-view = View
+shortcuts-group-navigate = Navigate
+shortcuts-group-window = Window
+shortcuts-quit = Quit
+shortcuts-cut = Cut
+shortcuts-copy = Copy
+shortcuts-paste = Paste
+shortcuts-delete = Delete the selection
+shortcuts-retype = Retype the selected text
+shortcuts-escape = Cancel the tool or clear the selection
+shortcuts-zoom-reset = Actual size
+shortcuts-toggle-pages = Show or hide the pages panel
+shortcuts-toggle-tools = Show or hide the tools panel
+shortcuts-fullscreen = Full screen
+shortcuts-page-down = Scroll down one screen
+shortcuts-page-up = Scroll up one screen
+shortcuts-first-page = Go to the first page
+shortcuts-last-page = Go to the last page
+shortcuts-scroll-up = Scroll up
+shortcuts-scroll-down = Scroll down
+shortcuts-scroll-left = Scroll left
+shortcuts-scroll-right = Scroll right
+shortcuts-pan = Drag the page
+# Keys as the user reads them: the Space key held while dragging with the mouse.
+shortcuts-pan-keys = Space + drag
+shortcuts-next-tab = Next document
+shortcuts-previous-tab = Previous document
+tabs-no-other-document = No other document is open.
+palette-file-next-tab-keywords = tab switch forward
+palette-file-previous-tab-keywords = tab switch back
+palette-file-quit-keywords = exit close window leave
+palette-edit-find-next-keywords = search again forward result
+palette-edit-find-previous-keywords = search back prior
+palette-view-zoom-in-keywords = bigger enlarge magnify closer
+palette-view-zoom-out-keywords = decrease away farther minus
+palette-view-actual-size-keywords = zoom 100 reset real original
+palette-view-fit-width-keywords = zoom wide window
+palette-view-fit-page-keywords = zoom whole entire window
+palette-view-full-screen-keywords = fullscreen maximize window
+palette-help-shortcuts-keywords = keys hotkeys help accelerators

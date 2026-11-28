@@ -35,6 +35,33 @@ pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
         }
     });
     page_area.add_controller(scroll);
+    connect_find_popover(viewer);
+}
+
+/// Keeps Ctrl+wheel a zoom while the Find popover is open.
+///
+/// The popover is modal for as long as it is up: GTK hands it every scroll
+/// event, wherever the pointer is, so a wheel turned over the page never
+/// reaches the controller above — and zooming to read a match was exactly
+/// when Ctrl+wheel stopped working. The popover gets a controller of its
+/// own that takes the same step.
+///
+/// Unanchored: the pointer's place over the page is not known here — its
+/// motion goes to the popover too — so the step is the toolbar's, from the
+/// top-left of the view, rather than a zoom about a stale point.
+fn connect_find_popover(viewer: &Viewer) {
+    let Some(popover) = viewer.search_entry.ancestor(gtk::Popover::static_type()) else {
+        return;
+    };
+    let scroll = EventControllerScroll::new(
+        EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
+    );
+    scroll.set_propagation_phase(PropagationPhase::Capture);
+    scroll.connect_scroll({
+        let viewer = viewer.clone();
+        move |controller, _, dy| handle_scroll(&viewer, controller.current_event_state(), dy, None)
+    });
+    popover.add_controller(scroll);
 }
 
 /// The pointer, in `scroll`'s own coordinates, as the anchor expects it.
@@ -140,6 +167,63 @@ mod tests {
             .expect("the scroller must track the pointer; wheel events carry no position");
         assert_eq!(motion.propagation_phase(), PropagationPhase::Capture);
         built.window.close();
+    }
+
+    /// The Find popover is modal while open and receives the wheel itself:
+    /// it carries a controller that zooms, and one that leaves a plain
+    /// wheel alone.
+    ///
+    /// The controller's handler reads Ctrl off the event being dispatched,
+    /// and GTK 4 has no public way to dispatch a synthetic one: emitted by
+    /// hand its `scroll` signal sees no modifiers. So the plain wheel goes
+    /// through the controller itself, and the Ctrl+wheel step through the
+    /// same call the handler makes, over an open document with the popover
+    /// up.
+    #[gtk::test]
+    fn gtk_ui_the_find_popover_zooms_on_control_wheel_too() {
+        use crate::app::test_support::{pump, wait_until, FileDocument};
+
+        let document = FileDocument::new("wheel-find");
+        document.open_file();
+        let viewer = &document.built.viewer;
+        let popover = viewer
+            .search_entry
+            .ancestor(gtk::Popover::static_type())
+            .and_downcast::<gtk::Popover>()
+            .expect("the Find entry lives in a popover");
+        let controllers = popover.observe_controllers();
+        let controller = (0..controllers.n_items())
+            .find_map(|index| {
+                controllers
+                    .item(index)?
+                    .downcast::<EventControllerScroll>()
+                    .ok()
+            })
+            .expect("the Find popover must hear the wheel it is handed");
+        assert_eq!(controller.propagation_phase(), PropagationPhase::Capture);
+        assert!(controller
+            .flags()
+            .contains(EventControllerScrollFlags::DISCRETE));
+        super::super::layout::set_zoom(viewer, Zoom::Custom(1.0));
+        popover.popup();
+        assert!(wait_until(|| popover.is_visible()), "the popover is up");
+        let zoom = || viewer.state.borrow().session.as_ref().map(|s| s.zoom);
+
+        let taken = controller.emit_by_name::<bool>("scroll", &[&0.0f64, &-1.0f64]);
+        pump();
+        assert!(!taken, "a plain wheel is left to scroll");
+        assert!(zoom() == Some(Zoom::Custom(1.0)), "and does not zoom");
+
+        assert_eq!(
+            handle_scroll(viewer, gdk::ModifierType::CONTROL_MASK, -1.0, None),
+            glib::Propagation::Stop
+        );
+        assert!(
+            zoom() == Some(Zoom::Custom(1.25)),
+            "Ctrl+wheel up zooms in one toolbar step"
+        );
+        popover.popdown();
+        pump();
     }
 
     #[gtk::test]

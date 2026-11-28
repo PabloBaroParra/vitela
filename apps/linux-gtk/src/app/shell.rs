@@ -17,10 +17,12 @@
 
 use super::content_edit::panel::EDIT_CSS;
 use super::content_edit::quick_actions::QUICK_ACTIONS_CSS;
+use super::feedback::TOAST_CSS;
 use super::home::HOME_CSS;
 use super::mode_bar::MODE_BAR_CSS;
 use super::organize::ORGANIZE_CSS;
 use super::palette::PALETTE_CSS;
+use super::shortcuts::help::SHORTCUTS_CSS;
 use super::tabs::TABS_CSS;
 
 pub(crate) const SHELL_CSS: &str = r#"
@@ -78,6 +80,12 @@ pub(crate) const SHELL_CSS: &str = r#"
 .editor-toolbar button:disabled,
 .toolbar-search button:disabled {
   opacity: 0.38;
+}
+
+/* The arrow beside Save: narrow enough to read as part of it. */
+.editor-toolbar .toolbar-save-as button {
+  min-width: 12px;
+  padding: 5px 1px;
 }
 
 .toolbar-group {
@@ -228,7 +236,7 @@ pub(crate) const SHELL_CSS: &str = r#"
 /// palette (see `theme`) and one provider.
 pub(crate) fn all_sheets() -> String {
     format!(
-        "{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}{PALETTE_CSS}{TABS_CSS}"
+        "{SHELL_CSS}{MODE_BAR_CSS}{HOME_CSS}{EDIT_CSS}{QUICK_ACTIONS_CSS}{ORGANIZE_CSS}{PALETTE_CSS}{TABS_CSS}{TOAST_CSS}{SHORTCUTS_CSS}"
     )
 }
 

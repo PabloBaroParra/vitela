@@ -100,8 +100,7 @@ impl RecoveryDir {
     /// `glib` this crate builds against only offers behind its GLib 2.72
     /// feature.
     pub(crate) fn in_user_state_dir() -> Option<Self> {
-        let state = state_home(std::env::var_os("XDG_STATE_HOME"), glib::home_dir())?;
-        Some(Self::new(state.join(APP_DIR).join(RECOVERY_DIR)))
+        Some(Self::new(app_state_dir()?.join(RECOVERY_DIR)))
     }
 
     pub(crate) fn root(&self) -> &Path {
@@ -206,6 +205,15 @@ impl RecoveryDir {
             .create(&self.root)?;
         fs::set_permissions(&self.root, fs::Permissions::from_mode(PRIVATE_DIR))
     }
+}
+
+/// This application's own directory under the user's state directory:
+/// `$XDG_STATE_HOME/vitela`, or `~/.local/state/vitela`. `None` when neither
+/// names an absolute directory. Where the recovery entries live, and the
+/// remembered window state beside them (`session_state::store`).
+pub(crate) fn app_state_dir() -> Option<PathBuf> {
+    let state = state_home(std::env::var_os("XDG_STATE_HOME"), glib::home_dir())?;
+    Some(state.join(APP_DIR))
 }
 
 /// The XDG state directory: `$XDG_STATE_HOME` when it is an absolute path —

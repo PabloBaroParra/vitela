@@ -28,6 +28,7 @@ use pdf_render::{place_rect, PlacedRect, TextRect};
 
 use crate::app::i18n::tr;
 use crate::app::icons::Icon;
+use crate::app::shortcuts;
 use crate::app::state::{DocumentSession, Viewer, ViewerState};
 
 use super::{block, clipboard, hover, image, image_controls, multi, panel};
@@ -84,7 +85,7 @@ pub(crate) fn build() -> QuickActions {
         &retype,
         &tr("edit-quick-retype"),
         Icon::Text,
-        &tr("edit-quick-retype-tooltip"),
+        &shortcuts::tooltip_for("edit-quick-retype-tooltip", shortcuts::RETYPE),
     );
     let replace = Button::new();
     panel::tile(
@@ -95,14 +96,20 @@ pub(crate) fn build() -> QuickActions {
     );
     // No icon of the shell's own says "cut" or "copy", and the icon theme
     // is off limits (`shell`'s module doc), so these two are words alone.
-    let cut = text_tile(&tr("edit-quick-cut"), &tr("edit-quick-cut-tooltip"));
-    let copy = text_tile(&tr("edit-quick-copy"), &tr("edit-quick-copy-tooltip"));
+    let cut = text_tile(
+        &tr("edit-quick-cut"),
+        &shortcuts::tooltip_for("edit-quick-cut-tooltip", shortcuts::CUT),
+    );
+    let copy = text_tile(
+        &tr("edit-quick-copy"),
+        &shortcuts::tooltip_for("edit-quick-copy-tooltip", shortcuts::COPY),
+    );
     let delete = Button::new();
     panel::tile(
         &delete,
         &tr("edit-quick-delete"),
         Icon::Delete,
-        &tr("edit-quick-delete-tooltip"),
+        &shortcuts::tooltip_for("edit-quick-delete-tooltip", shortcuts::DELETE),
     );
     for button in [&retype, &replace, &cut, &copy, &delete] {
         // A click on the bar must leave the keyboard where it was: Delete,
@@ -143,7 +150,7 @@ pub(crate) fn connect(viewer: &Viewer) {
         let viewer = viewer.clone();
         move |_| match viewer.window() {
             Some(window) => image::replace_selected(&window, &viewer),
-            None => viewer.status.set_text(&tr("edit-no-window")),
+            None => viewer.fail(&tr("edit-no-window")),
         }
     });
     actions.cut.connect_clicked({

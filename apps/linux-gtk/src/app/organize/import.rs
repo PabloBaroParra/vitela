@@ -50,7 +50,7 @@ struct ImportProgress {
 
 pub(crate) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
     if let Some(refusal) = import_refusal(viewer) {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let filter = FileFilter::new();
@@ -74,7 +74,7 @@ pub(crate) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 return;
             }
             let Ok(files) = result else {
-                viewer.status.set_text(&tr(IMPORT_CANCELLED));
+                viewer.info(&tr(IMPORT_CANCELLED));
                 return;
             };
             let paths: Result<Vec<_>, _> = (0..files.n_items())
@@ -88,8 +88,8 @@ pub(crate) fn show_chooser(window: &ApplicationWindow, viewer: &Viewer) {
                 .collect();
             match paths {
                 Ok(paths) if !paths.is_empty() => start(window.clone(), viewer.clone(), paths),
-                Ok(_) => viewer.status.set_text(&tr(IMPORT_CANCELLED)),
-                Err(key) => viewer.status.set_text(&tr(key)),
+                Ok(_) => viewer.info(&tr(IMPORT_CANCELLED)),
+                Err(key) => viewer.refuse(&tr(key)),
             }
         }
     });
@@ -110,7 +110,7 @@ pub(super) fn cancel(viewer: &Viewer) {
         dialog.destroy();
     }
     finish(viewer);
-    viewer.status.set_text(&tr(IMPORT_CANCELLED));
+    viewer.info(&tr(IMPORT_CANCELLED));
 }
 
 pub(crate) fn import_refusal(viewer: &Viewer) -> Option<String> {
@@ -122,7 +122,7 @@ pub(crate) fn import_refusal(viewer: &Viewer) -> Option<String> {
 
 fn start(window: ApplicationWindow, viewer: Viewer, paths: Vec<PathBuf>) {
     let Some((token, first_source_id, first_page_id)) = import_ids(&viewer) else {
-        viewer.status.set_text(&tr(NO_DOCUMENT));
+        viewer.refuse(&tr(NO_DOCUMENT));
         return;
     };
     let cancellation = Arc::new(AtomicBool::new(false));
@@ -206,13 +206,11 @@ fn run(window: ApplicationWindow, viewer: Viewer, request: ImportRequest) {
             Ok(Err(PrepareError::Cancelled)) => cancelled(&viewer),
             Ok(Err(PrepareError::Failed(error))) if current(&viewer, &request) => {
                 finish(&viewer);
-                viewer.status.set_text(&error);
+                viewer.fail(&error);
             }
             Err(_) if current(&viewer, &request) => {
                 finish(&viewer);
-                viewer
-                    .status
-                    .set_text(&tr("organize-import-worker-stopped"));
+                viewer.fail(&tr("organize-import-worker-stopped"));
             }
             _ => finish_if_owned(&viewer, &request.cancellation),
         }
@@ -392,7 +390,7 @@ fn set_running(viewer: &Viewer, total: usize) {
     viewer.organize.import_progress.set_show_text(true);
     viewer.organize.import_progress.set_visible(true);
     viewer.organize.cancel_import_button.set_visible(true);
-    viewer.status.set_text(&tr("organize-import-checking"));
+    viewer.info(&tr("organize-import-checking"));
 }
 
 fn update_progress(viewer: &Viewer, progress: ImportProgress) {
@@ -461,7 +459,7 @@ fn finish_if_owned(viewer: &Viewer, cancellation: &Arc<AtomicBool>) {
 
 fn cancelled(viewer: &Viewer) {
     finish(viewer);
-    viewer.status.set_text(&tr(IMPORT_CANCELLED));
+    viewer.info(&tr(IMPORT_CANCELLED));
 }
 
 fn prompt_for_password(
@@ -504,7 +502,7 @@ fn prompt_for_password(
     content.append(&buttons);
     password_entry.grab_focus();
     viewer.state.borrow_mut().import_password_dialog = Some(dialog.clone());
-    viewer.status.set_text(&tr_args(
+    viewer.info(&tr_args(
         "organize-import-password-waiting",
         &[("name", name.as_str().into())],
     ));
@@ -524,7 +522,7 @@ fn prompt_for_password(
                 .passwords
                 .insert(path.clone(), password_entry.text().to_string());
             dismiss_password_dialog(&viewer, &dialog);
-            viewer.status.set_text(&tr("organize-import-checking"));
+            viewer.info(&tr("organize-import-checking"));
             run(window.clone(), viewer.clone(), request);
         }
     });
@@ -592,7 +590,7 @@ fn confirm(
             if response == Ok(1) {
                 apply(&viewer, token, prepared.clone());
             } else {
-                viewer.status.set_text(&tr(IMPORT_CANCELLED));
+                viewer.info(&tr(IMPORT_CANCELLED));
             }
         }
     });
@@ -608,7 +606,7 @@ fn token_matches(viewer: &Viewer, token: SessionToken) -> bool {
 
 fn apply(viewer: &Viewer, token: SessionToken, prepared: PreparedImport) {
     if !token_matches(viewer, token) {
-        viewer.status.set_text(&tr("organize-import-changed"));
+        viewer.refuse(&tr("organize-import-changed"));
         return;
     }
     let count = prepared.pages.len();
@@ -722,7 +720,7 @@ mod tests {
         assert!(built.viewer.state.borrow().import_password_dialog.is_none());
         assert!(built.viewer.state.borrow().import_cancellation.is_none());
         assert!(cancellation.load(Ordering::Acquire), "the worker is told");
-        assert_eq!(built.viewer.status.text(), tr(IMPORT_CANCELLED));
+        assert_eq!(built.viewer.last_said(), tr(IMPORT_CANCELLED));
         built.window.close();
     }
 

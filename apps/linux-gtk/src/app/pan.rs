@@ -265,6 +265,10 @@ impl Hand {
         } else if let Some((widget, own)) = state.grabbed.take() {
             widget.set_cursor(own.as_ref());
         }
+        // A page showing an armed tool's cursor would hide the open hand:
+        // the lookup takes the deepest widget's. Last, so it sees the grab
+        // holder's cursor as this left it.
+        super::arming::set_hand_shown(&self.viewer, name.is_some());
     }
 }
 
@@ -603,5 +607,52 @@ mod tests {
         hand.reset();
         assert_eq!(name_of(&page).as_deref(), Some("text"));
         built.window.close();
+    }
+
+    /// An armed tool puts its cursor on the page layer, which is deeper than
+    /// the scroller the open hand goes on — so the hand has to be given way
+    /// to, and the tool's cursor has to come back afterwards.
+    #[gtk::test]
+    fn gtk_ui_pan_hand_wins_over_an_armed_tool_cursor_and_gives_it_back() {
+        use crate::app::content_edit::test_support::Fixture;
+        use crate::app::state::Tool;
+
+        let fixture = Fixture::new(pdf_render::PageRotation::None);
+        let viewer = fixture.viewer();
+        let layer = viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("a session")
+            .pages[0]
+            .highlights
+            .clone();
+        viewer
+            .annotation_buttons
+            .create
+            .iter()
+            .find(|(tool, _)| *tool == Tool::Ink)
+            .map(|(_, button)| button.clone())
+            .expect("every tool has a button")
+            .set_active(true);
+        assert_eq!(name_of(&layer).as_deref(), Some("crosshair"));
+        let hand = Hand::new(viewer);
+
+        hand.press_space(true);
+        assert_eq!(name_of(&viewer.scroll).as_deref(), Some(GRAB));
+        assert_eq!(name_of(&layer), None, "the open hand shows through");
+        assert!(hand.begin(PRIMARY, Some(layer.clone().upcast())));
+        assert_eq!(name_of(&layer).as_deref(), Some(GRABBING));
+        hand.end();
+        assert_eq!(name_of(&layer), None, "Space is still held");
+        hand.release_space();
+        assert_eq!(name_of(&layer).as_deref(), Some("crosshair"));
+
+        // A middle drag never had the open hand to begin with.
+        assert!(hand.begin(MIDDLE, Some(layer.clone().upcast())));
+        assert_eq!(name_of(&layer).as_deref(), Some(GRABBING));
+        hand.end();
+        assert_eq!(name_of(&layer).as_deref(), Some("crosshair"));
     }
 }

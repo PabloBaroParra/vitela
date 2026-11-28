@@ -84,7 +84,7 @@ pub(crate) fn try_copy(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.text_extraction_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let copied = {
@@ -100,11 +100,9 @@ pub(crate) fn try_copy(viewer: &Viewer) -> bool {
     match copied {
         Ok((clip, count)) => {
             viewer.state.borrow_mut().content_clip = Some(clip);
-            viewer
-                .status
-                .set_text(&copied_message("edit-clipboard-copied", count));
+            viewer.info(&copied_message("edit-clipboard-copied", count));
         }
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     true
 }
@@ -119,7 +117,7 @@ pub(crate) fn try_cut(viewer: &Viewer) -> bool {
         .text_extraction_refusal()
         .or_else(|| viewer.content_edit_refusal())
     {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let result = {
@@ -147,7 +145,7 @@ pub(crate) fn try_cut(viewer: &Viewer) -> bool {
     };
     match result {
         Ok((_, count)) => refresh_preview(viewer, copied_message("edit-clipboard-cut", count)),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);
@@ -163,7 +161,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
         return false;
     }
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return true;
     }
     let result = {
@@ -179,7 +177,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
         };
         let Some(page) = super::content_page(session, page_index) else {
             drop(state);
-            viewer.status.set_text(&tr("edit-clipboard-paste-off-page"));
+            viewer.refuse(&tr("edit-clipboard-paste-off-page"));
             return true;
         };
         let pasted = command::paste(session, page, clip, left, top);
@@ -190,7 +188,7 @@ pub(crate) fn try_paste(viewer: &Viewer) -> bool {
     };
     match result {
         Ok(()) => refresh_preview(viewer, tr("edit-clipboard-pasted")),
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update_content_edit_controls(viewer);
     selection::redraw(viewer);

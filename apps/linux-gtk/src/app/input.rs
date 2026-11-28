@@ -82,7 +82,7 @@ pub(crate) fn connect_window_file_drop(area: &gtk::Overlay, viewer: &Viewer) {
                 return false;
             };
             let Some(path) = file.path() else {
-                viewer.status.set_text(&tr("drop-not-local"));
+                viewer.refuse(&tr("drop-not-local"));
                 return true;
             };
             load_window_drop(&viewer, path);
@@ -94,7 +94,7 @@ pub(crate) fn connect_window_file_drop(area: &gtk::Overlay, viewer: &Viewer) {
 
 fn paste_image(viewer: &Viewer) {
     let Some(target) = paste_target(viewer) else {
-        viewer.status.set_text(&tr("paste-open-first"));
+        viewer.refuse(&tr("paste-open-first"));
         return;
     };
     let clipboard = viewer.scroll.clipboard();
@@ -111,7 +111,7 @@ fn paste_image(viewer: &Viewer) {
                     target.point,
                     texture.save_to_png_bytes().as_ref().to_vec(),
                 ),
-                None => viewer.status.set_text(&tr("paste-no-image")),
+                None => viewer.refuse(&tr("paste-no-image")),
             }
         }
     });
@@ -134,17 +134,17 @@ fn paste_target(viewer: &Viewer) -> Option<PasteTarget> {
 
 fn drop_file(viewer: &Viewer, page_index: usize, x: f64, y: f64, file: gio::File) {
     let Some(path) = file.path() else {
-        viewer.status.set_text(&tr("drop-not-local"));
+        viewer.refuse(&tr("drop-not-local"));
         return;
     };
     let Some(session_id) = current_session_id(viewer) else {
         return;
     };
     let Some(point) = selection::pointer_to_pdf(viewer, page_index, x, y) else {
-        viewer.status.set_text(&tr("drop-page-not-ready"));
+        viewer.refuse(&tr("drop-page-not-ready"));
         return;
     };
-    viewer.status.set_text(&tr("drop-loading"));
+    viewer.info(&tr("drop-loading"));
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
@@ -158,30 +158,26 @@ fn drop_file(viewer: &Viewer, page_index: usize, x: f64, y: f64, file: gio::File
                         annotations::stamp_from_image_bytes(&viewer, page_index, point, bytes)
                     }
                     FileDropKind::Image => {}
-                    FileDropKind::Unknown => viewer.status.set_text(&tr("drop-unsupported")),
+                    FileDropKind::Unknown => viewer.refuse(&tr("drop-unsupported")),
                 },
-                Err(error) => viewer
-                    .status
-                    .set_text(&tr_args("drop-read-failed", &[("error", error.into())])),
+                Err(error) => viewer.fail(&tr_args("drop-read-failed", &[("error", error.into())])),
             }
         }
     });
 }
 
 fn load_window_drop(viewer: &Viewer, path: PathBuf) {
-    viewer.status.set_text(&tr("drop-loading"));
+    viewer.info(&tr("drop-loading"));
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
             match read_dropped_file(path).await {
                 Ok((path, bytes)) => match classify_file_contents(&bytes) {
                     FileDropKind::Pdf => open_file(&viewer, path),
-                    FileDropKind::Image => viewer.status.set_text(&tr("drop-image-on-page")),
-                    FileDropKind::Unknown => viewer.status.set_text(&tr("drop-unsupported")),
+                    FileDropKind::Image => viewer.refuse(&tr("drop-image-on-page")),
+                    FileDropKind::Unknown => viewer.refuse(&tr("drop-unsupported")),
                 },
-                Err(error) => viewer
-                    .status
-                    .set_text(&tr_args("drop-read-failed", &[("error", error.into())])),
+                Err(error) => viewer.fail(&tr_args("drop-read-failed", &[("error", error.into())])),
             }
         }
     });

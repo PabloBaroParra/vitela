@@ -74,7 +74,7 @@ fn offer_placed(
                 offer_placed(&window, &viewer, orphans, placement);
             }
             // Dropping the claims releases their locks; the files stay.
-            Choice::Later => viewer.status.set_text(&tr("recovery-kept")),
+            Choice::Later => viewer.info(&tr("recovery-kept")),
         }
     });
 }
@@ -142,7 +142,7 @@ fn start_restore(
     rest: Vec<Orphan>,
     placement: Placement,
 ) {
-    viewer.status.set_text(&tr("open-busy"));
+    viewer.info(&tr("open-busy"));
     glib::spawn_future_local({
         let window = window.clone();
         let viewer = viewer.clone();
@@ -188,7 +188,7 @@ fn start_restore(
                     "recovery-restore-failed"
                 }
             };
-            viewer.status.set_text(&tr(failure));
+            viewer.fail(&tr(failure));
             finish_open(&window, &viewer);
             offer_placed(&window, &viewer, rest, placement);
         }
@@ -256,9 +256,9 @@ fn mark_restored(viewer: &Viewer, tab: TabId, meta: &Meta) {
     // under the name it was restored as — rather than a message about a
     // document the user is not looking at.
     if crate::app::tabs::active_tab(viewer) == Some(tab) {
-        viewer.status.set_text(&tr("recovery-restored"));
+        viewer.success(&tr("recovery-restored"));
     } else {
-        viewer.status.set_text(&tr_args(
+        viewer.success(&tr_args(
             "tabs-opened-in-background",
             &[("name", meta.name.clone().into())],
         ));

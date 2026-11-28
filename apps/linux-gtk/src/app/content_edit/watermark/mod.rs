@@ -47,7 +47,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
         return;
     };
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         return;
     }
     let Some((total_pages, current_page)) = ({
@@ -58,7 +58,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
             Some((document.pages.len() as u32, current))
         })
     }) else {
-        viewer.status.set_text(&tr("watermark-no-document"));
+        viewer.refuse(&tr("watermark-no-document"));
         return;
     };
 
@@ -69,7 +69,7 @@ pub(crate) fn begin_watermark(viewer: &Viewer) {
         current_page,
         {
             let viewer = viewer.clone();
-            move || viewer.status.set_text(&tr("watermark-cancelled"))
+            move || viewer.info(&tr("watermark-cancelled"))
         },
         {
             let viewer = viewer.clone();

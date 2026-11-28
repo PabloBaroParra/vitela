@@ -120,17 +120,17 @@ pub(crate) fn build() -> (StyleToggles, GtkBox) {
         bold: make(
             "<b>B</b>",
             &tr("edit-style-bold"),
-            &tr("edit-style-bold-tooltip"),
+            &shortcuts::tooltip_for(tooltip_key(Style::Bold), shortcut(Style::Bold)),
         ),
         italic: make(
             "<i>I</i>",
             &tr("edit-style-italic"),
-            &tr("edit-style-italic-tooltip"),
+            &shortcuts::tooltip_for(tooltip_key(Style::Italic), shortcut(Style::Italic)),
         ),
         underline: make(
             "<u>U</u>",
             &tr("edit-style-underline"),
-            &tr("edit-style-underline-tooltip"),
+            &shortcuts::tooltip_for(tooltip_key(Style::Underline), shortcut(Style::Underline)),
         ),
         reselect: reselect::Pending::default(),
         shown: follow::Shown::default(),
@@ -299,13 +299,13 @@ pub(crate) fn update(viewer: &Viewer) {
         };
         button.set_active(active);
         button.set_sensitive(toggles.is_some() && removable);
-        button.set_tooltip_text(Some(&tr(if removable {
-            tooltip_key(style)
+        button.set_tooltip_text(Some(&if removable {
+            shortcuts::tooltip_for(tooltip_key(style), shortcut(style))
         } else if style == Style::Bold {
-            model::BOLD_FIXED
+            tr(model::BOLD_FIXED)
         } else {
-            model::ITALIC_FIXED
-        })));
+            tr(model::ITALIC_FIXED)
+        }));
         if let Some(action) = viewer
             .window()
             .and_then(|window| window.lookup_action(shortcut(style).action))
@@ -321,7 +321,7 @@ pub(crate) fn update(viewer: &Viewer) {
 /// one with only some restyled closes, leaving its block selected.
 pub(crate) fn toggle(viewer: &Viewer, style: Style) {
     if let Some(refusal) = viewer.content_edit_refusal() {
-        viewer.status.set_text(&refusal);
+        viewer.refuse(&refusal);
         update(viewer);
         return;
     }
@@ -356,7 +356,7 @@ pub(crate) fn toggle(viewer: &Viewer, style: Style) {
             refresh_preview(viewer, tr("edit-text-restyled"));
         }
         Ok(None) => {}
-        Err(error) => viewer.status.set_text(&error),
+        Err(error) => viewer.refuse(&error),
     }
     update(viewer);
 }
