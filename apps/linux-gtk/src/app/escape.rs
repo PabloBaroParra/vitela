@@ -6,16 +6,29 @@
 //! there is one window action, `win.escape`, and one precedence
 //! ([`target`]):
 //!
-//! 1. **Whatever already owns the key keeps it.** The command palette, a
-//!    text field (the inline content editor, the search entry, a form or
-//!    metadata field) and an open popover each close or cancel on Escape
-//!    themselves. Dialogs are windows of their own and never see this action.
+//! 1. **Whatever already uses the key keeps it.** The command palette, the
+//!    inline content editor and an open popover — the Find entry lives in
+//!    one — each close or cancel on Escape themselves. Dialogs are windows
+//!    of their own and never see this action.
 //! 2. **An armed tool** is released: an annotation tool, a waiting drawn
 //!    signature, a form-field kind, a content insert kind (`arming`).
 //! 3. **A content selection** is cleared.
 //! 4. **A toast** on screen is dismissed.
 //!
 //! One press does one thing; a second press reaches the next.
+//!
+//! ## A text field that has no use for the key
+//!
+//! Rule 1 is about who *uses* Escape, not about who has the cursor. A spin
+//! button or a plain entry in a side panel does nothing with the key, and it
+//! keeps the focus while the user works on the page with the mouse: a click,
+//! a marquee or arming a tool moves no focus. Leaving Escape with such a
+//! field made the key dead exactly when there was something to let go of.
+//!
+//! So with the cursor in an idle field ([`Focus::IdleField`]) rules 2 and 3
+//! still apply. Rule 4 does not: a toast is not something the user is in
+//! the middle of, and a key pressed while typing in a field — to give up an
+//! input-method composition, say — must not be spent on dismissing one.
 //!
 //! ## How the first rule holds
 //!
@@ -43,13 +56,25 @@ pub(crate) enum Target {
     Toast,
 }
 
+/// Where the keyboard focus is, as far as Escape is concerned.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Focus {
+    /// Not in a text field: on a button, on the canvas, nowhere.
+    #[default]
+    Elsewhere,
+    /// In a text field that does nothing with Escape — a spin button, a
+    /// form or metadata entry.
+    IdleField,
+    /// In the inline content editor, which cancels on Escape itself.
+    Editor,
+}
+
 /// Everything the precedence reads.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Context {
     /// The command palette is open.
     pub(crate) palette_open: bool,
-    /// The focus is in a text field of the main window.
-    pub(crate) text_input_focused: bool,
+    pub(crate) focus: Focus,
     /// The focus is inside a popover.
     pub(crate) popover_focused: bool,
     pub(crate) armed: Option<Armed>,
@@ -61,32 +86,57 @@ pub(crate) struct Context {
 /// What one press of Escape does in `context`, or `None` when the key is
 /// not this action's to take.
 pub(crate) fn target(context: Context) -> Option<Target> {
-    if context.palette_open || context.text_input_focused || context.popover_focused {
+    if context.palette_open || context.popover_focused || context.focus == Focus::Editor {
         return None;
     }
+    let toast = context.toast && context.focus != Focus::IdleField;
     context
         .armed
         .map(Target::Armed)
         .or(context.selection.then_some(Target::Selection))
-        .or(context.toast.then_some(Target::Toast))
+        .or(toast.then_some(Target::Toast))
 }
 
-fn focus_in_popover(viewer: &Viewer) -> bool {
+fn focused(viewer: &Viewer) -> Option<gtk::Widget> {
     viewer
         .window()
         .and_then(|window| gtk::prelude::GtkWindowExt::focus(&window))
-        .is_some_and(|focused| focused.ancestor(gtk::Popover::static_type()).is_some())
+}
+
+fn focus_in_popover(viewer: &Viewer) -> bool {
+    focused(viewer).is_some_and(|focused| focused.ancestor(gtk::Popover::static_type()).is_some())
+}
+
+/// Which [`Focus`] the window is in. `editor` is the frame of the inline
+/// content editor, while one is open.
+fn focus(viewer: &Viewer, editor: Option<&gtk::Widget>) -> Focus {
+    if !super::annotations::text_input_has_focus(viewer) {
+        return Focus::Elsewhere;
+    }
+    let in_editor = focused(viewer).is_some_and(|focused| {
+        editor.is_some_and(|editor| focused == *editor || focused.is_ancestor(editor))
+    });
+    if in_editor {
+        Focus::Editor
+    } else {
+        Focus::IdleField
+    }
 }
 
 /// Reads the context, or `None` while the state is mutably borrowed.
 fn context(viewer: &Viewer) -> Option<Context> {
-    let (palette_open, armed) = {
+    let (palette_open, armed, editor) = {
         let state = viewer.state.try_borrow().ok()?;
-        (state.palette_open, arming::armed(&state))
+        let editor = state
+            .session
+            .as_ref()
+            .and_then(|session| session.content_editor.as_ref())
+            .map(|editor| editor.frame.clone().upcast::<gtk::Widget>());
+        (state.palette_open, arming::armed(&state), editor)
     };
     Some(Context {
         palette_open,
-        text_input_focused: super::annotations::text_input_has_focus(viewer),
+        focus: focus(viewer, editor.as_ref()),
         popover_focused: focus_in_popover(viewer),
         armed,
         selection: super::content_edit::multi::has_selection(viewer)
@@ -147,7 +197,7 @@ pub(crate) fn connect(
         move |_, _| run(&viewer)
     });
     window.add_action(&action);
-    application.set_accels_for_action(&format!("win.{ACTION}"), &["Escape"]);
+    super::shortcuts::ESCAPE.install(application);
 
     window.connect_focus_widget_notify({
         let viewer = viewer.clone();
@@ -201,14 +251,14 @@ mod tests {
     }
 
     #[test]
-    fn the_palette_a_text_field_and_a_popover_each_keep_the_key() {
+    fn the_palette_the_inline_editor_and_a_popover_each_keep_the_key() {
         for context in [
             Context {
                 palette_open: true,
                 ..everything()
             },
             Context {
-                text_input_focused: true,
+                focus: Focus::Editor,
                 ..everything()
             },
             Context {
@@ -218,6 +268,40 @@ mod tests {
         ] {
             assert_eq!(target(context), None, "{context:?}");
         }
+    }
+
+    /// A spin button or an entry does nothing with Escape, and keeps the
+    /// cursor while the user arms a tool or drags a marquee with the mouse.
+    #[test]
+    fn an_idle_text_field_does_not_keep_the_key_from_a_tool_or_a_selection() {
+        let idle = Context {
+            focus: Focus::IdleField,
+            ..everything()
+        };
+
+        assert_eq!(target(idle), Some(Target::Armed(INK)));
+        assert_eq!(
+            target(Context {
+                armed: None,
+                ..idle
+            }),
+            Some(Target::Selection)
+        );
+    }
+
+    /// A toast is not something the user is in the middle of: with the
+    /// cursor in a field and nothing armed or selected, the key is the
+    /// field's.
+    #[test]
+    fn a_toast_alone_does_not_take_the_key_from_a_text_field() {
+        assert_eq!(
+            target(Context {
+                focus: Focus::IdleField,
+                toast: true,
+                ..Context::default()
+            }),
+            None
+        );
     }
 
     // Over a real window from here on.
@@ -373,6 +457,68 @@ mod tests {
         escape(viewer).activate(None);
         assert!(!viewer.feedback.toasts.is_showing());
         assert!(!escape(viewer).is_enabled(), "nothing is left");
+    }
+
+    /// The observed defect: a marquee selection made while the cursor sat
+    /// in a spin button could not be cleared with Escape, because nothing
+    /// about selecting moves the focus off the field.
+    #[gtk::test]
+    fn gtk_ui_escape_clears_a_selection_while_an_idle_field_has_the_cursor() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let selected = |viewer: &Viewer| crate::app::content_edit::multi::has_selection(viewer);
+        let spin = gtk::SpinButton::with_range(4.0, 400.0, 1.0);
+        viewer.pages.append(&spin);
+        pump();
+        assert!(spin.grab_focus(), "the test window takes focus");
+        pump();
+        assert!(crate::app::annotations::text_input_has_focus(viewer));
+        assert!(!escape(viewer).is_enabled(), "nothing to let go of yet");
+
+        crate::app::content_edit::set_mode(viewer, true);
+        if let Some(session) = viewer.state.borrow_mut().session.as_mut() {
+            session.content_selection = Some(ContentSelection {
+                page_index: 0,
+                members: Default::default(),
+            });
+        }
+        crate::app::update_content_edit_controls(viewer);
+        assert!(selected(viewer));
+        assert!(escape(viewer).is_enabled(), "the selection is Escape's");
+
+        escape(viewer).activate(None);
+
+        assert!(!selected(viewer));
+        assert!(crate::app::annotations::text_input_has_focus(viewer));
+        assert!(!escape(viewer).is_enabled());
+    }
+
+    /// The same field with a tool armed: Escape releases the tool. With
+    /// only a toast up, the key stays with the field.
+    #[gtk::test]
+    fn gtk_ui_escape_releases_a_tool_but_not_a_toast_from_an_idle_field() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let entry = gtk::Entry::new();
+        viewer.pages.append(&entry);
+        pump();
+        assert!(entry.grab_focus(), "the test window takes focus");
+        pump();
+
+        viewer.fail("Could not save.");
+        pump();
+        assert!(
+            !escape(viewer).is_enabled(),
+            "a toast alone leaves the key with the field"
+        );
+
+        tool_button(viewer, Tool::Ink).set_active(true);
+        assert!(escape(viewer).is_enabled());
+        escape(viewer).activate(None);
+
+        assert_eq!(viewer.state.borrow().active_tool, None);
+        assert!(viewer.feedback.toasts.is_showing(), "the toast is left");
+        assert!(!escape(viewer).is_enabled());
     }
 
     /// The inline editor cancels on Escape itself. Its field has the focus

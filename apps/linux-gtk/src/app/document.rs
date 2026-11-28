@@ -442,7 +442,7 @@ fn land_opened(
     );
 }
 
-/// The status line for an open that failed. `error` is the renderer's own
+/// What the toast says for an open that failed. `error` is the renderer's own
 /// detail and stays as it is, untranslated.
 fn open_failed(error: &impl std::fmt::Display) -> String {
     tr_args("open-failed", &[("error", error.to_string().into())])

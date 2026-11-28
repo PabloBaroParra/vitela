@@ -25,6 +25,9 @@ use crate::app::write::{restore_view_state, take_view_state};
 ///
 /// `None` when there was no active document to park.
 pub(super) fn park_active(viewer: &Viewer) -> Option<TabId> {
+    // Before the session leaves the window: where it was being read is
+    // remembered for the next run too.
+    crate::app::session_state::remember_active(viewer);
     let view = take_view_state(viewer);
     let mut session = viewer.state.borrow_mut().session.take()?;
     cancel_renders(&session);
@@ -166,6 +169,14 @@ pub(super) fn unpark(viewer: &Viewer, id: TabId, arrival: Arrival) -> bool {
     // starts at the top, and a read one is scrolled from there.
     viewer.scroll.vadjustment().set_value(0.0);
     restore_view_state(viewer, generation, view);
+    // A tab opened in the background has never been shown and has no view
+    // of its own yet: like a document opened in front, it comes back where
+    // an earlier run left it.
+    if view.is_none() {
+        crate::app::session_state::restore_view(viewer, generation);
+    }
+    // The arrows scroll the document that has just come on screen.
+    crate::app::canvas_keys::focus_on_arrival(viewer);
 
     if arrival == Arrival::Strip {
         if let Some(screen) = screen {

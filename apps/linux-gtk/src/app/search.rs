@@ -6,9 +6,140 @@ use gtk::{gio, glib};
 use pdf_render::{DocumentHandle, PdfiumRenderer, Priority, RenderError, TextMatch};
 
 use super::feedback::Notice;
+use super::home::EDITOR_PAGE;
 use super::i18n::{tr, tr_args};
 use super::layout::page_top;
+use super::shortcuts;
 use super::state::{SearchState, Viewer};
+
+/// What Enter in the Find entry does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Submit {
+    /// Runs the search for what is typed.
+    Search,
+    /// Goes to the next match of the search already on screen.
+    Next,
+}
+
+/// What Enter does with `typed` in the entry while the matches on screen —
+/// if any — are those of `searched`.
+///
+/// The same text again is "find the next one", the way every find field
+/// reads a second Enter; running the search over would only put the user
+/// back on the first match. Anything else typed is a new search, and so is
+/// a query whose last search found nothing: there are no matches to step
+/// through, and the document may have been edited since.
+pub(crate) fn submit(typed: &str, searched: Option<&str>) -> Submit {
+    if !typed.is_empty() && searched == Some(typed) {
+        Submit::Next
+    } else {
+        Submit::Search
+    }
+}
+
+/// The query whose matches are on screen, when there are any.
+fn searched(viewer: &Viewer) -> Option<String> {
+    viewer
+        .state
+        .borrow()
+        .session
+        .as_ref()
+        .and_then(|session| session.search.as_ref())
+        .filter(|search| !search.matches.is_empty())
+        .map(|search| search.query.clone())
+}
+
+/// Enter in the Find entry: the next match of the same query, or a search
+/// for a new one ([`submit`]).
+pub(crate) fn submit_entry(viewer: &Viewer) {
+    let typed = viewer.search_entry.text().to_string();
+    match submit(&typed, searched(viewer).as_deref()) {
+        Submit::Next => step_match(viewer, 1),
+        Submit::Search => run_search(viewer),
+    }
+}
+
+/// F3 and Shift+F3 (and Ctrl+G, Ctrl+Shift+G): the next or previous match.
+///
+/// With matches on screen it steps through them, whatever has been typed in
+/// the entry since. With none, it does what can be done about that: runs the
+/// search for a query that is typed but was never searched, and otherwise
+/// opens Find to ask for one.
+pub(crate) fn find_again(viewer: &Viewer, delta: i32) {
+    if searched(viewer).is_some() {
+        step_match(viewer, delta);
+    } else if viewer.search_entry.text().is_empty() {
+        show_find(viewer);
+    } else {
+        run_search(viewer);
+    }
+}
+
+/// Ctrl+F: opens the Find popover with the cursor in its entry.
+///
+/// The popover hangs off a toolbar button, and the toolbar is part of the
+/// editor screen. From Organize — where a document is open and the key used
+/// to do nothing at all — the editor is shown first, as the command
+/// palette's Find entry always did. From a screen with no document behind
+/// it there is no editor to show and nothing to search, and the key says so
+/// instead of staying silent.
+pub(crate) fn show_find(viewer: &Viewer) {
+    if viewer.view_stack.visible_child_name().as_deref() != Some(EDITOR_PAGE) {
+        if viewer.state.borrow().session.is_none() {
+            viewer.refuse(&tr("search-open-first"));
+            return;
+        }
+        super::home::show_editor(viewer);
+    }
+    let entry = &viewer.search_entry;
+    if let Some(button) = entry
+        .ancestor(gtk::MenuButton::static_type())
+        .and_then(|widget| widget.downcast::<gtk::MenuButton>().ok())
+        .filter(|button| button.is_mapped())
+    {
+        button.popup();
+        entry.grab_focus();
+    }
+}
+
+/// Wires the Find entry and its two buttons, installs `win.find`,
+/// `win.find-next` and `win.find-previous`, and binds their keys.
+pub(crate) fn connect(
+    application: &gtk::Application,
+    window: &gtk::ApplicationWindow,
+    viewer: &Viewer,
+) {
+    viewer.search_entry.connect_activate({
+        let viewer = viewer.clone();
+        move |_| submit_entry(&viewer)
+    });
+    viewer.find_next.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| step_match(&viewer, 1)
+    });
+    viewer.find_previous.connect_clicked({
+        let viewer = viewer.clone();
+        move |_| step_match(&viewer, -1)
+    });
+
+    let find = gio::SimpleAction::new(shortcuts::FIND.action, None);
+    find.connect_activate({
+        let viewer = viewer.clone();
+        move |_, _| show_find(&viewer)
+    });
+    window.add_action(&find);
+    shortcuts::FIND.install(application);
+
+    for (shortcut, delta) in [(shortcuts::FIND_NEXT, 1), (shortcuts::FIND_PREVIOUS, -1)] {
+        let action = gio::SimpleAction::new(shortcut.action, None);
+        action.connect_activate({
+            let viewer = viewer.clone();
+            move |_, _| find_again(&viewer, delta)
+        });
+        window.add_action(&action);
+        shortcut.install(application);
+    }
+}
 
 pub(crate) fn run_search(viewer: &Viewer) {
     let query = viewer.search_entry.text().to_string();
@@ -222,6 +353,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn enter_on_the_query_already_searched_goes_to_the_next_match() {
+        assert_eq!(submit("invoice", Some("invoice")), Submit::Next);
+    }
+
+    #[test]
+    fn enter_on_a_new_query_searches_for_it() {
+        assert_eq!(submit("total", Some("invoice")), Submit::Search);
+        assert_eq!(submit("invoice", None), Submit::Search);
+    }
+
+    /// The matcher is exact and case-sensitive, so the comparison is too.
+    #[test]
+    fn a_query_that_differs_only_in_case_or_spaces_is_a_new_one() {
+        assert_eq!(submit("Invoice", Some("invoice")), Submit::Search);
+        assert_eq!(submit("invoice ", Some("invoice")), Submit::Search);
+    }
+
+    /// An empty entry is the "enter text" hint's to answer, not a step.
+    #[test]
+    fn enter_on_an_empty_entry_is_never_a_step() {
+        assert_eq!(submit("", Some("")), Submit::Search);
+        assert_eq!(submit("", None), Submit::Search);
+    }
+
+    #[test]
     fn step_index_wraps_around_both_ends() {
         assert_eq!(step_index(2, 1, 3), 0);
         assert_eq!(step_index(0, -1, 3), 2);
@@ -245,5 +401,160 @@ mod tests {
             search_status("{PDF} \"á\"", 1, 3),
             "Coincidencia 2 de 3 para «{PDF} \"á\"»."
         );
+    }
+}
+
+/// The Find keys against a real window and a real search.
+#[cfg(test)]
+mod window_tests {
+    use gtk::prelude::*;
+
+    use super::{find_again, show_find, submit_entry};
+    use crate::app::home::EDITOR_PAGE;
+    use crate::app::i18n::tr;
+    use crate::app::organize::ORGANIZE_PAGE;
+    use crate::app::state::Viewer;
+    use crate::app::test_support::{wait_until, FileDocument};
+
+    /// The sample holds this word once on each of its three pages.
+    const QUERY: &str = "vellum";
+
+    fn current(viewer: &Viewer) -> Option<(usize, usize)> {
+        let state = viewer.state.borrow();
+        let search = state.session.as_ref()?.search.as_ref()?;
+        Some((search.current, search.matches.len()))
+    }
+
+    /// A document with `QUERY` searched and its first match current.
+    fn searched(name: &str) -> FileDocument {
+        let document = FileDocument::new(name);
+        document.open_file();
+        let viewer = &document.built.viewer;
+        viewer.search_entry.set_text(QUERY);
+        submit_entry(viewer);
+        assert!(
+            wait_until(|| current(viewer).is_some()),
+            "the search must find something: {}",
+            document.status()
+        );
+        let (index, total) = current(viewer).expect("a search");
+        assert_eq!(index, 0);
+        assert!(total > 2, "the sample must hold {QUERY:?} several times");
+        document
+    }
+
+    /// The observed defect: every Enter ran the search again, so the
+    /// current match never left the first one.
+    #[gtk::test]
+    fn gtk_ui_enter_on_the_same_query_goes_to_the_next_match() {
+        let document = searched("find-enter");
+        let viewer = &document.built.viewer;
+
+        submit_entry(viewer);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(1));
+        submit_entry(viewer);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(2));
+    }
+
+    #[gtk::test]
+    fn gtk_ui_enter_on_a_changed_query_searches_again() {
+        let document = searched("find-new-query");
+        let viewer = &document.built.viewer;
+        submit_entry(viewer);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(1));
+
+        viewer.search_entry.set_text("Page");
+        submit_entry(viewer);
+
+        assert!(
+            wait_until(|| {
+                let state = viewer.state.borrow();
+                state
+                    .session
+                    .as_ref()
+                    .and_then(|session| session.search.as_ref())
+                    .is_some_and(|search| search.query == "Page")
+            }),
+            "the new query is searched: {}",
+            document.status()
+        );
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(0));
+    }
+
+    #[gtk::test]
+    fn gtk_ui_f3_and_shift_f3_step_through_the_matches() {
+        let document = searched("find-f3");
+        let viewer = &document.built.viewer;
+        let (_, total) = current(viewer).expect("a search");
+
+        find_again(viewer, 1);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(1));
+        find_again(viewer, -1);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(0));
+        find_again(viewer, -1);
+        assert_eq!(
+            current(viewer).map(|(index, _)| index),
+            Some(total - 1),
+            "back from the first match is the last"
+        );
+    }
+
+    /// The actions the keys are bound to reach the same step.
+    #[gtk::test]
+    fn gtk_ui_the_find_next_and_previous_actions_step() {
+        let document = searched("find-actions");
+        let viewer = &document.built.viewer;
+        let window = &document.built.window;
+
+        gtk::prelude::ActionGroupExt::activate_action(window, "find-next", None);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(1));
+        gtk::prelude::ActionGroupExt::activate_action(window, "find-previous", None);
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(0));
+    }
+
+    /// F3 with a query typed but never searched runs it.
+    #[gtk::test]
+    fn gtk_ui_f3_with_an_unsearched_query_runs_the_search() {
+        let document = FileDocument::new("find-f3-first");
+        document.open_file();
+        let viewer = &document.built.viewer;
+        viewer.search_entry.set_text(QUERY);
+
+        find_again(viewer, 1);
+
+        assert!(
+            wait_until(|| current(viewer).is_some()),
+            "{}",
+            document.status()
+        );
+        assert_eq!(current(viewer).map(|(index, _)| index), Some(0));
+    }
+
+    /// Ctrl+F from Organize used to do nothing: the Find button lives on
+    /// the editor's toolbar, which was not on screen.
+    #[gtk::test]
+    fn gtk_ui_find_from_organize_shows_the_editor() {
+        let document = FileDocument::new("find-organize");
+        document.open_file();
+        let viewer = &document.built.viewer;
+        viewer.view_stack.set_visible_child_name(ORGANIZE_PAGE);
+
+        gtk::prelude::ActionGroupExt::activate_action(&document.built.window, "find", None);
+
+        assert_eq!(
+            viewer.view_stack.visible_child_name().as_deref(),
+            Some(EDITOR_PAGE)
+        );
+    }
+
+    /// With no document the key says why nothing opened.
+    #[gtk::test]
+    fn gtk_ui_find_with_no_document_says_why() {
+        let built = crate::app::ui_tests::built_ui();
+
+        show_find(&built.viewer);
+
+        assert_eq!(built.viewer.last_said(), tr("search-open-first"));
+        built.window.close();
     }
 }

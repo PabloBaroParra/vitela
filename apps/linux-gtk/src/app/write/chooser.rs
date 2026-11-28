@@ -202,7 +202,7 @@ pub(super) fn confirm_signature_loss(
     });
 }
 
-/// The status line for a destination whose existence could not be checked;
+/// What the toast says for a destination whose existence could not be checked;
 /// the file-system `error` stays verbatim.
 fn check_failed(destination: &std::path::Path, error: &str) -> String {
     tr_args(

@@ -1366,3 +1366,83 @@ impl Drop for RemoveOnDrop {
         let _ = std::fs::remove_file(&self.0);
     }
 }
+
+// --- Ctrl+Tab ---------------------------------------------------------------
+
+/// The keyboard's step along the strip lands where a click on the
+/// neighbouring tab would, and wraps at either end.
+#[gtk::test]
+fn gtk_ui_the_keyboard_steps_through_the_tabs_and_wraps() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    tabbed.open_blank();
+    let ids = tabbed.ids();
+    assert_eq!(tabbed.active(), Some(ids[2]));
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_eq!(
+        tabbed.active(),
+        Some(ids[0]),
+        "past the last tab is the first"
+    );
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_eq!(tabbed.active(), Some(ids[1]));
+    super::cycle::cycle(tabbed.viewer(), -1);
+    assert_eq!(tabbed.active(), Some(ids[0]));
+    super::cycle::cycle(tabbed.viewer(), -1);
+    assert_eq!(
+        tabbed.active(),
+        Some(ids[2]),
+        "before the first is the last"
+    );
+}
+
+/// The actions the keys are bound to go through the same step.
+#[gtk::test]
+fn gtk_ui_the_tab_actions_step_forward_and_back() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    let ids = tabbed.ids();
+
+    gtk::prelude::ActionGroupExt::activate_action(tabbed.window(), "previous-tab", None);
+    assert_eq!(tabbed.active(), Some(ids[0]));
+    gtk::prelude::ActionGroupExt::activate_action(tabbed.window(), "next-tab", None);
+    assert_eq!(tabbed.active(), Some(ids[1]));
+}
+
+/// A step is a switch: while the active document has a job running it is
+/// refused, and says so, like a click on the strip.
+#[gtk::test]
+fn gtk_ui_a_keyboard_step_is_refused_while_the_active_tab_is_busy() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    tabbed.open_blank();
+    let active = tabbed.active();
+    let job = super::JobGuard::hold(tabbed.viewer());
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+
+    assert_eq!(tabbed.active(), active, "the tab stays put");
+    assert_eq!(tabbed.viewer().last_said(), tr("tabs-busy"));
+    drop(job);
+    super::cycle::cycle(tabbed.viewer(), 1);
+    assert_ne!(tabbed.active(), active, "and moves once the job is done");
+}
+
+/// One document has no neighbour: the keys do nothing, and say nothing.
+#[gtk::test]
+fn gtk_ui_a_keyboard_step_with_one_tab_does_nothing() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+    let active = tabbed.active();
+    let said = said(&tabbed);
+
+    super::cycle::cycle(tabbed.viewer(), 1);
+    super::cycle::cycle(tabbed.viewer(), -1);
+
+    assert_eq!(tabbed.active(), active);
+    assert!(!super::has_other_tab(tabbed.viewer()));
+    assert!(said.borrow().is_empty(), "{:?}", said.borrow());
+}

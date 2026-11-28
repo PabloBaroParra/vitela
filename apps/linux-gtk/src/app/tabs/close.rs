@@ -157,6 +157,8 @@ fn discard_active(viewer: &Viewer) {
         .session
         .as_ref()
         .map(|session| session.base_name.clone());
+    // Where it was being read, for the next time it is opened.
+    crate::app::session_state::remember_active(viewer);
     retire_active_session(viewer);
     // The entry protected exactly this document's unsaved work, which was
     // just saved or discarded.

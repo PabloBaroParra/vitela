@@ -406,8 +406,9 @@ const MAX_KEYWORDS: usize = 10;
 const MAX_STRAY_HITS: usize = 4;
 
 /// The entries genuinely about "page"/"pagina": each one acts on pages.
-const PAGE_RELEVANT: [&str; 5] = [
+const PAGE_RELEVANT: [&str; 6] = [
     "mode.organize",          // the page grid: reorder, delete, rotate pages
+    "view.fit-page",          // zooms so a whole page fits the window
     "pages.extract",          // copies chosen pages into a new file
     "pages.split",            // cuts the document into page ranges
     "pages.rotate-all-right", // turns every page
@@ -786,4 +787,96 @@ fn gtk_ui_a_rotate_all_that_records_nothing_is_not_reported_as_run() {
         Err(tr("organize-pages-gone"))
     );
     assert!(!ui.viewer.undo_action.is_enabled());
+}
+
+// --- the commands that gained a key and an entry together ---------------------
+
+const VIEW_AND_STEP_ACTIONS: [WindowAction; 12] = [
+    WindowAction::NextTab,
+    WindowAction::PreviousTab,
+    WindowAction::Quit,
+    WindowAction::FindNext,
+    WindowAction::FindPrevious,
+    WindowAction::ZoomIn,
+    WindowAction::ZoomOut,
+    WindowAction::ActualSize,
+    WindowAction::FitWidth,
+    WindowAction::FitPage,
+    WindowAction::FullScreen,
+    WindowAction::Shortcuts,
+];
+
+/// Each has one entry, showing the key the shortcut table gives its action.
+#[test]
+fn the_view_and_step_commands_each_have_one_entry_with_the_table_s_key() {
+    for action in VIEW_AND_STEP_ACTIONS {
+        assert_eq!(
+            entry(Target::Action(action)).shortcut,
+            Some(action.shortcut().accel),
+            "{action:?}"
+        );
+    }
+}
+
+#[gtk::test]
+fn gtk_ui_without_a_document_zoom_find_and_the_tab_steps_say_why_they_cannot_run() {
+    let built = window();
+    let viewer = &built.0.viewer;
+
+    for (action, key) in [
+        (WindowAction::ZoomIn, "tabs-no-document"),
+        (WindowAction::ZoomOut, "tabs-no-document"),
+        (WindowAction::ActualSize, "tabs-no-document"),
+        (WindowAction::FitWidth, "tabs-no-document"),
+        (WindowAction::FitPage, "tabs-no-document"),
+        (WindowAction::FindNext, "search-open-first"),
+        (WindowAction::FindPrevious, "search-open-first"),
+        (WindowAction::NextTab, "tabs-no-other-document"),
+        (WindowAction::PreviousTab, "tabs-no-other-document"),
+    ] {
+        assert_eq!(
+            entry(Target::Action(action)).availability(viewer),
+            Availability::Refused(tr(key)),
+            "{action:?}"
+        );
+    }
+    for action in [
+        WindowAction::Quit,
+        WindowAction::FullScreen,
+        WindowAction::Shortcuts,
+    ] {
+        assert_eq!(
+            entry(Target::Action(action)).availability(viewer),
+            Availability::Available,
+            "{action:?}"
+        );
+    }
+}
+
+/// An entry walks through the window action its key is bound to.
+#[gtk::test]
+fn gtk_ui_running_a_zoom_entry_steps_the_zoom() {
+    let built = window();
+    let viewer = &built.0.viewer;
+    open_document(viewer);
+    crate::app::layout::set_zoom(viewer, crate::app::layout::Zoom::Custom(1.0));
+    let zoom = |viewer: &Viewer| {
+        viewer
+            .state
+            .borrow()
+            .session
+            .as_ref()
+            .expect("a session")
+            .zoom
+    };
+
+    entry(Target::Action(WindowAction::ZoomIn))
+        .run(&built.0.window, viewer)
+        .expect("zoom in runs");
+    assert!(zoom(viewer) == crate::app::layout::Zoom::Custom(1.25));
+
+    entry(Target::Action(WindowAction::FitPage))
+        .run(&built.0.window, viewer)
+        .expect("fit page runs");
+    assert!(zoom(viewer) == crate::app::layout::Zoom::FitPage);
 }

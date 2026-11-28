@@ -124,16 +124,32 @@ fn gtk_ui_a_newer_outcome_replaces_the_toast_and_a_displaced_error_returns() {
     let viewer = window.viewer();
 
     viewer.fail("Could not save.");
-    viewer.success("Exported 3 images.");
+    viewer.refuse("Wait for the export to finish.");
     assert_eq!(
         window.toast(),
-        Some((Tone::Success, "Exported 3 images.".to_owned()))
+        Some((Tone::Refusal, "Wait for the export to finish.".to_owned()))
     );
 
     window.toasts().dismiss();
     assert_eq!(window.toast(), error("Could not save."));
 
     window.toasts().dismiss();
+    assert_eq!(window.toast(), None);
+}
+
+/// A failed save, then the retry that works: once "Saved" has gone the
+/// failure it answered does not come back.
+#[gtk::test]
+fn gtk_ui_a_success_after_an_error_does_not_bring_the_error_back() {
+    let window = Window::new();
+    let viewer = window.viewer();
+
+    viewer.fail("Could not save.");
+    viewer.success("Saved.");
+    assert_eq!(window.toast(), Some((Tone::Success, "Saved.".to_owned())));
+
+    window.toasts().dismiss();
+
     assert_eq!(window.toast(), None);
 }
 

@@ -14,7 +14,7 @@
 //! are both described against it, and the shared steps all three take live in
 //! [`super`].
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -25,8 +25,8 @@ use super::super::document::open_document;
 use super::super::state::{
     DocumentSource, ImportedSource, OpenedDocument, SaveBacking, SessionToken, Viewer,
 };
-use super::chooser::{choose_destination_from, confirm_signature_loss};
-use super::in_place::{route_for, SaveRoute};
+use super::chooser::{choose_destination_from, confirm_signature_loss, Proceed};
+use super::in_place::{route_for, through_links, SaveRoute};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{default_save_breaks_signature, imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
@@ -63,7 +63,7 @@ pub(crate) fn save_then(
             };
             save_in_place(window, viewer, destination, after_save);
         }
-        SaveRoute::Ask => ask_destination(window, viewer, Some(&opened.path), after_save),
+        SaveRoute::Ask => ask_destination(window, viewer, Some(opened), after_save),
     }
 }
 
@@ -73,8 +73,7 @@ pub(crate) fn save_as(window: &ApplicationWindow, viewer: &Viewer) {
     if !commit_open_retype(viewer) {
         return;
     }
-    let origin = opened_as(viewer).map(|opened| opened.path);
-    ask_destination(window, viewer, origin.as_deref(), None);
+    ask_destination(window, viewer, opened_as(viewer), None);
 }
 
 /// The path and name the active document goes by, when it came from a file.
@@ -105,29 +104,69 @@ struct Destination {
     /// `file` is then the *resolved* origin, and for a document opened
     /// through a symbolic link that is not the path the user opened: the tab,
     /// the window title and the next Save must go on naming the link. `None`
-    /// for a destination chosen in the chooser, which becomes both.
+    /// for any other destination chosen in the chooser, which becomes both.
     keeps: Option<OpenedAs>,
 }
 
-/// The chooser, opened on `origin`, then the chain.
+/// The chooser, opened on the file the document came from, then the chain.
 fn ask_destination(
     window: &ApplicationWindow,
     viewer: &Viewer,
-    origin: Option<&Path>,
+    opened: Option<OpenedAs>,
     after_save: Option<Rc<dyn Fn()>>,
 ) {
+    let suggested = opened.as_ref().map(|opened| opened.path.clone());
     // The chooser binds its answer to the active tab (`tabs::ChooserScope`):
     // a save writes the document it was opened over, never another.
     choose_destination_from(
         window,
         viewer,
         SAVE,
-        origin,
-        Rc::new(move |window, viewer, file| {
-            let destination = Destination { file, keeps: None };
-            save_current_to(window, viewer, destination, after_save.clone());
-        }),
+        suggested.as_deref(),
+        save_to_chosen(opened, after_save),
     );
+}
+
+/// What a destination confirmed in the chooser is handed to: the chain, on
+/// the file [`chosen_destination`] makes of it.
+fn save_to_chosen(opened: Option<OpenedAs>, after_save: Option<Rc<dyn Fn()>>) -> Proceed {
+    Rc::new(move |window, viewer, chosen| {
+        let destination = chosen_destination(chosen, opened.clone());
+        // The chooser's guard asked this of the path it was given. A link
+        // followed here leads to a file it never saw, which another tab may
+        // have open under its own name — the refusal a save in place makes.
+        if destination.keeps.is_some()
+            && crate::app::tabs::path_held_by_other_tab(viewer, &destination.file)
+        {
+            viewer.refuse(&tr("tabs-path-open-elsewhere"));
+            return;
+        }
+        save_current_to(window, viewer, destination, after_save.clone());
+    })
+}
+
+/// Where a save to `chosen` — a path confirmed in the chooser — writes.
+///
+/// Any path is written as it was given, a link included: the user picked
+/// that name, and what replaces it is a file (`worker::atomic_write`). The
+/// one exception is the document's **own** path, when the document was
+/// opened through a link. Confirming it is saving the document where it is —
+/// what Save does when it has no reason to ask — so the bytes go to the file
+/// the link points at and the link stays one, exactly as a save in place
+/// leaves it. Replacing the link instead would leave the real file holding
+/// the old bytes behind a document that reads as saved.
+fn chosen_destination(chosen: PathBuf, opened: Option<OpenedAs>) -> Destination {
+    let own = opened.filter(|opened| opened.path == chosen);
+    match own.map(|opened| (through_links(&opened.path), opened)) {
+        Some((Ok(file), opened)) if file != chosen => Destination {
+            file,
+            keeps: Some(opened),
+        },
+        _ => Destination {
+            file: chosen,
+            keeps: None,
+        },
+    }
 }
 
 /// How often a save held back by a preview refresh looks again.

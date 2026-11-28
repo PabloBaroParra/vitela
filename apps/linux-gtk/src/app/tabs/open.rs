@@ -208,6 +208,12 @@ pub(crate) fn land_in_new_tab(
         park::park_active(viewer);
         let (_, generation) = super::retire_counters(viewer);
         show_document(viewer, generation, document);
+        // `show_document` opens at fit-width, top of page 1; a document
+        // read before comes back where it was left.
+        crate::app::session_state::restore_view(viewer, generation);
+        // The keyboard reads on from here: Page Down and the arrows are the
+        // new document's, not the control the open was started from.
+        crate::app::canvas_keys::focus_on_arrival(viewer);
         active_tab(viewer)
     } else {
         abandon_pending_tool(viewer);

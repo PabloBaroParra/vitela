@@ -35,6 +35,7 @@ use gtk::{
 
 use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
+use super::shortcuts::{self, Shortcut};
 
 /// How many groups [`build_editor_toolbar`] appends. `FlowBox` defaults to a
 /// cap of seven children per line, which would force a wrap even on a window
@@ -177,8 +178,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let history = group(&root, &tr("editor-group-history"));
     let undo = icon_button(&tr("editor-undo"), Icon::Undo);
     undo.set_action_name(Some("win.undo"));
+    show_shortcut(&undo, "editor-undo", shortcuts::UNDO);
     let redo = icon_button(&tr("editor-redo"), Icon::Redo);
     redo.set_action_name(Some("win.redo"));
+    show_shortcut(&redo, "editor-redo", shortcuts::REDO);
     history.append(&undo);
     history.append(&redo);
 
@@ -204,6 +207,8 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let zoom_label = Label::new(Some("100%"));
     zoom_label.add_css_class("zoom-indicator");
     let zoom_in = icon_button(&tr("editor-zoom-in"), Icon::ZoomIn);
+    show_shortcut(&zoom_out, "editor-zoom-out", shortcuts::ZOOM_OUT);
+    show_shortcut(&zoom_in, "editor-zoom-in", shortcuts::ZOOM_IN);
     zoom.append(&zoom_out);
     zoom.append(&zoom_label);
     zoom.append(&zoom_in);
@@ -211,6 +216,8 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let fit = group(&root, &tr("editor-group-fit"));
     let fit_width = icon_button(&tr("editor-fit-width"), Icon::FitWidth);
     let fit_page = icon_button(&tr("editor-fit-page"), Icon::FitPage);
+    show_shortcut(&fit_width, "editor-fit-width", shortcuts::FIT_WIDTH);
+    show_shortcut(&fit_page, "editor-fit-page", shortcuts::FIT_PAGE);
     fit.append(&fit_width);
     fit.append(&fit_page);
 
@@ -226,6 +233,8 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let show_tools = ToggleButton::with_label(&tr("editor-tools"));
     decorate_button(&show_tools, &tr("editor-tools"), Icon::PanelRight);
     show_tools.set_active(true);
+    show_shortcut(&show_pages, "editor-pages", shortcuts::TOGGLE_PAGES);
+    show_shortcut(&show_tools, "editor-tools", shortcuts::TOGGLE_TOOLS);
     panels.append(&show_pages);
     panels.append(&show_tools);
 
@@ -306,6 +315,18 @@ fn icon_button(label: &str, icon: Icon) -> Button {
     let button = Button::new();
     decorate_button(&button, label, icon);
     button
+}
+
+/// Adds `shortcut`'s key to a button's tooltip, after its name.
+///
+/// Read from the shortcut table rather than written into the translation:
+/// the tooltip then names the key GTK listens for, in the words GTK prints
+/// it in, and cannot go on naming one that has moved. The accessible name
+/// stays the bare label.
+fn show_shortcut(button: &impl IsA<Button>, label_key: &str, shortcut: Shortcut) {
+    button
+        .as_ref()
+        .set_tooltip_text(Some(&shortcuts::tooltip(&tr(label_key), shortcut)));
 }
 
 fn decorate_button(button: &impl IsA<Button>, label: &str, icon: Icon) {
@@ -432,6 +453,65 @@ mod tests {
             assert!(button
                 .tooltip_text()
                 .is_some_and(|text| text.starts_with(tooltip)));
+        }
+    }
+
+    /// The controls that have a key say so, like Open, Save, Print and Find
+    /// always did — with the key read from the shortcut table.
+    #[gtk::test]
+    fn gtk_ui_history_zoom_fit_and_panel_tooltips_name_their_shortcut() {
+        let toolbar = build_editor_toolbar();
+        // Each group is wrapped in a `FlowBoxChild`; history sits two
+        // groups before zoom.
+        let history = toolbar
+            .zoom_out
+            .parent()
+            .and_then(|zoom| zoom.parent())
+            .and_then(|zoom| zoom.prev_sibling())
+            .and_then(|position| position.prev_sibling())
+            .and_then(|history| history.first_child())
+            .expect("the history group sits two groups before zoom");
+        let tooltip = |widget: Option<gtk::Widget>| {
+            widget
+                .and_then(|widget| widget.tooltip_text())
+                .map(String::from)
+        };
+        assert_eq!(
+            tooltip(history.first_child()).as_deref(),
+            Some("Undo (Ctrl+Z)")
+        );
+        assert_eq!(
+            tooltip(history.last_child()).as_deref(),
+            Some("Redo (Ctrl+Y)")
+        );
+        for (button, expected) in [
+            (&toolbar.zoom_out, "Zoom out (Ctrl+-)"),
+            (&toolbar.zoom_in, "Zoom in (Ctrl++)"),
+            (&toolbar.fit_width, "Fit width (Ctrl+1)"),
+            (&toolbar.fit_page, "Fit page (Ctrl+2)"),
+            (toolbar.show_pages.upcast_ref(), "Pages (F9)"),
+            (toolbar.show_tools.upcast_ref(), "Tools (Shift+F9)"),
+        ] {
+            assert_eq!(button.tooltip_text().as_deref(), Some(expected));
+        }
+    }
+
+    /// Every one of them is the table's own key: a key that moves there
+    /// moves here.
+    #[gtk::test]
+    fn gtk_ui_a_tooltip_s_key_is_the_one_in_the_shortcut_table() {
+        let toolbar = build_editor_toolbar();
+        for (button, label_key, shortcut) in [
+            (&toolbar.zoom_out, "editor-zoom-out", shortcuts::ZOOM_OUT),
+            (&toolbar.zoom_in, "editor-zoom-in", shortcuts::ZOOM_IN),
+            (&toolbar.fit_width, "editor-fit-width", shortcuts::FIT_WIDTH),
+            (&toolbar.fit_page, "editor-fit-page", shortcuts::FIT_PAGE),
+        ] {
+            let keys = shortcuts::accel_label(shortcut.accel).expect("it parses");
+            assert_eq!(
+                button.tooltip_text().as_deref(),
+                Some(format!("{} ({keys})", tr(label_key)).as_str())
+            );
         }
     }
 

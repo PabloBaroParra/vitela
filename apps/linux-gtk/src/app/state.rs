@@ -171,6 +171,10 @@ pub(crate) struct Viewer {
     /// timer that writes them. Beside `state` rather than in it, because it
     /// outlives every document the window shows.
     pub(crate) recovery: crate::app::recovery::Recovery,
+    /// What this window remembers between runs — its size, its panels, where
+    /// each document was being read. Off until `session_state::install`,
+    /// which only `run` calls, like `recovery`.
+    pub(crate) remembered: crate::app::session_state::Remembered,
     /// The open documents other than the active one, and the order of every
     /// tab — see `tabs`. Beside `state` rather than in it so the dozens of
     /// readers of `state.session` never see a parked document.

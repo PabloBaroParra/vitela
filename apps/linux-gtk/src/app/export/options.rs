@@ -105,7 +105,7 @@ pub(super) fn oversized_page(page_sizes: &[(f32, f32)], pages: &[u32], dpi: u32)
         .map(|page| page + 1)
 }
 
-/// What the status line says when an export finishes.
+/// What the toast says when an export finishes.
 ///
 /// Its own function so the singular/plural and the "where did it go" half are
 /// pinned by a test rather than by reading the `format!` at the call site.

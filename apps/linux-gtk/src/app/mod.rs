@@ -9,6 +9,7 @@
 mod annotations;
 mod arming;
 mod brand;
+mod canvas_keys;
 mod content_edit;
 mod document;
 mod editor_toolbar;
@@ -34,6 +35,7 @@ mod recovery;
 mod render;
 mod search;
 mod selection;
+mod session_state;
 mod shell;
 mod shortcuts;
 mod side_panel;
@@ -44,6 +46,7 @@ mod tabs;
 mod theme;
 mod tools_panel;
 mod wheel_zoom;
+mod window_commands;
 mod write;
 
 #[cfg(test)]
@@ -73,7 +76,6 @@ use i18n::tr;
 use layout::{current_zoom_factor, refresh_layout, set_zoom, Zoom};
 use print::print_document;
 use render::update_viewport;
-use search::{run_search, step_match};
 use shell::install_shell_css;
 use side_panel::{collapsible, Column};
 use sign::{build_sign_content, connect_sign_toolbar};
@@ -87,6 +89,9 @@ pub(crate) const PAGE_GAP: i32 = 12;
 /// How wide the tools column opens, in logical pixels. Never forced: a panel
 /// whose controls need more still gets it, since a narrower column folds.
 const TOOLS_PANEL_WIDTH: i32 = 360;
+/// The window's size on a first run, and whenever no earlier size is
+/// remembered (`session_state`).
+const DEFAULT_WINDOW_SIZE: (i32, i32) = (1000, 800);
 
 /// Private construction result shared by production startup and crate-local GTK tests.
 #[derive(Clone)]
@@ -101,6 +106,9 @@ struct BuiltUi {
     /// through `win.command-palette`.
     #[cfg_attr(not(test), allow(dead_code))]
     palette: palette::Palette,
+    /// The dividers and panel toggles whose state `session_state` restores
+    /// and remembers.
+    chrome: session_state::Chrome,
 }
 
 pub fn run() -> glib::ExitCode {
@@ -119,6 +127,10 @@ pub fn run() -> glib::ExitCode {
         move |application| {
             let first = built_ui.borrow().is_none();
             let ui = ensure_built(&built_ui, application);
+            if first {
+                // Before the window is shown: it opens at the size it had.
+                session_state::install(&ui.window, &ui.viewer, &ui.chrome);
+            }
             ui.window.present();
             if first {
                 recovery::install(&ui.window, &ui.viewer);
@@ -132,6 +144,9 @@ pub fn run() -> glib::ExitCode {
         move |application, files, _hint| {
             let first = built_ui.borrow().is_none();
             let ui = ensure_built(&built_ui, application);
+            if first {
+                session_state::install(&ui.window, &ui.viewer, &ui.chrome);
+            }
             ui.window.present();
             // A file-manager "Open With" of several files opens one tab each.
             let paths: Vec<_> = files.iter().filter_map(gio::File::path).collect();
@@ -162,8 +177,8 @@ fn build_ui(application: &Application) -> BuiltUi {
     install_shell_css();
     let window = ApplicationWindow::builder()
         .application(application)
-        .default_width(1000)
-        .default_height(800)
+        .default_width(DEFAULT_WINDOW_SIZE.0)
+        .default_height(DEFAULT_WINDOW_SIZE.1)
         .title("Vitela")
         .build();
 
@@ -508,6 +523,7 @@ fn build_ui(application: &Application) -> BuiltUi {
         // Disabled until `recovery::install` — which only `run` calls — gives
         // it a directory, so a window built by a test never writes one.
         recovery: Default::default(),
+        remembered: Default::default(),
         tabs: Default::default(),
         tab_strip,
         blocking_prompts: Default::default(),
@@ -523,7 +539,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     viewer.view_stack.set_visible_child_name(HOME_PAGE);
     connect_viewport_updates(&viewer);
     tabs::connect(&viewer);
-    connect_search(&viewer);
+    search::connect(application, &window, &viewer);
     annotations::connect_annotation_toolbar(&viewer);
     content_edit::connect_toggle(&viewer);
     content_edit::connect_insert_toggles(&viewer);
@@ -565,6 +581,7 @@ fn build_ui(application: &Application) -> BuiltUi {
     input::connect_window_file_drop(&page_area, &viewer);
     wheel_zoom::connect(&page_area, &viewer);
     pan::connect(&window, &page_area, &viewer);
+    canvas_keys::connect(&window, &page_area, &viewer);
     annotations::connect_delete_shortcut(application, &window, &viewer);
     escape::connect(application, &window, &viewer);
     content_edit::block::connect_retype_shortcut(application, &window, &viewer);
@@ -609,6 +626,9 @@ fn build_ui(application: &Application) -> BuiltUi {
     });
     let palette = palette::install(&window, &viewer, &root);
     connect_standard_shortcuts(application, &window, &viewer, &palette);
+    window_commands::connect(application, &window, &viewer, &show_pages, &show_tools);
+    tabs::connect_shortcuts(application, &window, &viewer);
+    shortcuts::help::connect(application, &window);
     // After every text-editing key is bound (copy, paste, cut, history,
     // above), so its first sync sees them all.
     shortcuts::connect_search_field_handoff(
@@ -649,6 +669,12 @@ fn build_ui(application: &Application) -> BuiltUi {
         viewer,
         mode_bar,
         palette,
+        chrome: session_state::Chrome {
+            pages_paned: nav_paned,
+            tools_paned: canvas_tools_paned,
+            show_pages,
+            show_tools,
+        },
     }
 }
 
@@ -668,7 +694,8 @@ pub(crate) fn navigate_to_page(viewer: &Viewer, page_index: usize) {
 
 /// Adds the standard window commands that already have shell handlers. Copy,
 /// undo, and redo are installed by their feature modules because their enabled
-/// state is owned there.
+/// state is owned there; Find and its two steps by `search`, the view
+/// commands by `window_commands`, the tab steps by `tabs`.
 fn connect_standard_shortcuts(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
@@ -710,23 +737,6 @@ fn connect_standard_shortcuts(
     });
     window.add_action(&print);
     shortcuts::PRINT.install(application);
-
-    let find = gio::SimpleAction::new(shortcuts::FIND.action, None);
-    find.connect_activate({
-        let entry = viewer.search_entry.clone();
-        move |_, _| {
-            if let Some(button) = entry
-                .ancestor(gtk::MenuButton::static_type())
-                .and_then(|widget| widget.downcast::<gtk::MenuButton>().ok())
-                .filter(|button| button.is_mapped())
-            {
-                button.popup();
-                entry.grab_focus();
-            }
-        }
-    });
-    window.add_action(&find);
-    shortcuts::FIND.install(application);
 
     let new = gio::SimpleAction::new(shortcuts::NEW.action, None);
     new.connect_activate({
@@ -890,21 +900,6 @@ fn step_zoom_from(viewer: &Viewer, increase: bool, current: f64) {
             .unwrap_or(0.10)
     };
     set_zoom(viewer, Zoom::Custom(factor));
-}
-
-fn connect_search(viewer: &Viewer) {
-    viewer.search_entry.connect_activate({
-        let viewer = viewer.clone();
-        move |_| run_search(&viewer)
-    });
-    viewer.find_next.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| step_match(&viewer, 1)
-    });
-    viewer.find_previous.connect_clicked({
-        let viewer = viewer.clone();
-        move |_| step_match(&viewer, -1)
-    });
 }
 
 fn connect_viewport_updates(viewer: &Viewer) {

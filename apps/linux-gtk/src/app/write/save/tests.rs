@@ -450,3 +450,182 @@ fn gtk_ui_a_failed_save_does_not_run_the_continuation() {
         "the file on disk is untouched"
     );
 }
+
+/// The user edits while the worker is still writing: the reopened document
+/// is not installed over the newer session. The file on disk is still this
+/// save's own, so the next Save must not take it for something else's and
+/// ask "Replace?".
+#[gtk::test]
+fn gtk_ui_a_save_overtaken_by_an_edit_does_not_ask_about_its_own_file_next_time() {
+    let saving = FileDocument::new("overtaken");
+    let path = saving.open_file();
+    saving.mark_dirty();
+    let before = FileStamp::of(&path);
+
+    save(&saving.built.window, &saving.built.viewer);
+    assert_eq!(saving.jobs(), 1, "the save is writing");
+    if let Some(session) = saving.built.viewer.state.borrow_mut().session.as_mut() {
+        session.edit_revision += 1;
+    }
+    saving.wait_for_the_save();
+    assert!(wait_until(|| saving.jobs() == 0));
+
+    assert!(saving.dirty(), "the newer edit is still unsaved");
+    assert_ne!(FileStamp::of(&path), before, "the file was written");
+    {
+        let state = saving.built.viewer.state.borrow();
+        let session = state.session.as_ref().expect("the document is still open");
+        assert_eq!(
+            session.origin_stamp,
+            FileStamp::of(&path),
+            "the session knows the file as its own save left it"
+        );
+    }
+
+    save(&saving.built.window, &saving.built.viewer);
+
+    assert!(!saving.chooser_is_up(), "no chooser is raised");
+    assert!(
+        wait_until(|| !saving.dirty()),
+        "the second save lands: {}",
+        saving.status()
+    );
+}
+
+/// A document opened through a link, saved through the chooser onto its
+/// own path — where Save lands whenever it has a reason to ask, and where
+/// Save As opens. The answer writes the file the link points at; the link
+/// is not replaced by a regular file with the real one left stale.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_document_s_own_link_writes_through_it() {
+    let saving = FileDocument::new("chooser-link");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&real, &link).expect("link to it");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    let before = FileStamp::of(&real);
+    let opened = super::opened_as(&saving.built.viewer);
+    assert!(opened.is_some(), "the document came from a file");
+
+    crate::app::write::chooser::confirm_destination(
+        &saving.built.window,
+        &saving.built.viewer,
+        super::SAVE,
+        link.clone(),
+        super::save_to_chosen(opened, None),
+    );
+    saving.answer(&tr("write-replace"));
+    saving.wait_for_the_save();
+
+    let linked = std::fs::symlink_metadata(&link).expect("the link");
+    assert!(linked.file_type().is_symlink(), "the link is still a link");
+    assert_ne!(FileStamp::of(&real), before, "the real file was written");
+    assert!(std::fs::read(&real)
+        .expect("the real file")
+        .starts_with(b"%PDF-"));
+    assert_eq!(left_behind(&saving.folder), ["link.pdf", "real.pdf"]);
+    assert!(!saving.dirty());
+    let state = saving.built.viewer.state.borrow();
+    let session = state.session.as_ref().expect("the document is still open");
+    assert_eq!(session.origin_path.as_deref(), Some(link.as_path()));
+    assert_eq!(session.base_name, "link.pdf");
+    assert_eq!(session.origin_stamp, FileStamp::of(&real));
+}
+
+mod chosen {
+    use std::path::PathBuf;
+
+    use super::super::{chosen_destination, OpenedAs};
+
+    /// A folder of one case's own, removed on drop.
+    struct Folder(PathBuf);
+
+    impl Folder {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("vitela-chosen-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir(&path).expect("create the test folder");
+            Self(path)
+        }
+
+        /// `real.pdf`, and `link.pdf` pointing at it.
+        fn linked(&self) -> (PathBuf, PathBuf) {
+            let real = self.0.join("real.pdf");
+            let link = self.0.join("link.pdf");
+            std::fs::write(&real, b"%PDF-1.7").expect("write the real file");
+            std::os::unix::fs::symlink(&real, &link).expect("link to it");
+            (real, link)
+        }
+    }
+
+    impl Drop for Folder {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn opened_as(path: &std::path::Path) -> Option<OpenedAs> {
+        Some(OpenedAs {
+            path: path.to_path_buf(),
+            name: "link.pdf".to_owned(),
+        })
+    }
+
+    #[test]
+    fn the_document_s_own_link_is_written_through() {
+        let folder = Folder::new("own-link");
+        let (real, link) = folder.linked();
+
+        let destination = chosen_destination(link.clone(), opened_as(&link));
+
+        assert_eq!(destination.file, real);
+        let keeps = destination.keeps.expect("the document keeps its path");
+        assert_eq!(keeps.path, link);
+        assert_eq!(keeps.name, "link.pdf");
+    }
+
+    /// Only the document's own path. A link picked for a document that
+    /// came from somewhere else is a name the user chose to replace.
+    #[test]
+    fn a_link_that_is_not_the_document_s_own_path_is_replaced_as_before() {
+        let folder = Folder::new("other-link");
+        let (_, link) = folder.linked();
+        let elsewhere = folder.0.join("report.pdf");
+
+        for opened in [opened_as(&elsewhere), None] {
+            let destination = chosen_destination(link.clone(), opened);
+
+            assert_eq!(destination.file, link);
+            assert!(destination.keeps.is_none());
+        }
+    }
+
+    #[test]
+    fn the_document_s_own_path_with_no_link_in_it_is_written_as_chosen() {
+        let folder = Folder::new("own-file");
+        let (real, _) = folder.linked();
+
+        let destination = chosen_destination(real.clone(), opened_as(&real));
+
+        assert_eq!(destination.file, real);
+        assert!(destination.keeps.is_none());
+    }
+
+    /// A link that leads nowhere readable is left to the write to report.
+    #[test]
+    fn links_that_never_reach_a_file_fall_back_to_the_path_as_chosen() {
+        let folder = Folder::new("loop");
+        let one = folder.0.join("one.pdf");
+        let other = folder.0.join("other.pdf");
+        std::os::unix::fs::symlink("other.pdf", &one).expect("one way");
+        std::os::unix::fs::symlink("one.pdf", &other).expect("and back");
+
+        let destination = chosen_destination(one.clone(), opened_as(&one));
+
+        assert_eq!(destination.file, one);
+        assert!(destination.keeps.is_none());
+    }
+}

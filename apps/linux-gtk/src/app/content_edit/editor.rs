@@ -927,11 +927,11 @@ pub(crate) fn commit(viewer: &Viewer) {
 /// depends on window activation to keep what was typed.
 ///
 /// `false` is a retype the core refused: the box stays open holding the
-/// text, and the status line already says why. A write should stop there
+/// text, and a toast already says why. A write should stop there
 /// rather than write the document without it.
 ///
 /// A no-op with no box open — deliberately not [`commit`] then, which would
-/// put a refusal on the status line of a document that may not be edited.
+/// raise a refusal over a document that may not be edited.
 pub(crate) fn commit_open_retype(viewer: &Viewer) -> bool {
     if !retype_open(viewer) {
         return true;

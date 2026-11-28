@@ -23,7 +23,7 @@ use pdf_render::{PdfiumRenderer, Priority};
 
 use super::super::document::{close_document_in_background, show_document};
 use super::super::perf;
-use super::super::state::{OpenedDocument, SessionToken, Viewer};
+use super::super::state::{FileStamp, OpenedDocument, SessionToken, Viewer};
 use super::preview::{restore_view_state, take_view_state};
 use super::WriteOperation;
 
@@ -33,7 +33,7 @@ use super::WriteOperation;
 /// The tail of all three destination-taking chains, and the reason they
 /// report identically: a stale result is discarded rather than installed
 /// (see [`prepare_reopened_session`]), a failure is reported only while the
-/// session it belongs to is still the current one, and the status line comes
+/// session it belongs to is still the current one, and what is said comes
 /// from `operation` rather than from three copies of the same `match`.
 ///
 /// `after` is the continuation an ordinary Save may carry — how the
@@ -94,6 +94,7 @@ pub(super) fn spawn_write<W>(
                 // reopen is not installed, over a document that changed
                 // under it.
                 Ok(reopened) => {
+                    adopt_written_stamp(&viewer, &reopened);
                     close_document_in_background(reopened.document);
                     viewer.success(&operation.done());
                 }
@@ -101,6 +102,40 @@ pub(super) fn spawn_write<W>(
             }
         }
     });
+}
+
+/// Tells the session a write overtook that its file is the one that write
+/// left: see [`stamp_after_own_write`].
+fn adopt_written_stamp(viewer: &Viewer, written: &OpenedDocument) {
+    let mut state = viewer.state.borrow_mut();
+    let Some(session) = state.session.as_mut() else {
+        return;
+    };
+    session.origin_stamp = stamp_after_own_write(
+        (session.origin_path.as_deref(), session.origin_stamp),
+        (written.origin_path.as_deref(), written.origin_stamp),
+    );
+}
+
+/// The stamp a session keeps once a write it started has landed without
+/// being installed over it — the user went on editing while the worker
+/// wrote.
+///
+/// `session` and `written` are each the path a document goes by and the
+/// stamp of the file behind it. When the two go by the same path, the file
+/// on disk is this session's own save and is stamped as such: left with the
+/// stamp from before the write, the next Save would find a file "something
+/// else has written" (`in_place::changed_since`) and ask whether to replace
+/// the user's own work. A write that went anywhere else says nothing about
+/// the session's file, and the stamp stays as it was.
+pub(super) fn stamp_after_own_write(
+    session: (Option<&Path>, Option<FileStamp>),
+    written: (Option<&Path>, Option<FileStamp>),
+) -> Option<FileStamp> {
+    match (session.0, written.0) {
+        (Some(origin), Some(destination)) if origin == destination => written.1,
+        _ => session.1,
+    }
 }
 
 pub(super) fn session_matches(viewer: &Viewer, token: SessionToken) -> bool {
@@ -350,6 +385,65 @@ mod tests {
         };
 
         assert_eq!(next_generation_if_current(token, 4, 3), None);
+    }
+
+    mod own_write {
+        use std::path::Path;
+
+        use super::super::stamp_after_own_write;
+        use crate::app::state::FileStamp;
+
+        fn stamps() -> (Option<FileStamp>, Option<FileStamp>) {
+            let folder = std::env::temp_dir().join(format!(
+                "linux-gtk-own-write-{}-{:?}",
+                std::process::id(),
+                std::thread::current().id()
+            ));
+            let _ = std::fs::remove_dir_all(&folder);
+            std::fs::create_dir(&folder).expect("create the test folder");
+            let file = folder.join("report.pdf");
+            std::fs::write(&file, b"before").expect("write the file");
+            let before = FileStamp::of(&file);
+            std::fs::write(&file, b"after, and longer").expect("rewrite the file");
+            let after = FileStamp::of(&file);
+            let _ = std::fs::remove_dir_all(&folder);
+            assert!(before.is_some() && before != after);
+            (before, after)
+        }
+
+        #[test]
+        fn a_write_to_the_session_s_own_path_restamps_it() {
+            let (before, after) = stamps();
+            let path = Path::new("/home/user/report.pdf");
+
+            assert_eq!(
+                stamp_after_own_write((Some(path), before), (Some(path), after)),
+                after
+            );
+        }
+
+        #[test]
+        fn a_write_somewhere_else_leaves_the_stamp_alone() {
+            let (before, after) = stamps();
+
+            assert_eq!(
+                stamp_after_own_write(
+                    (Some(Path::new("/home/user/report.pdf")), before),
+                    (Some(Path::new("/home/user/copy.pdf")), after)
+                ),
+                before
+            );
+        }
+
+        #[test]
+        fn a_session_with_no_file_is_not_given_one_s_stamp() {
+            let (_, after) = stamps();
+
+            assert_eq!(
+                stamp_after_own_write((None, None), (Some(Path::new("/tmp/a.pdf")), after)),
+                None
+            );
+        }
     }
 
     #[test]

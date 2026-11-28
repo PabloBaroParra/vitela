@@ -292,7 +292,7 @@ pub(crate) fn connect_retype_shortcut(
         }
     });
     window.add_action(&action);
-    application.set_accels_for_action(&format!("win.{RETYPE_ACTION}"), &["F2"]);
+    crate::app::shortcuts::RETYPE.install(application);
 
     // The focus moving changes whether the key may fire — the same watch
     // `annotations::connect_delete_shortcut` keeps for Delete.

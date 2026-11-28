@@ -136,7 +136,7 @@ pub(crate) fn connect_delete_shortcut(
         }
     });
     window.add_action(action);
-    application.set_accels_for_action("win.delete-annotation", &["Delete"]);
+    crate::app::shortcuts::DELETE.install(application);
 
     // Watched on the window, not on the entry: focus moving anywhere changes
     // whether the accelerator may fire, and the entry's own focus signal never

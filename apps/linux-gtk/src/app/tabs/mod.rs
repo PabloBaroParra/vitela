@@ -18,8 +18,9 @@
 //! away from — or close — the active tab while its document has work in
 //! flight that would land on it (a preview refresh, any job holding a
 //! [`JobGuard`], a PDF import) or a dialog that acts on it is open (a modal
-//! window, or a chooser holding a [`PromptGuard`]). A click or Ctrl+W is
-//! refused at once with a status message — never carried out later.
+//! window, or a chooser holding a [`PromptGuard`]). A click, Ctrl+W or a
+//! keyboard step along the strip ([`cycle::cycle`]) is refused at once with
+//! a message — never carried out later.
 //!
 //! **Opens never take the active tab away from such a flow** ([`open`]).
 //! An open lands as the active tab only when it is the first file of a user
@@ -35,6 +36,7 @@
 //! autosave entry (`recovery::autosave`).
 
 pub(crate) mod close;
+mod cycle;
 mod guard;
 mod list;
 mod open;
@@ -54,6 +56,7 @@ use crate::app::document::PageShape;
 use crate::app::i18n::tr;
 use crate::app::state::{DocumentSession, Viewer};
 use crate::app::write::ViewState;
+pub(crate) use cycle::{connect_shortcuts, has_other_tab};
 pub(crate) use guard::busy_refusal;
 
 pub(crate) use guard::{bind_active, ChooserScope, JobGuard, PromptGuard};

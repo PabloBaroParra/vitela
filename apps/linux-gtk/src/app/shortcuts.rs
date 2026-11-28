@@ -10,6 +10,13 @@
 //! The text-editing keys ([`TEXT_EDITING`]) are handed to the palette's
 //! search and the Find entry while they have the cursor: see
 //! [`connect_search_field_handoff`].
+//!
+//! [`table`] lists every key the window answers to — these accelerators and
+//! the canvas keys that are not actions — grouped and labelled, and
+//! [`help`] prints that list as the keyboard shortcuts window.
+
+pub(crate) mod help;
+pub(crate) mod table;
 
 use gtk::prelude::*;
 
@@ -18,68 +25,86 @@ use gtk::prelude::*;
 pub(crate) struct Shortcut {
     /// The action's name inside the window's `win` group, e.g. `"open"`.
     pub(crate) action: &'static str,
-    /// The accelerator in GTK's syntax, e.g. `"<Control>o"`.
+    /// The accelerator in GTK's syntax, e.g. `"<Control>o"`. The one shown
+    /// wherever the shortcut is printed.
     pub(crate) accel: &'static str,
+    /// Other accelerators for the same action: the keypad's key, the key a
+    /// layout puts the symbol on, a second convention for the same command.
+    pub(crate) also: &'static [&'static str],
 }
 
 pub(crate) const OPEN: Shortcut = Shortcut {
     action: "open",
     accel: "<Control>o",
+    also: &[],
 };
 pub(crate) const SAVE: Shortcut = Shortcut {
     action: "save",
     accel: "<Control>s",
+    also: &[],
 };
 /// Saves under a name the user picks, where [`SAVE`] writes back to the file
 /// the document came from.
 pub(crate) const SAVE_AS: Shortcut = Shortcut {
     action: "save-as",
     accel: "<Control><Shift>s",
+    also: &[],
 };
 pub(crate) const PRINT: Shortcut = Shortcut {
     action: "print",
     accel: "<Control>p",
+    also: &[],
 };
 pub(crate) const FIND: Shortcut = Shortcut {
     action: "find",
     accel: "<Control>f",
+    also: &[],
 };
 pub(crate) const NEW: Shortcut = Shortcut {
     action: "new",
     accel: "<Control>n",
+    also: &[],
 };
 pub(crate) const UNDO: Shortcut = Shortcut {
     action: "undo",
     accel: "<Control>z",
+    also: &[],
 };
+/// Ctrl+Y and Ctrl+Shift+Z: both conventions are in use on Linux desktops.
 pub(crate) const REDO: Shortcut = Shortcut {
     action: "redo",
     accel: "<Control>y",
+    also: &["<Control><Shift>z"],
 };
 /// Cuts the content selected in content-edit mode (B25 T-209).
 pub(crate) const CUT: Shortcut = Shortcut {
     action: "cut-content",
     accel: "<Control>x",
+    also: &[],
 };
 /// Copies the content selection, or the selected page text.
 pub(crate) const COPY: Shortcut = Shortcut {
     action: "copy",
     accel: "<Control>c",
+    also: &[],
 };
 /// Pastes the held content clip, or a bitmap as a stamp.
 pub(crate) const PASTE: Shortcut = Shortcut {
     action: "paste",
     accel: "<Control>v",
+    also: &[],
 };
 /// Closes the active document's tab, asking about unsaved changes first.
 pub(crate) const CLOSE_TAB: Shortcut = Shortcut {
     action: "close-tab",
     accel: "<Control>w",
+    also: &[],
 };
 /// Opens the command palette (B27).
 pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
     action: "command-palette",
     accel: "<Control>k",
+    also: &[],
 };
 
 /// Bold, italic and underline for the text content-edit mode is on
@@ -87,17 +112,126 @@ pub(crate) const COMMAND_PALETTE: Shortcut = Shortcut {
 pub(crate) const BOLD: Shortcut = Shortcut {
     action: "content-bold",
     accel: "<Control>b",
+    also: &[],
 };
 pub(crate) const ITALIC: Shortcut = Shortcut {
     action: "content-italic",
     accel: "<Control>i",
+    also: &[],
 };
 pub(crate) const UNDERLINE: Shortcut = Shortcut {
     action: "content-underline",
     accel: "<Control>u",
+    also: &[],
+};
+
+/// Zoom, one step of the toolbar's ladder. Ctrl+= is the same physical key
+/// as Ctrl++ on layouts that put `+` over `=`.
+pub(crate) const ZOOM_IN: Shortcut = Shortcut {
+    action: "zoom-in",
+    accel: "<Control>plus",
+    also: &["<Control>equal", "<Control>KP_Add"],
+};
+pub(crate) const ZOOM_OUT: Shortcut = Shortcut {
+    action: "zoom-out",
+    accel: "<Control>minus",
+    also: &["<Control>KP_Subtract"],
+};
+/// Actual size: 100%, what the key means in browsers and in other viewers.
+pub(crate) const ZOOM_RESET: Shortcut = Shortcut {
+    action: "zoom-reset",
+    accel: "<Control>0",
+    also: &["<Control>KP_0"],
+};
+pub(crate) const FIT_WIDTH: Shortcut = Shortcut {
+    action: "fit-width",
+    accel: "<Control>1",
+    also: &["<Control>KP_1"],
+};
+pub(crate) const FIT_PAGE: Shortcut = Shortcut {
+    action: "fit-page",
+    accel: "<Control>2",
+    also: &["<Control>KP_2"],
+};
+pub(crate) const FULLSCREEN: Shortcut = Shortcut {
+    action: "fullscreen",
+    accel: "F11",
+    also: &[],
+};
+/// Shows or hides the page thumbnails and the tools panel.
+pub(crate) const TOGGLE_PAGES: Shortcut = Shortcut {
+    action: "toggle-pages-panel",
+    accel: "F9",
+    also: &[],
+};
+pub(crate) const TOGGLE_TOOLS: Shortcut = Shortcut {
+    action: "toggle-tools-panel",
+    accel: "<Shift>F9",
+    also: &[],
+};
+pub(crate) const FIND_NEXT: Shortcut = Shortcut {
+    action: "find-next",
+    accel: "F3",
+    also: &["<Control>g"],
+};
+pub(crate) const FIND_PREVIOUS: Shortcut = Shortcut {
+    action: "find-previous",
+    accel: "<Shift>F3",
+    also: &["<Control><Shift>g"],
+};
+/// The next and previous document tab. Shift+Tab arrives as `ISO_Left_Tab`
+/// on X11 keymaps; GTK folds that into `<Shift>Tab` when it registers and
+/// matches an accelerator, so one spelling covers both.
+pub(crate) const NEXT_TAB: Shortcut = Shortcut {
+    action: "next-tab",
+    accel: "<Control>Tab",
+    also: &["<Control>Page_Down"],
+};
+pub(crate) const PREVIOUS_TAB: Shortcut = Shortcut {
+    action: "previous-tab",
+    accel: "<Control><Shift>Tab",
+    also: &["<Control>Page_Up"],
+};
+/// Closes the window, asking about unsaved changes as the close button does.
+pub(crate) const QUIT: Shortcut = Shortcut {
+    action: "quit",
+    accel: "<Control>q",
+    also: &[],
+};
+/// Opens the keyboard shortcuts window ([`help`]).
+pub(crate) const SHORTCUTS_HELP: Shortcut = Shortcut {
+    action: "shortcuts",
+    accel: "F1",
+    also: &["<Control>question"],
+};
+/// Deletes the selected annotation or content item
+/// (`annotations::connect_delete_shortcut`).
+pub(crate) const DELETE: Shortcut = Shortcut {
+    action: "delete-annotation",
+    accel: "Delete",
+    also: &[],
+};
+/// Retypes the selected text block (`content_edit::block`).
+pub(crate) const RETYPE: Shortcut = Shortcut {
+    action: "retype-text",
+    accel: "F2",
+    also: &[],
+};
+/// Lets go of an armed tool, a selection or a toast (`escape`).
+pub(crate) const ESCAPE: Shortcut = Shortcut {
+    action: "escape",
+    accel: "Escape",
+    also: &[],
 };
 
 impl Shortcut {
+    /// Every accelerator bound to the action, the shown one first.
+    pub(crate) fn accels(self) -> Vec<&'static str> {
+        std::iter::once(self.accel)
+            .chain(self.also.iter().copied())
+            .collect()
+    }
+
     /// The action's detailed name, `win.<action>`.
     pub(crate) fn detailed_action(self) -> String {
         format!("win.{}", self.action)
@@ -105,7 +239,7 @@ impl Shortcut {
 
     /// Binds the accelerator to the window action on `application`.
     pub(crate) fn install(self, application: &gtk::Application) {
-        application.set_accels_for_action(&self.detailed_action(), &[self.accel]);
+        application.set_accels_for_action(&self.detailed_action(), &self.accels());
     }
 
     /// Removes the accelerator, leaving the action itself as it is.
@@ -127,6 +261,17 @@ impl Shortcut {
 pub(crate) fn accel_label(accel: &str) -> Option<String> {
     let (key, modifiers) = gtk::accelerator_parse(accel)?;
     Some(gtk::accelerator_get_label(key, modifiers).into())
+}
+
+/// `label` followed by the shortcut's key in brackets, e.g. `"Undo (Ctrl+Z)"`
+/// — a control's tooltip, with the key read from the table rather than
+/// typed into the translation, where it could go on naming a key that has
+/// since moved.
+pub(crate) fn tooltip(label: &str, shortcut: Shortcut) -> String {
+    match accel_label(shortcut.accel) {
+        Some(keys) => format!("{label} ({keys})"),
+        None => label.to_owned(),
+    }
 }
 
 /// The window shortcuts a text field has keys of its own for: cut, copy,

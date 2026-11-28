@@ -60,6 +60,25 @@ pub(crate) struct ViewState {
     reading: crate::app::layout::ReadingPosition,
 }
 
+impl ViewState {
+    /// A view to restore that was not read off this window: one remembered
+    /// from an earlier run (`session_state`).
+    pub(crate) fn new(
+        zoom: crate::app::layout::Zoom,
+        reading: crate::app::layout::ReadingPosition,
+    ) -> Self {
+        Self { zoom, reading }
+    }
+
+    pub(crate) fn zoom(&self) -> crate::app::layout::Zoom {
+        self.zoom
+    }
+
+    pub(crate) fn reading(&self) -> crate::app::layout::ReadingPosition {
+        self.reading
+    }
+}
+
 /// Reads the current zoom and reading position. Pure observation — unlike
 /// `edits::take_edit_state` there is nothing to move out, because
 /// `document::show_document` rebuilds these from scratch rather than carrying them.

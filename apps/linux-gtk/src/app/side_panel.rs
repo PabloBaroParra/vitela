@@ -183,6 +183,40 @@ pub(crate) fn connect(paned: &Paned, column: Column, slot: &Stack, toggle: &Togg
 /// Runs once, on the first allocation only. After that the divider belongs to
 /// the user, and `resize_*_child` keeps whatever width they leave it at.
 pub(crate) fn open_at(paned: &Paned, column: Column, width: i32) {
+    at_first_allocation(paned, move |paned| {
+        paned.set_position(column.position_for(width, paned.width()));
+    });
+}
+
+/// Puts `column` back the way it was left in an earlier run, once the
+/// `Paned` has a real width: at `width` when one is remembered, and folded
+/// when it was not `open`.
+///
+/// Connected after [`open_at`], so it runs after it in the same allocation
+/// and what was remembered is what stands. The width goes in first even for
+/// a folded column: [`connect`] notes it as the column's last open width on
+/// the way, so reopening it from the toolbar comes back to the width it had
+/// and not to the default.
+pub(crate) fn restore(paned: &Paned, column: Column, open: bool, width: Option<i32>) {
+    at_first_allocation(paned, move |paned| {
+        if let Some(width) = width {
+            paned.set_position(column.position_for(width, paned.width()));
+        }
+        if !open {
+            paned.set_position(column.position_for(0, paned.width()));
+        }
+    });
+}
+
+/// Runs `place` once, inside `paned`'s first allocation.
+///
+/// Not deferred. The `max-position` notify fires inside the `Paned`'s first
+/// allocation, after it has measured but before it hands its children their
+/// widths — so setting the divider there lands in that same allocation. An
+/// idle would let one layout go out at the wrong split and then move the
+/// divider under it: the canvas refits, and anything already placed on a
+/// page (an open retype box) is left at the old scale.
+fn at_first_allocation(paned: &Paned, place: impl Fn(&Paned) + 'static) {
     let handler = Rc::new(Cell::new(None));
     let id = paned.connect_max_position_notify({
         let handler = handler.clone();
@@ -193,14 +227,7 @@ pub(crate) fn open_at(paned: &Paned, column: Column, width: i32) {
             if let Some(id) = handler.take() {
                 paned.disconnect(id);
             }
-            // Not deferred. This notify fires inside the `Paned`'s first
-            // allocation, after it has measured but before it hands its
-            // children their widths — so setting the divider here lands in
-            // that same allocation. An idle would let one layout go out at
-            // the wrong split and then move the divider under it: the canvas
-            // refits, and anything already placed on a page (an open retype
-            // box) is left at the old scale.
-            paned.set_position(column.position_for(width, paned.width()));
+            place(paned);
         }
     });
     handler.set(Some(id));

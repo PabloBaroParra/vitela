@@ -70,9 +70,18 @@ pub(crate) enum Pushed {
 /// The toast on screen and the errors it displaced.
 ///
 /// The newest outcome is always the one shown: it answers what the user just
-/// did. An error it pushed aside has not been dismissed, so it comes back
-/// once the newer toast leaves — most recent first. A displaced success or
-/// refusal is dropped: it was on its way out anyway.
+/// did. An error pushed aside by another error or by a refusal has not been
+/// dismissed, so it comes back once the newer toast leaves — most recent
+/// first. A displaced success or refusal is dropped: it was on its way out
+/// anyway.
+///
+/// **A success closes the errors before it.** Nothing here knows which
+/// operation a toast belongs to, and the common sequence is a failure, a
+/// retry, and the retry working: "Could not save" coming back after "Saved"
+/// would report a problem that no longer exists, and stay until dismissed.
+/// So a success drops the error it displaces and every error still waiting.
+/// The cost is an unrelated error going with them; it was on screen until
+/// the user acted again, and that action succeeded.
 #[derive(Default)]
 pub(crate) struct Queue {
     current: Option<Toast>,
@@ -97,7 +106,10 @@ impl Queue {
         }
         // Shown again now, so it must not also come back later.
         self.waiting.retain(|waiting| *waiting != toast);
-        if let Some(displaced) = self.current.take() {
+        let displaced = self.current.take();
+        if toast.tone == Tone::Success {
+            self.waiting.clear();
+        } else if let Some(displaced) = displaced {
             if displaced.tone == Tone::Error {
                 self.waiting.push(displaced);
                 if self.waiting.len() > WAITING_LIMIT {
@@ -201,14 +213,56 @@ mod tests {
     fn a_displaced_error_comes_back_once_the_newer_toast_leaves() {
         let mut queue = Queue::default();
         queue.push(toast(Tone::Error, "Could not save."));
-        queue.push(toast(Tone::Success, "Exported."));
+        queue.push(toast(Tone::Refusal, "Not now."));
 
-        assert_eq!(queue.current(), Some(&toast(Tone::Success, "Exported.")));
+        assert_eq!(queue.current(), Some(&toast(Tone::Refusal, "Not now.")));
         assert_eq!(
             queue.dismiss(),
             Some(&toast(Tone::Error, "Could not save."))
         );
         assert_eq!(queue.dismiss(), None);
+    }
+
+    /// "Could not save", a retry, "Saved": the failure is over, and must not
+    /// come back once the success has timed out.
+    #[test]
+    fn a_success_does_not_bring_back_the_error_it_displaced() {
+        let mut queue = Queue::default();
+        queue.push(toast(Tone::Error, "Could not save."));
+        queue.push(toast(Tone::Success, "Saved."));
+
+        assert_eq!(queue.current(), Some(&toast(Tone::Success, "Saved.")));
+        assert_eq!(queue.waiting(), 0);
+        assert_eq!(queue.dismiss(), None);
+    }
+
+    /// The errors already waiting behind something else go with it.
+    #[test]
+    fn a_success_drops_every_error_still_waiting() {
+        let mut queue = Queue::default();
+        queue.push(toast(Tone::Error, "Could not save."));
+        queue.push(toast(Tone::Error, "Could not export."));
+        queue.push(toast(Tone::Refusal, "Wait for the save to finish."));
+        assert_eq!(queue.waiting(), 2);
+
+        queue.push(toast(Tone::Success, "Saved."));
+
+        assert_eq!(queue.waiting(), 0);
+        assert_eq!(queue.dismiss(), None);
+    }
+
+    /// Only a success closes them: an error after a success still stays.
+    #[test]
+    fn an_error_after_a_success_is_shown_and_stays() {
+        let mut queue = Queue::default();
+        queue.push(toast(Tone::Success, "Saved."));
+        queue.push(toast(Tone::Error, "Could not export."));
+        queue.push(toast(Tone::Refusal, "Not now."));
+
+        assert_eq!(
+            queue.dismiss(),
+            Some(&toast(Tone::Error, "Could not export."))
+        );
     }
 
     #[test]

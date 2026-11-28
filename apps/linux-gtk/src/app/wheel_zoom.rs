@@ -35,6 +35,33 @@ pub(super) fn connect(page_area: &gtk::Overlay, viewer: &Viewer) {
         }
     });
     page_area.add_controller(scroll);
+    connect_find_popover(viewer);
+}
+
+/// Keeps Ctrl+wheel a zoom while the Find popover is open.
+///
+/// The popover is modal for as long as it is up: GTK hands it every scroll
+/// event, wherever the pointer is, so a wheel turned over the page never
+/// reaches the controller above — and zooming to read a match was exactly
+/// when Ctrl+wheel stopped working. The popover gets a controller of its
+/// own that takes the same step.
+///
+/// Unanchored: the pointer's place over the page is not known here — its
+/// motion goes to the popover too — so the step is the toolbar's, from the
+/// top-left of the view, rather than a zoom about a stale point.
+fn connect_find_popover(viewer: &Viewer) {
+    let Some(popover) = viewer.search_entry.ancestor(gtk::Popover::static_type()) else {
+        return;
+    };
+    let scroll = EventControllerScroll::new(
+        EventControllerScrollFlags::VERTICAL | EventControllerScrollFlags::DISCRETE,
+    );
+    scroll.set_propagation_phase(PropagationPhase::Capture);
+    scroll.connect_scroll({
+        let viewer = viewer.clone();
+        move |controller, _, dy| handle_scroll(&viewer, controller.current_event_state(), dy, None)
+    });
+    popover.add_controller(scroll);
 }
 
 /// The pointer, in `scroll`'s own coordinates, as the anchor expects it.
@@ -139,6 +166,33 @@ mod tests {
             })
             .expect("the scroller must track the pointer; wheel events carry no position");
         assert_eq!(motion.propagation_phase(), PropagationPhase::Capture);
+        built.window.close();
+    }
+
+    /// The Find popover is modal while open and receives the wheel itself:
+    /// it carries a controller that zooms, and one that leaves a plain
+    /// wheel alone.
+    #[gtk::test]
+    fn gtk_ui_the_find_popover_zooms_on_control_wheel_too() {
+        let built = built_ui();
+        let popover = built
+            .viewer
+            .search_entry
+            .ancestor(gtk::Popover::static_type())
+            .expect("the Find entry lives in a popover");
+        let controllers = popover.observe_controllers();
+        let controller = (0..controllers.n_items())
+            .find_map(|index| {
+                controllers
+                    .item(index)?
+                    .downcast::<EventControllerScroll>()
+                    .ok()
+            })
+            .expect("the Find popover must hear the wheel it is handed");
+        assert_eq!(controller.propagation_phase(), PropagationPhase::Capture);
+        assert!(controller
+            .flags()
+            .contains(EventControllerScrollFlags::DISCRETE));
         built.window.close();
     }
 
