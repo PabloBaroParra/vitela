@@ -52,6 +52,27 @@ pub(super) fn choose_destination_from(
     suggested: Option<&Path>,
     proceed: Proceed,
 ) {
+    pick_destination_from(
+        window,
+        viewer,
+        operation,
+        suggested,
+        Rc::new(move |window, viewer, picked| {
+            confirm_destination(window, viewer, operation, picked, proceed.clone());
+        }),
+    );
+}
+
+/// The chooser alone: hands the path the user picked — a `.pdf` suffix
+/// added — to `picked`, with no overwrite guard in between. For a chain
+/// whose guard has to ask about more than the picked name (`super::save`).
+pub(super) fn pick_destination_from(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    operation: WriteOperation,
+    suggested: Option<&Path>,
+    picked: Proceed,
+) {
     let filter = pdf_filter();
     let builder = FileDialog::builder()
         .title(operation.title())
@@ -81,13 +102,7 @@ pub(super) fn choose_destination_from(
                 viewer.refuse(&tr("write-not-local-file"));
                 return;
             };
-            confirm_destination(
-                &window,
-                &viewer,
-                operation,
-                pdf_destination(path),
-                proceed.clone(),
-            );
+            picked(&window, &viewer, pdf_destination(path));
         }
     });
 }
@@ -125,13 +140,7 @@ pub(super) fn confirm_destination(
         Ok(false) => proceed(window, viewer, destination),
         Err(error) => viewer.fail(&check_failed(&destination, &error.to_string())),
         Ok(true) => {
-            let dialog = AlertDialog::builder()
-                .message(tr("write-replace-title"))
-                .buttons([tr("write-replace-cancel"), tr("write-replace")])
-                .cancel_button(0)
-                .default_button(1)
-                .modal(true)
-                .build();
+            let dialog = replace_dialog(&tr("write-replace-title"));
             dialog.choose(Some(window), None::<&gio::Cancellable>, {
                 let viewer = viewer.clone();
                 let window = window.clone();
@@ -151,6 +160,18 @@ pub(super) fn confirm_destination(
             });
         }
     }
+}
+
+/// The "Replace?" question, asked as `message`: Cancel, or Replace (answer
+/// `1`, the default).
+pub(super) fn replace_dialog(message: &str) -> AlertDialog {
+    AlertDialog::builder()
+        .message(message)
+        .buttons([tr("write-replace-cancel"), tr("write-replace")])
+        .cancel_button(0)
+        .default_button(1)
+        .modal(true)
+        .build()
 }
 
 /// Saving a signed document breaks its signature, and there is no version of

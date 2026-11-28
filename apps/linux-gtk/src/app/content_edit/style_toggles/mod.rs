@@ -93,6 +93,11 @@ fn tooltip_key(style: Style) -> &'static str {
     }
 }
 
+/// A toggle's tooltip: what it does, and its key from the table.
+fn tooltip(style: Style) -> String {
+    shortcuts::tooltip(&tr(tooltip_key(style)), shortcut(style))
+}
+
 /// Builds the three toggles, insensitive, in a row of their own.
 ///
 /// Each shows its letter in its own style — no icon of the shell's says
@@ -117,20 +122,16 @@ pub(crate) fn build() -> (StyleToggles, GtkBox) {
         button
     };
     let toggles = StyleToggles {
-        bold: make(
-            "<b>B</b>",
-            &tr("edit-style-bold"),
-            &tr("edit-style-bold-tooltip"),
-        ),
+        bold: make("<b>B</b>", &tr("edit-style-bold"), &tooltip(Style::Bold)),
         italic: make(
             "<i>I</i>",
             &tr("edit-style-italic"),
-            &tr("edit-style-italic-tooltip"),
+            &tooltip(Style::Italic),
         ),
         underline: make(
             "<u>U</u>",
             &tr("edit-style-underline"),
-            &tr("edit-style-underline-tooltip"),
+            &tooltip(Style::Underline),
         ),
         reselect: reselect::Pending::default(),
         shown: follow::Shown::default(),
@@ -299,13 +300,13 @@ pub(crate) fn update(viewer: &Viewer) {
         };
         button.set_active(active);
         button.set_sensitive(toggles.is_some() && removable);
-        button.set_tooltip_text(Some(&tr(if removable {
-            tooltip_key(style)
+        button.set_tooltip_text(Some(&if removable {
+            tooltip(style)
         } else if style == Style::Bold {
-            model::BOLD_FIXED
+            tr(model::BOLD_FIXED)
         } else {
-            model::ITALIC_FIXED
-        })));
+            tr(model::ITALIC_FIXED)
+        }));
         if let Some(action) = viewer
             .window()
             .and_then(|window| window.lookup_action(shortcut(style).action))

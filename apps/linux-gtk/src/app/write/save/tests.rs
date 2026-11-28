@@ -492,6 +492,30 @@ fn gtk_ui_a_save_overtaken_by_an_edit_does_not_ask_about_its_own_file_next_time(
     );
 }
 
+/// The question asked before a save through `link` replaces `target`.
+fn replace_through_link_question(link: &Path, target: &Path) -> String {
+    crate::app::i18n::tr_args(
+        "write-replace-through-link-title",
+        &[
+            ("target", target.display().to_string().into()),
+            ("link", super::file_name(link).into()),
+        ],
+    )
+}
+
+/// What the user confirmed in the chooser, handed to the Save chain.
+fn confirm_chosen(saving: &FileDocument, chosen: &Path) {
+    let opened = super::opened_as(&saving.built.viewer);
+    assert!(opened.is_some(), "the document came from a file");
+    super::confirm_chosen(
+        &saving.built.window,
+        &saving.built.viewer,
+        chosen.to_path_buf(),
+        opened,
+        None,
+    );
+}
+
 /// A document opened through a link, saved through the chooser onto its
 /// own path — where Save lands whenever it has a reason to ask, and where
 /// Save As opens. The answer writes the file the link points at; the link
@@ -506,15 +530,12 @@ fn gtk_ui_a_chooser_save_onto_the_document_s_own_link_writes_through_it() {
     saving.open(DocumentSource::File(link.clone()));
     saving.mark_dirty();
     let before = FileStamp::of(&real);
-    let opened = super::opened_as(&saving.built.viewer);
-    assert!(opened.is_some(), "the document came from a file");
 
-    crate::app::write::chooser::confirm_destination(
-        &saving.built.window,
-        &saving.built.viewer,
-        super::SAVE,
-        link.clone(),
-        super::save_to_chosen(opened, None),
+    confirm_chosen(&saving, &link);
+    let question = saving.dialog_texts();
+    assert!(
+        question.contains(&replace_through_link_question(&link, &real)),
+        "the question names the file the link points at: {question:?}"
     );
     saving.answer(&tr("write-replace"));
     saving.wait_for_the_save();
@@ -532,6 +553,117 @@ fn gtk_ui_a_chooser_save_onto_the_document_s_own_link_writes_through_it() {
     assert_eq!(session.origin_path.as_deref(), Some(link.as_path()));
     assert_eq!(session.base_name, "link.pdf");
     assert_eq!(session.origin_stamp, FileStamp::of(&real));
+}
+
+/// The chooser is where Save lands when the file behind the link cannot be
+/// replaced. Confirming the document's own link there must not write
+/// through to that file anyway: the refusal names the file, and nothing is
+/// asked or written.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_read_only_target() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let saving = FileDocument::new("chooser-link-read-only");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&real, &link).expect("link to it");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o400))
+        .expect("make the real file read-only");
+    if std::fs::OpenOptions::new().write(true).open(&real).is_ok() {
+        eprintln!("SKIPPED: this process ignores permission bits. Nothing was asserted.");
+        return;
+    }
+
+    confirm_chosen(&saving, &link);
+    pump_for(std::time::Duration::from_millis(50));
+
+    assert!(saving.dialogs().is_empty(), "nothing is asked");
+    assert_eq!(saving.jobs(), 0, "nothing is written");
+    assert_eq!(
+        saving.status(),
+        crate::app::i18n::tr_args(
+            "write-link-target-not-replaceable",
+            &[
+                ("target", real.display().to_string().into()),
+                ("link", "link.pdf".into()),
+            ],
+        )
+    );
+    assert!(saving.dirty());
+    assert_eq!(std::fs::read(&real).expect("the real file"), SAMPLE_PDF);
+}
+
+/// The link was pointed somewhere else after the document was opened. The
+/// question is about the file the save would replace now, by its own name,
+/// and answering it writes that file.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_a_re_pointed_own_link_names_the_new_target() {
+    let saving = FileDocument::new("chooser-link-re-pointed");
+    let first = saving.folder.join("first.pdf");
+    let second = saving.folder.join("second.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&first, SAMPLE_PDF).expect("write the first file");
+    std::fs::write(&second, SAMPLE_PDF).expect("write the second file");
+    std::os::unix::fs::symlink(&first, &link).expect("link to the first");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::remove_file(&link).expect("drop the link");
+    std::os::unix::fs::symlink(&second, &link).expect("link to the second");
+    let before = FileStamp::of(&second);
+
+    confirm_chosen(&saving, &link);
+    let question = saving.dialog_texts();
+    assert!(
+        question.contains(&replace_through_link_question(&link, &second)),
+        "the question names the file the link points at now: {question:?}"
+    );
+    saving.answer(&tr("write-replace"));
+    saving.wait_for_the_save();
+
+    assert_ne!(FileStamp::of(&second), before, "the new target was written");
+    assert_eq!(std::fs::read(&first).expect("the first file"), SAMPLE_PDF);
+    assert!(std::fs::symlink_metadata(&link)
+        .expect("the link")
+        .file_type()
+        .is_symlink());
+}
+
+/// The link was re-pointed at a file another tab has open under its own
+/// name: writing it would leave that tab showing bytes the file lost.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_target_another_tab_holds() {
+    let saving = FileDocument::new("chooser-link-held");
+    let first = saving.folder.join("first.pdf");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&first, SAMPLE_PDF).expect("write the first file");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&first, &link).expect("link to the first");
+    saving.open(DocumentSource::File(real.clone()));
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::remove_file(&link).expect("drop the link");
+    std::os::unix::fs::symlink(&real, &link).expect("link to the held file");
+
+    confirm_chosen(&saving, &link);
+    pump_for(std::time::Duration::from_millis(50));
+
+    assert!(saving.dialogs().is_empty(), "nothing is asked");
+    assert_eq!(saving.jobs(), 0, "nothing is written");
+    assert_eq!(
+        saving.status(),
+        crate::app::i18n::tr_args(
+            "write-link-target-open-elsewhere",
+            &[
+                ("target", real.display().to_string().into()),
+                ("link", "link.pdf".into()),
+            ],
+        )
+    );
+    assert_eq!(std::fs::read(&real).expect("the real file"), SAMPLE_PDF);
 }
 
 mod chosen {
@@ -612,6 +744,25 @@ mod chosen {
 
         assert_eq!(destination.file, real);
         assert!(destination.keeps.is_none());
+    }
+
+    #[test]
+    fn a_link_target_is_refused_when_held_elsewhere_or_not_replaceable() {
+        use super::super::through_link_refusal_key as refusal;
+
+        assert_eq!(refusal(true, false), None);
+        assert_eq!(
+            refusal(false, false),
+            Some("write-link-target-not-replaceable")
+        );
+        assert_eq!(
+            refusal(true, true),
+            Some("write-link-target-open-elsewhere")
+        );
+        assert_eq!(
+            refusal(false, true),
+            Some("write-link-target-open-elsewhere")
+        );
     }
 
     /// A link that leads nowhere readable is left to the write to report.

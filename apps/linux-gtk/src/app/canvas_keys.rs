@@ -827,6 +827,82 @@ mod tests {
         assert_eq!(viewer.scroll.vadjustment().value(), 0.0);
     }
 
+    /// The window's key controllers that run in the capture phase.
+    fn capture_key_controllers(window: &gtk::ApplicationWindow) -> Vec<EventControllerKey> {
+        let controllers = window.observe_controllers();
+        (0..controllers.n_items())
+            .filter_map(|index| {
+                controllers
+                    .item(index)?
+                    .downcast::<EventControllerKey>()
+                    .ok()
+            })
+            .filter(|keys| keys.propagation_phase() == PropagationPhase::Capture)
+            .collect()
+    }
+
+    /// The keys reach `handle_key` only through a controller on the window
+    /// that runs in the capture phase — ahead of whatever has the focus.
+    /// Found on the built window and fired as GTK fires it, by its
+    /// `key-pressed` signal: a controller that is missing, attached
+    /// elsewhere or in another phase leaves Page Down unscrolled. (GTK 4
+    /// offers no public way to synthesize a key event, so the signal is as
+    /// close to a real press as the suite can get.)
+    #[gtk::test]
+    fn gtk_ui_the_window_reads_the_paging_keys_in_the_capture_phase() {
+        let document = scrollable("keys-controller");
+        let viewer = &document.built.viewer;
+        assert!(viewer.print_button.grab_focus(), "the button takes focus");
+        pump();
+        let vertical = viewer.scroll.vadjustment();
+        assert_eq!(vertical.value(), 0.0);
+
+        let taken: Vec<bool> = capture_key_controllers(&document.built.window)
+            .iter()
+            .map(|keys| {
+                use gtk::glib::translate::IntoGlib;
+                keys.emit_by_name::<bool>(
+                    "key-pressed",
+                    &[&gdk::Key::Page_Down.into_glib(), &0u32, &NONE],
+                )
+            })
+            .collect();
+
+        assert_eq!(
+            taken.iter().filter(|taken| **taken).count(),
+            1,
+            "one capture-phase controller on the window takes Page Down: {taken:?}"
+        );
+        assert!(vertical.value() > 0.0, "and the canvas scrolled");
+    }
+
+    /// A press on the page hands the canvas the focus through a click
+    /// gesture on the document area: any button, in the capture phase, so
+    /// the page's own gestures still get the press.
+    #[gtk::test]
+    fn gtk_ui_a_press_on_the_page_gives_the_canvas_the_focus() {
+        let document = scrollable("keys-click");
+        let viewer = &document.built.viewer;
+        let page_area = viewer.scroll.parent().expect("the document area");
+        let controllers = page_area.observe_controllers();
+        let click = (0..controllers.n_items())
+            .find_map(|index| controllers.item(index)?.downcast::<GestureClick>().ok())
+            .expect("the document area must have the focus click");
+        assert_eq!(click.propagation_phase(), PropagationPhase::Capture);
+        assert_eq!(click.button(), 0);
+        assert!(viewer.print_button.grab_focus(), "the button takes focus");
+        pump();
+
+        click.emit_by_name::<()>("pressed", &[&1i32, &10.0f64, &10.0f64]);
+        pump();
+
+        assert_eq!(
+            focused(viewer).as_ref(),
+            Some(viewer.scroll.upcast_ref::<gtk::Widget>()),
+            "the press gave the canvas the focus"
+        );
+    }
+
     #[gtk::test]
     fn gtk_ui_a_window_with_no_document_takes_no_key() {
         let built = crate::app::ui_tests::built_ui();

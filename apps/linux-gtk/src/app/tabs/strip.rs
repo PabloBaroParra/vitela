@@ -145,7 +145,10 @@ fn build_tab(viewer: &Viewer, view: &TabView) -> GtkBox {
     });
 
     let close = Button::with_label(CLOSE_MARKER);
-    close.set_tooltip_text(Some(&tr("tabs-close-tooltip")));
+    close.set_tooltip_text(Some(&crate::app::shortcuts::tooltip(
+        &tr("tabs-close-tooltip"),
+        crate::app::shortcuts::CLOSE_TAB,
+    )));
     close.update_property(&[gtk::accessible::Property::Label(&tr_args(
         "tabs-close-named",
         &[("name", view.name.clone().into())],

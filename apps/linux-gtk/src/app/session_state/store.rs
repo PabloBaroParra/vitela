@@ -19,8 +19,8 @@
 //! **Two windows.** Two instances can share the file (a second profile, a
 //! sandboxed and an unsandboxed build). Each writes through a temporary
 //! file named for its own process, so neither can rename the other's
-//! half-written bytes into place; and each write first takes in the
-//! documents the file holds that it does not know more recently
+//! half-written bytes into place; and each write first takes in what the
+//! file holds for every document it has not recorded itself
 //! ([`State::merge_documents`]), so the last writer does not erase the
 //! other's reading positions. The window size and the panels are simply the
 //! last writer's — there is one of each to remember.
@@ -76,6 +76,12 @@ impl Store {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Holds the turn a write takes, as a write under way does.
+    #[cfg(test)]
+    pub(crate) fn hold_turn_for_test(&self) -> MutexGuard<'_, u64> {
+        self.turn()
+    }
+
     /// The newest revision written, once any write under way has finished.
     pub(crate) fn written_revision(&self) -> u64 {
         *self.turn()
@@ -117,8 +123,8 @@ impl Store {
         }
     }
 
-    /// Writes `state`, having first taken in whatever documents the file
-    /// holds that `state` does not know more recently.
+    /// Writes `state`, having first taken in what the file holds for the
+    /// documents `state` did not record itself.
     pub(crate) fn save(&self, mut state: State) -> io::Result<()> {
         state.merge_documents(&self.load());
         self.write(state.serialize().as_bytes())
@@ -370,6 +376,34 @@ pub(crate) mod tests {
         assert_eq!(page("/home/user/first.pdf"), Some(1));
         assert_eq!(page("/home/user/second.pdf"), Some(3));
         assert_eq!(page("/home/user/shared.pdf"), Some(9), "the newer record");
+    }
+
+    /// The file holds a record of the document dated later than this
+    /// window's clock — the clock went back, or the record came from a
+    /// machine whose clock ran ahead. The window's own record is written
+    /// all the same, every time.
+    #[test]
+    fn a_window_s_own_record_is_written_over_a_later_dated_one() {
+        let scratch = ScratchDir::new();
+        let store = scratch.store();
+        let mut earlier = State::default();
+        reading(&mut earlier, "/home/user/a.pdf", 3, 5_000);
+        store
+            .save(earlier)
+            .expect("the file as another run left it");
+        let mut mine = store.load();
+
+        for page_index in [7, 8] {
+            reading(&mut mine, "/home/user/a.pdf", page_index, 100);
+            store.save(mine.clone()).expect("this window writes");
+
+            let read = store.load();
+            assert_eq!(
+                read.document(Path::new("/home/user/a.pdf"))
+                    .map(|view| view.reading.page_index),
+                Some(page_index)
+            );
+        }
     }
 
     /// The worker's write and the closing window's can cross: the older

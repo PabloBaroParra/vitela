@@ -545,6 +545,26 @@ mod window_tests {
             viewer.view_stack.visible_child_name().as_deref(),
             Some(EDITOR_PAGE)
         );
+        let popover = viewer
+            .search_entry
+            .ancestor(gtk::Popover::static_type())
+            .expect("the Find entry lives in a popover");
+        assert!(
+            wait_until(|| popover.is_visible()),
+            "the Find popover is open"
+        );
+        let entry: &gtk::Widget = viewer.search_entry.upcast_ref();
+        let focused = gtk::prelude::GtkWindowExt::focus(&document.built.window);
+        assert!(
+            focused
+                .as_ref()
+                .is_some_and(|focused| focused == entry || focused.is_ancestor(entry)),
+            "the cursor is in the Find entry, not on {:?}",
+            focused.map(|focused| focused.type_().name().to_owned())
+        );
+        if let Some(popover) = popover.downcast_ref::<gtk::Popover>() {
+            popover.popdown();
+        }
     }
 
     /// With no document the key says why nothing opened.

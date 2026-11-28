@@ -14,23 +14,25 @@
 //! are both described against it, and the shared steps all three take live in
 //! [`super`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
 
-use gtk::{glib, ApplicationWindow};
+use gtk::{gio, glib, ApplicationWindow};
 use pdf_document::Document;
 
 use super::super::document::open_document;
 use super::super::state::{
     DocumentSource, ImportedSource, OpenedDocument, SaveBacking, SessionToken, Viewer,
 };
-use super::chooser::{choose_destination_from, confirm_signature_loss, Proceed};
-use super::in_place::{route_for, through_links, SaveRoute};
+use super::chooser::{
+    confirm_destination, confirm_signature_loss, pick_destination_from, replace_dialog, Proceed,
+};
+use super::in_place::{replaceable_in_place, route_for, through_links, SaveRoute};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{default_save_breaks_signature, imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
-use crate::app::i18n::tr;
+use crate::app::i18n::{tr, tr_args};
 
 /// Save: writes the current model back to the file it came from, and asks
 /// for a destination only when there is no such file to replace. The live
@@ -118,31 +120,108 @@ fn ask_destination(
     let suggested = opened.as_ref().map(|opened| opened.path.clone());
     // The chooser binds its answer to the active tab (`tabs::ChooserScope`):
     // a save writes the document it was opened over, never another.
-    choose_destination_from(
+    pick_destination_from(
         window,
         viewer,
         SAVE,
         suggested.as_deref(),
-        save_to_chosen(opened, after_save),
+        Rc::new(move |window, viewer, chosen| {
+            confirm_chosen(window, viewer, chosen, opened.clone(), after_save.clone());
+        }),
     );
 }
 
-/// What a destination confirmed in the chooser is handed to: the chain, on
-/// the file [`chosen_destination`] makes of it.
-fn save_to_chosen(opened: Option<OpenedAs>, after_save: Option<Rc<dyn Fn()>>) -> Proceed {
-    Rc::new(move |window, viewer, chosen| {
-        let destination = chosen_destination(chosen, opened.clone());
-        // The chooser's guard asked this of the path it was given. A link
-        // followed here leads to a file it never saw, which another tab may
-        // have open under its own name — the refusal a save in place makes.
-        if destination.keeps.is_some()
-            && crate::app::tabs::path_held_by_other_tab(viewer, &destination.file)
-        {
-            viewer.refuse(&tr("tabs-path-open-elsewhere"));
-            return;
+/// The overwrite guard for a path picked in the chooser, then the chain.
+///
+/// A path written as it was given goes through the shared guard
+/// (`chooser::confirm_destination`), as for any other write. The document's
+/// own link is the exception [`chosen_destination`] describes: the bytes go
+/// to the file it points at *now*, which is neither the file the guard
+/// would ask about nor necessarily the one that was opened — this route is
+/// reached precisely when a save in place declined, a read-only target or a
+/// re-pointed link included. So that file gets the checks a save in place
+/// makes, and the question names it.
+fn confirm_chosen(
+    window: &ApplicationWindow,
+    viewer: &Viewer,
+    chosen: PathBuf,
+    opened: Option<OpenedAs>,
+    after_save: Option<Rc<dyn Fn()>>,
+) {
+    let destination = chosen_destination(chosen.clone(), opened);
+    let Some(link) = destination.keeps.as_ref().map(|keeps| keeps.path.clone()) else {
+        let proceed: Proceed = Rc::new(move |window, viewer, file| {
+            let destination = Destination { file, keeps: None };
+            save_current_to(window, viewer, destination, after_save.clone());
+        });
+        confirm_destination(window, viewer, SAVE, chosen, proceed);
+        return;
+    };
+    if let Some(refusal) = through_link_refusal(viewer, &link, &destination.file) {
+        viewer.refuse(&refusal);
+        return;
+    }
+    let question = tr_args(
+        "write-replace-through-link-title",
+        &[
+            ("target", destination.file.display().to_string().into()),
+            ("link", file_name(&link).into()),
+        ],
+    );
+    replace_dialog(&question).choose(Some(window), None::<&gio::Cancellable>, {
+        let window = window.clone();
+        let viewer = viewer.clone();
+        move |response| {
+            if response != Ok(1) {
+                viewer.info(&SAVE.cancelled());
+                return;
+            }
+            // Asked again now: a tab may have opened the file, or its
+            // permissions changed, while the question was up.
+            if let Some(refusal) = through_link_refusal(&viewer, &link, &destination.file) {
+                viewer.refuse(&refusal);
+                return;
+            }
+            save_current_to(&window, &viewer, destination.clone(), after_save.clone());
         }
-        save_current_to(window, viewer, destination, after_save.clone());
-    })
+    });
+}
+
+/// Why a save through the document's own `link` must not write `target`,
+/// the file it leads to: the refusals a save in place makes, worded to name
+/// the real file.
+fn through_link_refusal(viewer: &Viewer, link: &Path, target: &Path) -> Option<String> {
+    let key = through_link_refusal_key(
+        replaceable_in_place(target),
+        crate::app::tabs::path_held_by_other_tab(viewer, target),
+    )?;
+    Some(tr_args(
+        key,
+        &[
+            ("target", target.display().to_string().into()),
+            ("link", file_name(link).into()),
+        ],
+    ))
+}
+
+/// Which refusal, if any, a save through a link makes of a target that is
+/// or is not `replaceable` and is or is not `held_by_another_tab`.
+fn through_link_refusal_key(replaceable: bool, held_by_another_tab: bool) -> Option<&'static str> {
+    if held_by_another_tab {
+        Some("write-link-target-open-elsewhere")
+    } else if !replaceable {
+        Some("write-link-target-not-replaceable")
+    } else {
+        None
+    }
+}
+
+/// The last component of `path`, as the user sees it in a folder.
+fn file_name(path: &Path) -> String {
+    path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
 /// Where a save to `chosen` — a path confirmed in the chooser — writes.

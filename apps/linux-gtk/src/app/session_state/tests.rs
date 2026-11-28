@@ -103,6 +103,39 @@ fn uri(path: &Path) -> String {
     gtk::gio::File::for_path(path).uri().to_string()
 }
 
+/// Shutting down waits for a write already under way, as `flush` does: the
+/// case that dropped it is about to remove the folder that write is in.
+#[gtk::test]
+fn gtk_ui_shutting_down_waits_for_a_write_under_way() {
+    let remembering = Remembering::first_run("remember-shut-down");
+    let store = remembering
+        .viewer()
+        .remembered
+        .inner
+        .store
+        .borrow()
+        .clone()
+        .expect("remembering is on");
+    let (taken, take) = std::sync::mpsc::channel();
+    let writer = std::thread::spawn(move || {
+        let _turn = store.hold_turn_for_test();
+        taken.send(()).expect("the test is waiting");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+    });
+    take.recv().expect("the writer took its turn");
+    let started = std::time::Instant::now();
+
+    shut_down(remembering.viewer());
+
+    let waited = started.elapsed();
+    writer.join().expect("the writer finished");
+    assert!(
+        waited >= std::time::Duration::from_millis(250),
+        "returned after {waited:?}, with the write still under way"
+    );
+    assert!(!remembering.viewer().remembered.enabled());
+}
+
 /// A window a test builds remembers nothing: no store, no timer, nothing
 /// to restore. Only `run` turns it on.
 #[gtk::test]

@@ -5,7 +5,7 @@
 
 home-search-placeholder = Buscar archivos recientes y herramientas
 home-open-file = Abrir archivo
-home-open-file-tooltip = Abrir un PDF (Ctrl+O)
+home-open-file-tooltip = Abrir un PDF
 
 ## Home: welcome and drop zone
 
@@ -101,18 +101,14 @@ editor-group-find = Buscar
 
 editor-open = Abrir PDF
 editor-open-short = Abrir
-editor-open-tooltip = Abrir PDF (Ctrl+O)
 editor-sample = Abrir ejemplo
 editor-sample-plain = Ejemplo de Vitela
 # Keep the sample passwords unchanged: users enter them to open the files.
 editor-sample-aes128 = Ejemplo AES-128 (user-aes-pass)
 editor-sample-rc4128 = Ejemplo RC4-128 (user-rc4-pass)
 editor-save = Guardar
-editor-save-tooltip = Guardar (Ctrl+S)
 editor-save-as = Guardar como
-editor-save-as-tooltip = Guardar como (Ctrl+Mayús+S)
 editor-print = Imprimir
-editor-print-tooltip = Imprimir (Ctrl+P)
 editor-export = Exportar imágenes
 editor-export-tooltip = Exportar páginas como imágenes
 editor-undo = Deshacer
@@ -125,7 +121,6 @@ editor-fit-page = Ajustar a la página
 editor-pages = Páginas
 editor-tools = Herramientas
 editor-find = Buscar en el documento
-editor-find-tooltip = Buscar en el documento (Ctrl+F)
 editor-search-document = Buscar en el documento
 editor-find-previous = Coincidencia anterior
 editor-find-next = Coincidencia siguiente
@@ -203,11 +198,11 @@ edit-insert-text-tooltip = Haz clic en la página para colocar un nuevo cuadro d
 edit-delete-text = Eliminar texto
 edit-delete-text-tooltip = Elimina de la página el texto seleccionado o el que estás reescribiendo
 edit-style-bold = Negrita
-edit-style-bold-tooltip = Pone en negrita el texto seleccionado o el que estás reescribiendo (Ctrl+B)
+edit-style-bold-tooltip = Pone en negrita el texto seleccionado o el que estás reescribiendo
 edit-style-italic = Cursiva
-edit-style-italic-tooltip = Pone en cursiva el texto seleccionado o el que estás reescribiendo (Ctrl+I)
+edit-style-italic-tooltip = Pone en cursiva el texto seleccionado o el que estás reescribiendo
 edit-style-underline = Subrayado
-edit-style-underline-tooltip = Subraya el texto seleccionado o el que estás reescribiendo (Ctrl+U)
+edit-style-underline-tooltip = Subraya el texto seleccionado o el que estás reescribiendo
 edit-style-bold-fixed = La fuente de este texto es negrita y la página no tiene su versión normal, así que no se puede quitar la negrita
 edit-style-italic-fixed = La fuente de este texto es cursiva y la página no tiene su versión recta, así que no se puede quitar la cursiva
 edit-style-unavailable = No se puede leer el estilo de este texto: guarda el documento antes de cambiarlo.
@@ -224,14 +219,14 @@ edit-delete-shape = Eliminar forma
 edit-delete-shape-tooltip = Elimina de la página la línea, el borde o el recuadro seleccionado
 edit-quick-actions = Acciones rápidas
 edit-quick-retype = Editar texto
-edit-quick-retype-tooltip = Reescribe el texto seleccionado en su sitio (F2)
+edit-quick-retype-tooltip = Reescribe el texto seleccionado en su sitio
 edit-quick-replace = Reemplazar
 edit-quick-cut = Cortar
-edit-quick-cut-tooltip = Corta la selección al portapapeles (Ctrl+X)
+edit-quick-cut-tooltip = Corta la selección al portapapeles
 edit-quick-copy = Copiar
-edit-quick-copy-tooltip = Copia la selección al portapapeles (Ctrl+C)
+edit-quick-copy-tooltip = Copia la selección al portapapeles
 edit-quick-delete = Eliminar
-edit-quick-delete-tooltip = Elimina la selección de la página (Supr)
+edit-quick-delete-tooltip = Elimina la selección de la página
 edit-watermark = Añadir marca de agua
 edit-watermark-tooltip = Aplica el mismo texto en las páginas que elijas
 edit-watermark-hint = La marca de agua se incorpora al contenido de las páginas y se deshace en un solo paso.
@@ -455,6 +450,9 @@ write-check-failed = No se pudo comprobar si { $path } ya existe: { $error }
 write-replace-title = ¿Reemplazar el PDF existente?
 write-replace-cancel = Cancelar
 write-replace = Reemplazar
+write-replace-through-link-title = ¿Reemplazar «{ $target }», al que apunta «{ $link }»?
+write-link-target-not-replaceable = «{ $link }» apunta a { $target }, que no se puede reemplazar. Elige otro nombre.
+write-link-target-open-elsewhere = «{ $link }» apunta a { $target }, que está abierto en otra pestaña. Cierra esa pestaña primero o elige otro nombre.
 write-signature-title = Al guardar se romperá la firma de este documento
 write-signature-detail =
     Este documento está firmado. Al guardar se reescribe el archivo, así que la firma dejará de coincidir con lo que cubre.
@@ -1015,7 +1013,7 @@ palette-sign-draw-keywords = firma firmar manuscrita rúbrica iniciales
 
 tabs-strip = Documentos abiertos
 tabs-close = Cerrar documento
-tabs-close-tooltip = Cerrar (Ctrl+W)
+tabs-close-tooltip = Cerrar
 # $name (String) - the document's file name.
 tabs-close-named = Cerrar { $name }
 # $name (String) - the document's file name.
@@ -1043,6 +1041,10 @@ tabs-unsaved-detail-reloading = Este documento tiene cambios que no se han guard
 tabs-path-being-written = Ese archivo todavía se está escribiendo. Vuelve a abrirlo cuando termine de guardarse.
 
 ## Ventana de atajos de teclado (F1) y los comandos que recibieron una tecla con ella
+
+shortcut-modifier-ctrl = Ctrl
+shortcut-modifier-alt = Alt
+shortcut-modifier-shift = Mayús
 
 shortcuts-group-file = Archivo
 shortcuts-group-edit = Edición

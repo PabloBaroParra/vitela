@@ -5,7 +5,7 @@
 
 home-search-placeholder = Search recent files and tools
 home-open-file = Open file
-home-open-file-tooltip = Open a PDF (Ctrl+O)
+home-open-file-tooltip = Open a PDF
 
 ## Home: welcome and drop zone
 
@@ -108,18 +108,14 @@ editor-group-find = Find
 
 editor-open = Open PDF
 editor-open-short = Open
-editor-open-tooltip = Open PDF (Ctrl+O)
 editor-sample = Open sample
 editor-sample-plain = Vitela sample
 # Keep the sample passwords unchanged: users enter them to open the files.
 editor-sample-aes128 = AES-128 sample (user-aes-pass)
 editor-sample-rc4128 = RC4-128 sample (user-rc4-pass)
 editor-save = Save
-editor-save-tooltip = Save (Ctrl+S)
 editor-save-as = Save as
-editor-save-as-tooltip = Save as (Ctrl+Shift+S)
 editor-print = Print
-editor-print-tooltip = Print (Ctrl+P)
 editor-export = Export images
 editor-export-tooltip = Export pages as images
 editor-undo = Undo
@@ -132,7 +128,6 @@ editor-fit-page = Fit page
 editor-pages = Pages
 editor-tools = Tools
 editor-find = Find in document
-editor-find-tooltip = Find in document (Ctrl+F)
 editor-search-document = Search document
 editor-find-previous = Previous match
 editor-find-next = Next match
@@ -213,11 +208,11 @@ edit-insert-text-tooltip = Click the page to place a new text box
 edit-delete-text = Delete text
 edit-delete-text-tooltip = Remove the selected text, or the text being retyped, from the page
 edit-style-bold = Bold
-edit-style-bold-tooltip = Make the selected text, or the text being retyped, bold (Ctrl+B)
+edit-style-bold-tooltip = Make the selected text, or the text being retyped, bold
 edit-style-italic = Italic
-edit-style-italic-tooltip = Make the selected text, or the text being retyped, italic (Ctrl+I)
+edit-style-italic-tooltip = Make the selected text, or the text being retyped, italic
 edit-style-underline = Underline
-edit-style-underline-tooltip = Underline the selected text, or the text being retyped (Ctrl+U)
+edit-style-underline-tooltip = Underline the selected text, or the text being retyped
 edit-style-bold-fixed = This text's font is bold and the page has no regular version of it, so it cannot be made regular
 edit-style-italic-fixed = This text's font is italic and the page has no upright version of it, so it cannot be made upright
 edit-style-unavailable = The style of this text cannot be read — save the document before restyling it.
@@ -234,14 +229,14 @@ edit-delete-shape = Delete shape
 edit-delete-shape-tooltip = Remove the selected line, border or box from the page
 edit-quick-actions = Quick actions
 edit-quick-retype = Edit text
-edit-quick-retype-tooltip = Retype the selected text in place (F2)
+edit-quick-retype-tooltip = Retype the selected text in place
 edit-quick-replace = Replace
 edit-quick-cut = Cut
-edit-quick-cut-tooltip = Cut the selection to the clipboard (Ctrl+X)
+edit-quick-cut-tooltip = Cut the selection to the clipboard
 edit-quick-copy = Copy
-edit-quick-copy-tooltip = Copy the selection to the clipboard (Ctrl+C)
+edit-quick-copy-tooltip = Copy the selection to the clipboard
 edit-quick-delete = Delete
-edit-quick-delete-tooltip = Remove the selection from the page (Delete)
+edit-quick-delete-tooltip = Remove the selection from the page
 edit-watermark = Add watermark
 edit-watermark-tooltip = Stamp the same text across the pages you choose
 edit-watermark-hint = A watermark is painted into the pages themselves and is one undo step.
@@ -472,6 +467,12 @@ write-check-failed = Could not check whether { $path } already exists: { $error 
 write-replace-title = Replace existing PDF?
 write-replace-cancel = Cancel
 write-replace = Replace
+# A save onto the document's own symbolic link writes the file the link
+# points at. { $target } is that file's full path; { $link } is the link's
+# file name.
+write-replace-through-link-title = Replace “{ $target }”, which “{ $link }” points to?
+write-link-target-not-replaceable = “{ $link }” points to { $target }, which cannot be replaced. Choose another name.
+write-link-target-open-elsewhere = “{ $link }” points to { $target }, which is open in another tab. Close that tab first, or choose another name.
 write-signature-title = Saving will break this document's signature
 write-signature-detail =
     This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
@@ -1070,7 +1071,7 @@ palette-sign-draw-keywords = signature handwritten initials
 
 tabs-strip = Open documents
 tabs-close = Close document
-tabs-close-tooltip = Close (Ctrl+W)
+tabs-close-tooltip = Close
 # $name (String) - the document's file name.
 tabs-close-named = Close { $name }
 # $name (String) - the document's file name.
@@ -1098,6 +1099,15 @@ tabs-unsaved-detail-reloading = This document has changes that are not saved. Re
 tabs-path-being-written = That file is still being written. Open it again once the save has finished.
 
 ## Keyboard shortcuts window (F1), and the commands that gained a key with it
+
+# Modifier key names, as printed on keyboards. Every shortcut shown — in a
+# tooltip, the command palette and this window — is these in the order
+# Ctrl, Alt, Shift, then the key, joined by "+" (e.g. "Ctrl+Shift+S").
+# Tooltips are a message followed by the key in brackets, added by the
+# shell: never type a key into a tooltip message.
+shortcut-modifier-ctrl = Ctrl
+shortcut-modifier-alt = Alt
+shortcut-modifier-shift = Shift
 
 shortcuts-group-file = File
 shortcuts-group-edit = Edit

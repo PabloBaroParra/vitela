@@ -79,7 +79,7 @@ fn canvas_key_labels(nav: canvas_keys::Nav) -> Vec<String> {
             } else {
                 gdk::ModifierType::empty()
             };
-            gtk::accelerator_get_label(binding.key, modifiers).to_string()
+            super::key_label(binding.key, modifiers)
         })
         .collect()
 }
@@ -261,7 +261,7 @@ mod tests {
         };
 
         assert_eq!(find("editor-save"), ["Ctrl+S"]);
-        assert_eq!(find("editor-redo"), ["Ctrl+Y", "Shift+Ctrl+Z"]);
+        assert_eq!(find("editor-redo"), ["Ctrl+Y", "Ctrl+Shift+Z"]);
         assert_eq!(find("editor-find-next"), ["F3", "Ctrl+G"]);
         assert_eq!(find("shortcuts-page-down"), ["Page Down"]);
         assert_eq!(find("shortcuts-first-page"), ["Home", "Ctrl+Home"]);
@@ -274,7 +274,7 @@ mod tests {
         assert_eq!(action_keys(shortcuts::ZOOM_IN), ["Ctrl++", "Ctrl+="]);
         assert_eq!(
             action_keys(shortcuts::PREVIOUS_TAB),
-            ["Shift+Ctrl+Tab", "Ctrl+Page Up"]
+            ["Ctrl+Shift+Tab", "Ctrl+Page Up"]
         );
     }
 

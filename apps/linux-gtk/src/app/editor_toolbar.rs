@@ -108,7 +108,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-open-short"),
         true,
     )));
-    open.set_tooltip_text(Some(&tr("editor-open-tooltip")));
+    show_shortcut(&open, "editor-open", shortcuts::OPEN);
     documents.append(&open);
     // A `gio::Menu` bound through `menu-model` (rather than a hand-built
     // `Popover` of `Button`s) so GTK owns the popup/dismiss/keyboard-nav
@@ -134,7 +134,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     // --- documents out -----------------------------------------------------
     let output = group(&root, &tr("editor-group-output"));
     let save = icon_button(&tr("editor-save"), Icon::Save);
-    save.set_tooltip_text(Some(&tr("editor-save-tooltip")));
+    show_shortcut(&save, "editor-save", shortcuts::SAVE);
     save.set_sensitive(false);
     // Save is the button; Save as sits behind the arrow beside it, the way
     // a split button offers the less common of two commands. A menu rather
@@ -148,7 +148,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     // A symbol rather than the menu button's own arrow, which is an
     // icon-theme lookup this crate never makes (see `shell`).
     save_as.set_child(Some(&Label::new(Some(SAVE_AS_MARKER))));
-    save_as.set_tooltip_text(Some(&tr("editor-save-as-tooltip")));
+    show_shortcut(&save_as, "editor-save-as", shortcuts::SAVE_AS);
     save_as.update_property(&[gtk::accessible::Property::Label(&tr("editor-save-as"))]);
     let save_menu = gio::Menu::new();
     save_menu.append(Some(&tr("editor-save-as")), Some("win.save-as"));
@@ -157,7 +157,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         .sync_create()
         .build();
     let print = icon_button(&tr("editor-print"), Icon::Print);
-    print.set_tooltip_text(Some(&tr("editor-print-tooltip")));
+    show_shortcut(&print, "editor-print", shortcuts::PRINT);
     print.set_sensitive(false);
     let export = icon_button(&tr("editor-export"), Icon::ExportImages);
     export.set_tooltip_text(Some(&tr("editor-export-tooltip")));
@@ -247,7 +247,7 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-find"),
         false,
     )));
-    search_button.set_tooltip_text(Some(&tr("editor-find-tooltip")));
+    show_shortcut(&search_button, "editor-find", shortcuts::FIND);
     search_button.update_property(&[gtk::accessible::Property::Label(&tr("editor-find"))]);
     let search_popover = Popover::new();
     search_popover.add_css_class("toolbar-search");
@@ -320,10 +320,10 @@ fn icon_button(label: &str, icon: Icon) -> Button {
 /// Adds `shortcut`'s key to a button's tooltip, after its name.
 ///
 /// Read from the shortcut table rather than written into the translation:
-/// the tooltip then names the key GTK listens for, in the words GTK prints
-/// it in, and cannot go on naming one that has moved. The accessible name
-/// stays the bare label.
-fn show_shortcut(button: &impl IsA<Button>, label_key: &str, shortcut: Shortcut) {
+/// the tooltip then names the key GTK listens for, spelled as everywhere
+/// else (`shortcuts::accel_label`), and cannot go on naming one that has
+/// moved. The accessible name stays the bare label.
+fn show_shortcut(button: &impl IsA<gtk::Widget>, label_key: &str, shortcut: Shortcut) {
     button
         .as_ref()
         .set_tooltip_text(Some(&shortcuts::tooltip(&tr(label_key), shortcut)));
@@ -513,6 +513,29 @@ mod tests {
                 Some(format!("{} ({keys})", tr(label_key)).as_str())
             );
         }
+    }
+
+    /// The document commands' tooltips name their key the same way.
+    #[gtk::test]
+    fn gtk_ui_open_print_and_find_tooltips_name_their_shortcut() {
+        let toolbar = build_editor_toolbar();
+        let find = toolbar
+            .search_entry
+            .ancestor(gtk::MenuButton::static_type())
+            .expect("the Find entry sits behind a menu button");
+
+        assert_eq!(
+            toolbar.open.tooltip_text().as_deref(),
+            Some("Open PDF (Ctrl+O)")
+        );
+        assert_eq!(
+            toolbar.print.tooltip_text().as_deref(),
+            Some("Print (Ctrl+P)")
+        );
+        assert_eq!(
+            find.tooltip_text().as_deref(),
+            Some("Find in document (Ctrl+F)")
+        );
     }
 
     /// Save is the button and Save as is behind the arrow beside it: named

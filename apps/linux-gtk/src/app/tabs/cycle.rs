@@ -42,7 +42,30 @@ pub(crate) fn cycle(viewer: &Viewer, step: i32) {
     }
 }
 
+/// Enables `win.next-tab` and `win.previous-tab` exactly while there is
+/// another tab to step to.
+///
+/// A disabled action does not consume its key, so with one document
+/// Ctrl+Tab and Ctrl+Page Up/Down reach the focused widget — Ctrl+Tab is
+/// how the focus leaves a multi-line text field. Called from every tab
+/// open, close and install, all of which end in `sync::sync`.
+pub(super) fn update_actions(viewer: &Viewer) {
+    let Some(window) = viewer.window() else {
+        return;
+    };
+    let enabled = has_other_tab(viewer);
+    for shortcut in [shortcuts::NEXT_TAB, shortcuts::PREVIOUS_TAB] {
+        if let Some(action) = window
+            .lookup_action(shortcut.action)
+            .and_then(|action| action.downcast::<gio::SimpleAction>().ok())
+        {
+            action.set_enabled(enabled);
+        }
+    }
+}
+
 /// Installs `win.next-tab` and `win.previous-tab` and binds their keys.
+/// Disabled until a second tab opens ([`update_actions`]).
 pub(crate) fn connect_shortcuts(
     application: &gtk::Application,
     window: &gtk::ApplicationWindow,
@@ -50,6 +73,7 @@ pub(crate) fn connect_shortcuts(
 ) {
     for (shortcut, step) in [(shortcuts::NEXT_TAB, 1), (shortcuts::PREVIOUS_TAB, -1)] {
         let action = gio::SimpleAction::new(shortcut.action, None);
+        action.set_enabled(has_other_tab(viewer));
         action.connect_activate({
             let viewer = viewer.clone();
             move |_, _| cycle(&viewer, step)

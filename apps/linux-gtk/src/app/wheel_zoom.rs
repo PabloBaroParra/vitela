@@ -172,13 +172,24 @@ mod tests {
     /// The Find popover is modal while open and receives the wheel itself:
     /// it carries a controller that zooms, and one that leaves a plain
     /// wheel alone.
+    ///
+    /// The controller's handler reads Ctrl off the event being dispatched,
+    /// and GTK 4 has no public way to dispatch a synthetic one: emitted by
+    /// hand its `scroll` signal sees no modifiers. So the plain wheel goes
+    /// through the controller itself, and the Ctrl+wheel step through the
+    /// same call the handler makes, over an open document with the popover
+    /// up.
     #[gtk::test]
     fn gtk_ui_the_find_popover_zooms_on_control_wheel_too() {
-        let built = built_ui();
-        let popover = built
-            .viewer
+        use crate::app::test_support::{pump, wait_until, FileDocument};
+
+        let document = FileDocument::new("wheel-find");
+        document.open_file();
+        let viewer = &document.built.viewer;
+        let popover = viewer
             .search_entry
             .ancestor(gtk::Popover::static_type())
+            .and_downcast::<gtk::Popover>()
             .expect("the Find entry lives in a popover");
         let controllers = popover.observe_controllers();
         let controller = (0..controllers.n_items())
@@ -193,7 +204,26 @@ mod tests {
         assert!(controller
             .flags()
             .contains(EventControllerScrollFlags::DISCRETE));
-        built.window.close();
+        super::super::layout::set_zoom(viewer, Zoom::Custom(1.0));
+        popover.popup();
+        assert!(wait_until(|| popover.is_visible()), "the popover is up");
+        let zoom = || viewer.state.borrow().session.as_ref().map(|s| s.zoom);
+
+        let taken = controller.emit_by_name::<bool>("scroll", &[&0.0f64, &-1.0f64]);
+        pump();
+        assert!(!taken, "a plain wheel is left to scroll");
+        assert!(zoom() == Some(Zoom::Custom(1.0)), "and does not zoom");
+
+        assert_eq!(
+            handle_scroll(viewer, gdk::ModifierType::CONTROL_MASK, -1.0, None),
+            glib::Propagation::Stop
+        );
+        assert!(
+            zoom() == Some(Zoom::Custom(1.25)),
+            "Ctrl+wheel up zooms in one toolbar step"
+        );
+        popover.popdown();
+        pump();
     }
 
     #[gtk::test]

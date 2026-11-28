@@ -17,8 +17,18 @@
 //! document ⇥ 1795823029 ⇥ 4 ⇥ 0.2500 ⇥ fit-width ⇥ file:///home/user/report.pdf
 //! ```
 //!
+//! The first line names the file and the version of its format. Reading
+//! does not check it: every record is a line that stands on its own, and
+//! the rules below already skip whatever a reader does not understand, so a
+//! file from another version — or one with no header at all — is read for
+//! the lines that make sense. A change that would make an old line mean
+//! something else must use a new record kind rather than rely on the
+//! version.
+//!
 //! * `window` — width, height, maximized.
 //! * `panels` — pages column open, tools column open, tools column width.
+//!   A width that was never measured is written as `0`, which no real width
+//!   is, and reads back as unmeasured.
 //! * `document` — when it was last seen (Unix seconds), the page index, how
 //!   far down that page, the zoom (`fit-width`, `fit-page` or a factor), and
 //!   the file as a URI, which escapes the tabs and newlines a path may hold.
@@ -28,6 +38,7 @@
 //! not this file at all each read as "whatever of it made sense", down to
 //! [`State::default`].
 
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use gtk::gio;
@@ -35,7 +46,8 @@ use gtk::prelude::FileExt;
 
 use crate::app::layout::{ReadingPosition, Zoom};
 
-/// The first line of the file, and the version of this format.
+/// The first line of the file: its name and format version. Written, not
+/// checked on reading — see the module documentation.
 const HEADER: &str = "vitela-session-state\t1";
 
 /// How many documents are remembered. Past this the ones seen longest ago
@@ -75,18 +87,34 @@ pub(crate) struct Panels {
 pub(crate) struct DocumentView {
     pub(crate) zoom: Zoom,
     pub(crate) reading: ReadingPosition,
-    /// When it was recorded, in Unix seconds: what orders the list and
-    /// settles which of two windows' records of one file is the newer.
+    /// When it was recorded, in Unix seconds: what orders the list, and so
+    /// which documents are dropped past [`MAX_DOCUMENTS`]. Not what settles
+    /// which of two windows' records of one document is kept — a wall
+    /// clock can go back (see [`State::merge_documents`]).
     pub(crate) seen: i64,
 }
 
 /// Everything remembered between runs.
-#[derive(Clone, Default, PartialEq)]
+#[derive(Clone, Default)]
 pub(crate) struct State {
     pub(crate) window: Option<WindowGeometry>,
     pub(crate) panels: Option<Panels>,
     /// Most recently seen first, at most [`MAX_DOCUMENTS`].
     documents: Vec<(PathBuf, DocumentView)>,
+    /// The documents this process recorded itself
+    /// ([`State::remember_document`]), as opposed to read from the file.
+    /// Not written: it is what a merge with the file is decided by.
+    recorded: HashSet<PathBuf>,
+}
+
+/// Equal when they would write the same file: which records this process
+/// made is not part of it.
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        self.window == other.window
+            && self.panels == other.panels
+            && self.documents == other.documents
+    }
 }
 
 fn flag(text: &str) -> Option<bool> {
@@ -176,6 +204,9 @@ impl State {
     /// Reads a file's text. Never fails: see the module documentation.
     pub(crate) fn parse(text: &str) -> Self {
         let mut state = State::default();
+        // Where each path's record is in `state.documents`, so a file of
+        // many lines is read in one pass rather than searched at each.
+        let mut index = HashMap::new();
         for line in text.lines() {
             let mut fields = line.split('\t');
             let kind = fields.next().unwrap_or_default();
@@ -185,7 +216,7 @@ impl State {
                 "panels" => state.panels = parse_panels(&fields).or(state.panels),
                 "document" => {
                     if let Some((path, view)) = parse_document(&fields) {
-                        state.merge_document(path, view);
+                        state.keep_newer(&mut index, path, view);
                     }
                 }
                 _ => {}
@@ -211,6 +242,8 @@ impl State {
                 "panels\t{}\t{}\t{}\n",
                 u8::from(panels.pages_open),
                 u8::from(panels.tools_open),
+                // `0`: never measured. Outside `PANEL_WIDTH`, so it reads
+                // back as `None`.
                 panels.tools_width.unwrap_or(0)
             ));
         }
@@ -248,25 +281,65 @@ impl State {
         self.documents.retain(|(known, _)| known != path);
         self.documents.insert(0, (path.to_path_buf(), view));
         self.documents.truncate(MAX_DOCUMENTS);
+        self.recorded.insert(path.to_path_buf());
         true
     }
 
-    /// Takes in every document `other` remembers more recently than this
-    /// state does — how two windows writing one file keep each other's
-    /// documents instead of the last writer erasing the rest.
+    /// Takes in what `other` — the file as it is now — holds for every
+    /// document this process has not recorded itself: how two windows
+    /// writing one file keep each other's documents instead of the last
+    /// writer erasing the rest.
+    ///
+    /// Who recorded a record decides, not when. What this process recorded
+    /// for a document always wins over the file — by timestamp it may well
+    /// be older, after the clock went back or against a record dated in
+    /// the future, and the position must go on updating all the same. Any
+    /// other document is the file's: it is either one this process never
+    /// had, or one it only loaded, which the other window may have read
+    /// further since. The timestamps still order the list, and so which
+    /// documents fall off its end.
     pub(crate) fn merge_documents(&mut self, other: &State) {
+        let mut index: HashMap<PathBuf, usize> = self
+            .documents
+            .iter()
+            .enumerate()
+            .map(|(position, (path, _))| (path.clone(), position))
+            .collect();
         for (path, view) in &other.documents {
-            self.merge_document(path.clone(), *view);
+            if self.recorded.contains(path) {
+                continue;
+            }
+            match index.get(path) {
+                Some(&position) => self.documents[position].1 = *view,
+                None => {
+                    index.insert(path.clone(), self.documents.len());
+                    self.documents.push((path.clone(), *view));
+                }
+            }
         }
         self.settle();
     }
 
-    /// Keeps the newer of `view` and what is already known for `path`.
-    fn merge_document(&mut self, path: PathBuf, view: DocumentView) {
-        match self.documents.iter_mut().find(|(known, _)| *known == path) {
-            Some((_, known)) if known.seen >= view.seen => {}
-            Some((_, known)) => *known = view,
-            None => self.documents.push((path, view)),
+    /// While reading one file: keeps the newer of `view` and the record of
+    /// `path` already read, the earlier one on a tie. `index` is where each
+    /// path read so far sits in `documents`.
+    fn keep_newer(
+        &mut self,
+        index: &mut HashMap<PathBuf, usize>,
+        path: PathBuf,
+        view: DocumentView,
+    ) {
+        match index.get(&path) {
+            Some(&position) => {
+                let known = &mut self.documents[position].1;
+                if view.seen > known.seen {
+                    *known = view;
+                }
+            }
+            None => {
+                index.insert(path.clone(), self.documents.len());
+                self.documents.push((path, view));
+            }
         }
     }
 
@@ -603,10 +676,11 @@ mod tests {
         assert!(read.document(Path::new("/home/user/5.pdf")).is_some());
     }
 
-    /// Two windows, one file: each takes in what the other wrote, and the
-    /// newer record of a document both hold wins.
+    /// Two windows, one file: each takes in what the other wrote, and what
+    /// this window recorded itself wins for a document both hold — the
+    /// clock is not what decides it.
     #[test]
-    fn merging_keeps_the_other_window_s_documents_and_the_newer_of_a_shared_one() {
+    fn merging_keeps_the_other_window_s_documents_and_this_window_s_own_record() {
         let mut mine = State::default();
         mine.remember_document(
             Path::new("/home/user/shared.pdf"),
@@ -632,7 +706,7 @@ mod tests {
         let shared = mine
             .document(Path::new("/home/user/shared.pdf"))
             .expect("shared");
-        assert_eq!((shared.seen, shared.reading.page_index), (30, 7));
+        assert_eq!((shared.seen, shared.reading.page_index), (10, 1));
         assert!(mine.document(Path::new("/home/user/theirs.pdf")).is_some());
         let order: Vec<String> = mine
             .serialize()
@@ -640,7 +714,153 @@ mod tests {
             .skip(1)
             .map(|line| line.rsplit('/').next().unwrap_or_default().to_owned())
             .collect();
-        assert_eq!(order, ["mine.pdf", "shared.pdf", "theirs.pdf"]);
+        assert_eq!(order, ["mine.pdf", "theirs.pdf", "shared.pdf"]);
+    }
+
+    /// The wall clock went back after the file was written: what this
+    /// window records now is older by its timestamp, and is still the
+    /// position to keep.
+    #[test]
+    fn a_position_recorded_after_the_clock_moved_back_still_wins() {
+        let a = Path::new("/home/user/a.pdf");
+        let file = "document\t1000\t3\t0.0\tfit-width\tfile:///home/user/a.pdf\n";
+        let mut mine = State::parse(file);
+
+        mine.remember_document(a, view(8, Zoom::FitPage, 500));
+        mine.merge_documents(&State::parse(file));
+
+        let kept = mine.document(a).expect("a.pdf");
+        assert_eq!((kept.seen, kept.reading.page_index), (500, 8));
+    }
+
+    /// A record dated in the future — a clock that was wrong, a file from
+    /// another machine — must not freeze the document's position.
+    #[test]
+    fn a_future_dated_record_in_the_file_does_not_freeze_the_position() {
+        let a = Path::new("/home/user/a.pdf");
+        let file = format!(
+            "document\t{}\t3\t0.0\tfit-width\tfile:///home/user/a.pdf\n",
+            i64::MAX
+        );
+        let mut mine = State::parse(&file);
+
+        for page_index in [5, 6] {
+            mine.remember_document(a, view(page_index, Zoom::FitWidth, 100));
+            mine.merge_documents(&State::parse(&file));
+
+            assert_eq!(
+                mine.document(a).expect("a.pdf").reading.page_index,
+                page_index
+            );
+        }
+    }
+
+    /// What this window only loaded, and never recorded, is the file's:
+    /// another window that moved on in it since is not undone.
+    #[test]
+    fn a_document_only_loaded_takes_the_file_s_newer_record() {
+        let a = Path::new("/home/user/a.pdf");
+        let mut mine = State::parse("document\t50\t3\t0.0\tfit-width\tfile:///home/user/a.pdf\n");
+        mine.remember_document(Path::new("/home/user/b.pdf"), view(1, Zoom::FitWidth, 60));
+        // The other window read a.pdf further, with a clock behind this one.
+        let theirs = State::parse("document\t40\t9\t0.0\tfit-width\tfile:///home/user/a.pdf\n");
+
+        mine.merge_documents(&theirs);
+
+        assert_eq!(mine.document(a).expect("a.pdf").reading.page_index, 9);
+        assert!(mine.document(Path::new("/home/user/b.pdf")).is_some());
+    }
+
+    /// The second instance writing must not erase the first instance's
+    /// records of documents it never opened, nor take over a record it
+    /// did make.
+    #[test]
+    fn two_instances_writing_in_turn_keep_each_other_s_documents() {
+        let path = |name: &str| PathBuf::from(format!("/home/user/{name}.pdf"));
+        let mut first = State::default();
+        first.remember_document(&path("first"), view(1, Zoom::FitWidth, 10));
+        let mut second = State::default();
+        second.remember_document(&path("second"), view(2, Zoom::FitWidth, 20));
+
+        // First writes, second writes over it, first writes again.
+        let file = first.clone();
+        second.merge_documents(&file);
+        let file = second.clone();
+        first.merge_documents(&file);
+
+        for state in [&first, &second] {
+            assert_eq!(state.document_count(), 2);
+            assert_eq!(
+                state
+                    .document(&path("first"))
+                    .expect("first")
+                    .reading
+                    .page_index,
+                1
+            );
+            assert_eq!(
+                state
+                    .document(&path("second"))
+                    .expect("second")
+                    .reading
+                    .page_index,
+                2
+            );
+        }
+    }
+
+    /// A hostile file of many records of one path, and of many paths:
+    /// read in one pass, with the same answer as before.
+    #[test]
+    fn a_file_of_many_records_is_read_in_one_pass_with_the_same_result() {
+        let mut text = String::new();
+        // Each of 20 000 paths twice; the second record of each is newer.
+        for index in 0..40_000 {
+            text.push_str(&format!(
+                "document\t{index}\t{}\t0.0\tfit-width\tfile:///home/user/{}.pdf\n",
+                index % 7,
+                index % 20_000
+            ));
+        }
+        let started = std::time::Instant::now();
+
+        let read = State::parse(&text);
+
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "took {:?}",
+            started.elapsed()
+        );
+        assert_eq!(read.document_count(), MAX_DOCUMENTS);
+        let newest = read
+            .document(Path::new("/home/user/19999.pdf"))
+            .expect("the newest path");
+        assert_eq!(
+            (newest.seen, newest.reading.page_index),
+            (39_999, 39_999 % 7)
+        );
+        assert!(read.document(Path::new("/home/user/19935.pdf")).is_none());
+        assert!(read.document(Path::new("/home/user/19936.pdf")).is_some());
+    }
+
+    /// The header names the file and its format; reading does not need it.
+    /// An unmeasured tools width is written as `0`, which reads back as
+    /// unmeasured.
+    #[test]
+    fn an_unmeasured_tools_width_round_trips_through_its_zero_sentinel() {
+        let state = State {
+            panels: Some(Panels {
+                pages_open: true,
+                tools_open: true,
+                tools_width: None,
+            }),
+            ..State::default()
+        };
+
+        let text = state.serialize();
+
+        assert!(text.contains("panels\t1\t1\t0\n"));
+        assert_eq!(State::parse(&text).panels, state.panels);
     }
 
     #[test]

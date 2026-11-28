@@ -508,14 +508,20 @@ pub(crate) fn flush(viewer: &Viewer) {
     report(store.save_revision(state, revision));
 }
 
-/// Stops remembering: no more timers, no more writes.
+/// Stops remembering: no more timers, no more writes. Like [`flush`], waits
+/// out a worker's write that is under way, so nothing is writing the file
+/// — or its folder — once this returns.
 fn shut_down(viewer: &Viewer) {
     let inner = &viewer.remembered.inner;
     if let Some(timer) = inner.pending.borrow_mut().take() {
         timer.remove();
     }
-    inner.store.replace(None);
+    let store = inner.store.replace(None);
     inner.watched.replace(None);
+    if let Some(store) = store {
+        // Takes the write's turn, which a write under way holds until done.
+        store.written_revision();
+    }
 }
 
 #[cfg(test)]

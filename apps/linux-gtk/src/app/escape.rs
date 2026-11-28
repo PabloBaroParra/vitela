@@ -7,7 +7,8 @@
 //! ([`target`]):
 //!
 //! 1. **Whatever already uses the key keeps it.** The command palette, the
-//!    inline content editor and an open popover — the Find entry lives in
+//!    inline content editor, an editable label being edited (a form field's
+//!    name in the fill panel) and an open popover — the Find entry lives in
 //!    one — each close or cancel on Escape themselves. Dialogs are windows
 //!    of their own and never see this action.
 //! 2. **An armed tool** is released: an annotation tool, a waiting drawn
@@ -67,6 +68,27 @@ pub(crate) enum Focus {
     IdleField,
     /// In the inline content editor, which cancels on Escape itself.
     Editor,
+    /// In an editable label that is being edited — the form field's name in
+    /// the fill panel, the only one the shell has. It cancels the rename on
+    /// Escape itself; without the key the rename would be committed when the
+    /// focus leaves instead.
+    Renaming,
+}
+
+/// Which [`Focus`] a focused widget gives: `text_input` when it is a text
+/// field at all, `in_content_editor` when it is inside the inline content
+/// editor, and `in_editing_label` when it is, or is inside, an editable
+/// label in editing state.
+pub(crate) fn classify(text_input: bool, in_content_editor: bool, in_editing_label: bool) -> Focus {
+    if !text_input {
+        Focus::Elsewhere
+    } else if in_content_editor {
+        Focus::Editor
+    } else if in_editing_label {
+        Focus::Renaming
+    } else {
+        Focus::IdleField
+    }
 }
 
 /// Everything the precedence reads.
@@ -86,7 +108,8 @@ pub(crate) struct Context {
 /// What one press of Escape does in `context`, or `None` when the key is
 /// not this action's to take.
 pub(crate) fn target(context: Context) -> Option<Target> {
-    if context.palette_open || context.popover_focused || context.focus == Focus::Editor {
+    let field_cancels = matches!(context.focus, Focus::Editor | Focus::Renaming);
+    if context.palette_open || context.popover_focused || field_cancels {
         return None;
     }
     let toast = context.toast && context.focus != Focus::IdleField;
@@ -110,17 +133,25 @@ fn focus_in_popover(viewer: &Viewer) -> bool {
 /// Which [`Focus`] the window is in. `editor` is the frame of the inline
 /// content editor, while one is open.
 fn focus(viewer: &Viewer, editor: Option<&gtk::Widget>) -> Focus {
-    if !super::annotations::text_input_has_focus(viewer) {
-        return Focus::Elsewhere;
-    }
-    let in_editor = focused(viewer).is_some_and(|focused| {
-        editor.is_some_and(|editor| focused == *editor || focused.is_ancestor(editor))
+    let focused = focused(viewer);
+    let in_editor = focused.as_ref().is_some_and(|focused| {
+        editor.is_some_and(|editor| focused == editor || focused.is_ancestor(editor))
     });
-    if in_editor {
-        Focus::Editor
-    } else {
-        Focus::IdleField
-    }
+    classify(
+        super::annotations::text_input_has_focus(viewer),
+        in_editor,
+        focused.as_ref().is_some_and(in_editing_label),
+    )
+}
+
+/// Whether `widget` is, or is inside, an editable label in editing state —
+/// while editing, the focus is on the label's own text field.
+/// (`ancestor` counts the widget itself.)
+fn in_editing_label(widget: &gtk::Widget) -> bool {
+    widget
+        .ancestor(gtk::EditableLabel::static_type())
+        .and_then(|label| label.downcast::<gtk::EditableLabel>().ok())
+        .is_some_and(|label| label.is_editing())
 }
 
 /// Reads the context, or `None` while the state is mutably borrowed.
@@ -287,6 +318,29 @@ mod tests {
             }),
             Some(Target::Selection)
         );
+    }
+
+    /// A field name being renamed in an editable label cancels on Escape
+    /// itself. Taking the key from it would commit the rename on focus
+    /// leave instead.
+    #[test]
+    fn an_editable_label_being_edited_keeps_the_key() {
+        assert_eq!(
+            target(Context {
+                focus: Focus::Renaming,
+                ..everything()
+            }),
+            None
+        );
+    }
+
+    #[test]
+    fn the_focus_is_classified_by_who_uses_the_key() {
+        assert_eq!(classify(false, false, false), Focus::Elsewhere);
+        assert_eq!(classify(false, true, true), Focus::Elsewhere);
+        assert_eq!(classify(true, false, false), Focus::IdleField);
+        assert_eq!(classify(true, true, false), Focus::Editor);
+        assert_eq!(classify(true, false, true), Focus::Renaming);
     }
 
     /// A toast is not something the user is in the middle of: with the
@@ -519,6 +573,36 @@ mod tests {
         assert_eq!(viewer.state.borrow().active_tool, None);
         assert!(viewer.feedback.toasts.is_showing(), "the toast is left");
         assert!(!escape(viewer).is_enabled());
+    }
+
+    /// The fill panel's field name is an editable label: double-clicked, it
+    /// is a text field that cancels the rename on Escape. With a tool armed
+    /// the key must still reach it.
+    #[gtk::test]
+    fn gtk_ui_escape_stays_with_an_editable_label_being_edited() {
+        let fixture = Fixture::new(PageRotation::None);
+        let viewer = fixture.viewer();
+        let label = gtk::EditableLabel::new("text_1");
+        viewer.pages.append(&label);
+        pump();
+        tool_button(viewer, Tool::Ink).set_active(true);
+        assert!(escape(viewer).is_enabled(), "the tool is Escape's");
+
+        label.start_editing();
+        pump();
+        assert!(label.is_editing());
+        assert!(crate::app::annotations::text_input_has_focus(viewer));
+
+        assert!(
+            !escape(viewer).is_enabled(),
+            "the key must reach the label, which cancels the rename"
+        );
+        label.stop_editing(false);
+        pump();
+        assert!(
+            escape(viewer).is_enabled(),
+            "and comes back once it is done"
+        );
     }
 
     /// The inline editor cancels on Escape itself. Its field has the focus

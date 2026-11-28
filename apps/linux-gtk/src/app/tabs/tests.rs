@@ -1431,6 +1431,57 @@ fn gtk_ui_a_keyboard_step_is_refused_while_the_active_tab_is_busy() {
     assert_ne!(tabbed.active(), active, "and moves once the job is done");
 }
 
+/// A tab's close button names Ctrl+W as every other tooltip names its key.
+#[gtk::test]
+fn gtk_ui_a_tab_s_close_button_names_its_shortcut() {
+    let tabbed = Tabbed::new();
+    tabbed.open_sample();
+
+    let close = tabbed.strip()[0].close.tooltip_text();
+
+    assert_eq!(close.as_deref(), Some("Close (Ctrl+W)"));
+    assert_eq!(
+        close.map(String::from),
+        Some(crate::app::shortcuts::tooltip(
+            &tr("tabs-close-tooltip"),
+            crate::app::shortcuts::CLOSE_TAB
+        ))
+    );
+}
+
+fn tab_action_enabled(tabbed: &Tabbed, name: &str) -> bool {
+    gtk::prelude::ActionMapExt::lookup_action(tabbed.window(), name)
+        .expect("the tab actions are installed")
+        .is_enabled()
+}
+
+/// A disabled action does not take its key: with one document Ctrl+Tab and
+/// Ctrl+Page Up/Down stay with the focused widget — Ctrl+Tab leaves a
+/// multi-line text field. Enabled as soon as there is a second tab, and
+/// disabled again when it closes.
+#[gtk::test]
+fn gtk_ui_the_tab_actions_are_enabled_only_with_two_tabs_or_more() {
+    let tabbed = Tabbed::new();
+    let both = |tabbed: &Tabbed| {
+        [
+            tab_action_enabled(tabbed, "next-tab"),
+            tab_action_enabled(tabbed, "previous-tab"),
+        ]
+    };
+    assert_eq!(both(&tabbed), [false, false], "no document");
+
+    tabbed.open_sample();
+    assert_eq!(both(&tabbed), [false, false], "one document");
+
+    tabbed.open_blank();
+    assert_eq!(both(&tabbed), [true, true], "two documents");
+
+    close::close_active(tabbed.window(), tabbed.viewer());
+    settle();
+    assert_eq!(tabbed.tab_count(), 1);
+    assert_eq!(both(&tabbed), [false, false], "one left");
+}
+
 /// One document has no neighbour: the keys do nothing, and say nothing.
 #[gtk::test]
 fn gtk_ui_a_keyboard_step_with_one_tab_does_nothing() {

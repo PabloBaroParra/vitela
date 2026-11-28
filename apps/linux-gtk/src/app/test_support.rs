@@ -224,6 +224,28 @@ impl FileDocument {
         self.answered.borrow_mut().push(dialog);
     }
 
+    /// Every label's text in the one dialog that is up, depth first.
+    pub(crate) fn dialog_texts(&self) -> Vec<String> {
+        fn collect(widget: &gtk::Widget, texts: &mut Vec<String>) {
+            if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+                texts.push(label.text().to_string());
+            }
+            let mut child = widget.first_child();
+            while let Some(next) = child {
+                collect(&next, texts);
+                child = next.next_sibling();
+            }
+        }
+        assert!(
+            wait_until(|| self.dialogs().len() == 1),
+            "one dialog must be up, not {}",
+            self.dialogs().len()
+        );
+        let mut texts = Vec::new();
+        collect(self.dialogs()[0].upcast_ref(), &mut texts);
+        texts
+    }
+
     pub(crate) fn wait_for_the_save(&self) {
         let done = tr("save-done");
         assert!(

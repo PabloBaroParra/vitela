@@ -39,6 +39,7 @@ pub(super) fn sync(viewer: &Viewer) {
     strip::render(viewer, &views);
     update_title(viewer, &views);
     update_visibility(viewer);
+    super::cycle::update_actions(viewer);
 }
 
 /// Queues one [`sync`] on the main loop, however many times it is asked for
