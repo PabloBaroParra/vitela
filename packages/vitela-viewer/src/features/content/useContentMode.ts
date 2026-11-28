@@ -18,6 +18,7 @@ import { errorMessage, type ContentItem, type DocumentHandle, type Engine, type 
 import { sentence } from '../../ui/text';
 import { followImage } from './images';
 import { followPath } from './paths';
+import { pressWaits, settlePress, type PendingPress } from './pendingPress';
 import { followRun } from './textRuns';
 import {
   CONTENT_HINT,
@@ -173,11 +174,14 @@ export function useContentMode({
 
   const [hovered, setHovered] = useState<Picked | null>(null);
   const [selected, setSelected] = useState<Picked | null>(null);
+  /** A press on a page still being read, selected once it is (see `pendingPress`). */
+  const [pending, setPending] = useState<PendingPress | null>(null);
   // Leaving the mode, or another document, lets both go.
   useEffect(() => {
     if (active) return;
     setHovered(null);
     setSelected(null);
+    setPending(null);
   }, [active]);
 
   // While an edit runs, the parse held for a page may name what it is about
@@ -224,6 +228,9 @@ export function useContentMode({
     (index: number, point: PagePoint) => {
       const next = pick(index, point);
       setSelected(next);
+      // On a page not read yet it picks nothing now: it is held until the read lands.
+      const key = keyAt(index);
+      setPending(key !== undefined && !paused && pressWaits(held.get(key)) ? { pageIndex: index, key, point } : null);
       setFollowing((waiting) => {
         if (!waiting) return waiting;
         if (!next) return null;
@@ -241,17 +248,21 @@ export function useContentMode({
         };
       });
     },
-    [pick],
+    [pick, keyAt, paused, held],
   );
   const clear = useCallback(() => {
     setSelected(null);
     setFollowing(null);
+    setPending(null);
   }, []);
   /** Selects `picked` as a press would (`null`: nothing), dropping any follow. */
   const choose = useCallback((picked: Picked | null) => {
     setSelected(picked);
     setFollowing(null);
+    setPending(null);
   }, []);
+  /** Lets go of a press still waiting for its page (a marquee dragged from it). */
+  const dropPress = useCallback(() => setPending(null), []);
   /** Whether page `index` is read while the mode is on (in view, or one beside); `true` before the first layout. */
   const wants = useCallback((index: number) => visible === null || wanted.some((page) => page.index === index), [visible, wanted]);
   /**
@@ -318,6 +329,20 @@ export function useContentMode({
     setSelected(found && { pageIndex: following.pageIndex, key, item: found });
   }, [following, active, paused, keyAt, held, wanted, visible]);
 
+  // A press held for its page is resolved once that read lands, and let go
+  // when it fails or the page at its position changes. While a step runs it
+  // waits; a step that repaints its page drops it.
+  useEffect(() => {
+    if (!pending || paused) return;
+    const wantedNow = visible === null || wanted.some(({ index }) => index === pending.pageIndex);
+    const outcome = settlePress(pending, keyAt(pending.pageIndex), held.get(pending.key), active && wantedNow);
+    if (outcome.kind === 'wait') return;
+    setPending(null);
+    if (outcome.kind === 'drop') return;
+    const item = itemAt(outcome.content, pending.point);
+    setSelected(item && { pageIndex: pending.pageIndex, key: pending.key, item });
+  }, [pending, paused, visible, wanted, keyAt, held, active]);
+
   // A pick holds only while its page still shows the parse it was found in:
   // an edit, an undo or a move elsewhere makes it name something else.
   const current = (picked: Picked | null) => (picked && keyAt(picked.pageIndex) === picked.key ? picked : null);
@@ -342,6 +367,7 @@ export function useContentMode({
     select,
     clear,
     choose,
+    dropPress,
     /** What is under `point` on page `index` in the read held now; `null` over nothing or while a step runs. */
     itemAt: pick,
     wants,

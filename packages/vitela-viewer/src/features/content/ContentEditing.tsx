@@ -116,7 +116,7 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
   }, [commitOpen, settled]);
   useSaveWaitsFor(settleWithEditor);
 
-  const { select: contentSelect, hover: contentHover } = content;
+  const { select: contentSelect, hover: contentHover, dropPress } = content;
   const { open: openRun, move: moveRun, onKey: runKey } = textRuns;
   const { place: placeImage, move: moveImage, onKey: imageKey } = images;
   const { move: movePath, onKey: pathKey } = paths;
@@ -140,6 +140,9 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
               commitOpen();
               forget();
               clearGroup();
+              // A later press lets a press still waiting for its page go, even when an
+              // armed insert takes it below.
+              dropPress();
               // An armed insert takes the press: the new line's editor opens there (and
               // takes the keyboard once it mounts), or the image goes there.
               if (placeText(pageIndex, point)) return;
@@ -155,6 +158,8 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
             onGather: (pageIndex, area, additive) => {
               commitOpen();
               forget();
+              // A marquee dragged from a press still waiting for its page is not that press.
+              dropPress();
               gather(pageIndex, area, additive);
               focusPages();
             },
@@ -176,6 +181,7 @@ export function useContentEditing({ engine, handle, document, active, queue, vis
       content.active,
       contentHover,
       contentSelect,
+      dropPress,
       commitOpen,
       forget,
       clearGroup,
