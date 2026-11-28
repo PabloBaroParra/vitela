@@ -3538,7 +3538,10 @@ en [`apps/web/README.md`](../apps/web/README.md) ("Edit content") y en
   devuelve vacío para una página insertada en la sesión y aún sin guardar
   (`PageBacking::Empty`): lo pegado (o insertado) en ella no se lee como pendiente, así que no
   se puede seleccionar hasta guardar; el guardado sí lo escribe (probado en `pdf-wasm`). Afecta
-  a todos los shells por igual; cambiarlo es de `pdf-save` y merece su ficha.
+  a todos los shells por igual; cambiarlo es de `pdf-save` y merece su ficha. **Arreglado
+  después:** la lectura pendiente superpone la cola también sobre una página en blanco, medida
+  contra la página vacía que escribe el guardado (`origin::blank_page_stand_in`); el test de
+  pdfium real ya pega en una página insertada del mismo documento.
 - **Tests:** Rust 16 nativos nuevos (`model/selection/tests.rs` 6: mover texto, imagen y
   trazado como un paso leído y guardado, plegar el segundo movimiento, mover 0, borrar como un
   paso, vacío/id caducado/página fuera/distancia no finita, documento que prohíbe modificar;
