@@ -528,12 +528,15 @@ fn save_snapshot_and_reopen(
 }
 
 /// What the user is told when a [`WriteMode::CreateOnly`] save did not
-/// create its file. The two refusals name the file and the link to it, as
+/// create its file. The refusals name the file and the link to it, as
 /// the main-thread checks before the save do (`through_link_target`).
 fn create_failure(failure: CreateFailure, destination: &Destination) -> WriteFailure {
     let key = match failure {
         CreateFailure::Exists => "write-link-target-appeared",
         CreateFailure::Unsupported => "write-link-target-create-unsupported",
+        // The same refusal as the main-thread check gives a folder it finds
+        // it cannot write to (`through_link_refusal_key`).
+        CreateFailure::Unwritable => "write-link-target-folder-unavailable",
         CreateFailure::Failed(error) => return WriteFailure::Failed(error),
     };
     let link = destination

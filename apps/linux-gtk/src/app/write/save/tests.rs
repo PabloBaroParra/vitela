@@ -510,19 +510,24 @@ fn replace_through_link_question(link: &Path, target: &Path) -> String {
 /// open queued can land on the status line after the refusal, and a check of
 /// the last thing said would then fail on a refusal that was made.
 fn assert_refused_once(saving: &FileDocument, key: &str, target: &Path) {
-    let refusal = crate::app::i18n::tr_args(
-        key,
-        &[
-            ("target", target.display().to_string().into()),
-            ("link", "link.pdf".into()),
-        ],
-    );
+    let refusal = link_refusal(key, target);
     assert_eq!(
         saving.said_times(&refusal),
         1,
         "the refusal {refusal:?} is said once; last said: {}",
         saving.status()
     );
+}
+
+/// The refusal `key` says of `target`, reached through `link.pdf`.
+fn link_refusal(key: &str, target: &Path) -> String {
+    crate::app::i18n::tr_args(
+        key,
+        &[
+            ("target", target.display().to_string().into()),
+            ("link", "link.pdf".into()),
+        ],
+    )
 }
 
 /// What the user confirmed in the chooser, handed to the Save chain.
@@ -732,13 +737,7 @@ fn gtk_ui_a_recreated_link_target_never_replaces_a_file_that_appeared_meanwhile(
     assert_eq!(saving.jobs(), 0, "the save waits on the warning");
     std::fs::write(&real, b"another program's file").expect("the target appears");
     saving.answer(&tr("write-signature-proceed"));
-    let refusal = crate::app::i18n::tr_args(
-        "write-link-target-appeared",
-        &[
-            ("target", real.display().to_string().into()),
-            ("link", "link.pdf".into()),
-        ],
-    );
+    let refusal = link_refusal("write-link-target-appeared", &real);
     assert!(
         wait_until(|| saving.said(&refusal)),
         "the refusal is said: {}",
@@ -746,6 +745,8 @@ fn gtk_ui_a_recreated_link_target_never_replaces_a_file_that_appeared_meanwhile(
     );
     assert!(wait_until(|| saving.jobs() == 0));
     pump_for(std::time::Duration::from_millis(50));
+
+    assert_refused_once(&saving, "write-link-target-appeared", &real);
 
     assert_eq!(
         std::fs::read(&real).expect("the file that appeared"),
@@ -934,5 +935,43 @@ mod chosen {
 
         assert_eq!(destination.file, one);
         assert!(destination.keeps.is_none());
+    }
+}
+
+mod create_refusal {
+    use std::path::PathBuf;
+
+    use super::super::{create_failure, CreateFailure, Destination, WriteFailure, WriteMode};
+
+    fn key_for(failure: CreateFailure) -> Option<&'static str> {
+        let destination = Destination {
+            file: PathBuf::from("/home/user/real.pdf"),
+            keeps: None,
+            mode: WriteMode::CreateOnly,
+        };
+        match create_failure(failure, &destination) {
+            WriteFailure::Refused(refusal) => Some(refusal.key),
+            WriteFailure::Failed(_) => None,
+        }
+    }
+
+    /// Each reason the missing target was not recreated is said as its own
+    /// refusal; a folder that cannot be written to now is not told it lacks
+    /// hard links.
+    #[test]
+    fn each_create_failure_is_said_with_its_own_refusal() {
+        assert_eq!(
+            key_for(CreateFailure::Exists),
+            Some("write-link-target-appeared")
+        );
+        assert_eq!(
+            key_for(CreateFailure::Unsupported),
+            Some("write-link-target-create-unsupported")
+        );
+        assert_eq!(
+            key_for(CreateFailure::Unwritable),
+            Some("write-link-target-folder-unavailable")
+        );
+        assert_eq!(key_for(CreateFailure::Failed("no space".to_owned())), None);
     }
 }

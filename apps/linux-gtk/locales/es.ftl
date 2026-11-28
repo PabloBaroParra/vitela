@@ -458,6 +458,10 @@ write-link-target-not-replaceable = «{ $link }» apunta a { $target }, que no s
 write-link-target-open-elsewhere = «{ $link }» apunta a { $target }, que está abierto en otra pestaña. Cierra esa pestaña primero o elige otro nombre.
 write-link-target-folder-unavailable = «{ $link }» apunta a { $target }, en una carpeta que no existe o en la que no se puede escribir. Elige otro nombre.
 write-link-target-appeared = «{ $link }» apunta a { $target }, que ahora existe: otro programa lo creó mientras se guardaba. No se sobrescribió nada y tus cambios aún no están guardados. Vuelve a guardar para decidir si quieres reemplazarlo.
+# The save went to recreate the missing file { $target }, but its folder has
+# no hard links (as on some network or FAT drives). Without them the save
+# cannot make sure it creates a new file instead of replacing one that
+# appeared there meanwhile, so it wrote nothing.
 write-link-target-create-unsupported = «{ $link }» apunta a { $target }, que no existe, y su carpeta no permite crearlo sin arriesgarse a reemplazar un archivo que aparezca mientras tanto. No se escribió nada. Elige otro nombre.
 write-signature-title = Al guardar se romperá la firma de este documento
 write-signature-detail =

@@ -13,7 +13,7 @@
 use std::any::Any;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -337,6 +337,9 @@ pub(super) enum CreateFailure {
     /// The folder cannot make a file appear only where nothing is: its file
     /// system has no hard links. Nothing was written.
     Unsupported,
+    /// The folder cannot be written to now: access is denied, or its file
+    /// system is read-only. Nothing was written.
+    Unwritable,
     /// The write went wrong; the file-system error, untranslated.
     Failed(String),
 }
@@ -354,12 +357,31 @@ pub(super) enum CreateFailure {
 /// The temporary name is then dropped; the destination is the same inode,
 /// already synced.
 ///
-/// A file system without hard links (FAT, some network and FUSE mounts)
-/// answers `EPERM` or `EOPNOTSUPP`. That is [`CreateFailure::Unsupported`],
-/// and nothing is written: falling back to a rename would bring back the
-/// very replacement this exists to rule out, and `EPERM` cannot be a missing
-/// permission here — the same process has just created the temporary file in
-/// that folder, and owns it.
+/// A failed link is told apart by its errno ([`link_failure`]), not by its
+/// [`std::io::ErrorKind`]: std gives `EPERM` and `EACCES` the same kind, and
+/// they mean different things here.
+///
+/// - `EEXIST`: something is at the destination — [`CreateFailure::Exists`].
+///   Except when that something is the temporary file itself: on NFS a link
+///   the server made can still answer `EEXIST` when its reply was lost and
+///   the call retried. The save has then landed, and is reported as such.
+/// - `EPERM`, `EOPNOTSUPP`, `ENOSYS`: the file system makes no hard links
+///   (FAT, some network and FUSE mounts answer `EPERM` or `EOPNOTSUPP`).
+///   `EXDEV` (which the temporary file beside the destination should never
+///   meet) and `EMLINK` (the new file cannot take a second name) say the same
+///   of this folder. All are [`CreateFailure::Unsupported`]. `EPERM` from
+///   `link(2)` is the file system refusing hard links, or a protection on the
+///   file itself, which a file this process has just created does not carry;
+///   it is not a missing permission on the folder — that is `EACCES`.
+/// - `EACCES`, `EROFS`: the folder cannot be written to now — access is
+///   denied (a security module, a sandbox, write permission withdrawn after
+///   the temporary file was made) or the file system went read-only. That
+///   is [`CreateFailure::Unwritable`].
+/// - Anything else (`ENOSPC`, `EDQUOT`, …): [`CreateFailure::Failed`], with
+///   the error.
+///
+/// None of the refusals falls back to a rename: that would bring back the
+/// very replacement this exists to rule out.
 ///
 /// On every path but success the temporary file this created is removed and
 /// the destination is left as it was found. If the temporary name cannot be
@@ -382,15 +404,73 @@ fn create_new_file_with(
 ) -> Result<(), CreateFailure> {
     let temporary = temporary_beside(destination).map_err(CreateFailure::Failed)?;
     write_temporary(&temporary, bytes, None).map_err(CreateFailure::Failed)?;
-    let placed = place(&temporary, destination);
+    let placed = place(&temporary, destination).or_else(|error| match link_failure(&error) {
+        // Asked before the temporary name is dropped: only then can the two
+        // be compared.
+        CreateFailure::Exists if is_same_file(&temporary, destination) => Ok(()),
+        failure => Err(failure),
+    });
     let _ = fs::remove_file(&temporary);
-    placed.map_err(|error| match error.kind() {
-        std::io::ErrorKind::AlreadyExists => CreateFailure::Exists,
-        std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied => {
+    placed
+}
+
+/// What a failed `link(2)` of [`create_new_file`]'s temporary file means for
+/// the save, decided from its errno alone ([`create_new_file`] says why each
+/// one is mapped as it is). An error without an errno is a plain failure.
+fn link_failure(error: &std::io::Error) -> CreateFailure {
+    match error.raw_os_error() {
+        Some(errno::EEXIST) => CreateFailure::Exists,
+        Some(errno::EPERM | errno::EOPNOTSUPP | errno::ENOSYS | errno::EXDEV | errno::EMLINK) => {
             CreateFailure::Unsupported
         }
+        Some(errno::EACCES | errno::EROFS) => CreateFailure::Unwritable,
         _ => CreateFailure::Failed(error.to_string()),
-    })
+    }
+}
+
+/// Whether `a` and `b` name the same inode. Neither is followed if it is a
+/// symbolic link: a link to the file is not the file.
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// The `link(2)` errors [`link_failure`] tells apart, by number.
+///
+/// Defined here rather than taken from `libc`: that crate reaches this one
+/// only through other dependencies (cairo and the GTK bindings), and naming
+/// it directly would add it to this crate's entry in the lock file.
+/// The shell builds for Linux alone, and these are the generic Linux numbers
+/// (`asm-generic/errno-base.h`, `asm-generic/errno.h`) that x86, x86-64, Arm,
+/// AArch64, RISC-V and PowerPC share; MIPS and SPARC number some of them
+/// differently, so building for those is refused below. On Linux `ENOTSUP`
+/// is `EOPNOTSUPP`. A test checks each number against the kind this target's
+/// std gives it.
+mod errno {
+    #[cfg(any(
+        target_arch = "mips",
+        target_arch = "mips64",
+        target_arch = "mips32r6",
+        target_arch = "mips64r6",
+        target_arch = "sparc",
+        target_arch = "sparc64"
+    ))]
+    compile_error!("these errno numbers are the generic Linux ones; this target's differ");
+
+    pub(super) const EPERM: i32 = 1;
+    pub(super) const EACCES: i32 = 13;
+    pub(super) const EEXIST: i32 = 17;
+    pub(super) const EXDEV: i32 = 18;
+    pub(super) const EROFS: i32 = 30;
+    pub(super) const EMLINK: i32 = 31;
+    pub(super) const ENOSYS: i32 = 38;
+    pub(super) const EOPNOTSUPP: i32 = 95;
+    #[cfg(test)]
+    pub(super) const ENOSPC: i32 = 28;
+    #[cfg(test)]
+    pub(super) const EDQUOT: i32 = 122;
 }
 
 /// The temporary file [`atomic_write`] writes before renaming it over
@@ -754,9 +834,11 @@ mod tests {
 
     mod create_new {
         use std::fs;
-        use std::io::ErrorKind;
+        use std::io::{Error, ErrorKind};
 
-        use super::super::{create_new_file, create_new_file_with, CreateFailure};
+        use super::super::{
+            create_new_file, create_new_file_with, errno, link_failure, CreateFailure,
+        };
         use super::{mode_of, Folder};
 
         /// Nothing is there: the file is created with the bytes, as any new
@@ -818,44 +900,159 @@ mod tests {
             assert_eq!(folder.names(), ["document.pdf"]);
         }
 
+        /// On NFS a `link` the server carried out can still answer EEXIST,
+        /// when its first reply was lost and the call was sent again: the
+        /// name is then the temporary file itself. That is a save that
+        /// landed, not a file that appeared.
+        #[test]
+        fn a_link_that_landed_but_answered_eexist_is_a_save() {
+            let folder = Folder::new("create-new-landed-eexist");
+            let destination = folder.0.join("document.pdf");
+
+            let result = create_new_file_with(&destination, b"the document", |from, to| {
+                fs::hard_link(from, to).expect("the link lands");
+                Err(Error::from_raw_os_error(errno::EEXIST))
+            });
+
+            assert_eq!(result, Ok(()));
+            assert_eq!(fs::read(&destination).expect("created"), b"the document");
+            assert_eq!(
+                folder.names(),
+                ["document.pdf"],
+                "no temporary file is left"
+            );
+        }
+
         /// A file system without hard links (a FAT drive, some network and
-        /// FUSE mounts) answers EPERM or EOPNOTSUPP. The save is refused as
-        /// such — never turned into a rename that could replace a file.
+        /// FUSE mounts) answers EPERM or EOPNOTSUPP; ENOSYS, EXDEV and
+        /// EMLINK say the same of this folder in other words. The save is
+        /// refused as such — never turned into a rename that could replace
+        /// a file.
         #[test]
         fn a_folder_without_hard_links_refuses_rather_than_replacing() {
-            for kind in [ErrorKind::Unsupported, ErrorKind::PermissionDenied] {
+            for code in [
+                errno::EPERM,
+                errno::EOPNOTSUPP,
+                errno::ENOSYS,
+                errno::EXDEV,
+                errno::EMLINK,
+            ] {
                 let folder = Folder::new("create-new-unsupported");
                 let destination = folder.0.join("document.pdf");
 
                 let result = create_new_file_with(&destination, b"the document", |_, _| {
-                    Err(std::io::Error::from(kind))
+                    Err(Error::from_raw_os_error(code))
                 });
 
-                assert_eq!(result, Err(CreateFailure::Unsupported), "{kind:?}");
-                assert!(!destination.exists(), "{kind:?}: nothing is created");
+                assert_eq!(result, Err(CreateFailure::Unsupported), "errno {code}");
+                assert!(!destination.exists(), "errno {code}: nothing is created");
                 assert!(
                     folder.names().is_empty(),
-                    "{kind:?}: no temporary file is left"
+                    "errno {code}: no temporary file is left"
                 );
             }
         }
 
-        /// Any other failure of the last step is a failure, with its error,
-        /// and still leaves nothing behind.
+        /// Access denied (a security module, a sandbox, a folder that lost
+        /// its write permission after the temporary file was made) or a
+        /// file system now read-only: the folder cannot be written to, and
+        /// the save is refused as that rather than as missing hard links.
+        #[test]
+        fn a_folder_that_cannot_be_written_now_refuses_as_such() {
+            for code in [errno::EACCES, errno::EROFS] {
+                let folder = Folder::new("create-new-unwritable");
+                let destination = folder.0.join("document.pdf");
+
+                let result = create_new_file_with(&destination, b"the document", |_, _| {
+                    Err(Error::from_raw_os_error(code))
+                });
+
+                assert_eq!(result, Err(CreateFailure::Unwritable), "errno {code}");
+                assert!(!destination.exists(), "errno {code}: nothing is created");
+                assert!(
+                    folder.names().is_empty(),
+                    "errno {code}: no temporary file is left"
+                );
+            }
+        }
+
+        /// Any other failure of the last step — a full disk, a spent quota,
+        /// an error with no errno — is a failure, with its error, and still
+        /// leaves nothing behind.
         #[test]
         fn another_failure_of_the_final_step_is_reported_and_cleaned_up() {
-            let folder = Folder::new("create-new-failed");
-            let destination = folder.0.join("document.pdf");
+            for error in [
+                Error::from_raw_os_error(errno::ENOSPC),
+                Error::from_raw_os_error(errno::EDQUOT),
+                Error::other("the disk went away"),
+            ] {
+                let folder = Folder::new("create-new-failed");
+                let destination = folder.0.join("document.pdf");
+                let said = error.to_string();
 
-            let result = create_new_file_with(&destination, b"the document", |_, _| {
-                Err(std::io::Error::other("the disk went away"))
-            });
+                let result = create_new_file_with(&destination, b"the document", |_, _| Err(error));
 
+                assert_eq!(result, Err(CreateFailure::Failed(said.clone())), "{said}");
+                assert!(folder.names().is_empty(), "{said}");
+            }
+        }
+
+        /// What each errno `link(2)` answers with means for the save,
+        /// decided from the errno alone.
+        #[test]
+        fn each_link_error_is_classified_by_its_errno() {
+            for (code, expected) in [
+                (errno::EEXIST, CreateFailure::Exists),
+                (errno::EPERM, CreateFailure::Unsupported),
+                (errno::EOPNOTSUPP, CreateFailure::Unsupported),
+                (errno::ENOSYS, CreateFailure::Unsupported),
+                (errno::EXDEV, CreateFailure::Unsupported),
+                (errno::EMLINK, CreateFailure::Unsupported),
+                (errno::EACCES, CreateFailure::Unwritable),
+                (errno::EROFS, CreateFailure::Unwritable),
+            ] {
+                assert_eq!(
+                    link_failure(&Error::from_raw_os_error(code)),
+                    expected,
+                    "errno {code}"
+                );
+            }
+            for code in [errno::ENOSPC, errno::EDQUOT] {
+                let error = Error::from_raw_os_error(code);
+                assert_eq!(
+                    link_failure(&error),
+                    CreateFailure::Failed(error.to_string()),
+                    "errno {code}"
+                );
+            }
+            // Only the errno decides: an error of a refused kind that has
+            // none is an ordinary failure.
+            let error = Error::from(ErrorKind::PermissionDenied);
             assert_eq!(
-                result,
-                Err(CreateFailure::Failed("the disk went away".to_owned()))
+                link_failure(&error),
+                CreateFailure::Failed(error.to_string())
             );
-            assert!(folder.names().is_empty());
+        }
+
+        /// The errno numbers defined locally are the ones this target's std
+        /// knows by those names (EPERM and EACCES share a kind, so this
+        /// cannot tell those two apart).
+        #[test]
+        fn the_local_errno_numbers_name_this_target_s_errors() {
+            for (code, kind) in [
+                (errno::EPERM, ErrorKind::PermissionDenied),
+                (errno::EACCES, ErrorKind::PermissionDenied),
+                (errno::EEXIST, ErrorKind::AlreadyExists),
+                (errno::EXDEV, ErrorKind::CrossesDevices),
+                (errno::EROFS, ErrorKind::ReadOnlyFilesystem),
+                (errno::EMLINK, ErrorKind::TooManyLinks),
+                (errno::ENOSYS, ErrorKind::Unsupported),
+                (errno::EOPNOTSUPP, ErrorKind::Unsupported),
+                (errno::ENOSPC, ErrorKind::StorageFull),
+                (errno::EDQUOT, ErrorKind::QuotaExceeded),
+            ] {
+                assert_eq!(Error::from_raw_os_error(code).kind(), kind, "errno {code}");
+            }
         }
     }
 

@@ -477,9 +477,10 @@ write-link-target-folder-unavailable = “{ $link }” points to { $target }, in
 # The save went to recreate the missing file a link points to, and a file
 # appeared at { $target } before it was written. Nothing was replaced.
 write-link-target-appeared = “{ $link }” points to { $target }, which now exists: another program created it while saving. Nothing was overwritten and your changes are not saved yet. Save again to decide whether to replace it.
-# The folder { $target } goes in cannot create a file only when nothing is
-# there (no hard links, as on some network or FAT drives), so the save would
-# risk replacing a file that appeared meanwhile.
+# The save went to recreate the missing file { $target }, but its folder has
+# no hard links (as on some network or FAT drives). Without them the save
+# cannot make sure it creates a new file instead of replacing one that
+# appeared there meanwhile, so it wrote nothing.
 write-link-target-create-unsupported = “{ $link }” points to { $target }, which is missing, and its folder cannot create it without risking replacing a file that appears there meanwhile. Nothing was written. Choose another name.
 write-signature-title = Saving will break this document's signature
 write-signature-detail =
