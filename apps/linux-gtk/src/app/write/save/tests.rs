@@ -503,6 +503,28 @@ fn replace_through_link_question(link: &Path, target: &Path) -> String {
     )
 }
 
+/// Asserts the shell said the refusal `key` makes about the link `link.pdf`
+/// and its `target`, word for word, exactly once.
+///
+/// Read from the log, not from what shows last: the page-range line the
+/// open queued can land on the status line after the refusal, and a check of
+/// the last thing said would then fail on a refusal that was made.
+fn assert_refused_once(saving: &FileDocument, key: &str, target: &Path) {
+    let refusal = crate::app::i18n::tr_args(
+        key,
+        &[
+            ("target", target.display().to_string().into()),
+            ("link", "link.pdf".into()),
+        ],
+    );
+    assert_eq!(
+        saving.said_times(&refusal),
+        1,
+        "the refusal {refusal:?} is said once; last said: {}",
+        saving.status()
+    );
+}
+
 /// What the user confirmed in the chooser, handed to the Save chain.
 fn confirm_chosen(saving: &FileDocument, chosen: &Path) {
     let opened = super::opened_as(&saving.built.viewer);
@@ -582,16 +604,7 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_read_only_target() {
 
     assert!(saving.dialogs().is_empty(), "nothing is asked");
     assert_eq!(saving.jobs(), 0, "nothing is written");
-    assert_eq!(
-        saving.status(),
-        crate::app::i18n::tr_args(
-            "write-link-target-not-replaceable",
-            &[
-                ("target", real.display().to_string().into()),
-                ("link", "link.pdf".into()),
-            ],
-        )
-    );
+    assert_refused_once(&saving, "write-link-target-not-replaceable", &real);
     assert!(saving.dirty());
     assert_eq!(std::fs::read(&real).expect("the real file"), SAMPLE_PDF);
 }
@@ -653,16 +666,7 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_target_another_tab_holds() 
 
     assert!(saving.dialogs().is_empty(), "nothing is asked");
     assert_eq!(saving.jobs(), 0, "nothing is written");
-    assert_eq!(
-        saving.status(),
-        crate::app::i18n::tr_args(
-            "write-link-target-open-elsewhere",
-            &[
-                ("target", real.display().to_string().into()),
-                ("link", "link.pdf".into()),
-            ],
-        )
-    );
+    assert_refused_once(&saving, "write-link-target-open-elsewhere", &real);
     assert_eq!(std::fs::read(&real).expect("the real file"), SAMPLE_PDF);
 }
 
@@ -697,6 +701,63 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_recreates_a_missing_target() {
     assert_eq!(session.base_name, "link.pdf");
 }
 
+/// The save that recreates a missing target found nothing there, then
+/// waited — here on the signature warning — and a file appeared at that path
+/// meanwhile. The write refuses rather than replacing it: the file is
+/// untouched, the refusal says it now exists, the document is still unsaved
+/// and the close the save was asked for does not go ahead.
+#[gtk::test]
+fn gtk_ui_a_recreated_link_target_never_replaces_a_file_that_appeared_meanwhile() {
+    let saving = FileDocument::new("chooser-link-appeared");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&real, &link).expect("link to it");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    if let Some(session) = saving.built.viewer.state.borrow_mut().session.as_mut() {
+        // Holds the save at the signature warning, after the target check.
+        session.base_breaks_signatures = true;
+    }
+    std::fs::remove_file(&real).expect("the real file is deleted");
+    let (continued, after) = saving.continuation();
+
+    super::confirm_chosen(
+        &saving.built.window,
+        &saving.built.viewer,
+        link.clone(),
+        super::opened_as(&saving.built.viewer),
+        after,
+    );
+    assert_eq!(saving.jobs(), 0, "the save waits on the warning");
+    std::fs::write(&real, b"another program's file").expect("the target appears");
+    saving.answer(&tr("write-signature-proceed"));
+    let refusal = crate::app::i18n::tr_args(
+        "write-link-target-appeared",
+        &[
+            ("target", real.display().to_string().into()),
+            ("link", "link.pdf".into()),
+        ],
+    );
+    assert!(
+        wait_until(|| saving.said(&refusal)),
+        "the refusal is said: {}",
+        saving.status()
+    );
+    assert!(wait_until(|| saving.jobs() == 0));
+    pump_for(std::time::Duration::from_millis(50));
+
+    assert_eq!(
+        std::fs::read(&real).expect("the file that appeared"),
+        b"another program's file",
+        "nothing was overwritten"
+    );
+    assert!(!saving.said(&tr("save-done")));
+    assert!(saving.dirty(), "the work is still unsaved");
+    assert!(!continued.get(), "the blocked action does not go ahead");
+    assert_eq!(left_behind(&saving.folder), ["link.pdf", "real.pdf"]);
+}
+
 /// The link points into a folder that is gone: there is nowhere to create
 /// the file, and the refusal says so rather than "cannot be replaced".
 #[gtk::test]
@@ -717,16 +778,7 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_target_whose_folder_is_gone
 
     assert!(saving.dialogs().is_empty(), "nothing is asked");
     assert_eq!(saving.jobs(), 0, "nothing is written");
-    assert_eq!(
-        saving.status(),
-        crate::app::i18n::tr_args(
-            "write-link-target-folder-unavailable",
-            &[
-                ("target", real.display().to_string().into()),
-                ("link", "link.pdf".into()),
-            ],
-        )
-    );
+    assert_refused_once(&saving, "write-link-target-folder-unavailable", &real);
     assert!(saving.dirty());
     assert!(!store.exists(), "the folder is not made");
 }
@@ -754,16 +806,7 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_missing_target_another_tab_
 
     assert!(saving.dialogs().is_empty(), "nothing is asked");
     assert_eq!(saving.jobs(), 0, "nothing is written");
-    assert_eq!(
-        saving.status(),
-        crate::app::i18n::tr_args(
-            "write-link-target-open-elsewhere",
-            &[
-                ("target", real.display().to_string().into()),
-                ("link", "link.pdf".into()),
-            ],
-        )
-    );
+    assert_refused_once(&saving, "write-link-target-open-elsewhere", &real);
     assert!(!real.exists(), "nothing was created");
 }
 

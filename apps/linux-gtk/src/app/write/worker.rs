@@ -40,7 +40,7 @@ use super::WriteOperation;
 /// unsaved-changes prompt's Save button gets from "keep this work" to the
 /// open it was blocking. Signing and protecting pass `None`: neither is ever
 /// something another action is waiting on.
-pub(super) fn spawn_write<W>(
+pub(super) fn spawn_write<W, E>(
     viewer: &Viewer,
     operation: WriteOperation,
     token: SessionToken,
@@ -48,7 +48,8 @@ pub(super) fn spawn_write<W>(
     after: Option<Rc<dyn Fn()>>,
     write: W,
 ) where
-    W: FnOnce() -> Result<OpenedDocument, String> + Send + 'static,
+    W: FnOnce() -> Result<OpenedDocument, E> + Send + 'static,
+    E: Into<WriteFailure> + Send + 'static,
 {
     viewer.info(&operation.busy());
     // Holds the tabs still (`tabs::busy_refusal`) until the result is in:
@@ -61,7 +62,14 @@ pub(super) fn spawn_write<W>(
     glib::spawn_future_local({
         let viewer = viewer.clone();
         async move {
-            let result = save_worker_result(gio::spawn_blocking(write).await);
+            // A worker that panicked is a failure like any other.
+            let written = gio::spawn_blocking(move || {
+                Ok::<Result<OpenedDocument, WriteFailure>, String>(write().map_err(Into::into))
+            })
+            .await;
+            let result = save_worker_result(written)
+                .map_err(WriteFailure::Failed)
+                .and_then(|written| written);
             perf::finish("save.worker", started, &[("ok", result.is_ok().into())]);
             // Let go before anything below runs: the continuation may close
             // this very tab, which the job would refuse.
@@ -98,10 +106,46 @@ pub(super) fn spawn_write<W>(
                     close_document_in_background(reopened.document);
                     viewer.success(&operation.done());
                 }
-                Err(error) => viewer.fail(&operation.failed(&error)),
+                Err(WriteFailure::Failed(error)) => viewer.fail(&operation.failed(&error)),
+                Err(WriteFailure::Refused(refusal)) => viewer.refuse(&refusal.text()),
             }
         }
     });
+}
+
+/// Why a write [`spawn_write`] ran did not land.
+pub(super) enum WriteFailure {
+    /// It was tried and went wrong: said as the operation's failure, with
+    /// the error verbatim.
+    Failed(String),
+    /// It stood down before replacing anything, for a reason the user can
+    /// act on: said as a refusal.
+    Refused(Refusal),
+}
+
+impl From<String> for WriteFailure {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// A refusal decided on the worker thread and worded on the main one: the
+/// active language is the main thread's (`i18n`), so the worker hands back
+/// the message's key and arguments rather than its text.
+pub(super) struct Refusal {
+    pub(super) key: &'static str,
+    pub(super) args: Vec<(&'static str, String)>,
+}
+
+impl Refusal {
+    fn text(&self) -> String {
+        let args: Vec<_> = self
+            .args
+            .iter()
+            .map(|(name, value)| (*name, value.clone().into()))
+            .collect();
+        crate::app::i18n::tr_args(self.key, &args)
+    }
 }
 
 /// Tells the session a write overtook that its file is the one that write
@@ -249,27 +293,104 @@ pub(super) fn atomic_write(destination: &Path, bytes: &[u8]) -> Result<(), Strin
     let replaced = fs::metadata(destination)
         .ok()
         .map(|metadata| metadata.permissions());
-    let mut created_temporary = false;
-    let result = (|| {
-        let mut file =
-            create_temporary(&temporary, replaced.is_some()).map_err(|error| error.to_string())?;
-        created_temporary = true;
-        file.write_all(bytes).map_err(|error| error.to_string())?;
+    write_temporary(&temporary, bytes, replaced)?;
+    fs::rename(&temporary, destination).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        error.to_string()
+    })
+}
+
+/// Writes `bytes` to a new `temporary` file and syncs them, giving it the
+/// `replaced` file's mode when there is one ([`create_temporary`] says why).
+/// A temporary file this created is removed again if any of it fails; one
+/// that was already there is not this write's to remove.
+fn write_temporary(
+    temporary: &Path,
+    bytes: &[u8],
+    replaced: Option<fs::Permissions>,
+) -> Result<(), String> {
+    let mut file =
+        create_temporary(temporary, replaced.is_some()).map_err(|error| error.to_string())?;
+    let written = (|| {
+        file.write_all(bytes)?;
         // Through the open handle: the mode may be one that would not let
         // this process open the file for writing again. A mode that cannot
         // be applied fails the write — the file is not put in place with
         // another.
         if let Some(permissions) = replaced {
-            file.set_permissions(permissions)
-                .map_err(|error| error.to_string())?;
+            file.set_permissions(permissions)?;
         }
-        file.sync_all().map_err(|error| error.to_string())?;
-        fs::rename(&temporary, destination).map_err(|error| error.to_string())
+        file.sync_all()
     })();
-    if result.is_err() && created_temporary {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
+    written.map_err(|error| {
+        let _ = fs::remove_file(temporary);
+        error.to_string()
+    })
+}
+
+/// Why [`create_new_file`] did not put a file at its destination.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum CreateFailure {
+    /// Something is at the destination now — it appeared after the caller
+    /// found nothing there. It is left exactly as it is.
+    Exists,
+    /// The folder cannot make a file appear only where nothing is: its file
+    /// system has no hard links. Nothing was written.
+    Unsupported,
+    /// The write went wrong; the file-system error, untranslated.
+    Failed(String),
+}
+
+/// Puts `bytes` at `destination`, which must not exist: the "nothing there
+/// yet" a caller checked on the main thread is asked again by the step that
+/// creates the file, so a file that appeared meanwhile is never replaced.
+///
+/// The bytes go to a temporary file beside it first, written and synced as
+/// [`atomic_write`] does, and created as any new file is — under the umask,
+/// which is the mode the finished file keeps. That file is then *hard-linked*
+/// at the destination rather than renamed over it: `link(2)` fails with
+/// `EEXIST` when anything is at the new name, a link to nothing included, so
+/// the check and the creation are one step and no gap is left between them.
+/// The temporary name is then dropped; the destination is the same inode,
+/// already synced.
+///
+/// A file system without hard links (FAT, some network and FUSE mounts)
+/// answers `EPERM` or `EOPNOTSUPP`. That is [`CreateFailure::Unsupported`],
+/// and nothing is written: falling back to a rename would bring back the
+/// very replacement this exists to rule out, and `EPERM` cannot be a missing
+/// permission here — the same process has just created the temporary file in
+/// that folder, and owns it.
+///
+/// On every path but success the temporary file this created is removed and
+/// the destination is left as it was found. If the temporary name cannot be
+/// dropped after the link, the save has still landed and is reported as
+/// such; what is left is the hidden temporary file, which a later write to
+/// the same name fails on rather than overwrites — as after any write whose
+/// clean-up did not run.
+pub(super) fn create_new_file(destination: &Path, bytes: &[u8]) -> Result<(), CreateFailure> {
+    create_new_file_with(destination, bytes, |temporary, destination| {
+        fs::hard_link(temporary, destination)
+    })
+}
+
+/// [`create_new_file`], with the step that puts the written temporary file
+/// at the destination handed in, so a test can stage what happens there.
+fn create_new_file_with(
+    destination: &Path,
+    bytes: &[u8],
+    place: impl FnOnce(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), CreateFailure> {
+    let temporary = temporary_beside(destination).map_err(CreateFailure::Failed)?;
+    write_temporary(&temporary, bytes, None).map_err(CreateFailure::Failed)?;
+    let placed = place(&temporary, destination);
+    let _ = fs::remove_file(&temporary);
+    placed.map_err(|error| match error.kind() {
+        std::io::ErrorKind::AlreadyExists => CreateFailure::Exists,
+        std::io::ErrorKind::Unsupported | std::io::ErrorKind::PermissionDenied => {
+            CreateFailure::Unsupported
+        }
+        _ => CreateFailure::Failed(error.to_string()),
+    })
 }
 
 /// The temporary file [`atomic_write`] writes before renaming it over
@@ -629,6 +750,113 @@ mod tests {
         atomic_write(&destination, b"after").expect("create the destination");
 
         assert_eq!(mode_of(&destination), mode_of(&ordinary));
+    }
+
+    mod create_new {
+        use std::fs;
+        use std::io::ErrorKind;
+
+        use super::super::{create_new_file, create_new_file_with, CreateFailure};
+        use super::{mode_of, Folder};
+
+        /// Nothing is there: the file is created with the bytes, as any new
+        /// file is, and nothing else is left in the folder.
+        #[test]
+        fn a_missing_destination_is_created_with_the_bytes_and_a_new_file_s_mode() {
+            let folder = Folder::new("create-new");
+            let ordinary = folder.0.join("ordinary");
+            fs::write(&ordinary, b"").expect("an ordinary new file");
+            let destination = folder.0.join("document.pdf");
+
+            assert_eq!(create_new_file(&destination, b"the document"), Ok(()));
+
+            assert_eq!(fs::read(&destination).expect("created"), b"the document");
+            assert_eq!(mode_of(&destination), mode_of(&ordinary));
+            assert_eq!(folder.names(), ["document.pdf", "ordinary"]);
+        }
+
+        /// A file appears at the destination after the bytes are written
+        /// and before they are put there: it is kept, the save is refused,
+        /// and no temporary file is left behind.
+        #[test]
+        fn a_destination_that_appears_before_the_final_step_is_left_alone() {
+            let folder = Folder::new("create-new-appeared");
+            let destination = folder.0.join("document.pdf");
+
+            let result = create_new_file_with(&destination, b"the document", |from, to| {
+                fs::write(to, b"another program's file").expect("the file appears");
+                fs::hard_link(from, to)
+            });
+
+            assert_eq!(result, Err(CreateFailure::Exists));
+            assert_eq!(
+                fs::read(&destination).expect("the file that appeared"),
+                b"another program's file"
+            );
+            assert_eq!(
+                folder.names(),
+                ["document.pdf"],
+                "no temporary file is left"
+            );
+        }
+
+        /// A link to nothing is something at that name too.
+        #[test]
+        fn a_dangling_link_at_the_destination_is_not_replaced() {
+            let folder = Folder::new("create-new-dangling");
+            let destination = folder.0.join("document.pdf");
+            std::os::unix::fs::symlink("elsewhere.pdf", &destination).expect("a link");
+
+            assert_eq!(
+                create_new_file(&destination, b"the document"),
+                Err(CreateFailure::Exists)
+            );
+            assert!(fs::symlink_metadata(&destination)
+                .expect("the link")
+                .file_type()
+                .is_symlink());
+            assert_eq!(folder.names(), ["document.pdf"]);
+        }
+
+        /// A file system without hard links (a FAT drive, some network and
+        /// FUSE mounts) answers EPERM or EOPNOTSUPP. The save is refused as
+        /// such — never turned into a rename that could replace a file.
+        #[test]
+        fn a_folder_without_hard_links_refuses_rather_than_replacing() {
+            for kind in [ErrorKind::Unsupported, ErrorKind::PermissionDenied] {
+                let folder = Folder::new("create-new-unsupported");
+                let destination = folder.0.join("document.pdf");
+
+                let result = create_new_file_with(&destination, b"the document", |_, _| {
+                    Err(std::io::Error::from(kind))
+                });
+
+                assert_eq!(result, Err(CreateFailure::Unsupported), "{kind:?}");
+                assert!(!destination.exists(), "{kind:?}: nothing is created");
+                assert!(
+                    folder.names().is_empty(),
+                    "{kind:?}: no temporary file is left"
+                );
+            }
+        }
+
+        /// Any other failure of the last step is a failure, with its error,
+        /// and still leaves nothing behind.
+        #[test]
+        fn another_failure_of_the_final_step_is_reported_and_cleaned_up() {
+            let folder = Folder::new("create-new-failed");
+            let destination = folder.0.join("document.pdf");
+
+            let result = create_new_file_with(&destination, b"the document", |_, _| {
+                Err(std::io::Error::other("the disk went away"))
+            });
+
+            assert_eq!(
+                result,
+                Err(CreateFailure::Failed("the disk went away".to_owned()))
+            );
+            assert!(folder.names().is_empty());
+        }
     }
 
     #[test]

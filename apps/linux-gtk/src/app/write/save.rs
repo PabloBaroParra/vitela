@@ -30,7 +30,10 @@ use super::chooser::{
     Proceed,
 };
 use super::in_place::{route_for, save_target, through_links, SaveRoute, SaveTarget};
-use super::worker::{atomic_write, spawn_write, validate_written_bytes};
+use super::worker::{
+    atomic_write, create_new_file, spawn_write, validate_written_bytes, CreateFailure, Refusal,
+    WriteFailure,
+};
 use super::{default_save_breaks_signature, imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
 use crate::app::i18n::{tr, tr_args};
@@ -63,6 +66,7 @@ pub(crate) fn save_then(
             let destination = Destination {
                 file,
                 keeps: Some(opened),
+                mode: WriteMode::Replace,
             };
             save_in_place(window, viewer, destination, after_save);
         }
@@ -109,6 +113,23 @@ struct Destination {
     /// the window title and the next Save must go on naming the link. `None`
     /// for any other destination chosen in the chooser, which becomes both.
     keeps: Option<OpenedAs>,
+    /// Whether the write may replace what is at `file`.
+    mode: WriteMode,
+}
+
+/// Whether a save may replace what it finds at its destination.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WriteMode {
+    /// Whatever is there is replaced (`worker::atomic_write`): the file Save
+    /// writes back to, or one the user agreed to replace.
+    Replace,
+    /// Only where nothing is (`worker::create_new_file`): the missing file a
+    /// link points at, recreated without a question because nothing was
+    /// there to replace. The save can still wait — on the signature warning
+    /// — before its worker runs, so "nothing there" is asked again by the
+    /// step that creates the file, and a file that appeared meanwhile is
+    /// refused rather than replaced.
+    CreateOnly,
 }
 
 /// The chooser, opened on the file the document came from, then the chain.
@@ -146,7 +167,9 @@ fn ask_destination(
 /// A link whose file is gone — deleted, or moved away — is saved by
 /// creating the file where the link points, in a folder that can take it:
 /// the link then leads to the saved document again. Nothing is replaced, so
-/// nothing is asked.
+/// nothing is asked — and the write is made create-only
+/// ([`WriteMode::CreateOnly`]), so a file that appears there before it runs
+/// is refused rather than replaced.
 fn confirm_chosen(
     window: &ApplicationWindow,
     viewer: &Viewer,
@@ -157,7 +180,11 @@ fn confirm_chosen(
     let destination = chosen_destination(chosen.clone(), opened);
     let Some(link) = destination.keeps.as_ref().map(|keeps| keeps.path.clone()) else {
         let proceed: Proceed = Rc::new(move |window, viewer, file| {
-            let destination = Destination { file, keeps: None };
+            let destination = Destination {
+                file,
+                keeps: None,
+                mode: WriteMode::Replace,
+            };
             save_current_to(window, viewer, destination, after_save.clone());
         });
         confirm_destination(window, viewer, SAVE, chosen, proceed);
@@ -169,6 +196,10 @@ fn confirm_chosen(
             return;
         }
         Ok(SaveTarget::Creatable) => {
+            let destination = Destination {
+                mode: WriteMode::CreateOnly,
+                ..destination
+            };
             save_current_to(window, viewer, destination, after_save);
             return;
         }
@@ -256,10 +287,12 @@ fn chosen_destination(chosen: PathBuf, opened: Option<OpenedAs>) -> Destination 
         Some((Ok(file), opened)) if file != chosen => Destination {
             file,
             keeps: Some(opened),
+            mode: WriteMode::Replace,
         },
         _ => Destination {
             file: chosen,
             keeps: None,
+            mode: WriteMode::Replace,
         },
     }
 }
@@ -458,7 +491,7 @@ fn save_snapshot_and_reopen(
     sources: &[ImportedSource],
     destination: Destination,
     signatures: pdf_save::SignatureAcknowledgement,
-) -> Result<OpenedDocument, String> {
+) -> Result<OpenedDocument, WriteFailure> {
     let source_refs = imported_sources(sources);
     let bytes = pdf_save::save_document(pdf_save::SaveInput {
         document,
@@ -474,7 +507,11 @@ fn save_snapshot_and_reopen(
     // the pages the model names — see `reopened_matches_model` for what a
     // disagreement would do to every page index once the file is reopened.
     validate_written_bytes(&bytes, backing.password.as_deref(), document)?;
-    atomic_write(&destination.file, &bytes)?;
+    match destination.mode {
+        WriteMode::Replace => atomic_write(&destination.file, &bytes)?,
+        WriteMode::CreateOnly => create_new_file(&destination.file, &bytes)
+            .map_err(|failure| create_failure(failure, &destination))?,
+    }
     // Reopened from the file just written, not through whatever path the
     // user opened: a link re-pointed meanwhile must not put another file's
     // bytes on screen under this document's name.
@@ -488,6 +525,28 @@ fn save_snapshot_and_reopen(
         reopened.name = keeps.name;
     }
     Ok(reopened)
+}
+
+/// What the user is told when a [`WriteMode::CreateOnly`] save did not
+/// create its file. The two refusals name the file and the link to it, as
+/// the main-thread checks before the save do (`through_link_target`).
+fn create_failure(failure: CreateFailure, destination: &Destination) -> WriteFailure {
+    let key = match failure {
+        CreateFailure::Exists => "write-link-target-appeared",
+        CreateFailure::Unsupported => "write-link-target-create-unsupported",
+        CreateFailure::Failed(error) => return WriteFailure::Failed(error),
+    };
+    let link = destination
+        .keeps
+        .as_ref()
+        .map_or(&destination.file, |keeps| &keeps.path);
+    WriteFailure::Refused(Refusal {
+        key,
+        args: vec![
+            ("target", destination.file.display().to_string()),
+            ("link", file_name(link)),
+        ],
+    })
 }
 
 #[cfg(test)]

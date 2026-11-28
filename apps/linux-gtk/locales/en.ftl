@@ -474,6 +474,13 @@ write-replace-through-link-title = Replace “{ $target }”, which “{ $link }
 write-link-target-not-replaceable = “{ $link }” points to { $target }, which cannot be replaced. Choose another name.
 write-link-target-open-elsewhere = “{ $link }” points to { $target }, which is open in another tab. Close that tab first, or choose another name.
 write-link-target-folder-unavailable = “{ $link }” points to { $target }, in a folder that does not exist or cannot be written to. Choose another name.
+# The save went to recreate the missing file a link points to, and a file
+# appeared at { $target } before it was written. Nothing was replaced.
+write-link-target-appeared = “{ $link }” points to { $target }, which now exists: another program created it while saving. Nothing was overwritten and your changes are not saved yet. Save again to decide whether to replace it.
+# The folder { $target } goes in cannot create a file only when nothing is
+# there (no hard links, as on some network or FAT drives), so the save would
+# risk replacing a file that appeared meanwhile.
+write-link-target-create-unsupported = “{ $link }” points to { $target }, which is missing, and its folder cannot create it without risking replacing a file that appears there meanwhile. Nothing was written. Choose another name.
 write-signature-title = Saving will break this document's signature
 write-signature-detail =
     This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.

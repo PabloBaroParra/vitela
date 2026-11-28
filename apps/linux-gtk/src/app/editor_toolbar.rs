@@ -534,10 +534,15 @@ mod tests {
             (&toolbar.fit_width, "editor-fit-width", shortcuts::FIT_WIDTH),
             (&toolbar.fit_page, "editor-fit-page", shortcuts::FIT_PAGE),
         ] {
-            let keys = shortcuts::accel_label(shortcut.accel).expect("it parses");
+            // Without a key the tooltip would be the bare label, and the
+            // comparison below would hold without naming one.
+            assert!(
+                shortcuts::accel_label(shortcut.accel).is_some(),
+                "it parses"
+            );
             assert_eq!(
                 button.tooltip_text().as_deref(),
-                Some(format!("{} ({keys})", tr(label_key)).as_str())
+                Some(shortcuts::tooltip_for(label_key, shortcut).as_str())
             );
         }
     }

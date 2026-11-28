@@ -151,9 +151,13 @@ pub(super) fn save_target(path: &Path) -> SaveTarget {
     if replaceable_in_place(path) {
         return SaveTarget::Replaceable;
     }
+    let folder = folder_of(path);
     match fs::symlink_metadata(path) {
+        // "Not a directory" rather than "not found": a file stands where the
+        // folder, or one above it, should be. Read off that path's metadata
+        // rather than the raw errno, which std does not name.
+        Err(_) if blocked_by_a_non_folder(folder) => SaveTarget::FolderUnavailable,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            let folder = folder_of(path);
             if fs::metadata(folder).is_ok_and(|metadata| metadata.is_dir()) && can_write(folder) {
                 SaveTarget::Creatable
             } else {
@@ -162,6 +166,16 @@ pub(super) fn save_target(path: &Path) -> SaveTarget {
         }
         _ => SaveTarget::NotReplaceable,
     }
+}
+
+/// Whether the nearest part of `folder` that exists — the folder itself or
+/// one above it — is something other than a folder, so nothing can be
+/// created inside it. Links are followed, as the path itself would be.
+fn blocked_by_a_non_folder(folder: &Path) -> bool {
+    folder
+        .ancestors()
+        .find_map(|ancestor| fs::metadata(ancestor).ok())
+        .is_some_and(|metadata| !metadata.is_dir())
 }
 
 /// The folder `path` sits in: its parent, or the current folder for a bare
@@ -567,6 +581,26 @@ mod tests {
         assert_eq!(
             save_target(&folder.0.join("gone").join("missing.pdf")),
             SaveTarget::FolderUnavailable
+        );
+    }
+
+    /// A file stands where the target's folder should be — the folder was
+    /// replaced by a file of the same name. The file system answers "not a
+    /// directory" rather than "not found", and the target has no folder to
+    /// go in all the same; it is not a file that "cannot be replaced".
+    #[test]
+    fn a_missing_file_under_a_file_has_no_folder_to_go_in() {
+        let folder = Folder::new("target-under-a-file");
+        let file = folder.file(0o600);
+
+        assert_eq!(
+            save_target(&file.join("missing.pdf")),
+            SaveTarget::FolderUnavailable
+        );
+        assert_eq!(
+            save_target(&file.join("sub").join("missing.pdf")),
+            SaveTarget::FolderUnavailable,
+            "nor when the file is further up"
         );
     }
 
