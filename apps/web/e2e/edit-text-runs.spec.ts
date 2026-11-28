@@ -61,6 +61,29 @@ async function typingLaidOut(page: Page): Promise<void> {
   await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
 }
 
+/**
+ * Waits until the pages stop scrolling: an arrow key scrolls them smoothly, and the animation goes
+ * on after the first frame moved. A scroll made, or a page measured, before it ends is undone or
+ * moved by what is left of it.
+ */
+async function scrollSettled(page: Page): Promise<void> {
+  await pages(page).evaluate(
+    (scroller) =>
+      new Promise<void>((done) => {
+        let last = scroller.scrollTop;
+        let still = 0;
+        const frame = () => {
+          const now = scroller.scrollTop;
+          still = now === last ? still + 1 : 0;
+          last = now;
+          if (still >= 5) done();
+          else requestAnimationFrame(frame);
+        };
+        requestAnimationFrame(frame);
+      }),
+  );
+}
+
 /** Opens `bytes` as another document and turns the mode on in it. */
 async function reopen(page: Page, name: string, bytes: Buffer): Promise<void> {
   await openBytes(page, name, bytes);
@@ -228,6 +251,7 @@ test('after a scroll commits the open editor, nothing waits for its page: the ke
   const scrolled = await pages(page).evaluate((scroller) => scroller.scrollTop);
   for (let press = 0; press < 3; press++) await page.keyboard.press('ArrowUp');
   await expect.poll(() => pages(page).evaluate((scroller) => scroller.scrollTop), { timeout: 10_000 }).toBeLessThan(scrolled);
+  await scrollSettled(page);
 
   // The last page's run is selected and deleted without scrolling back.
   const last = pageSlot(page, 12);
