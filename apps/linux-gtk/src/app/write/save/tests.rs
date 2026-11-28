@@ -666,6 +666,107 @@ fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_target_another_tab_holds() 
     assert_eq!(std::fs::read(&real).expect("the real file"), SAMPLE_PDF);
 }
 
+/// The file the document's link points at was deleted while it was open.
+/// Saving onto the link in the chooser creates that file again: nothing is
+/// replaced, so nothing is asked, and the link leads to the saved document.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_own_link_recreates_a_missing_target() {
+    let saving = FileDocument::new("chooser-link-missing");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&real, &link).expect("link to it");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::remove_file(&real).expect("the real file is deleted");
+
+    confirm_chosen(&saving, &link);
+
+    assert!(saving.dialogs().is_empty(), "nothing is asked");
+    saving.wait_for_the_save();
+    let linked = std::fs::symlink_metadata(&link).expect("the link");
+    assert!(linked.file_type().is_symlink(), "the link is still a link");
+    assert!(std::fs::read(&real)
+        .expect("the real file is back")
+        .starts_with(b"%PDF-"));
+    assert_eq!(left_behind(&saving.folder), ["link.pdf", "real.pdf"]);
+    assert!(!saving.dirty());
+    let state = saving.built.viewer.state.borrow();
+    let session = state.session.as_ref().expect("the document is still open");
+    assert_eq!(session.origin_path.as_deref(), Some(link.as_path()));
+    assert_eq!(session.base_name, "link.pdf");
+}
+
+/// The link points into a folder that is gone: there is nowhere to create
+/// the file, and the refusal says so rather than "cannot be replaced".
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_target_whose_folder_is_gone() {
+    let saving = FileDocument::new("chooser-link-no-folder");
+    let store = saving.folder.join("store");
+    let real = store.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::create_dir(&store).expect("the target's folder");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&real, &link).expect("link to it");
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::remove_dir_all(&store).expect("the folder goes");
+
+    confirm_chosen(&saving, &link);
+    pump_for(std::time::Duration::from_millis(50));
+
+    assert!(saving.dialogs().is_empty(), "nothing is asked");
+    assert_eq!(saving.jobs(), 0, "nothing is written");
+    assert_eq!(
+        saving.status(),
+        crate::app::i18n::tr_args(
+            "write-link-target-folder-unavailable",
+            &[
+                ("target", real.display().to_string().into()),
+                ("link", "link.pdf".into()),
+            ],
+        )
+    );
+    assert!(saving.dirty());
+    assert!(!store.exists(), "the folder is not made");
+}
+
+/// A target that is gone is still refused while another tab holds it: that
+/// tab would go on showing bytes the recreated file does not hold.
+#[gtk::test]
+fn gtk_ui_a_chooser_save_onto_the_own_link_refuses_a_missing_target_another_tab_holds() {
+    let saving = FileDocument::new("chooser-link-missing-held");
+    let first = saving.folder.join("first.pdf");
+    let real = saving.folder.join("real.pdf");
+    let link = saving.folder.join("link.pdf");
+    std::fs::write(&first, SAMPLE_PDF).expect("write the first file");
+    std::fs::write(&real, SAMPLE_PDF).expect("write the real file");
+    std::os::unix::fs::symlink(&first, &link).expect("link to the first");
+    saving.open(DocumentSource::File(real.clone()));
+    saving.open(DocumentSource::File(link.clone()));
+    saving.mark_dirty();
+    std::fs::remove_file(&link).expect("drop the link");
+    std::os::unix::fs::symlink(&real, &link).expect("link to the held file");
+    std::fs::remove_file(&real).expect("the held file is deleted");
+
+    confirm_chosen(&saving, &link);
+    pump_for(std::time::Duration::from_millis(50));
+
+    assert!(saving.dialogs().is_empty(), "nothing is asked");
+    assert_eq!(saving.jobs(), 0, "nothing is written");
+    assert_eq!(
+        saving.status(),
+        crate::app::i18n::tr_args(
+            "write-link-target-open-elsewhere",
+            &[
+                ("target", real.display().to_string().into()),
+                ("link", "link.pdf".into()),
+            ],
+        )
+    );
+    assert!(!real.exists(), "nothing was created");
+}
+
 mod chosen {
     use std::path::PathBuf;
 
@@ -746,23 +847,35 @@ mod chosen {
         assert!(destination.keeps.is_none());
     }
 
+    /// A target that can be replaced or created goes ahead; one held by
+    /// another tab never does; the rest are refused with the reason.
     #[test]
-    fn a_link_target_is_refused_when_held_elsewhere_or_not_replaceable() {
+    fn a_link_target_is_refused_when_held_elsewhere_or_not_writable() {
         use super::super::through_link_refusal_key as refusal;
+        use super::super::SaveTarget;
 
-        assert_eq!(refusal(true, false), None);
+        assert_eq!(refusal(SaveTarget::Replaceable, false), None);
+        assert_eq!(refusal(SaveTarget::Creatable, false), None);
         assert_eq!(
-            refusal(false, false),
+            refusal(SaveTarget::NotReplaceable, false),
             Some("write-link-target-not-replaceable")
         );
         assert_eq!(
-            refusal(true, true),
-            Some("write-link-target-open-elsewhere")
+            refusal(SaveTarget::FolderUnavailable, false),
+            Some("write-link-target-folder-unavailable")
         );
-        assert_eq!(
-            refusal(false, true),
-            Some("write-link-target-open-elsewhere")
-        );
+        for found in [
+            SaveTarget::Replaceable,
+            SaveTarget::Creatable,
+            SaveTarget::NotReplaceable,
+            SaveTarget::FolderUnavailable,
+        ] {
+            assert_eq!(
+                refusal(found, true),
+                Some("write-link-target-open-elsewhere"),
+                "{found:?}"
+            );
+        }
     }
 
     /// A link that leads nowhere readable is left to the write to report.

@@ -52,7 +52,7 @@ pub(super) fn choose_destination_from(
     suggested: Option<&Path>,
     proceed: Proceed,
 ) {
-    pick_destination_from(
+    pick_destination_unguarded(
         window,
         viewer,
         operation,
@@ -63,10 +63,12 @@ pub(super) fn choose_destination_from(
     );
 }
 
-/// The chooser alone: hands the path the user picked — a `.pdf` suffix
-/// added — to `picked`, with no overwrite guard in between. For a chain
-/// whose guard has to ask about more than the picked name (`super::save`).
-pub(super) fn pick_destination_from(
+/// The chooser alone, opened on `suggested`: hands the path the user picked
+/// — a `.pdf` suffix added — to `picked`, with **no** overwrite guard in
+/// between, so `picked` must make its own. For a chain whose guard has to
+/// ask about more than the picked name (`super::save`); every other caller
+/// wants [`choose_destination_from`].
+pub(super) fn pick_destination_unguarded(
     window: &ApplicationWindow,
     viewer: &Viewer,
     operation: WriteOperation,

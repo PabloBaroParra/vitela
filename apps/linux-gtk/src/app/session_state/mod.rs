@@ -49,7 +49,7 @@ use std::time::Duration;
 use gtk::prelude::*;
 use gtk::{gio, glib, ApplicationWindow, Paned, ToggleButton};
 
-use model::{clamp_reading, DocumentView, Panels, State, WindowGeometry};
+use model::{clamp_reading, DocumentView, Panels, RecordMark, State, WindowGeometry};
 pub(crate) use store::Store;
 
 use super::document::is_current;
@@ -456,9 +456,13 @@ fn follow_layout(viewer: &Viewer, generation: u64, reading: ReadingPosition) {
     handler.set(Some(id));
 }
 
-fn report(result: std::io::Result<()>) {
-    if let Err(error) = result {
-        eprintln!("session state: could not be written: {error}");
+/// What a write's outcome changes: on success, the records it carried stop
+/// outranking the file (`State::mark_written`); a failure is a log line and
+/// leaves them winning, since nothing of them reached the disk.
+fn settle_write(inner: &Inner, result: std::io::Result<RecordMark>) {
+    match result {
+        Ok(mark) => inner.state.borrow_mut().mark_written(mark),
+        Err(error) => eprintln!("session state: could not be written: {error}"),
     }
 }
 
@@ -478,9 +482,10 @@ fn write_in_background(viewer: &Viewer) {
     let revision = inner.revision.get();
     inner.handed.set(revision);
     let state = inner.state.borrow().clone();
+    let remembered = viewer.remembered.clone();
     glib::spawn_future_local(async move {
         match gio::spawn_blocking(move || store.save_revision(state, revision)).await {
-            Ok(result) => report(result),
+            Ok(result) => settle_write(&remembered.inner, result),
             Err(_) => eprintln!("session state: the write stopped unexpectedly"),
         }
     });
@@ -505,7 +510,7 @@ pub(crate) fn flush(viewer: &Viewer) {
     }
     inner.handed.set(revision);
     let state = inner.state.borrow().clone();
-    report(store.save_revision(state, revision));
+    settle_write(inner, store.save_revision(state, revision));
 }
 
 /// Stops remembering: no more timers, no more writes. Like [`flush`], waits

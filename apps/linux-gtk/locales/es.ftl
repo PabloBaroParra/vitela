@@ -450,9 +450,13 @@ write-check-failed = No se pudo comprobar si { $path } ya existe: { $error }
 write-replace-title = ¿Reemplazar el PDF existente?
 write-replace-cancel = Cancelar
 write-replace = Reemplazar
+# A save onto the document's own symbolic link writes the file the link
+# points at. { $target } is that file's full path; { $link } is the link's
+# file name.
 write-replace-through-link-title = ¿Reemplazar «{ $target }», al que apunta «{ $link }»?
 write-link-target-not-replaceable = «{ $link }» apunta a { $target }, que no se puede reemplazar. Elige otro nombre.
 write-link-target-open-elsewhere = «{ $link }» apunta a { $target }, que está abierto en otra pestaña. Cierra esa pestaña primero o elige otro nombre.
+write-link-target-folder-unavailable = «{ $link }» apunta a { $target }, en una carpeta que no existe o en la que no se puede escribir. Elige otro nombre.
 write-signature-title = Al guardar se romperá la firma de este documento
 write-signature-detail =
     Este documento está firmado. Al guardar se reescribe el archivo, así que la firma dejará de coincidir con lo que cubre.
@@ -1042,9 +1046,17 @@ tabs-path-being-written = Ese archivo todavía se está escribiendo. Vuelve a ab
 
 ## Ventana de atajos de teclado (F1) y los comandos que recibieron una tecla con ella
 
+# Modifier key names, as printed on keyboards. Every shortcut shown — in a
+# tooltip, the command palette and this window — is these in the order
+# Ctrl, Alt, Shift, then the key, joined by "+" (e.g. "Ctrl+Mayús+S").
+# The shell adds the key to a tooltip through shortcut-tooltip below:
+# never type a key into a tooltip message.
 shortcut-modifier-ctrl = Ctrl
 shortcut-modifier-alt = Alt
 shortcut-modifier-shift = Mayús
+# The tooltip of a control that has a key. { $label } is the control's own
+# tooltip message; { $keys } is its key as printed above, e.g. "Ctrl+Mayús+S".
+shortcut-tooltip = { $label } ({ $keys })
 
 shortcuts-group-file = Archivo
 shortcuts-group-edit = Edición

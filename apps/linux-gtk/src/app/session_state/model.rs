@@ -102,10 +102,20 @@ pub(crate) struct State {
     /// Most recently seen first, at most [`MAX_DOCUMENTS`].
     documents: Vec<(PathBuf, DocumentView)>,
     /// The documents this process recorded itself
-    /// ([`State::remember_document`]), as opposed to read from the file.
-    /// Not written: it is what a merge with the file is decided by.
-    recorded: HashSet<PathBuf>,
+    /// ([`State::remember_document`]) since its last successful write, and
+    /// still holds in `documents`, each with the [`RecordMark`] it was
+    /// recorded under. Not written: it is what a merge with the file is
+    /// decided by.
+    recorded: HashMap<PathBuf, u64>,
+    /// How many records this process has made: the mark the next one gets.
+    records: u64,
 }
+
+/// How far this process's records had got when a state was handed to a
+/// write: [`State::record_mark`]. Once that write has succeeded,
+/// [`State::mark_written`] lets go of every record up to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RecordMark(u64);
 
 /// Equal when they would write the same file: which records this process
 /// made is not part of it.
@@ -280,24 +290,41 @@ impl State {
         }
         self.documents.retain(|(known, _)| known != path);
         self.documents.insert(0, (path.to_path_buf(), view));
-        self.documents.truncate(MAX_DOCUMENTS);
-        self.recorded.insert(path.to_path_buf());
+        self.records += 1;
+        self.recorded.insert(path.to_path_buf(), self.records);
+        self.cut_to_the_limit();
         true
     }
 
+    /// Where this process's records have got to: what to hand
+    /// [`State::mark_written`] once a write of this state has succeeded.
+    pub(crate) fn record_mark(&self) -> RecordMark {
+        RecordMark(self.records)
+    }
+
+    /// A write of this state as it was at `mark` succeeded: the records made
+    /// up to then are on disk, and from now on no longer outrank the file.
+    /// Records made since — while that write was under way — still do.
+    pub(crate) fn mark_written(&mut self, mark: RecordMark) {
+        self.recorded.retain(|_, recorded| *recorded > mark.0);
+    }
+
     /// Takes in what `other` — the file as it is now — holds for every
-    /// document this process has not recorded itself: how two windows
-    /// writing one file keep each other's documents instead of the last
-    /// writer erasing the rest.
+    /// document this process has not recorded since its last successful
+    /// write: how two windows writing one file keep each other's documents
+    /// instead of the last writer erasing the rest.
     ///
-    /// Who recorded a record decides, not when. What this process recorded
-    /// for a document always wins over the file — by timestamp it may well
-    /// be older, after the clock went back or against a record dated in
-    /// the future, and the position must go on updating all the same. Any
-    /// other document is the file's: it is either one this process never
-    /// had, or one it only loaded, which the other window may have read
-    /// further since. The timestamps still order the list, and so which
-    /// documents fall off its end.
+    /// Who recorded a record, and when it was last written, decide — not
+    /// its timestamp. What this process recorded for a document since its
+    /// last successful write, and still holds in its list, wins over the
+    /// file: by timestamp it may well be older, after the clock went back
+    /// or against a record dated in the future, and the position must go on
+    /// updating all the same. Any other document is the file's: one this
+    /// process never had, one it only loaded, one whose record it has
+    /// already written ([`State::mark_written`]) or one it let fall off its
+    /// list — the other window may have read further in each since. The
+    /// timestamps still order the list, and so which documents fall off its
+    /// end.
     pub(crate) fn merge_documents(&mut self, other: &State) {
         let mut index: HashMap<PathBuf, usize> = self
             .documents
@@ -306,7 +333,7 @@ impl State {
             .map(|(position, (path, _))| (path.clone(), position))
             .collect();
         for (path, view) in &other.documents {
-            if self.recorded.contains(path) {
+            if self.recorded.contains_key(path) {
                 continue;
             }
             match index.get(path) {
@@ -348,12 +375,33 @@ impl State {
         // Stable, so documents seen in the same second keep their order.
         self.documents
             .sort_by_key(|(_, view)| std::cmp::Reverse(view.seen));
+        self.cut_to_the_limit();
+    }
+
+    /// Drops the documents past [`MAX_DOCUMENTS`], and with them this
+    /// process's claim on them: a document no longer in the list is not
+    /// one whose record here outranks the file's.
+    fn cut_to_the_limit(&mut self) {
         self.documents.truncate(MAX_DOCUMENTS);
+        if !self.recorded.is_empty() {
+            let kept: HashSet<&Path> = self
+                .documents
+                .iter()
+                .map(|(path, _)| path.as_path())
+                .collect();
+            self.recorded
+                .retain(|path, _| kept.contains(path.as_path()));
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn document_count(&self) -> usize {
         self.documents.len()
+    }
+
+    #[cfg(test)]
+    fn recorded_count(&self) -> usize {
+        self.recorded.len()
     }
 }
 
@@ -677,10 +725,10 @@ mod tests {
     }
 
     /// Two windows, one file: each takes in what the other wrote, and what
-    /// this window recorded itself wins for a document both hold — the
-    /// clock is not what decides it.
+    /// this window recorded since its last write wins for a document both
+    /// hold — the clock is not what decides it.
     #[test]
-    fn merging_keeps_the_other_window_s_documents_and_this_window_s_own_record() {
+    fn merging_keeps_the_other_window_s_documents_and_this_window_s_unwritten_record() {
         let mut mine = State::default();
         mine.remember_document(
             Path::new("/home/user/shared.pdf"),
@@ -807,6 +855,78 @@ mod tests {
                 2
             );
         }
+    }
+
+    /// A document this window recorded and then let fall off the end of its
+    /// list is no longer its own: another window's record of it is kept,
+    /// and what this window holds stays as bounded as its list.
+    #[test]
+    fn a_document_this_window_let_go_of_takes_the_file_s_record() {
+        let let_go = Path::new("/home/user/let-go.pdf");
+        let mut mine = State::default();
+        mine.remember_document(let_go, view(1, Zoom::FitWidth, 1));
+        for index in 0..MAX_DOCUMENTS {
+            let path = PathBuf::from(format!("/home/user/{index}.pdf"));
+            mine.remember_document(&path, view(0, Zoom::FitWidth, 10 + index as i64));
+        }
+        assert!(mine.document(let_go).is_none(), "it fell off the list");
+        let mut theirs = State::default();
+        theirs.remember_document(let_go, view(7, Zoom::FitPage, 1_000));
+
+        mine.merge_documents(&theirs);
+
+        assert_eq!(
+            mine.document(let_go).map(|view| view.reading.page_index),
+            Some(7),
+            "the other window's record is kept"
+        );
+        assert!(
+            mine.recorded_count() <= MAX_DOCUMENTS,
+            "{} records held for {MAX_DOCUMENTS} documents",
+            mine.recorded_count()
+        );
+    }
+
+    /// One window records a document and writes; another reads further in
+    /// it — with a clock behind the first — and writes; the first writes
+    /// again over something unrelated. A record made once does not outrank
+    /// every later record of the document for as long as the window lives.
+    #[test]
+    fn a_record_already_written_does_not_outrank_a_later_one_from_the_file() {
+        let a = Path::new("/home/user/a.pdf");
+        let mut first = State::default();
+        first.remember_document(a, view(1, Zoom::FitWidth, 10));
+        let written = first.record_mark();
+        let mut file = first.clone();
+        file.merge_documents(&State::default());
+        first.mark_written(written);
+
+        let mut second = State::parse(&file.serialize());
+        second.remember_document(a, view(7, Zoom::FitWidth, 5));
+        second.merge_documents(&file);
+        let file = State::parse(&second.serialize());
+
+        first.remember_document(Path::new("/home/user/b.pdf"), view(2, Zoom::FitWidth, 30));
+        first.merge_documents(&file);
+
+        assert_eq!(first.document(a).expect("a.pdf").reading.page_index, 7);
+    }
+
+    /// A record made while a write was under way is newer than that write:
+    /// it still wins over the file once the write lands.
+    #[test]
+    fn a_record_made_during_a_write_still_wins_after_it() {
+        let a = Path::new("/home/user/a.pdf");
+        let mut mine = State::default();
+        mine.remember_document(a, view(1, Zoom::FitWidth, 10));
+        let handed = mine.record_mark();
+        mine.remember_document(a, view(4, Zoom::FitWidth, 11));
+        mine.mark_written(handed);
+
+        let theirs = State::parse("document\t9000\t9\t0.0\tfit-width\tfile:///home/user/a.pdf\n");
+        mine.merge_documents(&theirs);
+
+        assert_eq!(mine.document(a).expect("a.pdf").reading.page_index, 4);
     }
 
     /// A hostile file of many records of one path, and of many paths:

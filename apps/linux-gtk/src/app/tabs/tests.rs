@@ -1442,8 +1442,8 @@ fn gtk_ui_a_tab_s_close_button_names_its_shortcut() {
     assert_eq!(close.as_deref(), Some("Close (Ctrl+W)"));
     assert_eq!(
         close.map(String::from),
-        Some(crate::app::shortcuts::tooltip(
-            &tr("tabs-close-tooltip"),
+        Some(crate::app::shortcuts::tooltip_for(
+            "tabs-close-tooltip",
             crate::app::shortcuts::CLOSE_TAB
         ))
     );

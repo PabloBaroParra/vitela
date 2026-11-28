@@ -21,7 +21,7 @@ pub(crate) mod table;
 use gtk::gdk;
 use gtk::prelude::*;
 
-use crate::app::i18n::tr;
+use crate::app::i18n::{tr, tr_args};
 
 /// One window action and the accelerator that triggers it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -304,14 +304,23 @@ fn compose(modifiers: impl IntoIterator<Item = String>, key: &str) -> String {
         .join("+")
 }
 
-/// `label` followed by the shortcut's key in brackets, e.g. `"Undo (Ctrl+Z)"`
-/// — every tooltip that names a key, with the key read from the table rather
-/// than typed into the translation, where it could go on naming a key that
-/// has since moved, or spell it unlike the palette.
-pub(crate) fn tooltip(label: &str, shortcut: Shortcut) -> String {
+/// The tooltip of a control that has a key: the catalog's `label_key`
+/// message and the shortcut's key, e.g. `"Undo (Ctrl+Z)"`.
+///
+/// Every tooltip that names a key is built here. The key is read from the
+/// table rather than typed into the translation, where it could go on
+/// naming a key that has since moved, or spell it unlike the palette; the
+/// two are put together by the catalog's `shortcut-tooltip` message, so the
+/// order and the punctuation are the translator's. The control's accessible
+/// name stays the bare label.
+pub(crate) fn tooltip_for(label_key: &str, shortcut: Shortcut) -> String {
+    let label = tr(label_key);
     match accel_label(shortcut.accel) {
-        Some(keys) => format!("{label} ({keys})"),
-        None => label.to_owned(),
+        Some(keys) => tr_args(
+            "shortcut-tooltip",
+            &[("label", label.into()), ("keys", keys.into())],
+        ),
+        None => label,
     }
 }
 
@@ -448,9 +457,40 @@ mod tests {
         assert_eq!(accel_label(SAVE_AS.accel).as_deref(), Some("Ctrl+Mayús+S"));
         assert_eq!(accel_label("<Alt>F4").as_deref(), Some("Alt+F4"));
         assert_eq!(
-            tooltip(&tr("editor-save-as"), SAVE_AS),
+            tooltip_for("editor-save-as", SAVE_AS),
             "Guardar como (Ctrl+Mayús+S)"
         );
+    }
+
+    /// The label and the key are put together by the catalog, so a
+    /// translation decides their order and punctuation.
+    #[gtk::test]
+    fn gtk_ui_a_tooltip_is_composed_by_the_catalog_s_message() {
+        use crate::app::i18n::{speak, tr_args, Language};
+
+        for language in [Language::English, Language::Spanish] {
+            let _language = speak(language);
+            let composed = tr_args(
+                "shortcut-tooltip",
+                &[("label", "LABEL".into()), ("keys", "KEYS".into())],
+            );
+
+            assert!(
+                composed.contains("LABEL") && composed.contains("KEYS"),
+                "{language:?}: {composed:?}"
+            );
+            assert_eq!(
+                tooltip_for("editor-save", SAVE),
+                tr_args(
+                    "shortcut-tooltip",
+                    &[
+                        ("label", tr("editor-save").into()),
+                        ("keys", accel_label(SAVE.accel).expect("it parses").into()),
+                    ],
+                ),
+                "{language:?}"
+            );
+        }
     }
 
     #[test]
@@ -476,7 +516,7 @@ mod tests {
     }
 
     /// Every tooltip that names a key: the words from the catalog, the key
-    /// from the table, in the one spelling ([`tooltip`]). None of the
+    /// from the table, in the one spelling ([`tooltip_for`]). None of the
     /// catalog's tooltips types a key of its own.
     #[gtk::test]
     fn gtk_ui_every_tooltip_that_names_a_key_reads_it_from_the_table() {
@@ -492,7 +532,31 @@ mod tests {
         let home_open = find_button(built.window.upcast_ref(), &tr("home-open-file"))
             .expect("Home has an Open file button");
         let quick = &viewer.content_quick_actions;
+        let window: &gtk::Widget = built.window.upcast_ref();
+        // The toolbar's Open shows a short label, and its Save as is the
+        // arrow beside Save: neither is reachable by its accessible name.
+        let toolbar_open = find_widget(window, &|widget| {
+            widget.is::<gtk::Button>()
+                && find_widget(widget, &|inner| {
+                    inner
+                        .downcast_ref::<gtk::Label>()
+                        .is_some_and(|label| label.text() == tr("editor-open-short"))
+                })
+                .is_some()
+        })
+        .expect("the toolbar has an Open button");
+        let toolbar_save_as = find_widget(window, &|widget| {
+            widget.is::<gtk::MenuButton>() && widget.has_css_class("toolbar-save-as")
+        })
+        .expect("the toolbar has a Save as arrow");
         let cases: Vec<(gtk::Widget, &str, Shortcut, &str)> = vec![
+            (toolbar_open, "editor-open", OPEN, "Open PDF (Ctrl+O)"),
+            (
+                toolbar_save_as,
+                "editor-save-as",
+                SAVE_AS,
+                "Save as (Ctrl+Shift+S)",
+            ),
             (
                 viewer.save_button.clone().upcast(),
                 "editor-save",
@@ -568,12 +632,30 @@ mod tests {
             );
             assert_eq!(
                 tooltip_of(&widget).as_deref(),
-                Some(tooltip(&tr(label_key), shortcut).as_str()),
+                Some(tooltip_for(label_key, shortcut).as_str()),
                 "{label_key}"
             );
             assert_eq!(tooltip_of(&widget).as_deref(), Some(english), "{label_key}");
         }
         built.window.close();
+    }
+
+    /// The first widget under `root`, `root` included, that `matches`.
+    fn find_widget(
+        root: &gtk::Widget,
+        matches: &dyn Fn(&gtk::Widget) -> bool,
+    ) -> Option<gtk::Widget> {
+        if matches(root) {
+            return Some(root.clone());
+        }
+        let mut child = root.first_child();
+        while let Some(widget) = child {
+            if let Some(found) = find_widget(&widget, matches) {
+                return Some(found);
+            }
+            child = widget.next_sibling();
+        }
+        None
     }
 
     #[test]

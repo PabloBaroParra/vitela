@@ -28,7 +28,7 @@ use pdf_render::{place_rect, PlacedRect, TextRect};
 
 use crate::app::i18n::tr;
 use crate::app::icons::Icon;
-use crate::app::shortcuts::{self, Shortcut};
+use crate::app::shortcuts;
 use crate::app::state::{DocumentSession, Viewer, ViewerState};
 
 use super::{block, clipboard, hover, image, image_controls, multi, panel};
@@ -85,7 +85,7 @@ pub(crate) fn build() -> QuickActions {
         &retype,
         &tr("edit-quick-retype"),
         Icon::Text,
-        &keyed("edit-quick-retype-tooltip", shortcuts::RETYPE),
+        &shortcuts::tooltip_for("edit-quick-retype-tooltip", shortcuts::RETYPE),
     );
     let replace = Button::new();
     panel::tile(
@@ -98,18 +98,18 @@ pub(crate) fn build() -> QuickActions {
     // is off limits (`shell`'s module doc), so these two are words alone.
     let cut = text_tile(
         &tr("edit-quick-cut"),
-        &keyed("edit-quick-cut-tooltip", shortcuts::CUT),
+        &shortcuts::tooltip_for("edit-quick-cut-tooltip", shortcuts::CUT),
     );
     let copy = text_tile(
         &tr("edit-quick-copy"),
-        &keyed("edit-quick-copy-tooltip", shortcuts::COPY),
+        &shortcuts::tooltip_for("edit-quick-copy-tooltip", shortcuts::COPY),
     );
     let delete = Button::new();
     panel::tile(
         &delete,
         &tr("edit-quick-delete"),
         Icon::Delete,
-        &keyed("edit-quick-delete-tooltip", shortcuts::DELETE),
+        &shortcuts::tooltip_for("edit-quick-delete-tooltip", shortcuts::DELETE),
     );
     for button in [&retype, &replace, &cut, &copy, &delete] {
         // A click on the bar must leave the keyboard where it was: Delete,
@@ -127,11 +127,6 @@ pub(crate) fn build() -> QuickActions {
         delete,
         scheduled: Rc::new(Cell::new(false)),
     }
-}
-
-/// Tooltip `key`'s text with `shortcut`'s key after it, from the table.
-fn keyed(key: &str, shortcut: Shortcut) -> String {
-    shortcuts::tooltip(&tr(key), shortcut)
 }
 
 fn text_tile(label: &str, tooltip: &str) -> Button {

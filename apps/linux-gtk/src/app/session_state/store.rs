@@ -20,10 +20,11 @@
 //! sandboxed and an unsandboxed build). Each writes through a temporary
 //! file named for its own process, so neither can rename the other's
 //! half-written bytes into place; and each write first takes in what the
-//! file holds for every document it has not recorded itself
-//! ([`State::merge_documents`]), so the last writer does not erase the
-//! other's reading positions. The window size and the panels are simply the
-//! last writer's — there is one of each to remember.
+//! file holds for every document it has not recorded since its last
+//! successful write ([`State::merge_documents`]), so the last writer does
+//! not erase the other's reading positions, nor put back one it wrote
+//! earlier. The window size and the panels are simply the last writer's —
+//! there is one of each to remember.
 //!
 //! **One window, two threads.** The window writes from a worker thread
 //! while it is in use and from the main thread as it closes, and the two
@@ -38,7 +39,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use super::model::State;
+use super::model::{RecordMark, State};
 
 const FILE_NAME: &str = "session-state";
 
@@ -90,14 +91,19 @@ impl Store {
     /// [`Store::save`] for the window's own state at `revision`, in turn:
     /// waits for a write under way, and does nothing when a revision at
     /// least as new is already on disk.
-    pub(crate) fn save_revision(&self, state: State, revision: u64) -> io::Result<()> {
+    ///
+    /// The mark returned is how far `state`'s own records had got: on `Ok`,
+    /// the window hands it to [`State::mark_written`]. A revision skipped as
+    /// already on disk returns its mark too — the newer revision written in
+    /// its place held every one of these records.
+    pub(crate) fn save_revision(&self, state: State, revision: u64) -> io::Result<RecordMark> {
         let mut written = self.turn();
         if revision <= *written {
-            return Ok(());
+            return Ok(state.record_mark());
         }
-        self.save(state)?;
+        let mark = self.save(state)?;
         *written = revision;
-        Ok(())
+        Ok(mark)
     }
 
     /// The user's own, or `None` on a machine with no usable state
@@ -124,10 +130,17 @@ impl Store {
     }
 
     /// Writes `state`, having first taken in what the file holds for the
-    /// documents `state` did not record itself.
-    pub(crate) fn save(&self, mut state: State) -> io::Result<()> {
+    /// documents `state` did not record since its last write.
+    ///
+    /// On success, returns the [`RecordMark`] of `state`: its owner hands it
+    /// to [`State::mark_written`], so those records stop outranking the file
+    /// — another window may read further in the same documents from now on.
+    /// A failed write returns no mark, and the records go on winning.
+    pub(crate) fn save(&self, mut state: State) -> io::Result<RecordMark> {
+        let mark = state.record_mark();
         state.merge_documents(&self.load());
-        self.write(state.serialize().as_bytes())
+        self.write(state.serialize().as_bytes())?;
+        Ok(mark)
     }
 
     fn write(&self, bytes: &[u8]) -> io::Result<()> {
@@ -375,7 +388,74 @@ pub(crate) mod tests {
         };
         assert_eq!(page("/home/user/first.pdf"), Some(1));
         assert_eq!(page("/home/user/second.pdf"), Some(3));
-        assert_eq!(page("/home/user/shared.pdf"), Some(9), "the newer record");
+        assert_eq!(
+            page("/home/user/shared.pdf"),
+            Some(9),
+            "the second window recorded it since its last write"
+        );
+    }
+
+    /// What a window does with a write: the state it hands over, and once
+    /// the write has succeeded, letting go of the records it carried.
+    fn write_as_a_window(store: &Store, state: &mut State) -> io::Result<()> {
+        let mark = store.save(state.clone())?;
+        state.mark_written(mark);
+        Ok(())
+    }
+
+    /// One window records a document and writes, and stays open; another
+    /// reads further in it — on a clock behind the first — and writes; the
+    /// first writes again over something unrelated, as its close does. The
+    /// other window's position survives.
+    #[test]
+    fn a_window_s_next_write_keeps_another_window_s_later_position() {
+        let scratch = ScratchDir::new();
+        let store = scratch.store();
+        let mut first = State::default();
+        reading(&mut first, "/home/user/a.pdf", 1, 100);
+        write_as_a_window(&store, &mut first).expect("the first window writes");
+
+        let mut second = store.load();
+        reading(&mut second, "/home/user/a.pdf", 7, 50);
+        write_as_a_window(&store, &mut second).expect("the second window writes");
+
+        reading(&mut first, "/home/user/b.pdf", 2, 200);
+        write_as_a_window(&store, &mut first).expect("the first window writes again");
+
+        let read = store.load();
+        assert_eq!(
+            read.document(Path::new("/home/user/a.pdf"))
+                .map(|view| view.reading.page_index),
+            Some(7)
+        );
+        assert!(read.document(Path::new("/home/user/b.pdf")).is_some());
+    }
+
+    /// A write that failed put nothing on disk: what the window recorded
+    /// still outranks the file at the next write — a record dated later by
+    /// another window's clock included.
+    #[test]
+    fn after_a_failed_write_this_window_s_records_still_win() {
+        let scratch = ScratchDir::new();
+        let store = scratch.store();
+        let mut mine = State::default();
+        reading(&mut mine, "/home/user/a.pdf", 1, 100);
+        fs::create_dir_all(&store.file).expect("a folder where the file goes");
+        assert!(write_as_a_window(&store, &mut mine).is_err());
+        fs::remove_dir(&store.file).expect("the folder goes again");
+        let mut theirs = State::default();
+        reading(&mut theirs, "/home/user/a.pdf", 3, 9_000);
+        write_as_a_window(&store, &mut theirs).expect("another window writes");
+
+        write_as_a_window(&store, &mut mine).expect("this window writes");
+
+        assert_eq!(
+            store
+                .load()
+                .document(Path::new("/home/user/a.pdf"))
+                .map(|view| view.reading.page_index),
+            Some(1)
+        );
     }
 
     /// The file holds a record of the document dated later than this
@@ -395,7 +475,7 @@ pub(crate) mod tests {
 
         for page_index in [7, 8] {
             reading(&mut mine, "/home/user/a.pdf", page_index, 100);
-            store.save(mine.clone()).expect("this window writes");
+            write_as_a_window(&store, &mut mine).expect("this window writes");
 
             let read = store.load();
             assert_eq!(

@@ -116,24 +116,117 @@ fn gtk_ui_shutting_down_waits_for_a_write_under_way() {
         .borrow()
         .clone()
         .expect("remembering is on");
+    let finished = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (taken, take) = std::sync::mpsc::channel();
-    let writer = std::thread::spawn(move || {
-        let _turn = store.hold_turn_for_test();
-        taken.send(()).expect("the test is waiting");
-        std::thread::sleep(std::time::Duration::from_millis(300));
+    let writer = std::thread::spawn({
+        let finished = finished.clone();
+        move || {
+            let turn = store.hold_turn_for_test();
+            taken.send(()).expect("the test is waiting");
+            // Room for a shut-down that does not wait to return first. The
+            // assertion below is about order, not about how long this is.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            // Still holding the turn: whoever takes it next sees this.
+            finished.store(true, std::sync::atomic::Ordering::SeqCst);
+            drop(turn);
+        }
     });
     take.recv().expect("the writer took its turn");
-    let started = std::time::Instant::now();
 
     shut_down(remembering.viewer());
 
-    let waited = started.elapsed();
+    let finished_first = finished.load(std::sync::atomic::Ordering::SeqCst);
     writer.join().expect("the writer finished");
     assert!(
-        waited >= std::time::Duration::from_millis(250),
-        "returned after {waited:?}, with the write still under way"
+        finished_first,
+        "shutting down returned with the write still under way"
     );
     assert!(!remembering.viewer().remembered.enabled());
+}
+
+/// The document's record as the file holds it now, with its page, its
+/// fraction and its zoom replaced — what another window that read further
+/// in it would have written, on a clock reading `seen`.
+fn rewrite_record(remembering: &Remembering, path: &Path, page_index: usize, seen: i64) {
+    let file = store_file(&remembering.scratch);
+    let text = std::fs::read_to_string(&file).expect("the state file");
+    let record = format!(
+        "document\t{seen}\t{page_index}\t0.5000\tfit-page\t{}",
+        uri(path)
+    );
+    let rewritten: Vec<String> = text
+        .lines()
+        .map(|line| {
+            if line.starts_with("document\t") && line.ends_with(&uri(path)) {
+                record.clone()
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect();
+    assert!(rewritten.contains(&record), "the file held the document");
+    write_file(&file, (rewritten.join("\n") + "\n").as_bytes());
+}
+
+/// This window wrote where it was in a document and stays open; another
+/// window reads further in it — on a clock behind this one — and writes.
+/// This window's next write, over something unrelated, must not put its
+/// older position back.
+#[gtk::test]
+fn gtk_ui_another_window_s_later_position_survives_this_window_s_next_write() {
+    let remembering = Remembering::first_run("remember-other-window");
+    let viewer = remembering.viewer();
+    let path = remembering.document.open_file();
+    remembering.read_at(Zoom::Custom(1.5), 300.0);
+    flush(viewer);
+    rewrite_record(&remembering, &path, 2, 1);
+
+    remembering.window().set_default_size(1111, 700);
+    flush(viewer);
+
+    let written = remembering.written();
+    let kept = written.document(&path).expect("the document");
+    assert_eq!(kept.reading.page_index, 2, "the other window's page");
+    assert!(kept.zoom == Zoom::FitPage, "and its zoom");
+    assert_eq!(written.window.map(|window| window.width), Some(1111));
+}
+
+/// A write that failed put nothing on disk, so what this window recorded
+/// still wins at the next one — over a record another window dated later.
+#[gtk::test]
+fn gtk_ui_after_a_failed_write_this_window_s_position_still_wins() {
+    let scratch = ScratchDir::new();
+    let file = store_file(&scratch);
+    std::fs::create_dir_all(&file).expect("a folder where the file goes");
+    let document = FileDocument::new("remember-failed-write");
+    let viewer = &document.built.viewer;
+    install_at(
+        &document.built.window,
+        viewer,
+        &document.built.chrome,
+        scratch.store(),
+    );
+    let remembering = Remembering { document, scratch };
+    let path = remembering.document.open_file();
+    remembering.read_at(Zoom::Custom(1.5), 300.0);
+    flush(remembering.viewer());
+    std::fs::remove_dir(&file).expect("the folder goes again");
+    write_file(
+        &file,
+        format!(
+            "document\t{}\t2\t0.5000\tfit-page\t{}\n",
+            i64::MAX,
+            uri(&path)
+        )
+        .as_bytes(),
+    );
+
+    remembering.window().set_default_size(1111, 700);
+    flush(remembering.viewer());
+
+    let kept = remembering.written().document(&path).expect("the document");
+    assert!(kept.zoom == Zoom::Custom(1.5), "this window's zoom");
+    assert_eq!(kept.reading.page_index, 0, "and its page");
 }
 
 /// A window a test builds remembers nothing: no store, no timer, nothing

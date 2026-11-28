@@ -122,13 +122,54 @@ pub(super) fn changed_since(read: Option<FileStamp>, now: Option<FileStamp>) -> 
 /// resolve first ([`through_links`]), so the folder that has to take the
 /// temporary file is the real file's and not the link's.
 pub(super) fn replaceable_in_place(path: &Path) -> bool {
-    let folder = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or(Path::new("."));
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.is_file())
         && can_write(path)
-        && can_write(folder)
+        && can_write(folder_of(path))
+}
+
+/// What a save would find at a path whose links have been followed
+/// ([`through_links`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SaveTarget {
+    /// A file this process can replace where it is
+    /// ([`replaceable_in_place`]).
+    Replaceable,
+    /// Nothing there, in a folder this process can write: the save creates
+    /// the file, and nothing is replaced.
+    Creatable,
+    /// Nothing there, and the folder it would go in is missing or cannot be
+    /// written.
+    FolderUnavailable,
+    /// Something is there that this process cannot replace: a read-only
+    /// file, a folder, or a path whose state could not be read.
+    NotReplaceable,
+}
+
+/// Which [`SaveTarget`] `path` is. Asked of the path as given, like
+/// [`replaceable_in_place`]: callers resolve links first.
+pub(super) fn save_target(path: &Path) -> SaveTarget {
+    if replaceable_in_place(path) {
+        return SaveTarget::Replaceable;
+    }
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let folder = folder_of(path);
+            if fs::metadata(folder).is_ok_and(|metadata| metadata.is_dir()) && can_write(folder) {
+                SaveTarget::Creatable
+            } else {
+                SaveTarget::FolderUnavailable
+            }
+        }
+        _ => SaveTarget::NotReplaceable,
+    }
+}
+
+/// The folder `path` sits in: its parent, or the current folder for a bare
+/// name.
+fn folder_of(path: &Path) -> &Path {
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
 }
 
 const CAN_WRITE: &str = "access::can-write";
@@ -154,7 +195,7 @@ const MAX_LINKS: usize = 40;
 ///
 /// A path that is no link — a file, or nothing yet — is returned as it is.
 /// A link to a file that is gone is followed too; whether that is a file to
-/// write is [`replaceable_in_place`]'s to say. Links among the folders above
+/// write is [`replaceable_in_place`]'s, or [`save_target`]'s, to say. Links among the folders above
 /// are left alone; a rename beside the file goes through them wherever they
 /// lead.
 pub(super) fn through_links(path: &Path) -> Result<PathBuf, String> {
@@ -183,7 +224,8 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::{
-        changed_since, replaceable_in_place, save_route, through_links, OriginFacts, SaveRoute,
+        changed_since, replaceable_in_place, save_route, save_target, through_links, OriginFacts,
+        SaveRoute, SaveTarget,
     };
     use crate::app::state::FileStamp;
 
@@ -497,6 +539,65 @@ mod tests {
         let file = through_links(&link).expect("the link resolves");
 
         assert!(!replaceable_in_place(&file));
+    }
+
+    #[test]
+    fn a_writable_file_is_a_target_to_replace() {
+        let folder = Folder::new("target-file");
+
+        assert_eq!(save_target(&folder.file(0o600)), SaveTarget::Replaceable);
+    }
+
+    /// The file a link pointed at was deleted: in a folder that can take
+    /// it, a save creates it again.
+    #[test]
+    fn a_missing_file_in_a_writable_folder_is_a_target_to_create() {
+        let folder = Folder::new("target-missing");
+
+        assert_eq!(
+            save_target(&folder.0.join("missing.pdf")),
+            SaveTarget::Creatable
+        );
+    }
+
+    #[test]
+    fn a_missing_file_in_a_missing_folder_has_no_folder_to_go_in() {
+        let folder = Folder::new("target-no-folder");
+
+        assert_eq!(
+            save_target(&folder.0.join("gone").join("missing.pdf")),
+            SaveTarget::FolderUnavailable
+        );
+    }
+
+    #[test]
+    fn a_missing_file_in_a_read_only_folder_has_no_folder_to_go_in() {
+        let folder = Folder::new("target-read-only-folder");
+        if permissions_are_ignored(&folder, "a_missing_file_in_a_read_only_folder") {
+            return;
+        }
+        fs::set_permissions(&folder.0, fs::Permissions::from_mode(0o500))
+            .expect("lock the test folder");
+
+        assert_eq!(
+            save_target(&folder.0.join("missing.pdf")),
+            SaveTarget::FolderUnavailable
+        );
+    }
+
+    #[test]
+    fn a_read_only_file_or_a_folder_is_not_a_target_to_replace() {
+        let folder = Folder::new("target-not-replaceable");
+        fs::create_dir(folder.0.join("sub")).expect("a folder");
+
+        assert_eq!(
+            save_target(&folder.0.join("sub")),
+            SaveTarget::NotReplaceable
+        );
+        if permissions_are_ignored(&folder, "a_read_only_file_is_not_a_target") {
+            return;
+        }
+        assert_eq!(save_target(&folder.file(0o400)), SaveTarget::NotReplaceable);
     }
 
     /// The check is of the path it is given: a link is not itself a file to

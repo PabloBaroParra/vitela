@@ -35,7 +35,7 @@ use gtk::{
 
 use super::i18n::tr;
 use super::icons::{build_icon, Icon, NEUTRAL_TINT};
-use super::shortcuts::{self, Shortcut};
+use super::shortcuts;
 
 /// How many groups [`build_editor_toolbar`] appends. `FlowBox` defaults to a
 /// cap of seven children per line, which would force a wrap even on a window
@@ -108,7 +108,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-open-short"),
         true,
     )));
-    show_shortcut(&open, "editor-open", shortcuts::OPEN);
+    open.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-open",
+        shortcuts::OPEN,
+    )));
     documents.append(&open);
     // A `gio::Menu` bound through `menu-model` (rather than a hand-built
     // `Popover` of `Button`s) so GTK owns the popup/dismiss/keyboard-nav
@@ -134,7 +137,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     // --- documents out -----------------------------------------------------
     let output = group(&root, &tr("editor-group-output"));
     let save = icon_button(&tr("editor-save"), Icon::Save);
-    show_shortcut(&save, "editor-save", shortcuts::SAVE);
+    save.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-save",
+        shortcuts::SAVE,
+    )));
     save.set_sensitive(false);
     // Save is the button; Save as sits behind the arrow beside it, the way
     // a split button offers the less common of two commands. A menu rather
@@ -148,7 +154,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     // A symbol rather than the menu button's own arrow, which is an
     // icon-theme lookup this crate never makes (see `shell`).
     save_as.set_child(Some(&Label::new(Some(SAVE_AS_MARKER))));
-    show_shortcut(&save_as, "editor-save-as", shortcuts::SAVE_AS);
+    save_as.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-save-as",
+        shortcuts::SAVE_AS,
+    )));
     save_as.update_property(&[gtk::accessible::Property::Label(&tr("editor-save-as"))]);
     let save_menu = gio::Menu::new();
     save_menu.append(Some(&tr("editor-save-as")), Some("win.save-as"));
@@ -157,7 +166,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         .sync_create()
         .build();
     let print = icon_button(&tr("editor-print"), Icon::Print);
-    show_shortcut(&print, "editor-print", shortcuts::PRINT);
+    print.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-print",
+        shortcuts::PRINT,
+    )));
     print.set_sensitive(false);
     let export = icon_button(&tr("editor-export"), Icon::ExportImages);
     export.set_tooltip_text(Some(&tr("editor-export-tooltip")));
@@ -178,10 +190,16 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let history = group(&root, &tr("editor-group-history"));
     let undo = icon_button(&tr("editor-undo"), Icon::Undo);
     undo.set_action_name(Some("win.undo"));
-    show_shortcut(&undo, "editor-undo", shortcuts::UNDO);
+    undo.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-undo",
+        shortcuts::UNDO,
+    )));
     let redo = icon_button(&tr("editor-redo"), Icon::Redo);
     redo.set_action_name(Some("win.redo"));
-    show_shortcut(&redo, "editor-redo", shortcuts::REDO);
+    redo.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-redo",
+        shortcuts::REDO,
+    )));
     history.append(&undo);
     history.append(&redo);
 
@@ -207,8 +225,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let zoom_label = Label::new(Some("100%"));
     zoom_label.add_css_class("zoom-indicator");
     let zoom_in = icon_button(&tr("editor-zoom-in"), Icon::ZoomIn);
-    show_shortcut(&zoom_out, "editor-zoom-out", shortcuts::ZOOM_OUT);
-    show_shortcut(&zoom_in, "editor-zoom-in", shortcuts::ZOOM_IN);
+    zoom_out.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-zoom-out",
+        shortcuts::ZOOM_OUT,
+    )));
+    zoom_in.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-zoom-in",
+        shortcuts::ZOOM_IN,
+    )));
     zoom.append(&zoom_out);
     zoom.append(&zoom_label);
     zoom.append(&zoom_in);
@@ -216,8 +240,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let fit = group(&root, &tr("editor-group-fit"));
     let fit_width = icon_button(&tr("editor-fit-width"), Icon::FitWidth);
     let fit_page = icon_button(&tr("editor-fit-page"), Icon::FitPage);
-    show_shortcut(&fit_width, "editor-fit-width", shortcuts::FIT_WIDTH);
-    show_shortcut(&fit_page, "editor-fit-page", shortcuts::FIT_PAGE);
+    fit_width.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-fit-width",
+        shortcuts::FIT_WIDTH,
+    )));
+    fit_page.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-fit-page",
+        shortcuts::FIT_PAGE,
+    )));
     fit.append(&fit_width);
     fit.append(&fit_page);
 
@@ -233,8 +263,14 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
     let show_tools = ToggleButton::with_label(&tr("editor-tools"));
     decorate_button(&show_tools, &tr("editor-tools"), Icon::PanelRight);
     show_tools.set_active(true);
-    show_shortcut(&show_pages, "editor-pages", shortcuts::TOGGLE_PAGES);
-    show_shortcut(&show_tools, "editor-tools", shortcuts::TOGGLE_TOOLS);
+    show_pages.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-pages",
+        shortcuts::TOGGLE_PAGES,
+    )));
+    show_tools.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-tools",
+        shortcuts::TOGGLE_TOOLS,
+    )));
     panels.append(&show_pages);
     panels.append(&show_tools);
 
@@ -247,7 +283,10 @@ pub(crate) fn build_editor_toolbar() -> EditorToolbar {
         &tr("editor-find"),
         false,
     )));
-    show_shortcut(&search_button, "editor-find", shortcuts::FIND);
+    search_button.set_tooltip_text(Some(&shortcuts::tooltip_for(
+        "editor-find",
+        shortcuts::FIND,
+    )));
     search_button.update_property(&[gtk::accessible::Property::Label(&tr("editor-find"))]);
     let search_popover = Popover::new();
     search_popover.add_css_class("toolbar-search");
@@ -315,18 +354,6 @@ fn icon_button(label: &str, icon: Icon) -> Button {
     let button = Button::new();
     decorate_button(&button, label, icon);
     button
-}
-
-/// Adds `shortcut`'s key to a button's tooltip, after its name.
-///
-/// Read from the shortcut table rather than written into the translation:
-/// the tooltip then names the key GTK listens for, spelled as everywhere
-/// else (`shortcuts::accel_label`), and cannot go on naming one that has
-/// moved. The accessible name stays the bare label.
-fn show_shortcut(button: &impl IsA<gtk::Widget>, label_key: &str, shortcut: Shortcut) {
-    button
-        .as_ref()
-        .set_tooltip_text(Some(&shortcuts::tooltip(&tr(label_key), shortcut)));
 }
 
 fn decorate_button(button: &impl IsA<Button>, label: &str, icon: Icon) {

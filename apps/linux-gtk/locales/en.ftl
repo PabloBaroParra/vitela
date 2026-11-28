@@ -473,6 +473,7 @@ write-replace = Replace
 write-replace-through-link-title = Replace “{ $target }”, which “{ $link }” points to?
 write-link-target-not-replaceable = “{ $link }” points to { $target }, which cannot be replaced. Choose another name.
 write-link-target-open-elsewhere = “{ $link }” points to { $target }, which is open in another tab. Close that tab first, or choose another name.
+write-link-target-folder-unavailable = “{ $link }” points to { $target }, in a folder that does not exist or cannot be written to. Choose another name.
 write-signature-title = Saving will break this document's signature
 write-signature-detail =
     This document is signed. Saving rewrites the file, so the signature will no longer match what it covers.
@@ -1103,11 +1104,14 @@ tabs-path-being-written = That file is still being written. Open it again once t
 # Modifier key names, as printed on keyboards. Every shortcut shown — in a
 # tooltip, the command palette and this window — is these in the order
 # Ctrl, Alt, Shift, then the key, joined by "+" (e.g. "Ctrl+Shift+S").
-# Tooltips are a message followed by the key in brackets, added by the
-# shell: never type a key into a tooltip message.
+# The shell adds the key to a tooltip through shortcut-tooltip below:
+# never type a key into a tooltip message.
 shortcut-modifier-ctrl = Ctrl
 shortcut-modifier-alt = Alt
 shortcut-modifier-shift = Shift
+# The tooltip of a control that has a key. { $label } is the control's own
+# tooltip message; { $keys } is its key as printed above, e.g. "Ctrl+Shift+S".
+shortcut-tooltip = { $label } ({ $keys })
 
 shortcuts-group-file = File
 shortcuts-group-edit = Edit

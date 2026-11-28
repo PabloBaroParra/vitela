@@ -26,9 +26,10 @@ use super::super::state::{
     DocumentSource, ImportedSource, OpenedDocument, SaveBacking, SessionToken, Viewer,
 };
 use super::chooser::{
-    confirm_destination, confirm_signature_loss, pick_destination_from, replace_dialog, Proceed,
+    confirm_destination, confirm_signature_loss, pick_destination_unguarded, replace_dialog,
+    Proceed,
 };
-use super::in_place::{replaceable_in_place, route_for, through_links, SaveRoute};
+use super::in_place::{route_for, save_target, through_links, SaveRoute, SaveTarget};
 use super::worker::{atomic_write, spawn_write, validate_written_bytes};
 use super::{default_save_breaks_signature, imported_sources, SAVE};
 use crate::app::content_edit::editor::commit_open_retype;
@@ -120,7 +121,7 @@ fn ask_destination(
     let suggested = opened.as_ref().map(|opened| opened.path.clone());
     // The chooser binds its answer to the active tab (`tabs::ChooserScope`):
     // a save writes the document it was opened over, never another.
-    pick_destination_from(
+    pick_destination_unguarded(
         window,
         viewer,
         SAVE,
@@ -141,6 +142,11 @@ fn ask_destination(
 /// reached precisely when a save in place declined, a read-only target or a
 /// re-pointed link included. So that file gets the checks a save in place
 /// makes, and the question names it.
+///
+/// A link whose file is gone — deleted, or moved away — is saved by
+/// creating the file where the link points, in a folder that can take it:
+/// the link then leads to the saved document again. Nothing is replaced, so
+/// nothing is asked.
 fn confirm_chosen(
     window: &ApplicationWindow,
     viewer: &Viewer,
@@ -157,9 +163,16 @@ fn confirm_chosen(
         confirm_destination(window, viewer, SAVE, chosen, proceed);
         return;
     };
-    if let Some(refusal) = through_link_refusal(viewer, &link, &destination.file) {
-        viewer.refuse(&refusal);
-        return;
+    match through_link_target(viewer, &link, &destination.file) {
+        Err(refusal) => {
+            viewer.refuse(&refusal);
+            return;
+        }
+        Ok(SaveTarget::Creatable) => {
+            save_current_to(window, viewer, destination, after_save);
+            return;
+        }
+        Ok(_) => {}
     }
     let question = tr_args(
         "write-replace-through-link-title",
@@ -178,7 +191,7 @@ fn confirm_chosen(
             }
             // Asked again now: a tab may have opened the file, or its
             // permissions changed, while the question was up.
-            if let Some(refusal) = through_link_refusal(&viewer, &link, &destination.file) {
+            if let Err(refusal) = through_link_target(&viewer, &link, &destination.file) {
                 viewer.refuse(&refusal);
                 return;
             }
@@ -187,32 +200,35 @@ fn confirm_chosen(
     });
 }
 
-/// Why a save through the document's own `link` must not write `target`,
-/// the file it leads to: the refusals a save in place makes, worded to name
-/// the real file.
-fn through_link_refusal(viewer: &Viewer, link: &Path, target: &Path) -> Option<String> {
-    let key = through_link_refusal_key(
-        replaceable_in_place(target),
-        crate::app::tabs::path_held_by_other_tab(viewer, target),
-    )?;
-    Some(tr_args(
-        key,
-        &[
-            ("target", target.display().to_string().into()),
-            ("link", file_name(link).into()),
-        ],
-    ))
+/// What a save through the document's own `link` would find at `target`,
+/// the file it leads to — [`SaveTarget::Replaceable`] or
+/// [`SaveTarget::Creatable`] — or why it must not write there: the refusals
+/// a save in place makes, worded to name the real file.
+fn through_link_target(viewer: &Viewer, link: &Path, target: &Path) -> Result<SaveTarget, String> {
+    let found = save_target(target);
+    let held = crate::app::tabs::path_held_by_other_tab(viewer, target);
+    match through_link_refusal_key(found, held) {
+        None => Ok(found),
+        Some(key) => Err(tr_args(
+            key,
+            &[
+                ("target", target.display().to_string().into()),
+                ("link", file_name(link).into()),
+            ],
+        )),
+    }
 }
 
-/// Which refusal, if any, a save through a link makes of a target that is
-/// or is not `replaceable` and is or is not `held_by_another_tab`.
-fn through_link_refusal_key(replaceable: bool, held_by_another_tab: bool) -> Option<&'static str> {
+/// Which refusal, if any, a save through a link makes of a target `found`
+/// as it is, and that is or is not `held_by_another_tab`.
+fn through_link_refusal_key(found: SaveTarget, held_by_another_tab: bool) -> Option<&'static str> {
     if held_by_another_tab {
-        Some("write-link-target-open-elsewhere")
-    } else if !replaceable {
-        Some("write-link-target-not-replaceable")
-    } else {
-        None
+        return Some("write-link-target-open-elsewhere");
+    }
+    match found {
+        SaveTarget::Replaceable | SaveTarget::Creatable => None,
+        SaveTarget::FolderUnavailable => Some("write-link-target-folder-unavailable"),
+        SaveTarget::NotReplaceable => Some("write-link-target-not-replaceable"),
     }
 }
 
