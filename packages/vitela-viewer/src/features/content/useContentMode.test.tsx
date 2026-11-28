@@ -488,6 +488,89 @@ describe('useContentMode', () => {
   });
 });
 
+describe('useContentMode: a press while its page is read', () => {
+  /** An engine whose reads answer (or fail) only when the test says so. */
+  function heldEngine() {
+    const reads: number[] = [];
+    const settle: { resolve: () => void; reject: () => void }[] = [];
+    const engine: Engine = fakeEngine({
+      readPageContent: (_document, pageIndex) =>
+        new Promise((resolve, reject) => {
+          reads.push(pageIndex);
+          settle.push({ resolve: () => resolve(contentOf(pageIndex)), reject: () => reject(new Error('broken page')) });
+        }),
+    });
+    const answer = async (n: number) => act(async () => settle[n]!.resolve());
+    const fail = async (n: number) => act(async () => settle[n]!.reject());
+    return { engine, reads, answer, fail };
+  }
+  const ON_RUN = { x: 80, y: 78 };
+  const ON_IMAGE = { x: 100, y: 350 };
+
+  it('selects what is under the press once the page is read', async () => {
+    const { engine, reads, answer } = heldEngine();
+    const { result } = mode(engine, { visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    expect(reads).toEqual([0, 1]);
+    act(() => result.current.select(0, ON_RUN));
+    expect(result.current.selected).toBeNull();
+    await answer(0);
+    expect(result.current.selected?.item).toMatchObject({ kind: 'run', text: 'Page 1' });
+  });
+
+  it('keeps only the newest press', async () => {
+    const { engine, answer } = heldEngine();
+    const { result } = mode(engine, { visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    act(() => result.current.select(0, ON_RUN));
+    act(() => result.current.select(0, ON_IMAGE));
+    await answer(0);
+    expect(result.current.selected?.item).toMatchObject({ kind: 'image' });
+  });
+
+  it('forgets the press on Escape, a later choice, or when the mode is left', async () => {
+    const { engine, answer } = heldEngine();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    act(() => result.current.select(0, ON_RUN));
+    act(() => result.current.clear());
+    await answer(0);
+    expect(result.current.selected).toBeNull();
+
+    // Page 1 is still being read: a press there, then a choice elsewhere.
+    act(() => result.current.select(1, ON_RUN));
+    act(() => result.current.choose(null));
+    await answer(1);
+    expect(result.current.selected).toBeNull();
+
+    rerender({ visible: { first: 0, last: 0 }, paintRevision: 1 });
+    await act(async () => {});
+    act(() => result.current.select(0, ON_RUN));
+    rerender({ visible: { first: 0, last: 0 }, paintRevision: 1, active: false });
+    rerender({ visible: { first: 0, last: 0 }, paintRevision: 1, active: true });
+    await answer(2);
+    expect(result.current.selected).toBeNull();
+  });
+
+  it('drops the press when its page changes or its read fails', async () => {
+    const { engine, answer, fail } = heldEngine();
+    const { result, rerender } = mode(engine, { visible: { first: 0, last: 0 } });
+    await act(async () => {});
+    act(() => result.current.select(0, ON_RUN));
+    // An edit repaints page 1 before its first read lands: the press named the old one.
+    rerender({ visible: { first: 0, last: 0 }, paintRevision: 1 });
+    await answer(0);
+    await answer(1);
+    await act(async () => {});
+    expect(result.current.selected).toBeNull();
+
+    act(() => result.current.select(0, ON_RUN));
+    await fail(2);
+    expect(result.current.stateAt(0)?.status).toBe('failed');
+    expect(result.current.selected).toBeNull();
+  });
+});
+
 describe('ContentStatus', () => {
   it('shows nothing while the mode is off', () => {
     render(<ContentStatus status={null} onDone={() => {}} />);

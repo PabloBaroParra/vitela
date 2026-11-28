@@ -111,6 +111,51 @@ test('only the pages in view and one on each side are parsed', async ({ page }) 
   expect(slots.length).toBeLessThan(30);
 });
 
+/**
+ * Holds every content read the app asks its worker for, until
+ * `window.releaseContentReads()` sends them on: a page stays "being read" for
+ * as long as the test needs.
+ */
+function holdContentReads(page: Page) {
+  return page.addInitScript(() => {
+    const held: (() => void)[] = [];
+    let holding = true;
+    const scope = window as unknown as { releaseContentReads: () => void };
+    scope.releaseContentReads = () => {
+      holding = false;
+      for (const send of held.splice(0)) send();
+    };
+    const post = Worker.prototype.postMessage as (this: Worker, ...args: unknown[]) => void;
+    Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+      const message = args[0] as { request?: { kind?: string } } | undefined;
+      if (holding && message?.request?.kind === 'readPageContent') held.push(() => post.apply(this, args));
+      else post.apply(this, args);
+    } as typeof Worker.prototype.postMessage;
+  });
+}
+
+test('a press on a page still being read selects what is there once it is read', async ({ page }) => {
+  await holdContentReads(page);
+  await loadApp(page);
+  await openBytes(page, 'content.pdf', buildPdf([LETTER]));
+  await toolsButton(page).click();
+  await expect(item(page)).not.toHaveAttribute('aria-disabled', 'true', { timeout: 30_000 });
+  await item(page).click();
+  await expect(layer(page)).toHaveAttribute('data-state', 'loading');
+
+  const lineTop = LETTER.heightPt - lineBaseline(LETTER, 0) - LINE_FONT_PT / 2;
+  await pointAt(page, 1, 90, lineTop);
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(layer(page).locator('.content-outline[data-state="selected"]')).toHaveCount(0);
+
+  // The read lands: the press is honoured where it was made.
+  await page.evaluate(() => (window as unknown as { releaseContentReads: () => void }).releaseContentReads());
+  await expect(layer(page)).toHaveAttribute('data-state', 'ready', { timeout: 30_000 });
+  await expect(status(page)).toHaveText('Text “Vitela content line” selected on page 1.');
+  await expect(layer(page).locator('.content-outline[data-state="selected"]')).toHaveAttribute('data-kind', 'run');
+});
+
 test('an image is outlined as an image and selected as one', async ({ page }) => {
   await loadApp(page);
   await openFixture(page, 'compress/scan_200dpi.pdf');
