@@ -131,6 +131,12 @@ pub fn read_page_content_of(
 /// any more: a retyped run with its old text and its old box. Items that
 /// exist only because of a pending insertion carry a synthetic id
 /// (`pdf_edit::PENDING_ITEM_ID_BASE`); a retyped run keeps its real one.
+///
+/// A blank page the model inserted has no bytes to parse, but what was queued
+/// on it — text inserted, an image placed, a clip pasted — is still pending
+/// content the preview paints, so it is overlaid all the same, measured
+/// against a stand-in for the page the save will write
+/// ([`blank_page_stand_in`]).
 pub fn read_pending_page_content_of(
     document: &Document,
     page: PageId,
@@ -138,7 +144,21 @@ pub fn read_pending_page_content_of(
     sources: ImportedSources<'_, '_>,
 ) -> Result<PageContent, SaveError> {
     match page_backing(document, page, base, sources)? {
-        PageBacking::Empty => Ok(PageContent::default()),
+        PageBacking::Empty => {
+            let mut content = PageContent::default();
+            if document.pending_edits.entries().is_empty() {
+                return Ok(content);
+            }
+            let (stand_in, object) = blank_page_stand_in(document, page)?;
+            pdf_edit::overlay_pending_content(
+                &mut content,
+                &document.pending_edits,
+                page,
+                stand_in.as_lopdf(),
+                object,
+            );
+            Ok(content)
+        }
         PageBacking::Object {
             document: backing,
             object,
@@ -154,6 +174,37 @@ pub fn read_pending_page_content_of(
             Ok(content)
         }
     }
+}
+
+/// A one-page document holding the empty page a save writes for the blank
+/// model page `page` (`pdf_manip::insert_blank_page`, as the save's page-ops
+/// step calls it), and that page's object.
+///
+/// Pending content on a blank page is measured against it: it has no
+/// resources, so an inserted run is measured in the inserted font — exactly
+/// what the save will write it in.
+fn blank_page_stand_in(
+    document: &Document,
+    page: PageId,
+) -> Result<(LopdfDocument, ObjectId), SaveError> {
+    let model_page = document
+        .pages
+        .iter()
+        .find(|candidate| candidate.id == page)
+        .ok_or(SaveError::InvalidSaveRequest(
+            "page id is not present in the document",
+        ))?;
+    let (size, orientation) = (model_page.size, model_page.orientation);
+    let stand_in = pdf_manip::insert_blank_page(
+        &pdf_manip::create_blank_document(size, orientation),
+        0,
+        size,
+        orientation,
+    )?;
+    let object = object_at(&stand_in, 0).ok_or(SaveError::InvalidSaveRequest(
+        "a blank page stand-in has no page",
+    ))?;
+    Ok((stand_in, object))
 }
 
 /// The batch that retypes the text block `runs` make up to `text`: a one-line
